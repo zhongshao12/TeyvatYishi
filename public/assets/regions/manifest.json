@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "regionId": "mondstadt",
+      "file": "mondstadt-journal.webp",
+      "sourceType": "ai-generated-original",
+      "creator": "OpenAI built-in image generation",
+      "license": "Generated output; project use governed by the repository license and OpenAI Terms of Use",
+      "prompt": "Mondstadt: Original Japanese-Western fantasy travel-journal landscape, windswept green highlands, dandelions and a distant old-European fantasy city, warm watercolor and gouache, hand-painted paper grain, open central negative space for readable UI, no characters, no logo, no text, no game screenshot, no copied landmark composition, 16:9.",
+      "sha256": "2b777d5e866cee1b28b3ddc00d9fbc1b7d9e97a72da838db7add4359e7f40ae4"
+    },
+    {
+      "regionId": "liyue",
+      "file": "liyue-journal.webp",
+      "sourceType": "ai-generated-original",
+      "creator": "OpenAI built-in image generation",
+      "license": "Generated output; project use governed by the repository license and OpenAI Terms of Use",
+      "prompt": "Liyue: Original Japanese-Western fantasy travel-journal landscape, layered karst peaks, amber evening harbor lights and restrained eastern-fantasy roof silhouettes, warm watercolor and gouache, hand-painted paper grain, open central negative space for readable UI, no characters, no logo, no text, no game screenshot, no copied landmark composition, 16:9.",
+      "sha256": "d4f6de1e395569a7bb4a6ebec42d8a62c2f61708bbef12d64360947b4d77a4e7"
+    },
+    {
+      "regionId": "inazuma",
+      "file": "inazuma-journal.webp",
+      "sourceType": "ai-generated-original",
+      "creator": "OpenAI built-in image generation",
+      "license": "Generated output; project use governed by the repository license and OpenAI Terms of Use",
+      "prompt": "Inazuma: Original Japanese-Western fantasy travel-journal landscape, storm-lit island cliffs, violet clouds, distant shrine roofs and luminous sakura mist, warm watercolor and gouache, hand-painted paper grain, open central negative space for readable UI, no characters, no logo, no text, no game screenshot, no copied landmark composition, 16:9.",
+      "sha256": "df182c509aa8f1b85c2d71eb2d24867cde05fcf08245d0a1417f3495204cf114"
+    },
+    {
+      "regionId": "sumeru",
+      "file": "sumeru-journal.webp",
+      "sourceType": "ai-generated-original",
+      "creator": "OpenAI built-in image generation",
+      "license": "Generated output; project use governed by the repository license and OpenAI Terms of Use",
+      "prompt": "Sumeru: Original Japanese-Western fantasy travel-journal landscape, lush rainforest terraces flowing into a sunlit desert and distant scholarly fantasy city, warm watercolor and gouache, hand-painted paper grain, open central negative space for readable UI, no characters, no logo, no text, no game screenshot, no copied landmark composition, 16:9.",
+      "sha256": "e306b6618ceccb7241123bb9ba9d046896a0d799922735e9cfccb1eb420c8cb7"
+    },
+    {
+      "regionId": "fontaine",
+      "file": "fontaine-journal.webp",
+      "sourceType": "ai-generated-original",
+      "creator": "OpenAI built-in image generation",
+      "license": "Generated output; project use governed by the repository license and OpenAI Terms of Use",
+      "prompt": "Fontaine: Original Japanese-Western fantasy travel-journal landscape, elegant canal city, pale-blue waterworks, brass clockwork details and bright cloud reflections, warm watercolor and gouache, hand-painted paper grain, open central negative space for readable UI, no characters, no logo, no text, no game screenshot, no copied landmark composition, 16:9.",
+      "sha256": "fb1482942dd5d25c388da4de2bc678e94fe0ce7000f555d8c8a8c9c3c87ec449"
+    },
+    {
+      "regionId": "natlan",
+      "file": "natlan-journal.webp",
+      "sourceType": "ai-generated-original",
+      "creator": "OpenAI built-in image generation",
+      "license": "Generated output; project use governed by the repository license and OpenAI Terms of Use",
+      "prompt": "Natlan: Original Japanese-Western fantasy travel-journal landscape, volcanic highlands, red-gold canyon vegetation, geothermal mist and a distant cliff settlement, warm watercolor and gouache, hand-painted paper grain, open central negative space for readable UI, no characters, no logo, no text, no game screenshot, no copied landmark composition, 16:9.",
+      "sha256": "89c0bc8033c630c19c4f88cfc153cb75f653374af842be91796b01d9602041ff"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "世界": {
+    "开局地区": "herta-space-station",
+    "当前地点": "主控舱段"
+  },
+  "NPC": [
+    { "姓名": "三月七" }
+  ],
+  "剧情系列": "trailblaze-mission-herta"
+}

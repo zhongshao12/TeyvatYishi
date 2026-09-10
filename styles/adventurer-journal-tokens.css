@@ -1,0 +1,45 @@
+:root {
+  /* 冒险者手账：皮革封面、羊皮纸内页与旧金属装订。 */
+  --journal-leather: #4b3428;
+  --journal-leather-deep: #251a16;
+  --journal-parchment: #efe3c4;
+  --journal-parchment-muted: #d8c8a6;
+  --journal-ink: #352e27;
+  --journal-ink-muted: #6e6151;
+  --journal-travel-green: #526f5a;
+  --journal-antique-gold: #b68a43;
+  --journal-antique-gold-soft: #d5b66e;
+  --journal-ribbon-red: #874f43;
+  --journal-focus-ring: #f0d58b;
+
+  --journal-paper-contrast: 92%;
+  --journal-backdrop-contrast: 58%;
+  --journal-border-contrast: 42%;
+  --journal-shadow-color: 28, 18, 13;
+
+  --journal-radius-page: 5px 14px 12px 6px;
+  --journal-shadow-page: 0 18px 48px rgba(var(--journal-shadow-color), 0.32), inset 0 0 0 1px rgba(255, 250, 230, 0.28);
+  --journal-shadow-raised: 0 8px 22px rgba(var(--journal-shadow-color), 0.26);
+
+  --journal-motion-quick: 140ms;
+  --journal-motion-standard: 260ms;
+  --journal-motion-slow: 520ms;
+  --journal-ease-settle: cubic-bezier(0.2, 0.72, 0.24, 1);
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --journal-paper-contrast: 100%;
+    --journal-backdrop-contrast: 72%;
+    --journal-border-contrast: 72%;
+    --journal-focus-ring: #fff0a8;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --journal-motion-quick: 1ms;
+    --journal-motion-standard: 1ms;
+    --journal-motion-slow: 1ms;
+  }
+}

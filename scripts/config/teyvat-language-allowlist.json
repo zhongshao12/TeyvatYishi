@@ -1,0 +1,37 @@
+{
+  "pathPrefixes": [
+    "compat/legacy-hsr/",
+    "public/zhiku-presets/legacy-hsr/",
+    "public/data/story-weaving-canon/legacy-hsr/",
+    "data/builtinPresets/",
+    "public/data/builtin-presets/"
+  ],
+  "files": [
+    "原神化改造计划.md",
+    "项目改造分析与计划.md",
+    "CHANGELOG.md"
+  ],
+  "allowHits": [
+    "components/features/Worldbook/WorldbookManagerModal.tsx:三月七",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:丹恒",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:仙舟",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:光锥",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:匹诺康尼",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:命途",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:帕姆",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:开拓天数",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:开拓者",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:星核",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:星穹列车",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:星轨",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:模拟宇宙",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:琥珀纪",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:罗浮",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:贝洛伯格",
+    "components/features/Worldbook/WorldbookManagerModal.tsx:雅利洛",
+    "models/world.ts:开拓天数",
+    "models/world.ts:琥珀纪",
+    "utils/variableExecutor.ts:开拓天数",
+    "utils/variableExecutor.ts:琥珀纪"
+  ]
+}

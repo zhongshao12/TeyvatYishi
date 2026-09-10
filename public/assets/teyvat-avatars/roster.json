@@ -1,0 +1,976 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-01",
+  "source": {
+    "name": "GachaTracker Genshin Characters",
+    "url": "https://gachatracker.app/games/genshin/characters/",
+    "sourceUpdatedAt": "2026-08-19"
+  },
+  "counts": {
+    "total": 120,
+    "5Star": 69,
+    "4Star": 51
+  },
+  "characters": [
+    {
+      "id": "chasca",
+      "name": "Chasca",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/5-star/chasca.webp",
+      "status": "pending"
+    },
+    {
+      "id": "jean",
+      "name": "Jean",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/5-star/jean.webp",
+      "status": "pending"
+    },
+    {
+      "id": "kaedehara-kazuha",
+      "name": "Kaedehara Kazuha",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/5-star/kaedehara-kazuha.webp",
+      "status": "pending"
+    },
+    {
+      "id": "varka",
+      "name": "Varka",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/5-star/varka.webp",
+      "status": "pending"
+    },
+    {
+      "id": "venti",
+      "name": "Venti",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/5-star/venti.webp",
+      "status": "pending"
+    },
+    {
+      "id": "wanderer",
+      "name": "Wanderer",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/5-star/wanderer.webp",
+      "status": "pending"
+    },
+    {
+      "id": "xianyun",
+      "name": "Xianyun",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/5-star/xianyun.webp",
+      "status": "pending"
+    },
+    {
+      "id": "xiao",
+      "name": "Xiao",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/5-star/xiao.webp",
+      "status": "pending"
+    },
+    {
+      "id": "yumemizuki-mizuki",
+      "name": "Yumemizuki Mizuki",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/5-star/yumemizuki-mizuki.webp",
+      "status": "pending"
+    },
+    {
+      "id": "aloy",
+      "name": "Aloy",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/aloy.webp",
+      "status": "pending"
+    },
+    {
+      "id": "citlali",
+      "name": "Citlali",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/citlali.webp",
+      "status": "pending"
+    },
+    {
+      "id": "escoffier",
+      "name": "Escoffier",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/escoffier.webp",
+      "status": "pending"
+    },
+    {
+      "id": "eula",
+      "name": "Eula",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/eula.webp",
+      "status": "pending"
+    },
+    {
+      "id": "ganyu",
+      "name": "Ganyu",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/ganyu.webp",
+      "status": "pending"
+    },
+    {
+      "id": "kamisato-ayaka",
+      "name": "Kamisato Ayaka",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/kamisato-ayaka.webp",
+      "status": "pending"
+    },
+    {
+      "id": "lohen",
+      "name": "Lohen",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/lohen.webp",
+      "status": "pending"
+    },
+    {
+      "id": "odette",
+      "name": "Odette",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/odette.webp",
+      "status": "pending"
+    },
+    {
+      "id": "qiqi",
+      "name": "Qiqi",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/qiqi.webp",
+      "status": "pending"
+    },
+    {
+      "id": "sandrone",
+      "name": "Sandrone",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/sandrone.webp",
+      "status": "pending"
+    },
+    {
+      "id": "shenhe",
+      "name": "Shenhe",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/shenhe.webp",
+      "status": "pending"
+    },
+    {
+      "id": "skirk",
+      "name": "Skirk",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/skirk.webp",
+      "status": "pending"
+    },
+    {
+      "id": "wriothesley",
+      "name": "Wriothesley",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/5-star/wriothesley.webp",
+      "status": "pending"
+    },
+    {
+      "id": "alhaitham",
+      "name": "Alhaitham",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/5-star/alhaitham.webp",
+      "status": "pending"
+    },
+    {
+      "id": "baizhu",
+      "name": "Baizhu",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/5-star/baizhu.webp",
+      "status": "pending"
+    },
+    {
+      "id": "emilie",
+      "name": "Emilie",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/5-star/emilie.webp",
+      "status": "pending"
+    },
+    {
+      "id": "kinich",
+      "name": "Kinich",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/5-star/kinich.webp",
+      "status": "pending"
+    },
+    {
+      "id": "lauma",
+      "name": "Lauma",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/5-star/lauma.webp",
+      "status": "pending"
+    },
+    {
+      "id": "nahida",
+      "name": "Nahida",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/5-star/nahida.webp",
+      "status": "pending"
+    },
+    {
+      "id": "nefer",
+      "name": "Nefer",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/5-star/nefer.webp",
+      "status": "pending"
+    },
+    {
+      "id": "tighnari",
+      "name": "Tighnari",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/5-star/tighnari.webp",
+      "status": "pending"
+    },
+    {
+      "id": "clorinde",
+      "name": "Clorinde",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/5-star/clorinde.webp",
+      "status": "pending"
+    },
+    {
+      "id": "cyno",
+      "name": "Cyno",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/5-star/cyno.webp",
+      "status": "pending"
+    },
+    {
+      "id": "flins",
+      "name": "Flins",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/5-star/flins.webp",
+      "status": "pending"
+    },
+    {
+      "id": "ineffa",
+      "name": "Ineffa",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/5-star/ineffa.webp",
+      "status": "pending"
+    },
+    {
+      "id": "keqing",
+      "name": "Keqing",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/5-star/keqing.webp",
+      "status": "pending"
+    },
+    {
+      "id": "raiden-shogun",
+      "name": "Raiden Shogun",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/5-star/raiden-shogun.webp",
+      "status": "pending"
+    },
+    {
+      "id": "varesa",
+      "name": "Varesa",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/5-star/varesa.webp",
+      "status": "pending"
+    },
+    {
+      "id": "yae-miko",
+      "name": "Yae Miko",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/5-star/yae-miko.webp",
+      "status": "pending"
+    },
+    {
+      "id": "albedo",
+      "name": "Albedo",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/5-star/albedo.webp",
+      "status": "pending"
+    },
+    {
+      "id": "arataki-itto",
+      "name": "Arataki Itto",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/5-star/arataki-itto.webp",
+      "status": "pending"
+    },
+    {
+      "id": "chiori",
+      "name": "Chiori",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/5-star/chiori.webp",
+      "status": "pending"
+    },
+    {
+      "id": "linnea",
+      "name": "Linnea",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/5-star/linnea.webp",
+      "status": "pending"
+    },
+    {
+      "id": "navia",
+      "name": "Navia",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/5-star/navia.webp",
+      "status": "pending"
+    },
+    {
+      "id": "xilonen",
+      "name": "Xilonen",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/5-star/xilonen.webp",
+      "status": "pending"
+    },
+    {
+      "id": "zhongli",
+      "name": "Zhongli",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/5-star/zhongli.webp",
+      "status": "pending"
+    },
+    {
+      "id": "zibai",
+      "name": "Zibai",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/5-star/zibai.webp",
+      "status": "pending"
+    },
+    {
+      "id": "columbina",
+      "name": "Columbina",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/5-star/columbina.webp",
+      "status": "pending"
+    },
+    {
+      "id": "furina",
+      "name": "Furina",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/5-star/furina.webp",
+      "status": "pending"
+    },
+    {
+      "id": "kamisato-ayato",
+      "name": "Kamisato Ayato",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/5-star/kamisato-ayato.webp",
+      "status": "pending"
+    },
+    {
+      "id": "mona",
+      "name": "Mona",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/5-star/mona.webp",
+      "status": "pending"
+    },
+    {
+      "id": "mualani",
+      "name": "Mualani",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/5-star/mualani.webp",
+      "status": "pending"
+    },
+    {
+      "id": "neuvillette",
+      "name": "Neuvillette",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/5-star/neuvillette.webp",
+      "status": "pending"
+    },
+    {
+      "id": "nilou",
+      "name": "Nilou",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/5-star/nilou.webp",
+      "status": "pending"
+    },
+    {
+      "id": "sangonomiya-kokomi",
+      "name": "Sangonomiya Kokomi",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/5-star/sangonomiya-kokomi.webp",
+      "status": "pending"
+    },
+    {
+      "id": "sigewinne",
+      "name": "Sigewinne",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/5-star/sigewinne.webp",
+      "status": "pending"
+    },
+    {
+      "id": "tartaglia",
+      "name": "Tartaglia",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/5-star/tartaglia.webp",
+      "status": "pending"
+    },
+    {
+      "id": "yelan",
+      "name": "Yelan",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/5-star/yelan.webp",
+      "status": "pending"
+    },
+    {
+      "id": "traveler",
+      "name": "Traveler",
+      "rarity": 5,
+      "element": "None",
+      "path": "/assets/teyvat-avatars/characters/5-star/traveler.webp",
+      "status": "pending"
+    },
+    {
+      "id": "wonderland-manekin",
+      "name": "Wonderland Manekin",
+      "rarity": 5,
+      "element": "None",
+      "path": "/assets/teyvat-avatars/characters/5-star/wonderland-manekin.webp",
+      "status": "pending"
+    },
+    {
+      "id": "arlecchino",
+      "name": "Arlecchino",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/5-star/arlecchino.webp",
+      "status": "pending"
+    },
+    {
+      "id": "dehya",
+      "name": "Dehya",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/5-star/dehya.webp",
+      "status": "pending"
+    },
+    {
+      "id": "diluc",
+      "name": "Diluc",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/5-star/diluc.webp",
+      "status": "pending"
+    },
+    {
+      "id": "durin",
+      "name": "Durin",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/5-star/durin.webp",
+      "status": "pending"
+    },
+    {
+      "id": "hu-tao",
+      "name": "Hu Tao",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/5-star/hu-tao.webp",
+      "status": "pending"
+    },
+    {
+      "id": "klee",
+      "name": "Klee",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/5-star/klee.webp",
+      "status": "pending"
+    },
+    {
+      "id": "lyney",
+      "name": "Lyney",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/5-star/lyney.webp",
+      "status": "pending"
+    },
+    {
+      "id": "mavuika",
+      "name": "Mavuika",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/5-star/mavuika.webp",
+      "status": "pending"
+    },
+    {
+      "id": "nicole",
+      "name": "Nicole",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/5-star/nicole.webp",
+      "status": "pending"
+    },
+    {
+      "id": "yoimiya",
+      "name": "Yoimiya",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/5-star/yoimiya.webp",
+      "status": "pending"
+    },
+    {
+      "id": "faruzan",
+      "name": "Faruzan",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/4-star/faruzan.webp",
+      "status": "pending"
+    },
+    {
+      "id": "ifa",
+      "name": "Ifa",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/4-star/ifa.webp",
+      "status": "pending"
+    },
+    {
+      "id": "jahoda",
+      "name": "Jahoda",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/4-star/jahoda.webp",
+      "status": "pending"
+    },
+    {
+      "id": "lan-yan",
+      "name": "Lan Yan",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/4-star/lan-yan.webp",
+      "status": "pending"
+    },
+    {
+      "id": "lynette",
+      "name": "Lynette",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/4-star/lynette.webp",
+      "status": "pending"
+    },
+    {
+      "id": "prune",
+      "name": "Prune",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/4-star/prune.webp",
+      "status": "pending"
+    },
+    {
+      "id": "sayu",
+      "name": "Sayu",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/4-star/sayu.webp",
+      "status": "pending"
+    },
+    {
+      "id": "shikanoin-heizou",
+      "name": "Shikanoin Heizou",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/4-star/shikanoin-heizou.webp",
+      "status": "pending"
+    },
+    {
+      "id": "sucrose",
+      "name": "Sucrose",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/4-star/sucrose.webp",
+      "status": "pending"
+    },
+    {
+      "id": "charlotte",
+      "name": "Charlotte",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/4-star/charlotte.webp",
+      "status": "pending"
+    },
+    {
+      "id": "chongyun",
+      "name": "Chongyun",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/4-star/chongyun.webp",
+      "status": "pending"
+    },
+    {
+      "id": "diona",
+      "name": "Diona",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/4-star/diona.webp",
+      "status": "pending"
+    },
+    {
+      "id": "freminet",
+      "name": "Freminet",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/4-star/freminet.webp",
+      "status": "pending"
+    },
+    {
+      "id": "kaeya",
+      "name": "Kaeya",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/4-star/kaeya.webp",
+      "status": "pending"
+    },
+    {
+      "id": "layla",
+      "name": "Layla",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/4-star/layla.webp",
+      "status": "pending"
+    },
+    {
+      "id": "mika",
+      "name": "Mika",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/4-star/mika.webp",
+      "status": "pending"
+    },
+    {
+      "id": "rosaria",
+      "name": "Rosaria",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/4-star/rosaria.webp",
+      "status": "pending"
+    },
+    {
+      "id": "collei",
+      "name": "Collei",
+      "rarity": 4,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/4-star/collei.webp",
+      "status": "pending"
+    },
+    {
+      "id": "kaveh",
+      "name": "Kaveh",
+      "rarity": 4,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/4-star/kaveh.webp",
+      "status": "pending"
+    },
+    {
+      "id": "kirara",
+      "name": "Kirara",
+      "rarity": 4,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/4-star/kirara.webp",
+      "status": "pending"
+    },
+    {
+      "id": "yaoyao",
+      "name": "Yaoyao",
+      "rarity": 4,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/4-star/yaoyao.webp",
+      "status": "pending"
+    },
+    {
+      "id": "alyosha",
+      "name": "Alyosha",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/4-star/alyosha.webp",
+      "status": "pending"
+    },
+    {
+      "id": "beidou",
+      "name": "Beidou",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/4-star/beidou.webp",
+      "status": "pending"
+    },
+    {
+      "id": "dori",
+      "name": "Dori",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/4-star/dori.webp",
+      "status": "pending"
+    },
+    {
+      "id": "fischl",
+      "name": "Fischl",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/4-star/fischl.webp",
+      "status": "pending"
+    },
+    {
+      "id": "iansan",
+      "name": "Iansan",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/4-star/iansan.webp",
+      "status": "pending"
+    },
+    {
+      "id": "kujou-sara",
+      "name": "Kujou Sara",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/4-star/kujou-sara.webp",
+      "status": "pending"
+    },
+    {
+      "id": "kuki-shinobu",
+      "name": "Kuki Shinobu",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/4-star/kuki-shinobu.webp",
+      "status": "pending"
+    },
+    {
+      "id": "lisa",
+      "name": "Lisa",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/4-star/lisa.webp",
+      "status": "pending"
+    },
+    {
+      "id": "ororon",
+      "name": "Ororon",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/4-star/ororon.webp",
+      "status": "pending"
+    },
+    {
+      "id": "razor",
+      "name": "Razor",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/4-star/razor.webp",
+      "status": "pending"
+    },
+    {
+      "id": "sethos",
+      "name": "Sethos",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/4-star/sethos.webp",
+      "status": "pending"
+    },
+    {
+      "id": "gorou",
+      "name": "Gorou",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/4-star/gorou.webp",
+      "status": "pending"
+    },
+    {
+      "id": "illuga",
+      "name": "Illuga",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/4-star/illuga.webp",
+      "status": "pending"
+    },
+    {
+      "id": "kachina",
+      "name": "Kachina",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/4-star/kachina.webp",
+      "status": "pending"
+    },
+    {
+      "id": "ningguang",
+      "name": "Ningguang",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/4-star/ningguang.webp",
+      "status": "pending"
+    },
+    {
+      "id": "noelle",
+      "name": "Noelle",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/4-star/noelle.webp",
+      "status": "pending"
+    },
+    {
+      "id": "yun-jin",
+      "name": "Yun Jin",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/4-star/yun-jin.webp",
+      "status": "pending"
+    },
+    {
+      "id": "aino",
+      "name": "Aino",
+      "rarity": 4,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/4-star/aino.webp",
+      "status": "pending"
+    },
+    {
+      "id": "barbara",
+      "name": "Barbara",
+      "rarity": 4,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/4-star/barbara.webp",
+      "status": "pending"
+    },
+    {
+      "id": "candace",
+      "name": "Candace",
+      "rarity": 4,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/4-star/candace.webp",
+      "status": "pending"
+    },
+    {
+      "id": "dahlia",
+      "name": "Dahlia",
+      "rarity": 4,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/4-star/dahlia.webp",
+      "status": "pending"
+    },
+    {
+      "id": "xingqiu",
+      "name": "Xingqiu",
+      "rarity": 4,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/4-star/xingqiu.webp",
+      "status": "pending"
+    },
+    {
+      "id": "amber",
+      "name": "Amber",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/4-star/amber.webp",
+      "status": "ready"
+    },
+    {
+      "id": "bennett",
+      "name": "Bennett",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/4-star/bennett.webp",
+      "status": "pending"
+    },
+    {
+      "id": "chevreuse",
+      "name": "Chevreuse",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/4-star/chevreuse.webp",
+      "status": "pending"
+    },
+    {
+      "id": "gaming",
+      "name": "Gaming",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/4-star/gaming.webp",
+      "status": "pending"
+    },
+    {
+      "id": "thoma",
+      "name": "Thoma",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/4-star/thoma.webp",
+      "status": "pending"
+    },
+    {
+      "id": "xiangling",
+      "name": "Xiangling",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/4-star/xiangling.webp",
+      "status": "pending"
+    },
+    {
+      "id": "xinyan",
+      "name": "Xinyan",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/4-star/xinyan.webp",
+      "status": "pending"
+    },
+    {
+      "id": "yanfei",
+      "name": "Yanfei",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/4-star/yanfei.webp",
+      "status": "pending"
+    }
+  ]
+}

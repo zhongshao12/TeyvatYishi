@@ -1,0 +1,223 @@
+// 变量命令协议：AI 通过 <变量更新>...</变量更新> 块输出一组命令，由系统解析后修改 state。
+// 设计参考：墨色项目 TavernCommand（添加 sub 动作，去除 add 的「数值相加」歧义）。
+
+export type 变量命令动作 = 'set' | 'add' | 'sub' | 'push' | 'delete';
+
+export interface 变量命令 {
+  /** 动作：
+   * - set: 用 value 覆盖目标路径（对象用深合并）
+   * - add: 数字相加（非数字按 0 处理）
+   * - sub: 数字相减
+   * - push: 把 value 推入数组末尾（目标非数组时初始化为 []）
+   * - delete: 删除目标字段或数组元素 */
+  action: 变量命令动作;
+  /** 变量路径,如 "世界.当前地点" / "NPC[2].好感度"
+   *  根路径必须是 VARIABLE_ROOT_KEYS 中的一个 */
+  key: string;
+  /** JSON 值。delete 时忽略 */
+  value: unknown;
+}
+
+export type 变量事实类型 =
+  | 'traveler_profile'
+  | 'time'
+  | 'location'
+  | 'npc'
+  | 'item'
+  | 'world_event'
+  | 'courier_seed'
+  | 'nsfw_archive'
+  | 'skill_used'
+  | 'weather';
+
+export interface 旅人档案变量事实 {
+  type: 'traveler_profile';
+  identity?: string;
+  appearance?: string;
+  personality?: string;
+  background?: string;
+  abilityAdd?: string[];
+  knowledgeAdd?: string[];
+  evidence?: string;
+}
+
+export interface 时间变量事实 {
+  type: 'time';
+  /** no_change 表示明确不推进；elapsed 表示推进若干分钟；set_time 表示同日设定目标时刻；overnight / next_day 表示跨日。 */
+  mode: 'no_change' | 'elapsed' | 'set_time' | 'overnight' | 'next_day';
+  minutes?: number;
+  targetTime?: string;
+  evidence?: string;
+}
+
+export interface 地点变量事实 {
+  type: 'location';
+  location: string;
+  evidence?: string;
+}
+
+export interface 天气变量事实 {
+  type: 'weather';
+  /** 天气中文名，如“暴风雪”“星辉潮汐”。解析器会转成内部 ID。 */
+  weather: string;
+  evidence?: string;
+}
+
+export interface NPC变量事实 {
+  type: 'npc';
+  id?: string;
+  name: string;
+  alias?: string;
+  tier?: 'companion' | 'extra';
+  gender?: '男' | '女' | '其他';
+  affinityDelta?: number;
+  affinitySet?: number;
+  relation?: string;
+  intimateRelationship?: boolean;
+  following?: boolean;
+  appearance?: string;
+  clothing?: string;
+  speechStyle?: string;
+  personality?: string;
+  intro?: string;
+  playerAddress?: string;
+  memory?: string;
+  recentInteraction?: string;
+  longTermImpression?: string;
+  relationshipStage?: string;
+  sharedExperiences?: string[];
+  openItems?: string[];
+  /** 本回合已明确完成、取消或失效的约定；结算时从未完成事项中移除。 */
+  resolvedItems?: string[];
+  unresolvedConflicts?: string[];
+  mustRemember?: string[];
+  doNotForget?: string[];
+  evidence?: string;
+}
+
+export interface 物品变量事实 {
+  type: 'item';
+  action: 'gain' | 'consume' | 'give' | 'lose';
+  /** 仅 gain 必填；扣除类动作会按现有物品名称定位。 */
+  category?: import('./teyvat/items').ItemCategory;
+  name: string;
+  description?: string;
+  quantity: number;
+  /** 仅 gain 必填。 */
+  rarity?: import('./teyvat/items').ItemRarity;
+  artifactSlot?: import('./teyvat/items').ArtifactSlot;
+  stackable?: boolean;
+  source?: '剧情掉落' | '任务奖励' | '商店' | '打造' | '其它';
+  sourceDescription?: string;
+  narrativeEffects?: string[];
+  evidence?: string;
+}
+
+export interface 世界事件变量事实 {
+  type: 'world_event';
+  text: string;
+  evidence?: string;
+}
+
+export interface 信使来信变量事实 {
+  type: 'courier_seed';
+  targetType?: 'private' | 'group';
+  targetId?: string;
+  targetName?: string;
+  title: string;
+  context: string;
+  triggerType?: 'injury' | 'victory' | 'defeat' | 'location_change' | 'important_item' | 'relationship' | 'steambird' | 'quest' | 'time' | 'custom';
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  relatedNpcIds?: string[];
+  evidence?: string;
+}
+
+export interface 技能使用变量事实 {
+  type: 'skill_used';
+  /** 必须与技能面板已登记的天赋名称一致。 */
+  talentName: string;
+  evidence?: string;
+}
+
+export interface NSFW档案变量事实 {
+  type: 'nsfw_archive';
+  npcId?: string;
+  npcName: string;
+  enabled?: boolean;
+  ageConfirm?: 'adult' | 'unknown' | 'minor_blocked';
+  /** 仅已确认成年女性可写。 */
+  virginityStatus?: 'virgin' | 'not_virgin' | 'unknown';
+  firstSexualPartner?: string;
+  intimacyStage?: string;
+  boundaries?: string;
+  preferences?: string[];
+  sensitivePoints?: string[];
+  taboos?: string[];
+  femaleBodyArchive?: {
+    胸部?: string;
+    女性私处?: string;
+    后庭?: string;
+    体态?: string;
+    体味?: string;
+  };
+  maleBodyArchive?: {
+    男性器?: string;
+    后庭?: string;
+    体态?: string;
+    体味?: string;
+  };
+  experiences?: string[];
+  longTermFacts?: string[];
+  tags?: string[];
+  notes?: string;
+  evidence?: string;
+}
+
+export type 变量事实 =
+  | 旅人档案变量事实
+  | 时间变量事实
+  | 地点变量事实
+  | 天气变量事实
+  | NPC变量事实
+  | 物品变量事实
+  | 世界事件变量事实
+  | 信使来信变量事实
+  | 技能使用变量事实
+  | NSFW档案变量事实;
+
+export interface 变量事实批次 {
+  facts: 变量事实[];
+  parseErrors: string[];
+}
+
+/** 变量命令应用结果，包含成功失败信息，便于在抽屉里展示给玩家调试。 */
+export interface 变量命令结果 {
+  command: 变量命令;
+  ok: boolean;
+  kind?: 'command' | 'warning' | 'error' | 'rejected';
+  /** 失败原因：路径未登记 / 类型不匹配 / 解析错误等 */
+  reason?: string;
+}
+
+/** 一回合的变量命令批次（一次 AI 调用产出的所有命令 + 结果），存入命令历史。 */
+export interface 变量命令批次 {
+  id: string;
+  turn: number;
+  timestamp: number;
+  /** 触发来源：'main' 主模型直接输出，'calibration' 变量模型二次校准 */
+  source: 'main' | 'calibration';
+  /** 是否调用了变量模型（false = 主模型直接出，true = 走了二次校准） */
+  modelName?: string;
+  results: 变量命令结果[];
+  /** 变量模型的额外报告（可选，用于调试展示） */
+  report?: string;
+  /** 变量模型返回的原始文本，供「查看原始信息」面板展示。失败回执时为空。 */
+  rawText?: string;
+  /** 长期会话中的旧批次轻量摘要标记；用于避免每回合重复压缩同一批历史。 */
+  retentionSummary?: {
+    totalResults: number;
+    succeededResults: number;
+    diagnosticResults: number;
+    omittedDiagnosticResults: number;
+  };
+}

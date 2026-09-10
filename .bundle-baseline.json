@@ -1,0 +1,58 @@
+{
+  "indexBytes": 194447,
+  "maxChunkBytes": 3024301,
+  "maxChunkName": "assets/chunk-st-presets-DMlFZxWT.js",
+  "totalJsBytes": 5463614,
+  "gzipTotalBytes": 1636818,
+  "top": [
+    {
+      "name": "assets/chunk-st-presets-DMlFZxWT.js",
+      "size": 3024301
+    },
+    {
+      "name": "assets/chunk-app-D_6hFimO.js",
+      "size": 1126379
+    },
+    {
+      "name": "assets/SettingsModal-BEYRiou8.js",
+      "size": 332580
+    },
+    {
+      "name": "assets/AlbumPanel-Dqj1aHJn.js",
+      "size": 242539
+    },
+    {
+      "name": "assets/index-CKAhbV6P.js",
+      "size": 194447
+    },
+    {
+      "name": "assets/vendor-react-BaUUsD2U.js",
+      "size": 193850
+    },
+    {
+      "name": "assets/PlotPanel-C3XIH74M.js",
+      "size": 51266
+    },
+    {
+      "name": "assets/SaveLoadModal-CxFgLClO.js",
+      "size": 47544
+    },
+    {
+      "name": "assets/vendor-dnd-680N1SAh.js",
+      "size": 43470
+    },
+    {
+      "name": "assets/CompanionPanel-y_v_BAbt.js",
+      "size": 32929
+    },
+    {
+      "name": "assets/WorldbookManagerModal-DdtNQaVA.js",
+      "size": 32699
+    },
+    {
+      "name": "assets/ReleaseAnnouncementsModal-BTDtNIbK.js",
+      "size": 27660
+    }
+  ],
+  "at": "2026-09-02T05:00:49.746Z"
+}

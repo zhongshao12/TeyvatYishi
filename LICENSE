@@ -1,0 +1,30 @@
+MIT License
+
+Copyright (c) 2026 LingYuYue1
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## 适用范围说明（项目维护者声明，非法律条款）
+
+上述 MIT 许可证仅适用于本仓库的代码（TypeScript / Rust / 配置文件等原创代码）。
+角色名称、文本、图像、世界观设定等非代码内容归各自权利方所有，本仓库不授予任何第三方素材授权。
+本项目为同人作品，遵循项目 README 中的创作约定：二创 / 修改需经项目本人同意，原项目内容必须保持开源，并严禁任何商业用途。
+

@@ -1,0 +1,81 @@
+@import './adventurer-journal-tokens.css';
+
+:root {
+  /* 旅行者纪事 · 蒙德晨风（默认 · 羊皮纸古籍统一色板）
+     与 styles/themes.ts 的 PARCHMENT_SHARED_TOKENS 保持一致；
+     运行时由 applyTheme 以同名变量覆盖。 */
+  --tj-bg-primary: 236, 224, 196;
+  --tj-bg-secondary: 228, 214, 182;
+  --tj-text-primary: 45, 38, 30;
+  --tj-text-secondary: 82, 69, 54;
+  --tj-accent-primary: 158, 112, 44;
+  --tj-accent-secondary: 122, 84, 40;
+  --tj-border: 122, 92, 48;
+  --tj-danger: 168, 62, 48;
+  --tj-on-accent: 248, 242, 226;
+  --tj-surface: 233, 219, 188;
+  --tj-surface-strong: 241, 229, 202;
+  --tj-panel-bg-start: 235, 221, 190;
+  --tj-panel-bg-end: 226, 210, 176;
+  --tj-surface-bg-start: 233, 219, 188;
+  --tj-surface-bg-end: 224, 208, 172;
+  --tj-drawer-bg: 232, 217, 185;
+  --tj-overlay-bg: 26, 20, 14;
+  --tj-input-bg-start: 240, 228, 202;
+  --tj-input-bg-end: 231, 216, 184;
+  --tj-input-focus-bg: 244, 233, 208;
+  --tj-option-bg: 232, 217, 185;
+  --tj-btn-primary-start: 190, 150, 84;
+  --tj-btn-primary-end: 122, 84, 38;
+  --tj-btn-primary-text: 248, 242, 226;
+  --tj-accent-primary-deep: 110, 76, 32;
+  --tj-accent-mid: 196, 156, 96;
+  --tj-bubble: 228, 213, 181;
+  --tj-chat-bubble: 233, 219, 188;
+  --tj-chat-bubble-alpha: 0.96;
+  --tj-chat-text: 45, 38, 30;
+  --tj-chat-muted: 110, 92, 70;
+  --tj-shadow: 59, 42, 28;
+  /* ── 做旧点缀（古董金 / 苔绿 / 暖棕） ── */
+  --tj-arcane-accent: 138, 106, 62;
+  --tj-arcane-accent-deep: 110, 82, 46;
+  --tj-arcane-blue: 124, 118, 104;
+  --tj-arcane-blue-deep: 98, 92, 82;
+  --tj-paper-deep: 208, 188, 148;
+  --tj-paper-warm: 240, 228, 202;
+  --tj-amber-soft: 190, 150, 84;
+  --tj-amber-deep: 150, 112, 58;
+  --tj-sage-soft: 122, 146, 110;
+  --tj-sage-deep: 92, 116, 84;
+  --tj-arcane-wash: 228, 214, 182;
+  --tj-ui-title: 45, 38, 30;
+  --tj-ui-body: 66, 56, 44;
+  --tj-ui-muted: 110, 94, 74;
+  --tj-ui-faint: 132, 116, 94;
+  --tj-ui-active-text: 248, 242, 226;
+  --tj-ui-panel: 233, 219, 188;
+  --tj-ui-panel-strong: 241, 229, 202;
+  --tj-ui-nsfw: 158, 76, 96;
+  --tj-ui-success: 74, 112, 68;
+  --tj-magic-violet: 128, 98, 142;
+  --tj-parchment: 240, 230, 210;
+  --tj-gold-metal: 212, 175, 55;
+  /* ── 元素色（提瓦特） ── */
+  --tj-el-pyro: 236, 73, 35;
+  --tj-el-hydro: 73, 143, 204;
+  --tj-el-anemo: 53, 150, 151;
+  --tj-el-electro: 105, 87, 194;
+  --tj-el-dendro: 102, 173, 22;
+  --tj-el-cryo: 53, 170, 204;
+  --tj-el-geo: 204, 144, 70;
+  --tj-el-none: 147, 147, 147;
+  /* ── 稀有度色（三星 / 四星 / 五星） ── */
+  --tj-rarity-3: 84, 164, 180;
+  --tj-rarity-4: 145, 116, 169;
+  --tj-rarity-5: 220, 164, 84;
+  --app-safe-top: env(safe-area-inset-top, 0px);
+  --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  --scrollbar-thumb: var(--tj-accent-primary);
+  --scrollbar-track: var(--tj-bg-secondary);
+}

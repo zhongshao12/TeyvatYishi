@@ -1,0 +1,2537 @@
+{
+  "version": 2,
+  "purpose": "Compact, original fan-art portraits for the Teyvat chat UI.",
+  "roster": {
+    "expected": 120,
+    "ready": 120,
+    "pending": 0
+  },
+  "format": {
+    "width": 256,
+    "height": 256,
+    "encoding": "webp",
+    "targetUse": "chat-avatar"
+  },
+  "assets": [
+    {
+      "id": "chasca",
+      "name": "Chasca",
+      "canonicalName": "恰斯卡",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E6%81%B0%E6%96%AF%E5%8D%A1.webp",
+      "bytes": 16254,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Chasca compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "jean",
+      "name": "Jean",
+      "canonicalName": "琴",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E7%90%B4.webp",
+      "bytes": 13872,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Jean compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "kaedehara-kazuha",
+      "name": "Kaedehara Kazuha",
+      "canonicalName": "枫原万叶",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E6%9E%AB%E5%8E%9F%E4%B8%87%E5%8F%B6.webp",
+      "bytes": 10806,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Kaedehara Kazuha compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "varka",
+      "name": "Varka",
+      "canonicalName": "法尔伽",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E6%B3%95%E5%B0%94%E4%BC%BD.webp",
+      "bytes": 17034,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Varka compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "venti",
+      "name": "Venti",
+      "canonicalName": "温迪",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E6%B8%A9%E8%BF%AA.webp",
+      "bytes": 11552,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Venti compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "wanderer",
+      "name": "Wanderer",
+      "canonicalName": "流浪者",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E6%B5%81%E6%B5%AA%E8%80%85.webp",
+      "bytes": 12658,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Wanderer compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "xianyun",
+      "name": "Xianyun",
+      "canonicalName": "闲云",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E9%97%B2%E4%BA%91.webp",
+      "bytes": 12966,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Xianyun compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "xiao",
+      "name": "Xiao",
+      "canonicalName": "魈",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E9%AD%88.webp",
+      "bytes": 15118,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Xiao compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "yumemizuki-mizuki",
+      "name": "Yumemizuki Mizuki",
+      "canonicalName": "梦见月瑞希",
+      "rarity": 5,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E6%A2%A6%E8%A7%81%E6%9C%88%E7%91%9E%E5%B8%8C.webp",
+      "bytes": 12868,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Yumemizuki Mizuki compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "aloy",
+      "name": "Aloy",
+      "canonicalName": "埃洛伊",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E5%9F%83%E6%B4%9B%E4%BC%8A.webp",
+      "bytes": 13236,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Aloy compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "citlali",
+      "name": "Citlali",
+      "canonicalName": "茜特菈莉",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E8%8C%9C%E7%89%B9%E8%8F%88%E8%8E%89.webp",
+      "bytes": 13128,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Citlali compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "escoffier",
+      "name": "Escoffier",
+      "canonicalName": "爱可菲",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E7%88%B1%E5%8F%AF%E8%8F%B2.webp",
+      "bytes": 10880,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Escoffier compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "eula",
+      "name": "Eula",
+      "canonicalName": "优菈",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E4%BC%98%E8%8F%88.webp",
+      "bytes": 14466,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Eula compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "ganyu",
+      "name": "Ganyu",
+      "canonicalName": "甘雨",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E7%94%98%E9%9B%A8.webp",
+      "bytes": 12400,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Ganyu compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "kamisato-ayaka",
+      "name": "Kamisato Ayaka",
+      "canonicalName": "神里绫华",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E7%A5%9E%E9%87%8C%E7%BB%AB%E5%8D%8E.webp",
+      "bytes": 11454,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Kamisato Ayaka compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "lohen",
+      "name": "Lohen",
+      "canonicalName": "洛恩",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E6%B4%9B%E6%81%A9.webp",
+      "bytes": 10546,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Lohen compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "odette",
+      "name": "Odette",
+      "canonicalName": "奥黛特",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E5%A5%A5%E9%BB%9B%E7%89%B9.webp",
+      "bytes": 10300,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Odette compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "qiqi",
+      "name": "Qiqi",
+      "canonicalName": "七七",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E4%B8%83%E4%B8%83.webp",
+      "bytes": 10818,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Qiqi compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "sandrone",
+      "name": "Sandrone",
+      "canonicalName": "桑多涅",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E6%A1%91%E5%A4%9A%E6%B6%85.webp",
+      "bytes": 12048,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Sandrone compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "shenhe",
+      "name": "Shenhe",
+      "canonicalName": "申鹤",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E7%94%B3%E9%B9%A4.webp",
+      "bytes": 13368,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Shenhe compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "skirk",
+      "name": "Skirk",
+      "canonicalName": "丝柯克",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E4%B8%9D%E6%9F%AF%E5%85%8B.webp",
+      "bytes": 11912,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Skirk compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "wriothesley",
+      "name": "Wriothesley",
+      "canonicalName": "莱欧斯利",
+      "rarity": 5,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E8%8E%B1%E6%AC%A7%E6%96%AF%E5%88%A9.webp",
+      "bytes": 11108,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Wriothesley compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "alhaitham",
+      "name": "Alhaitham",
+      "canonicalName": "艾尔海森",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E8%89%BE%E5%B0%94%E6%B5%B7%E6%A3%AE.webp",
+      "bytes": 11240,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Alhaitham compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "baizhu",
+      "name": "Baizhu",
+      "canonicalName": "白术",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E7%99%BD%E6%9C%AF.webp",
+      "bytes": 9926,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Baizhu compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "emilie",
+      "name": "Emilie",
+      "canonicalName": "艾梅莉埃",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E8%89%BE%E6%A2%85%E8%8E%89%E5%9F%83.webp",
+      "bytes": 13714,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Emilie compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "kinich",
+      "name": "Kinich",
+      "canonicalName": "基尼奇",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E5%9F%BA%E5%B0%BC%E5%A5%87.webp",
+      "bytes": 14080,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Kinich compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "lauma",
+      "name": "Lauma",
+      "canonicalName": "菈乌玛",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E8%8F%88%E4%B9%8C%E7%8E%9B.webp",
+      "bytes": 14716,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Lauma compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "nahida",
+      "name": "Nahida",
+      "canonicalName": "纳西妲",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E7%BA%B3%E8%A5%BF%E5%A6%B2.webp",
+      "bytes": 12274,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Nahida compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "nefer",
+      "name": "Nefer",
+      "canonicalName": "奈芙尔",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E5%A5%88%E8%8A%99%E5%B0%94.webp",
+      "bytes": 12808,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Nefer compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "tighnari",
+      "name": "Tighnari",
+      "canonicalName": "提纳里",
+      "rarity": 5,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E6%8F%90%E7%BA%B3%E9%87%8C.webp",
+      "bytes": 12816,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Tighnari compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "clorinde",
+      "name": "Clorinde",
+      "canonicalName": "克洛琳德",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E5%85%8B%E6%B4%9B%E7%90%B3%E5%BE%B7.webp",
+      "bytes": 11270,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Clorinde compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "cyno",
+      "name": "Cyno",
+      "canonicalName": "赛诺",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E8%B5%9B%E8%AF%BA.webp",
+      "bytes": 12666,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Cyno compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "flins",
+      "name": "Flins",
+      "canonicalName": "菲林斯",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E8%8F%B2%E6%9E%97%E6%96%AF.webp",
+      "bytes": 12544,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Flins compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "ineffa",
+      "name": "Ineffa",
+      "canonicalName": "伊涅芙",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E4%BC%8A%E6%B6%85%E8%8A%99.webp",
+      "bytes": 11804,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Ineffa compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "keqing",
+      "name": "Keqing",
+      "canonicalName": "刻晴",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E5%88%BB%E6%99%B4.webp",
+      "bytes": 15502,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Keqing compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "raiden-shogun",
+      "name": "Raiden Shogun",
+      "canonicalName": "雷电将军",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E9%9B%B7%E7%94%B5%E5%B0%86%E5%86%9B.webp",
+      "bytes": 12874,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Raiden Shogun compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "varesa",
+      "name": "Varesa",
+      "canonicalName": "瓦雷莎",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E7%93%A6%E9%9B%B7%E8%8E%8E.webp",
+      "bytes": 12946,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Varesa compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "yae-miko",
+      "name": "Yae Miko",
+      "canonicalName": "八重神子",
+      "rarity": 5,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E5%85%AB%E9%87%8D%E7%A5%9E%E5%AD%90.webp",
+      "bytes": 13662,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Yae Miko compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "albedo",
+      "name": "Albedo",
+      "canonicalName": "阿贝多",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E9%98%BF%E8%B4%9D%E5%A4%9A.webp",
+      "bytes": 13724,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Albedo compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "arataki-itto",
+      "name": "Arataki Itto",
+      "canonicalName": "荒泷一斗",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E8%8D%92%E6%B3%B7%E4%B8%80%E6%96%97.webp",
+      "bytes": 16088,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Arataki Itto compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "chiori",
+      "name": "Chiori",
+      "canonicalName": "千织",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E5%8D%83%E7%BB%87.webp",
+      "bytes": 14172,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Chiori compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "linnea",
+      "name": "Linnea",
+      "canonicalName": "琳妮娅",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E7%90%B3%E5%A6%AE%E5%A8%85.webp",
+      "bytes": 16618,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Linnea compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "navia",
+      "name": "Navia",
+      "canonicalName": "娜维娅",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E5%A8%9C%E7%BB%B4%E5%A8%85.webp",
+      "bytes": 13370,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Navia compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "xilonen",
+      "name": "Xilonen",
+      "canonicalName": "希诺宁",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E5%B8%8C%E8%AF%BA%E5%AE%81.webp",
+      "bytes": 15616,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Xilonen compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "zhongli",
+      "name": "Zhongli",
+      "canonicalName": "钟离",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E9%92%9F%E7%A6%BB.webp",
+      "bytes": 13716,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Zhongli compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "zibai",
+      "name": "Zibai",
+      "canonicalName": "兹白",
+      "rarity": 5,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E5%85%B9%E7%99%BD.webp",
+      "bytes": 13234,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Zibai compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "columbina",
+      "name": "Columbina",
+      "canonicalName": "哥伦比娅",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E5%93%A5%E4%BC%A6%E6%AF%94%E5%A8%85.webp",
+      "bytes": 12184,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Columbina compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "furina",
+      "name": "Furina",
+      "canonicalName": "芙宁娜",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E8%8A%99%E5%AE%81%E5%A8%9C.webp",
+      "bytes": 13786,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Furina compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "kamisato-ayato",
+      "name": "Kamisato Ayato",
+      "canonicalName": "神里绫人",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E7%A5%9E%E9%87%8C%E7%BB%AB%E4%BA%BA.webp",
+      "bytes": 12058,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Kamisato Ayato compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "mona",
+      "name": "Mona",
+      "canonicalName": "莫娜",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E8%8E%AB%E5%A8%9C.webp",
+      "bytes": 13764,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Mona compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "mualani",
+      "name": "Mualani",
+      "canonicalName": "玛拉妮",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E7%8E%9B%E6%8B%89%E5%A6%AE.webp",
+      "bytes": 15094,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Mualani compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "neuvillette",
+      "name": "Neuvillette",
+      "canonicalName": "那维莱特",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E9%82%A3%E7%BB%B4%E8%8E%B1%E7%89%B9.webp",
+      "bytes": 14822,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Neuvillette compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "nilou",
+      "name": "Nilou",
+      "canonicalName": "妮露",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E5%A6%AE%E9%9C%B2.webp",
+      "bytes": 16416,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Nilou compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "sangonomiya-kokomi",
+      "name": "Sangonomiya Kokomi",
+      "canonicalName": "珊瑚宫心海",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E7%8F%8A%E7%91%9A%E5%AE%AB%E5%BF%83%E6%B5%B7.webp",
+      "bytes": 14192,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Sangonomiya Kokomi compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "sigewinne",
+      "name": "Sigewinne",
+      "canonicalName": "希格雯",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E5%B8%8C%E6%A0%BC%E9%9B%AF.webp",
+      "bytes": 13266,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Sigewinne compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "tartaglia",
+      "name": "Tartaglia",
+      "canonicalName": "达达利亚",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E8%BE%BE%E8%BE%BE%E5%88%A9%E4%BA%9A.webp",
+      "bytes": 14228,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Tartaglia compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "yelan",
+      "name": "Yelan",
+      "canonicalName": "夜兰",
+      "rarity": 5,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E5%A4%9C%E5%85%B0.webp",
+      "bytes": 18706,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Yelan compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "traveler",
+      "name": "Traveler",
+      "canonicalName": "旅行者",
+      "rarity": 5,
+      "element": "None",
+      "path": "/assets/teyvat-avatars/characters/%E6%97%85%E8%A1%8C%E8%80%85.webp",
+      "bytes": 11734,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Traveler compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "wonderland-manekin",
+      "name": "Wonderland Manekin",
+      "canonicalName": "仙境人偶",
+      "rarity": 5,
+      "element": "None",
+      "path": "/assets/teyvat-avatars/characters/%E4%BB%99%E5%A2%83%E4%BA%BA%E5%81%B6.webp",
+      "bytes": 11438,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Wonderland Manekin compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "arlecchino",
+      "name": "Arlecchino",
+      "canonicalName": "阿蕾奇诺",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E9%98%BF%E8%95%BE%E5%A5%87%E8%AF%BA.webp",
+      "bytes": 13550,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Arlecchino compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "dehya",
+      "name": "Dehya",
+      "canonicalName": "迪希雅",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E8%BF%AA%E5%B8%8C%E9%9B%85.webp",
+      "bytes": 15488,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Dehya compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "diluc",
+      "name": "Diluc",
+      "canonicalName": "迪卢克",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E8%BF%AA%E5%8D%A2%E5%85%8B.webp",
+      "bytes": 12290,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Diluc compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "durin",
+      "name": "Durin",
+      "canonicalName": "杜林",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E6%9D%9C%E6%9E%97.webp",
+      "bytes": 12810,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Durin compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "hu-tao",
+      "name": "Hu Tao",
+      "canonicalName": "胡桃",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E8%83%A1%E6%A1%83.webp",
+      "bytes": 11904,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Hu Tao compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "klee",
+      "name": "Klee",
+      "canonicalName": "可莉",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E5%8F%AF%E8%8E%89.webp",
+      "bytes": 12072,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Klee compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "lyney",
+      "name": "Lyney",
+      "canonicalName": "林尼",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E6%9E%97%E5%B0%BC.webp",
+      "bytes": 13658,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Lyney compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "mavuika",
+      "name": "Mavuika",
+      "canonicalName": "玛薇卡",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E7%8E%9B%E8%96%87%E5%8D%A1.webp",
+      "bytes": 18202,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Mavuika compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "nicole",
+      "name": "Nicole",
+      "canonicalName": "妮可",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E5%A6%AE%E5%8F%AF.webp",
+      "bytes": 13736,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Nicole compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "yoimiya",
+      "name": "Yoimiya",
+      "canonicalName": "宵宫",
+      "rarity": 5,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E5%AE%B5%E5%AE%AB.webp",
+      "bytes": 13050,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Yoimiya compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "faruzan",
+      "name": "Faruzan",
+      "canonicalName": "珐露珊",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E7%8F%90%E9%9C%B2%E7%8F%8A.webp",
+      "bytes": 13378,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Faruzan compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "ifa",
+      "name": "Ifa",
+      "canonicalName": "伊法",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E4%BC%8A%E6%B3%95.webp",
+      "bytes": 13070,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Ifa compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "jahoda",
+      "name": "Jahoda",
+      "canonicalName": "雅珂达",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E9%9B%85%E7%8F%82%E8%BE%BE.webp",
+      "bytes": 12546,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Jahoda compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "lan-yan",
+      "name": "Lan Yan",
+      "canonicalName": "蓝砚",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E8%93%9D%E7%A0%9A.webp",
+      "bytes": 11704,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Lan Yan compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "lynette",
+      "name": "Lynette",
+      "canonicalName": "琳妮特",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E7%90%B3%E5%A6%AE%E7%89%B9.webp",
+      "bytes": 11694,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Lynette compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "prune",
+      "name": "Prune",
+      "canonicalName": "普露恩",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E6%99%AE%E9%9C%B2%E6%81%A9.webp",
+      "bytes": 12700,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Prune compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "sayu",
+      "name": "Sayu",
+      "canonicalName": "早柚",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E6%97%A9%E6%9F%9A.webp",
+      "bytes": 10012,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Sayu compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "shikanoin-heizou",
+      "name": "Shikanoin Heizou",
+      "canonicalName": "鹿野院平藏",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E9%B9%BF%E9%87%8E%E9%99%A2%E5%B9%B3%E8%97%8F.webp",
+      "bytes": 13316,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Shikanoin Heizou compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "sucrose",
+      "name": "Sucrose",
+      "canonicalName": "砂糖",
+      "rarity": 4,
+      "element": "Anemo",
+      "path": "/assets/teyvat-avatars/characters/%E7%A0%82%E7%B3%96.webp",
+      "bytes": 15038,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Sucrose compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "charlotte",
+      "name": "Charlotte",
+      "canonicalName": "夏洛蒂",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E5%A4%8F%E6%B4%9B%E8%92%82.webp",
+      "bytes": 13020,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Charlotte compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "chongyun",
+      "name": "Chongyun",
+      "canonicalName": "重云",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E9%87%8D%E4%BA%91.webp",
+      "bytes": 14490,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Chongyun compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "diona",
+      "name": "Diona",
+      "canonicalName": "迪奥娜",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E8%BF%AA%E5%A5%A5%E5%A8%9C.webp",
+      "bytes": 13084,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Diona compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "freminet",
+      "name": "Freminet",
+      "canonicalName": "菲米尼",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E8%8F%B2%E7%B1%B3%E5%B0%BC.webp",
+      "bytes": 12254,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Freminet compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "kaeya",
+      "name": "Kaeya",
+      "canonicalName": "凯亚",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E5%87%AF%E4%BA%9A.webp",
+      "bytes": 13436,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Kaeya compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "layla",
+      "name": "Layla",
+      "canonicalName": "莱依拉",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E8%8E%B1%E4%BE%9D%E6%8B%89.webp",
+      "bytes": 15286,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Layla compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "mika",
+      "name": "Mika",
+      "canonicalName": "米卡",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E7%B1%B3%E5%8D%A1.webp",
+      "bytes": 13416,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Mika compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "rosaria",
+      "name": "Rosaria",
+      "canonicalName": "罗莎莉亚",
+      "rarity": 4,
+      "element": "Cryo",
+      "path": "/assets/teyvat-avatars/characters/%E7%BD%97%E8%8E%8E%E8%8E%89%E4%BA%9A.webp",
+      "bytes": 12024,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Rosaria compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "collei",
+      "name": "Collei",
+      "canonicalName": "柯莱",
+      "rarity": 4,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E6%9F%AF%E8%8E%B1.webp",
+      "bytes": 11294,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Collei compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "kaveh",
+      "name": "Kaveh",
+      "canonicalName": "卡维",
+      "rarity": 4,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E5%8D%A1%E7%BB%B4.webp",
+      "bytes": 13786,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Kaveh compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "kirara",
+      "name": "Kirara",
+      "canonicalName": "绮良良",
+      "rarity": 4,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E7%BB%AE%E8%89%AF%E8%89%AF.webp",
+      "bytes": 12774,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Kirara compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "yaoyao",
+      "name": "Yaoyao",
+      "canonicalName": "瑶瑶",
+      "rarity": 4,
+      "element": "Dendro",
+      "path": "/assets/teyvat-avatars/characters/%E7%91%B6%E7%91%B6.webp",
+      "bytes": 13044,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Yaoyao compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "alyosha",
+      "name": "Alyosha",
+      "canonicalName": "阿廖沙",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E9%98%BF%E5%BB%96%E6%B2%99.webp",
+      "bytes": 12082,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Alyosha compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "beidou",
+      "name": "Beidou",
+      "canonicalName": "北斗",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E5%8C%97%E6%96%97.webp",
+      "bytes": 13740,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Beidou compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "dori",
+      "name": "Dori",
+      "canonicalName": "多莉",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E5%A4%9A%E8%8E%89.webp",
+      "bytes": 13780,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Dori compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "fischl",
+      "name": "Fischl",
+      "canonicalName": "菲谢尔",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E8%8F%B2%E8%B0%A2%E5%B0%94.webp",
+      "bytes": 13590,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Fischl compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "iansan",
+      "name": "Iansan",
+      "canonicalName": "伊安珊",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E4%BC%8A%E5%AE%89%E7%8F%8A.webp",
+      "bytes": 13256,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Iansan compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "kujou-sara",
+      "name": "Kujou Sara",
+      "canonicalName": "九条裟罗",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E4%B9%9D%E6%9D%A1%E8%A3%9F%E7%BD%97.webp",
+      "bytes": 11438,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Kujou Sara compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "kuki-shinobu",
+      "name": "Kuki Shinobu",
+      "canonicalName": "久岐忍",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E4%B9%85%E5%B2%90%E5%BF%8D.webp",
+      "bytes": 17076,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Kuki Shinobu compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "lisa",
+      "name": "Lisa",
+      "canonicalName": "丽莎",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E4%B8%BD%E8%8E%8E.webp",
+      "bytes": 15124,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Lisa compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "ororon",
+      "name": "Ororon",
+      "canonicalName": "欧洛伦",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E6%AC%A7%E6%B4%9B%E4%BC%A6.webp",
+      "bytes": 14270,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Ororon compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "razor",
+      "name": "Razor",
+      "canonicalName": "雷泽",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E9%9B%B7%E6%B3%BD.webp",
+      "bytes": 13844,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Razor compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "sethos",
+      "name": "Sethos",
+      "canonicalName": "赛索斯",
+      "rarity": 4,
+      "element": "Electro",
+      "path": "/assets/teyvat-avatars/characters/%E8%B5%9B%E7%B4%A2%E6%96%AF.webp",
+      "bytes": 17316,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Sethos compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "gorou",
+      "name": "Gorou",
+      "canonicalName": "五郎",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E4%BA%94%E9%83%8E.webp",
+      "bytes": 16012,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Gorou compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "illuga",
+      "name": "Illuga",
+      "canonicalName": "伊鲁加",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E4%BC%8A%E9%B2%81%E5%8A%A0.webp",
+      "bytes": 15452,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Illuga compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "kachina",
+      "name": "Kachina",
+      "canonicalName": "卡齐娜",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E5%8D%A1%E9%BD%90%E5%A8%9C.webp",
+      "bytes": 16418,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Kachina compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "ningguang",
+      "name": "Ningguang",
+      "canonicalName": "凝光",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E5%87%9D%E5%85%89.webp",
+      "bytes": 13044,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Ningguang compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "noelle",
+      "name": "Noelle",
+      "canonicalName": "诺艾尔",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E8%AF%BA%E8%89%BE%E5%B0%94.webp",
+      "bytes": 15104,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Noelle compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "yun-jin",
+      "name": "Yun Jin",
+      "canonicalName": "云堇",
+      "rarity": 4,
+      "element": "Geo",
+      "path": "/assets/teyvat-avatars/characters/%E4%BA%91%E5%A0%87.webp",
+      "bytes": 14354,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Yun Jin compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "aino",
+      "name": "Aino",
+      "canonicalName": "爱诺",
+      "rarity": 4,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E7%88%B1%E8%AF%BA.webp",
+      "bytes": 16356,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Aino compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "barbara",
+      "name": "Barbara",
+      "canonicalName": "芭芭拉",
+      "rarity": 4,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E8%8A%AD%E8%8A%AD%E6%8B%89.webp",
+      "bytes": 13160,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Barbara compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "candace",
+      "name": "Candace",
+      "canonicalName": "坎蒂丝",
+      "rarity": 4,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E5%9D%8E%E8%92%82%E4%B8%9D.webp",
+      "bytes": 14682,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Candace compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "dahlia",
+      "name": "Dahlia",
+      "canonicalName": "塔利雅",
+      "rarity": 4,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E5%A1%94%E5%88%A9%E9%9B%85.webp",
+      "bytes": 16480,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Dahlia compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "xingqiu",
+      "name": "Xingqiu",
+      "canonicalName": "行秋",
+      "rarity": 4,
+      "element": "Hydro",
+      "path": "/assets/teyvat-avatars/characters/%E8%A1%8C%E7%A7%8B.webp",
+      "bytes": 13366,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Xingqiu compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "amber",
+      "name": "安柏",
+      "canonicalName": "安柏",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E5%AE%89%E6%9F%8F.webp",
+      "bytes": 12046,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-01",
+        "sourceType": "original-fan-art",
+        "promptSummary": "安柏头像；突出兔耳发带、护目镜、红棕配色和侦察骑士气质；日式西幻手绘风；圆形裁切安全；低复杂度背景；无文字、标志或水印。"
+      },
+      "optimization": {
+        "sourceDimensions": "1254x1254",
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6
+      }
+    },
+    {
+      "id": "bennett",
+      "name": "Bennett",
+      "canonicalName": "班尼特",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E7%8F%AD%E5%B0%BC%E7%89%B9.webp",
+      "bytes": 13506,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Bennett compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "chevreuse",
+      "name": "Chevreuse",
+      "canonicalName": "夏沃蕾",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E5%A4%8F%E6%B2%83%E8%95%BE.webp",
+      "bytes": 13048,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Chevreuse compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "gaming",
+      "name": "Gaming",
+      "canonicalName": "嘉明",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E5%98%89%E6%98%8E.webp",
+      "bytes": 16602,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Gaming compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "thoma",
+      "name": "Thoma",
+      "canonicalName": "托马",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E6%89%98%E9%A9%AC.webp",
+      "bytes": 14774,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Thoma compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "xiangling",
+      "name": "Xiangling",
+      "canonicalName": "香菱",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E9%A6%99%E8%8F%B1.webp",
+      "bytes": 13436,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Xiangling compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "xinyan",
+      "name": "Xinyan",
+      "canonicalName": "辛焱",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E8%BE%9B%E7%84%B1.webp",
+      "bytes": 13236,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Xinyan compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    },
+    {
+      "id": "yanfei",
+      "name": "Yanfei",
+      "canonicalName": "烟绯",
+      "rarity": 4,
+      "element": "Pyro",
+      "path": "/assets/teyvat-avatars/characters/%E7%83%9F%E7%BB%AF.webp",
+      "bytes": 13270,
+      "generation": {
+        "mode": "built-in-imagegen",
+        "createdAt": "2026-09-02",
+        "sourceType": "original-fan-art",
+        "promptSummary": "Yanfei compact chat portrait; approved warm Japanese-fantasy journal style; iconic character cues; circular-crop-safe; no text, logo, watermark, or copied official artwork."
+      },
+      "optimization": {
+        "outputDimensions": "256x256",
+        "quality": 78,
+        "effort": 6,
+        "smartSubsample": true
+      }
+    }
+  ]
+}

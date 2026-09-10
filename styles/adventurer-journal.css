@@ -1,0 +1,515 @@
+/*
+ * 冒险者手账基础层：像被旅途反复翻阅的实体册页，而不是悬浮的玻璃仪表盘。
+ * Task 17 的布局组件复用这些语义类，不在组件里复制纸张、皮革和动效规则。
+ */
+body {
+  background-image:
+    radial-gradient(circle at 18% 8%, rgba(182, 138, 67, 0.08), transparent 30rem),
+    repeating-linear-gradient(112deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 7px);
+}
+
+.journal-leather-surface {
+  color: var(--journal-parchment);
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.035), transparent 28%),
+    repeating-linear-gradient(18deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 5px),
+    var(--journal-leather);
+  border: 1px solid color-mix(in srgb, var(--journal-antique-gold) var(--journal-border-contrast), transparent);
+  box-shadow: var(--journal-shadow-raised);
+}
+
+.journal-paper-surface {
+  color: var(--journal-ink);
+  background:
+    radial-gradient(circle at 12% 9%, rgba(255, 253, 236, 0.72), transparent 34%),
+    repeating-linear-gradient(0deg, rgba(92, 68, 43, 0.025) 0 1px, transparent 1px 5px),
+    color-mix(in srgb, var(--journal-parchment) var(--journal-paper-contrast), #d6c49d);
+  border-radius: var(--journal-radius-page);
+  box-shadow: var(--journal-shadow-page);
+}
+
+.journal-gilded-rule {
+  height: 1px;
+  border: 0;
+  background: linear-gradient(90deg, transparent, var(--journal-antique-gold-soft) 18% 82%, transparent);
+  opacity: 0.72;
+}
+
+.journal-reveal {
+  animation: journal-page-settle var(--journal-motion-slow) var(--journal-ease-settle) both;
+}
+
+.journal-focus-target:focus-visible {
+  outline: 2px solid var(--journal-focus-ring);
+  outline-offset: 3px;
+}
+
+@keyframes journal-page-settle {
+  from {
+    opacity: 0;
+    transform: translateY(8px) rotateX(-1.5deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journal-reveal {
+    animation: none;
+  }
+}
+
+/* ── Task 17 · 实体冒险者手账布局 ─────────────────────────────── */
+.journal-region-backdrop {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--journal-leather-deep);
+}
+
+.journal-region-backdrop__watercolor,
+.journal-region-backdrop__wash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.journal-region-backdrop__watercolor {
+  z-index: -3;
+  background-image: var(--journal-region-image);
+  background-position: center;
+  background-size: cover;
+  filter: saturate(0.72) contrast(0.92);
+  transform: scale(1.02);
+}
+
+.journal-region-backdrop__wash {
+  z-index: -2;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--journal-region-overlay) 68%, transparent), transparent 42%),
+    radial-gradient(ellipse at 50% 42%, transparent 28%, color-mix(in srgb, var(--journal-region-overlay) 78%, transparent) 100%),
+    repeating-linear-gradient(102deg, rgba(255, 248, 220, 0.025) 0 1px, transparent 1px 6px);
+  opacity: var(--journal-region-overlay-opacity);
+}
+
+.journal-region-backdrop[data-danger='danger'] .journal-region-backdrop__wash {
+  box-shadow: inset 0 0 120px rgba(112, 35, 22, 0.38);
+}
+
+.journal-region-backdrop__content,
+.journal-game-view {
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+}
+
+.journal-game-view.teyvat-game-bg {
+  background: transparent;
+}
+
+.journal-topbar-slot {
+  padding: 0;
+}
+
+.journal-topbar.teyvat-topbar {
+  color: var(--journal-parchment);
+  background:
+    linear-gradient(90deg, rgba(37, 26, 22, 0.94), rgba(75, 52, 40, 0.9) 48%, rgba(37, 26, 22, 0.94)),
+    repeating-linear-gradient(14deg, transparent 0 6px, rgba(255, 255, 255, 0.025) 6px 7px);
+  border-bottom: 1px solid color-mix(in srgb, var(--journal-antique-gold) 48%, transparent);
+  box-shadow: 0 7px 24px rgba(var(--journal-shadow-color), 0.26);
+}
+
+.journal-shell {
+  width: min(100%, 1480px);
+  margin: 0 auto;
+  padding: 12px 14px 16px;
+}
+
+.journal-story-page {
+  --tj-text-primary: 45, 38, 30;
+  --tj-text-secondary: 82, 69, 54;
+  --tj-accent-primary: 122, 82, 34;
+  --tj-accent-secondary: 70, 98, 78;
+  --tj-border: 108, 76, 40;
+  --tj-bubble: 228, 213, 181;
+  --tj-chat-bubble: 233, 219, 188;
+  --tj-chat-bubble-alpha: 0.96;
+  --tj-chat-text: 45, 38, 30;
+  --tj-chat-muted: 82, 69, 54;
+  --tj-btn-primary-start: 144, 102, 49;
+  --tj-shadow: 59, 42, 28;
+  --tj-panel-bg-start: 235, 221, 190;
+  --tj-panel-bg-end: 226, 210, 176;
+  --tj-surface: 233, 219, 188;
+  --tj-surface-strong: 241, 229, 202;
+  --tj-surface-bg-start: 233, 219, 188;
+  --tj-surface-bg-end: 224, 208, 172;
+  --tj-input-bg-start: 240, 228, 202;
+  --tj-input-bg-end: 231, 216, 184;
+  --tj-input-focus-bg: 244, 233, 208;
+  --tj-option-bg: 232, 217, 185;
+  --tj-drawer-bg: 232, 217, 185;
+  --tj-bg-primary: 236, 224, 196;
+  --tj-bg-secondary: 228, 214, 182;
+  --tj-paper-deep: 208, 188, 148;
+  --tj-paper-warm: 240, 228, 202;
+  position: relative;
+  background:
+    linear-gradient(90deg, rgba(78, 53, 34, 0.08), transparent 26px),
+    radial-gradient(circle at 88% 8%, rgba(255, 252, 230, 0.7), transparent 26%),
+    repeating-linear-gradient(0deg, rgba(92, 68, 43, 0.028) 0 1px, transparent 1px 6px),
+    color-mix(in srgb, var(--journal-region-paper, var(--journal-parchment)) var(--journal-paper-contrast), #d5c099);
+  color: var(--journal-ink);
+  border: 1px solid rgba(91, 65, 40, 0.22);
+  box-shadow:
+    0 22px 54px rgba(var(--journal-shadow-color), 0.38),
+    inset 18px 0 30px rgba(89, 59, 37, 0.06),
+    inset 0 0 0 1px rgba(255, 252, 230, 0.42);
+}
+
+.journal-story-page::before {
+  content: '';
+  position: absolute;
+  inset: 11px;
+  z-index: 0;
+  border: 1px solid rgba(128, 93, 52, 0.15);
+  border-radius: 2px 9px 7px 3px;
+  pointer-events: none;
+}
+
+/* 烛光夜读：故事页翻成深色暖调纸面（高特异性覆盖上方日间 token 翻转）。 */
+[data-theme='candlelight'] .journal-story-page {
+  --tj-text-primary: 232, 217, 189;
+  --tj-text-secondary: 192, 168, 136;
+  --tj-accent-primary: 214, 168, 96;
+  --tj-accent-secondary: 148, 160, 120;
+  --tj-border: 158, 122, 72;
+  --tj-bubble: 70, 57, 44;
+  --tj-chat-bubble: 70, 57, 44;
+  --tj-chat-bubble-alpha: 0.96;
+  --tj-chat-text: 232, 217, 189;
+  --tj-chat-muted: 172, 148, 118;
+  --tj-btn-primary-start: 214, 168, 96;
+  --tj-shadow: 0, 0, 0;
+  --tj-panel-bg-start: 70, 57, 44;
+  --tj-panel-bg-end: 58, 46, 36;
+  --tj-surface: 66, 53, 41;
+  --tj-surface-strong: 74, 60, 47;
+  --tj-surface-bg-start: 66, 53, 41;
+  --tj-surface-bg-end: 54, 43, 33;
+  --tj-input-bg-start: 74, 60, 46;
+  --tj-input-bg-end: 64, 51, 39;
+  --tj-input-focus-bg: 80, 66, 51;
+  --tj-option-bg: 66, 53, 41;
+  --tj-drawer-bg: 62, 50, 39;
+  --tj-bg-primary: 58, 46, 36;
+  --tj-bg-secondary: 50, 39, 30;
+  --tj-paper-deep: 46, 37, 29;
+  --tj-paper-warm: 74, 60, 47;
+  color: #e8d9bd;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.22), transparent 26px),
+    radial-gradient(circle at 88% 8%, rgba(255, 196, 110, 0.08), transparent 26%),
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.06) 0 1px, transparent 1px 6px),
+    #463729;
+  border-color: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='candlelight'] .journal-story-page::before {
+  border-color: rgba(214, 168, 96, 0.14);
+}
+
+.journal-story-page > *:not(.journal-story-page__binding) {
+  /* 只提升层级，不强制 position：flex 子项本身支持 z-index；
+     强制 relative 会破坏处理队列等 absolute 覆盖层的布局。 */
+  z-index: 1;
+}
+
+.journal-story-page__binding {
+  position: absolute;
+  inset: 18px auto 18px 11px;
+  width: 3px;
+  z-index: 2;
+  background: repeating-linear-gradient(180deg, var(--journal-antique-gold) 0 8px, transparent 8px 16px);
+  opacity: 0.36;
+  pointer-events: none;
+}
+
+.journal-story-scroll {
+  scrollbar-color: rgba(111, 82, 48, 0.42) transparent;
+  scroll-padding-bottom: 120px;
+}
+
+.journal-story-tool {
+  font-family: "Noto Serif SC", "Source Han Serif SC", STSong, serif;
+  letter-spacing: 0.14em;
+}
+
+.journal-turn {
+  position: relative;
+}
+
+.journal-turn--narrative + .journal-turn--narrative::before {
+  content: '❦';
+  display: block;
+  margin: 2px auto 10px;
+  color: rgba(110, 77, 39, 0.46);
+  text-align: center;
+  letter-spacing: 0.3em;
+}
+
+.journal-narrative-leaf {
+  max-width: 78ch;
+  margin-inline: auto;
+  padding: 8px clamp(4px, 1.2vw, 16px) 14px;
+  color: var(--journal-ink);
+  font-family: "Noto Serif SC", "Source Han Serif SC", STSong, serif;
+}
+
+.journal-traveler-note {
+  position: relative;
+}
+
+.journal-character-bookmark {
+  display: none;
+}
+
+.journal-system-tabs--desktop {
+  display: none;
+}
+
+.journal-system-tab {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.journal-system-tab[aria-current='page'] {
+  transform: translateX(-6px);
+}
+
+.journal-mobile-status > div,
+.journal-mobile-status > button,
+.journal-mobile-tab-strip,
+.journal-mobile-quick-menu > div:first-child {
+  background-color: color-mix(in srgb, var(--journal-parchment) 96%, #cbb58a) !important;
+  color: var(--journal-ink) !important;
+}
+
+.journal-system-tabs--mobile {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 38;
+  display: block;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+
+.journal-mobile-quick-menu {
+  pointer-events: none;
+}
+
+.journal-mobile-tab-strip {
+  border: 1px solid rgba(105, 73, 40, 0.28);
+  border-bottom: 3px solid var(--journal-leather);
+  box-shadow: 0 -10px 28px rgba(var(--journal-shadow-color), 0.28) !important;
+}
+
+.journal-modal-overlay.teyvat-modal-overlay {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(182, 138, 67, 0.12), transparent 40%),
+    rgba(26, 19, 15, 0.84);
+  backdrop-filter: none;
+}
+
+.journal-modal-shell.teyvat-modal-shell {
+  --tj-text-primary: 53, 46, 39;
+  --tj-text-secondary: 110, 97, 81;
+  --tj-accent-primary: 138, 94, 42;
+  --tj-accent-secondary: 82, 111, 90;
+  --tj-border: 128, 93, 52;
+  --tj-panel-bg-start: 239, 227, 196;
+  --tj-panel-bg-end: 222, 205, 168;
+  color: var(--journal-ink);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(255, 253, 232, 0.74), transparent 34%),
+    repeating-linear-gradient(0deg, rgba(92, 68, 43, 0.028) 0 1px, transparent 1px 6px),
+    var(--journal-parchment);
+  border: 1px solid rgba(92, 67, 42, 0.34);
+  border-radius: 4px 13px 10px 5px;
+  clip-path: none;
+  box-shadow: 0 28px 80px rgba(var(--journal-shadow-color), 0.5), inset 0 0 0 5px rgba(255, 251, 226, 0.22);
+}
+
+@media (min-width: 768px) {
+  .journal-shell {
+    display: grid !important;
+    grid-template-columns: clamp(210px, 17vw, 252px) minmax(420px, 1fr) clamp(176px, 14vw, 220px);
+    /* 行高锁定在容器内，防止中间正文列把聊天区顶出裁切线之外 */
+    grid-template-rows: minmax(0, 1fr);
+    gap: clamp(10px, 1.4vw, 22px);
+    align-items: stretch;
+    padding: clamp(14px, 2vh, 24px) clamp(18px, 2vw, 32px) clamp(18px, 2.5vh, 30px);
+  }
+
+  .journal-character-bookmark {
+    position: relative;
+    z-index: 2;
+    display: block;
+    min-width: 0;
+    margin: 20px -18px 18px 0;
+    filter: drop-shadow(8px 14px 18px rgba(var(--journal-shadow-color), 0.26));
+  }
+
+  .journal-character-bookmark__body {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 7px 2px 2px 9px;
+    transform: rotate(-0.55deg);
+  }
+
+  .journal-character-bookmark__spine {
+    position: absolute;
+    z-index: 2;
+    inset: 10px auto 10px -5px;
+    width: 9px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #251a16, #7a5740 52%, #2d1e18);
+    box-shadow: 2px 0 6px rgba(24, 15, 10, 0.35);
+  }
+
+  .journal-character-bookmark__tail {
+    position: absolute;
+    z-index: -1;
+    right: 16px;
+    bottom: -20px;
+    width: 34px;
+    height: 42px;
+    background: var(--journal-ribbon-red);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+    transform: rotate(2deg);
+  }
+
+  .journal-character-bookmark .teyvat-left-panel {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: 100%;
+    color: var(--journal-parchment);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .journal-story-page {
+    min-height: 0;
+    margin-block: 0;
+  }
+
+  .journal-system-tabs--desktop {
+    position: relative;
+    z-index: 3;
+    display: block;
+    min-width: 0;
+    margin: 22px 0 20px -14px;
+  }
+
+  .journal-system-tabs--desktop .teyvat-right-menu {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: 100%;
+    overflow: hidden;
+    color: var(--journal-ink);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .journal-system-tabs--desktop .teyvat-menu-item,
+  .journal-system-tabs--desktop .teyvat-menu-footer {
+    position: relative;
+    margin-left: 0;
+    border: 1px solid rgba(111, 78, 40, 0.27);
+    color: var(--journal-ink);
+    background:
+      linear-gradient(90deg, rgba(247, 235, 203, 0.98), rgba(213, 188, 136, 0.97)) !important;
+    box-shadow: 5px 7px 14px rgba(var(--journal-shadow-color), 0.2) !important;
+    clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%) !important;
+  }
+
+  .journal-system-tabs--desktop .teyvat-menu-item:nth-child(3n + 2) {
+    margin-left: 7px;
+    background: linear-gradient(90deg, #d8c19a, #b99862) !important;
+  }
+
+  .journal-system-tabs--desktop .teyvat-menu-item:nth-child(3n) {
+    margin-left: 3px;
+    background: linear-gradient(90deg, #ded0ad, #c5a86e) !important;
+  }
+
+  .journal-system-tabs--desktop .teyvat-menu-item[aria-current='page'] {
+    border-color: var(--journal-antique-gold);
+    background: linear-gradient(90deg, #f0dda8, #c99547) !important;
+  }
+
+  .journal-system-tabs--desktop .teyvat-menu-label,
+  .journal-system-tabs--desktop .teyvat-right-menu span {
+    color: var(--journal-ink) !important;
+  }
+
+  .journal-system-tabs--mobile {
+    display: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .journal-shell {
+    padding: 0;
+  }
+
+  .journal-character-bookmark,
+  .journal-system-tabs--desktop {
+    display: none;
+  }
+
+  .journal-story-page {
+    width: 100%;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 0 0 1px rgba(112, 82, 49, 0.15);
+  }
+
+  .journal-story-scroll {
+    padding-bottom: calc(104px + max(8px, env(safe-area-inset-bottom)));
+  }
+
+  .journal-narrative-leaf {
+    padding-inline: 0;
+  }
+
+  .journal-modal-shell.teyvat-modal-shell {
+    border: 0;
+    border-radius: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journal-region-backdrop *,
+  .journal-modal-overlay *,
+  .journal-system-tabs * {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .journal-character-bookmark,
+  .journal-system-tab[aria-current='page'] {
+    transform: none;
+  }
+}

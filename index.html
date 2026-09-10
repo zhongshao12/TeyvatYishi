@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>旅行者纪事 - Teyvat Yishi</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='80' font-size='80'%3E✧%3C/text%3E%3C/svg%3E" />
+    <!-- 手账衬线字体：在线时按 unicode-range 子集加载（只下载用到的字形），
+         离线 / 无网络时由 font-family 链回退到本地衬线字体，不阻塞渲染。 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+    />
+    <script>
+      window.__PREBOOT_ERROR__ = null;
+      window.addEventListener('error', function(e) {
+        if (!window.__ROOT_MOUNTED__) {
+          window.__PREBOOT_ERROR__ = e.error || e.message || 'Unknown preboot error';
+        }
+      });
+    </script>
+  </head>
+  <body class="bg-[rgb(var(--tj-bg-primary))] text-[rgb(var(--tj-text-primary))]">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

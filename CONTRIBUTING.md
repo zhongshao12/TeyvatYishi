@@ -23,3 +23,30 @@
 - 性能、构建体积、测试覆盖与文档问题。
 
 提交问题时，请尽量提供版本号、复现步骤、预期结果和实际结果，并在上传前移除敏感数据。
+
+## 本地开发
+
+项目要求 Node.js 22.18 或更高版本，并使用 pnpm。首次检出后执行：
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+`pnpm dev` 启动本地开发服务器。不要把 `.env`、API Key、GitHub Token、账号密码、玩家存档或错误报告中的敏感响应提交到仓库。
+
+## 提交前检查
+
+至少运行以下门禁：
+
+```powershell
+pnpm test:unit
+pnpm lint -- --quiet
+pnpm build
+pnpm test:bundle-size
+```
+
+- 修改存档、迁移、发布、头像或提示词功能时，还应运行 `package.json` 中对应的专项回归命令。
+- 新增或修复业务行为时，应补充 Vitest 行为测试；不要只通过匹配源码字符串证明功能正确。
+- 不要手工编辑 `dist/`、`coverage/`、`src-tauri/target/` 等生成目录。
+- 提交应保持范围单一，并说明验证命令与结果。Pull Request 仍需仓库所有者审查后才会影响默认分支。

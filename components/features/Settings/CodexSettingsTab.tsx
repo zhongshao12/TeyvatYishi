@@ -1,3 +1,6 @@
+import { CLIP_CARD, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
+import { useSavedFlash } from '@/hooks/useSavedFlash';
+import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
 ﻿import type { ReactNode } from 'react';
 import { useState } from 'react';
 import type { AI提供商, API配置项, API设置, 游戏设置, 原著约束强度 } from '@/models/settings';
@@ -10,23 +13,10 @@ interface Props {
   apiSettings: API设置;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
-const providerOptions: { value: AI提供商; label: string }[] = [
-  { value: 'openai_compatible', label: 'OpenAI 兼容' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'baidu', label: '百度千帆' },
-  { value: 'opencode', label: 'OpenCode Zen' },
-  { value: 'mimo', label: '小米 MiMo' },
-  { value: 'ark', label: '火山方舟' },
-  { value: 'claude', label: 'Claude' },
-  { value: 'claude_compatible', label: 'Claude 兼容' },
-  { value: 'gemini', label: 'Gemini' },
-];
+
+
+const providerOptions = AI_PROVIDER_OPTIONS;
 
 const constraintOptions: { value: 原著约束强度; label: string; desc: string }[] = [
   { value: 'loose', label: '宽松', desc: '只参考设定，不锁剧情' },
@@ -51,7 +41,7 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [fetchMessage, setFetchMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
   const [saveMessage, setSaveMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const { savedFlash, showSavedFlash, clearSavedFlash } = useSavedFlash(1800);
 
   const patch = (partial: CodexPatch) => {
     onChange({
@@ -112,11 +102,10 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
     setSaveMessage(null);
     try {
       await saveSetting('gameSettings', settings);
-      setSavedFlash(true);
+      showSavedFlash();
       setSaveMessage({ kind: 'info', text: '图鉴设置已保存。' });
-      window.setTimeout(() => setSavedFlash(false), 1800);
     } catch (e) {
-      setSavedFlash(false);
+      clearSavedFlash();
       setSaveMessage({ kind: 'error', text: `保存失败：${(e as Error).message}` });
     }
   };
@@ -128,8 +117,8 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.78)',
           background: 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.15),
+          clipPath: CLIP_CARD,
         }}
       >
         <div className="mb-1 font-serif text-[13px] tracking-[0.18em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))' }}>
@@ -169,9 +158,9 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
                   : 'rgba(var(--tj-bg-secondary), 0.45)',
               boxShadow:
                 codex.原著约束 === opt.value
-                  ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.55)'
-                  : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
-              clipPath: smallClip,
+                  ? insetRing(0.55)
+                  : insetRing(0.16),
+              clipPath: CLIP_SMALL,
             }}
           >
             <div className="font-serif text-sm tracking-[0.22em]" style={{ color: 'rgb(var(--tj-accent-primary))' }}>
@@ -193,7 +182,7 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
             value={codex.maxRelatedEntries}
             onChange={(e) => patch({ maxRelatedEntries: Math.min(5, Math.max(1, Number(e.target.value) || 1)) })}
             className="teyvat-input w-full px-3 py-2 text-sm"
-            style={{ clipPath: smallClip }}
+            style={{ clipPath: CLIP_SMALL }}
           />
           <p className="mt-1 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
             仅控制关键词召回的非角色资料上限；角色档案关键词上限固定 15 条。开启 AI 主动补充后，AI 另可补充最多 8 条。
@@ -214,8 +203,8 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
         className="px-4 py-4 space-y-3"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.45)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.18),
+          clipPath: CLIP_CARD,
         }}
       >
         <div className="flex items-center gap-2">
@@ -230,7 +219,7 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
             value={codex.api.provider}
             onChange={(e) => patch({ api: { provider: e.target.value as AI提供商 } })}
             className="teyvat-input w-full px-3 py-2 text-sm"
-            style={{ clipPath: smallClip }}
+            style={{ clipPath: CLIP_SMALL }}
           >
             {providerOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -246,7 +235,7 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
             onChange={(e) => patch({ api: { baseUrl: e.target.value } })}
             placeholder={mainConfig?.baseUrl ? `留空则使用主 API：${mainConfig.baseUrl}` : 'https://...'}
             className="teyvat-input w-full px-3 py-2 text-sm font-mono"
-            style={{ clipPath: smallClip }}
+            style={{ clipPath: CLIP_SMALL }}
           />
         </Field>
 
@@ -257,7 +246,7 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
             onChange={(e) => patch({ api: { apiKey: e.target.value } })}
             placeholder={mainConfig?.apiKey ? '留空则使用主 API 的 Key' : 'sk-...'}
             className="teyvat-input w-full px-3 py-2 text-sm font-mono"
-            style={{ clipPath: smallClip }}
+            style={{ clipPath: CLIP_SMALL }}
           />
         </Field>
 
@@ -268,7 +257,7 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
               onChange={(e) => patch({ api: { model: e.target.value } })}
               placeholder={mainConfig?.model ? `留空则使用主 API：${mainConfig.model}` : '模型 ID'}
               className="teyvat-input flex-1 px-2.5 py-2 text-sm font-mono"
-              style={{ clipPath: smallClip }}
+              style={{ clipPath: CLIP_SMALL }}
             />
             <button
               onClick={handleFetchModels}
@@ -276,9 +265,9 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
               className="px-3 py-2 text-xs font-serif tracking-wider transition-all disabled:opacity-50"
               style={{
                 color: 'rgba(var(--tj-accent-primary), 0.85)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
+                boxShadow: insetRing(0.35),
                 background: 'rgba(var(--tj-accent-primary), 0.05)',
-                clipPath: smallClip,
+                clipPath: CLIP_SMALL,
               }}
             >
               {loadingModels ? '获取中…' : '获取列表'}
@@ -291,7 +280,7 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
                 if (e.target.value) patch({ api: { model: e.target.value } });
               }}
               className="teyvat-input mt-1.5 w-full px-2.5 py-1.5 text-xs"
-              style={{ clipPath: smallClip }}
+              style={{ clipPath: CLIP_SMALL }}
             >
               <option value="">从列表选择（{modelOptions.length}）</option>
               {modelOptions.map((m) => (
@@ -321,7 +310,7 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
             value={codex.api.retryCount ?? 2}
             onChange={(e) => patch({ api: { retryCount: Math.max(0, Number(e.target.value) || 0) } })}
             className="teyvat-input w-full px-3 py-2 text-sm"
-            style={{ clipPath: smallClip }}
+            style={{ clipPath: CLIP_SMALL }}
           />
         </Field>
 
@@ -337,12 +326,12 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
           style={{
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
-              : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
+              : gradientAccent(0.96, 0.84),
             color: 'rgb(var(--tj-on-accent))',
             boxShadow: savedFlash
               ? 'inset 0 0 0 1px rgba(220, 255, 230, 0.5), 0 0 18px rgba(140, 220, 160, 0.35)'
               : 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 18px rgba(var(--tj-accent-primary), 0.22)',
-            clipPath: cardClip,
+            clipPath: CLIP_CARD,
           }}
         >
           {savedFlash ? '✓ 已 保存' : '◆ 保存 配置'}
@@ -357,7 +346,7 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
                 saveMessage.kind === 'error'
                   ? 'inset 0 0 0 1px rgba(220, 120, 120, 0.25)'
                   : 'inset 0 0 0 1px rgba(120, 200, 140, 0.25)',
-              clipPath: smallClip,
+              clipPath: CLIP_SMALL,
             }}
           >
             {saveMessage.text}
@@ -395,8 +384,8 @@ function ToggleRow({
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.15),
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="min-w-0 mr-3">
@@ -412,12 +401,12 @@ function ToggleRow({
         className="relative h-6 w-11 flex-shrink-0 transition-all"
         style={{
           background: checked
-            ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
+            ? gradientAccent(0.95, 0.86)
             : 'rgba(var(--tj-bg-secondary), 0.68)',
           boxShadow: checked
             ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-          clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+            : insetRing(0.2),
+          clipPath: CLIP_SMALL,
         }}
       >
         <div
@@ -425,7 +414,7 @@ function ToggleRow({
           style={{
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
-            clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+            clipPath: CLIP_XS,
           }}
         />
       </button>

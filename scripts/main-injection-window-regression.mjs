@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function read(path) {
   return fs.readFileSync(path, 'utf8');
@@ -12,7 +13,13 @@ function assert(condition, message) {
 }
 
 const historyWindow = read('hooks/useGame/historyWindow.ts');
-const sendWorkflow = read('hooks/useGame/sendWorkflow.ts');
+// 迁移: 读取源由单个 sendWorkflow.ts 收敛为 scripts/lib/workflowSources.mjs 登记的工作流视图。
+// 理由: M6 把主剧情 API messages 装配抽成 buildNarrativeApiMessages，
+//       落在 hooks/useGame/promptModuleMessageInjection.ts；
+//       assistant 历史瘦身（buildLeanAssistantHistoryContent）随之搬过去，行为未变。
+//       sendWorkflow / promptModuleMessageInjection 均已登记进 WORKFLOW_FILES，
+//       故交给统一登记表读取，后续搬迁不必再改本脚本数组。
+const sendWorkflow = readWorkflowSources();
 const contextSnapshot = read('hooks/useGame/contextSnapshot.ts');
 const systemPromptBuilder = read('hooks/useGame/systemPromptBuilder.ts');
 
@@ -40,7 +47,15 @@ assert(!historyWindow.includes('正文：${compactText(body, 320)}'), '即时剧
 
 assert(sendWorkflow.includes('buildImmediateStoryReview(updatedHistory)'), '主剧情真实请求必须使用默认即时剧情回顾窗口。');
 assert(!sendWorkflow.includes('buildImmediateStoryReview(updatedHistory, 12)'), '主剧情真实请求不得继续固定 12 条即时剧情回顾。');
-assert(sendWorkflow.includes('buildLeanAssistantHistoryContent(msg)'), '主剧情原始 assistant messages 必须先瘦身，避免和即时剧情回顾重复。');
+// 迁移: 旧 `buildLeanAssistantHistoryContent(msg)`（内联在 sendWorkflow、形参名 msg）-> 新
+//   promptModuleMessageInjection.ts 的 `messages.push(创建聊天消息('assistant', buildLeanAssistantHistoryContent(message)));`
+//   （同一次瘦身，形参名随搬家改为 message）。
+//   理由: 断言刻意锚定「buildNarrativeApiMessages 推入 assistant 历史的那一行」，
+//   而不是裸函数名——裸函数名会同时匹配 contextSnapshot 预览链路，失去对真实发送链路的专指性。
+assert(
+  sendWorkflow.includes("messages.push(创建聊天消息('assistant', buildLeanAssistantHistoryContent(message)));"),
+  '主剧情原始 assistant messages 必须先瘦身，避免和即时剧情回顾重复。',
+);
 assert(!sendWorkflow.includes("创建聊天消息('assistant', msg.content)"), '主剧情不得继续直接上传 assistant raw content。');
 assert(sendWorkflow.includes('stripLeakedHistoryMetaFromBody'), '主剧情落库前必须清理模型照抄的历史元标签。');
 assert(sendWorkflow.includes("tag === '历史时间'"), '模型照抄【历史时间】时必须从正文中移除。');

@@ -413,11 +413,51 @@ export const CANONICAL_CHARACTERS: CanonicalCharacterDef[] = [
 
 // 名称 + alias 模糊匹配。简单去空白比较，未来可扩展为 Levenshtein。
 export function matchCanonical(name: string): CanonicalCharacterDef | null {
-  const target = name.replace(/\s+/g, '').trim();
+  const target = name.replace(/\s+/g, '').trim().toLocaleLowerCase('en-US');
   if (!target) return null;
   for (const ch of CANONICAL_CHARACTERS) {
-    if (ch.name.replace(/\s+/g, '') === target) return ch;
-    if (ch.aliases?.some((a) => a.replace(/\s+/g, '') === target)) return ch;
+    if (ch.name.replace(/\s+/g, '').toLocaleLowerCase('en-US') === target) return ch;
+    if (ch.aliases?.some((a) => a.replace(/\s+/g, '').toLocaleLowerCase('en-US') === target)) return ch;
+  }
+  return null;
+}
+
+function canonicalIdCandidates(id: string): string[] {
+  const decoded = (() => {
+    try { return decodeURIComponent(id); } catch { return id; }
+  })().trim();
+  if (!decoded) return [];
+  const candidates = new Set<string>([decoded]);
+  let cursor = decoded;
+  for (let index = 0; index < 4; index += 1) {
+    const stripped = cursor.replace(/^(?:contact|courier|sender|npc)[\s:_-]+/i, '').trim();
+    if (!stripped || stripped === cursor) break;
+    candidates.add(stripped);
+    cursor = stripped;
+  }
+  const tail = decoded.split(/[\s:_-]+/).filter(Boolean).at(-1);
+  if (tail) candidates.add(tail);
+  return [...candidates];
+}
+
+/**
+ * Resolve a canon identity from durable identifiers before trusting model-written labels.
+ * This prevents prose fragments such as “the person who knows your ability” from replacing Lisa.
+ */
+export function matchCanonicalIdentity(input: {
+  id?: string;
+  name?: string;
+  aliases?: readonly string[];
+}): CanonicalCharacterDef | null {
+  for (const candidate of canonicalIdCandidates(input.id ?? '')) {
+    const matched = matchCanonical(candidate);
+    if (matched) return matched;
+  }
+  const byName = matchCanonical(input.name ?? '');
+  if (byName) return byName;
+  for (const alias of input.aliases ?? []) {
+    const matched = matchCanonical(alias);
+    if (matched) return matched;
   }
   return null;
 }

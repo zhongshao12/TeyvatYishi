@@ -1,7 +1,9 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { CLIP_ITEM, CLIP_SECTION, gradientAccent, insetRing } from '@/styles/clipPaths';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
+import { memo } from 'react';
 import type { NPC记录, NPC阶位, NPC_NSFW年龄确认 } from '@/models/npc';
-import { NPC_AFFINITY_MAX, NPC_AFFINITY_MIN, buildNpcMemoryLedgerView, 格式化NPC关系, 归一化NPC记录列表, 提取NPC同行记忆文本列表, 读取NPC头像 } from '@/models/npc';
+import { buildNpcMemoryLedgerView, 格式化NPC关系, 提取NPC同行记忆文本列表, 读取NPC头像 } from '@/models/npc';
 import type { 相册系统 } from '@/models/imageGeneration';
 import type { ArchiveCodex } from '@/models/teyvat/codex';
 import { buildNpcRelationshipPlanning, type NPC关系规划条目 } from '@/services/npcRelationshipPlanning';
@@ -11,6 +13,12 @@ import { RelationshipGraphPanel } from './RelationshipGraphPanel';
 import { 解析相册资源引用 } from '@/utils/albumActions';
 import type { CourierSystem } from '@/models/teyvat/courier';
 import { addNpcToCourierContacts } from '@/services/ai/courierService';
+import {
+  AffinityMeter,
+  CompanionAvatar as Avatar,
+  CompanionRosterSidebar,
+  getAffinityTone,
+} from './companion/CompanionRosterSidebar';
 
 interface CompanionPanelProps {
   npcRecords: NPC记录[];
@@ -29,15 +37,13 @@ interface CompanionPanelProps {
 
 type DetailTab = 'archive' | 'planning' | 'memory' | 'nsfw';
 
-const cardClip =
-  'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)';
-const smallClip =
-  'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)';
+
+
 
 const panelStyle: CSSProperties = {
   background: 'radial-gradient(circle at 12% 0%, rgba(var(--tj-arcane-accent), 0.12), transparent 34%), linear-gradient(180deg, rgba(var(--tj-surface), 0.74), rgba(var(--tj-bg-primary), 0.92))',
   boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.72), inset 3px 0 0 rgba(var(--tj-arcane-accent-deep, var(--tj-accent-primary)), 0.36)',
-  clipPath: cardClip,
+  clipPath: CLIP_SECTION,
 };
 const titleColor = 'rgb(var(--tj-ui-title))';
 const bodyColor = 'rgba(var(--tj-ui-body), 0.95)';
@@ -48,31 +54,30 @@ const activeTextColor = 'rgb(var(--tj-ui-active-text))';
 const nsfwColor = 'rgb(var(--tj-ui-nsfw))';
 const activeSurface = 'linear-gradient(90deg, rgba(var(--tj-btn-primary-start), 0.16), rgba(var(--tj-arcane-accent), 0.055))';
 const quietSurface = 'linear-gradient(135deg, rgba(var(--tj-ui-panel), 0.62), rgba(var(--tj-ui-panel-strong), 0.72))';
+const ROSTER_PAGE_SIZE = 60;
 
-export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, nsfwEnabled, maleNsfwArchiveEnabled = false, codex, devMode = false, variableBatches, courier, onCourierChange, travelerName }: CompanionPanelProps) {
+export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, turnCount, nsfwEnabled, maleNsfwArchiveEnabled = false, codex, devMode = false, variableBatches, courier, onCourierChange, travelerName }: CompanionPanelProps) {
   const [tab, setTab] = useState<NPC阶位 | 'graph'>('companion');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [correctionDraft, setCorrectionDraft] = useState('');
   const [partyHint, setPartyHint] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const normalizedRecords = useMemo(() => {
-    const normalized = 归一化NPC记录列表(npcRecords);
-    return enrichNpcArchives(normalized, {
-      nsfwEnabled,
-      maleNsfwArchiveEnabled,
-      codex,
-    }).records;
-  }, [npcRecords, nsfwEnabled, maleNsfwArchiveEnabled, codex]);
-
-  useEffect(() => {
-    const normalized = 归一化NPC记录列表(npcRecords);
-    const enriched = enrichNpcArchives(normalized, {
+  const [visibleNpcCount, setVisibleNpcCount] = useState(ROSTER_PAGE_SIZE);
+  const enrichedRecords = useMemo(() => {
+    // The canonical runtime already normalized this roster at the state
+    // boundary. Re-running legacy identity merging here was quadratic and
+    // made opening a 100+ character roster visibly stall.
+    return enrichNpcArchives(npcRecords, {
       nsfwEnabled,
       maleNsfwArchiveEnabled,
       codex,
     });
-    if (enriched.changed) onNpcRecordsChange(enriched.records);
-  }, [npcRecords, nsfwEnabled, maleNsfwArchiveEnabled, codex, onNpcRecordsChange]);
+  }, [npcRecords, nsfwEnabled, maleNsfwArchiveEnabled, codex]);
+  const normalizedRecords = enrichedRecords.records;
+
+  useEffect(() => {
+    if (enrichedRecords.changed) onNpcRecordsChange(enrichedRecords.records);
+  }, [enrichedRecords, onNpcRecordsChange]);
 
   const companions = useMemo(
     () => sortNpcRecords(normalizedRecords.filter((n) => n.阶位 === 'companion')),
@@ -82,7 +87,19 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, nsfwEnab
     () => sortNpcRecords(normalizedRecords.filter((n) => n.阶位 === 'extra' && n.关系 !== 'enemy')),
     [normalizedRecords],
   );
-  const visible = filterNpcRoster(tab === 'companion' ? companions : extras, searchQuery);
+  const filteredRoster = useMemo(
+    () => filterNpcRoster(tab === 'companion' ? companions : extras, searchQuery),
+    [companions, extras, searchQuery, tab],
+  );
+  const visible = useMemo(
+    () => filteredRoster.slice(0, visibleNpcCount),
+    [filteredRoster, visibleNpcCount],
+  );
+  const hiddenNpcCount = Math.max(0, filteredRoster.length - visible.length);
+
+  useEffect(() => {
+    setVisibleNpcCount(ROSTER_PAGE_SIZE);
+  }, [searchQuery, tab]);
 
   const travelingCount = companions.filter((n) => n.同行).length;
   const friendCount = companions.filter((n) => ['friend', 'close'].includes(n.关系)).length;
@@ -94,83 +111,58 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, nsfwEnab
 
   const selected = visible.find((n) => n.id === selectedId) ?? null;
   const relationshipPlanning = useMemo(
-    () => buildNpcRelationshipPlanning(normalizedRecords, Math.max(...normalizedRecords.map((npc) => Number(npc.最近回合) || 0), 1)),
-    [normalizedRecords],
+    () => buildNpcRelationshipPlanning(normalizedRecords, Math.max(1, turnCount)),
+    [normalizedRecords, turnCount],
   );
   const selectedPlanning = selected ? relationshipPlanning.条目.find((item) => item.npcId === selected.id) : undefined;
 
-  const updateRecord = (id: string, patch: Partial<NPC记录>) => {
+  const updateRecord = useCallback((id: string, patch: Partial<NPC记录>) => {
     onNpcRecordsChange((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
-  };
+  }, [onNpcRecordsChange]);
 
-  const promoteToCompanion = (id: string) => updateRecord(id, { 阶位: 'companion' });
-  const demoteToExtra = (id: string) => updateRecord(id, { 阶位: 'extra', 同行: false });
+  const promoteToCompanion = useCallback((id: string) => updateRecord(id, { 阶位: 'companion' }), [updateRecord]);
+  const demoteToExtra = useCallback((id: string) => updateRecord(id, { 阶位: 'extra', 同行: false }), [updateRecord]);
+  const handleInviteToggle = useCallback((npc: NPC记录) => {
+    if (!npc.同行 && companions.filter((item) => item.同行).length >= 3) {
+      setPartyHint('队伍已满（旅行者 + 3 名同伴）。请先请离一名同伴，再发出邀请。');
+      return;
+    }
+    setPartyHint('');
+    updateRecord(npc.id, { 同行: !npc.同行 });
+  }, [companions, updateRecord]);
+  const handleAddPhoneContact = useCallback((npc: NPC记录) => {
+    if (!courier || !onCourierChange) return;
+    onCourierChange(addNpcToCourierContacts(courier, npc));
+  }, [courier, onCourierChange]);
+  const handleSelectNpc = useCallback((id: string) => setSelectedId(id), []);
+  const handleShowMoreNpcs = useCallback(() => {
+    setVisibleNpcCount((count) => count + ROSTER_PAGE_SIZE);
+  }, []);
+  const handleGraphNpcSelect = useCallback((id: string) => {
+    setSelectedId(id);
+    setTab(normalizedRecords.find((npc) => npc.id === id)?.阶位 === 'extra' ? 'extra' : 'companion');
+  }, [normalizedRecords]);
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overflow-x-hidden md:flex-row md:gap-4 md:overflow-hidden">
-      <aside className="flex min-w-0 shrink-0 flex-col gap-3 md:min-h-0 md:w-[260px]">
-        <div className="hidden px-3 py-3 md:block" style={panelStyle}>
-          <div>
-            <div>
-              <div
-                className="font-serif text-[12px] tracking-[0.3em]"
-                style={{ color: accentColor }}
-              >
-                人际档案
-              </div>
-              <div
-                className="mt-1 font-serif text-[12px] tracking-[0.12em]"
-                style={{ color: mutedColor }}
-              >
-                同行 {travelingCount} / 朋友 {friendCount} / 全部 {normalizedRecords.length}
-              </div>
-            </div>
-            <div className="mt-3 text-[11px] leading-relaxed" style={{ color: mutedColor }}>
-              关系规划：{relationshipPlanning.总览}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2">
-          <TabButton active={tab === 'companion'} onClick={() => setTab('companion')}>
-            伙伴 {companions.length}
-          </TabButton>
-          <TabButton active={tab === 'extra'} onClick={() => setTab('extra')}>
-            路人 {extras.length}
-          </TabButton>
-          <TabButton active={tab === 'graph'} onClick={() => setTab('graph')}>
-            关系图
-          </TabButton>
-        </div>
-
-        {tab !== 'graph' && (
-          <input
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            aria-label="搜索同伴"
-            placeholder="搜索姓名、别名、身份或备注…"
-            className="teyvat-input w-full px-3 py-2 text-xs"
-            style={{ clipPath: smallClip }}
-          />
-        )}
-
-        <div className="flex min-w-0 gap-2 overflow-x-auto overflow-y-hidden pb-1 md:min-h-0 md:flex-1 md:block md:space-y-2 md:overflow-y-auto md:overflow-x-hidden md:pb-0 md:pr-1">
-          {visible.length ? (
-            visible.map((npc) => (
-              <NpcListItem
-                key={npc.id}
-                npc={npc}
-                album={album}
-                selected={npc.id === selectedId}
-                onClick={() => {
-                  setSelectedId(npc.id);
-                }}
-              />
-            ))
-          ) : (
-            <EmptyRoster tab={tab} />
-          )}
-        </div>
-      </aside>
+      <CompanionRosterSidebar
+        tab={tab}
+        onTabChange={setTab}
+        companions={companions}
+        extras={extras}
+        visible={visible}
+        hiddenNpcCount={hiddenNpcCount}
+        nextPageCount={Math.min(ROSTER_PAGE_SIZE, hiddenNpcCount)}
+        onShowMore={handleShowMoreNpcs}
+        selectedId={selectedId}
+        onSelectNpc={handleSelectNpc}
+        album={album}
+        searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
+        travelingCount={travelingCount}
+        friendCount={friendCount}
+        totalCount={normalizedRecords.length}
+        relationshipOverview={relationshipPlanning.总览}
+      />
 
       <main className="min-h-0 min-w-0 flex-1 overflow-y-visible md:overflow-y-auto md:pr-1">
         {selected && tab !== 'graph' && (
@@ -180,14 +172,14 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, nsfwEnab
               onChange={(event) => setCorrectionDraft(event.target.value)}
               placeholder="追加玩家纠正（防止 OOC）…"
               className="teyvat-input min-w-0 flex-1 px-3 py-2 text-xs"
-              style={{ clipPath: smallClip }}
+              style={{ clipPath: CLIP_ITEM }}
             />
             <button type="button" onClick={() => {
               const text = correctionDraft.trim();
               if (!text) return;
               updateRecord(selected.id, { 玩家纠正记录: [...(selected.玩家纠正记录 ?? []), text].slice(-10) });
               setCorrectionDraft('');
-            }} className="shrink-0 px-3 py-2 text-xs" style={{ color: 'rgb(var(--tj-text-primary))', background: 'rgba(var(--tj-accent-primary),0.12)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.4)', clipPath: smallClip }}>记录</button>
+            }} className="shrink-0 px-3 py-2 text-xs" style={{ color: 'rgb(var(--tj-text-primary))', background: 'rgba(var(--tj-accent-primary),0.12)', boxShadow: insetRing(0.4), clipPath: CLIP_ITEM }}>记录</button>
           </div>
         )}
         {tab === 'graph' ? (
@@ -195,10 +187,7 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, nsfwEnab
             npcRecords={normalizedRecords}
             variableBatches={variableBatches}
             travelerName={travelerName}
-            onSelectNpc={(id) => {
-              setSelectedId(id);
-              setTab(normalizedRecords.find((npc) => npc.id === id)?.阶位 === 'extra' ? 'extra' : 'companion');
-            }}
+            onSelectNpc={handleGraphNpcSelect}
           />
         ) : selected ? (
           <>
@@ -209,20 +198,13 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, nsfwEnab
             npc={selected}
             album={album}
             nsfwEnabled={nsfwEnabled}
-            onPromote={() => promoteToCompanion(selected.id)}
-            onDemote={() => demoteToExtra(selected.id)}
-            onInviteToggle={() => {
-              if (!selected.同行 && companions.filter((n) => n.同行).length >= 3) {
-                setPartyHint('队伍已满（旅行者 + 3 名同伴）。请先请离一名同伴，再发出邀请。');
-                return;
-              }
-              setPartyHint('');
-              updateRecord(selected.id, { 同行: !selected.同行 });
-            }}
+            onPromote={promoteToCompanion}
+            onDemote={demoteToExtra}
+            onInviteToggle={handleInviteToggle}
             planning={selectedPlanning}
             devMode={devMode}
             isPhoneContact={Boolean(courier?.contacts.some((contact) => contact.npcId === selected.id || contact.name === selected.姓名))}
-            onAddPhoneContact={courier && onCourierChange ? () => onCourierChange(addNpcToCourierContacts(courier, selected)) : undefined}
+            onAddPhoneContact={courier && onCourierChange ? handleAddPhoneContact : undefined}
           />
           </>
         ) : (
@@ -251,15 +233,7 @@ function sortNpcRecords(records: NPC记录[]) {
   });
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
@@ -267,13 +241,11 @@ function TabButton({
       className="min-w-0 flex-1 whitespace-nowrap px-2.5 py-2 font-serif text-[12px] tracking-[0.18em] transition-all"
       style={{
         color: active ? titleColor : faintColor,
-        background: active
-          ? activeSurface
-          : 'rgba(var(--tj-btn-primary-start), 0.035)',
+        background: active ? activeSurface : 'rgba(var(--tj-btn-primary-start), 0.035)',
         boxShadow: active
           ? 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.56), 0 8px 18px rgba(var(--tj-shadow), 0.08)'
           : 'inset 0 0 0 1px rgba(var(--tj-border), 0.46)',
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       {children}
@@ -281,129 +253,7 @@ function TabButton({
   );
 }
 
-function NpcListItem({
-  npc,
-  album,
-  selected,
-  onClick,
-}: {
-  npc: NPC记录;
-  album?: 相册系统;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  const relation = 格式化NPC关系(npc.好感度, Boolean(npc.亲密关系));
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex w-[132px] shrink-0 flex-col items-center gap-2 px-2 py-3 text-center transition-all hover:bg-[rgba(var(--tj-btn-primary-start),0.07)] md:w-full md:flex-row md:gap-3 md:px-3 md:text-left"
-      style={{
-        background: selected
-          ? activeSurface
-          : quietSurface,
-        boxShadow: selected
-          ? 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.56), inset 3px 0 0 linear-gradient(135deg, rgba(var(--tj-btn-primary-start),0.86), rgba(var(--tj-btn-primary-end),0.82))'
-          : 'inset 0 0 0 1px rgba(var(--tj-border), 0.5)',
-        clipPath: smallClip,
-      }}
-    >
-      <Avatar npc={npc} album={album} size={46} selected={selected} />
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center justify-center gap-2 md:justify-start">
-          <span
-            className="max-w-full truncate font-serif text-[13px] font-semibold tracking-[0.08em] md:text-[14px]"
-            style={{ color: selected ? titleColor : bodyColor }}
-          >
-            {npc.姓名}
-          </span>
-          {npc.同行 && <PresenceDot />}
-        </div>
-        <div
-          className="mt-0.5 truncate font-serif text-[11px] tracking-[0.1em] md:text-[12px]"
-          style={{ color: mutedColor }}
-        >
-          {relation}
-          {npc.原著角色 ? ' / 原著' : ''}
-        </div>
-        <AffinityMeter value={npc.好感度} compact />
-      </div>
-    </button>
-  );
-}
-
-function Avatar({
-  npc,
-  album,
-  size,
-  selected = false,
-  slot = '档案',
-}: {
-  npc: NPC记录;
-  album?: 相册系统;
-  size: number;
-  selected?: boolean;
-  slot?: '档案' | '正文' | '手机';
-}) {
-  const src = 解析相册资源引用(album, 读取NPC头像(npc, slot));
-  const style: CSSProperties = {
-    width: size,
-    height: size,
-    borderRadius: '50%',
-    background: 'linear-gradient(145deg, rgba(var(--tj-btn-primary-start), 0.14), rgba(var(--tj-arcane-accent), 0.055))',
-    boxShadow: selected
-      ? '0 0 0 1px rgba(var(--tj-btn-primary-start), 0.72), 0 0 18px rgba(var(--tj-btn-primary-start), 0.16)'
-      : '0 0 0 1px rgba(var(--tj-border), 0.72)',
-  };
-
-  if (src) {
-    return (
-      <span className="relative shrink-0" style={{ width: size, height: size }}>
-        <img
-          src={src}
-          alt={npc.姓名}
-          className="h-full w-full object-cover"
-          style={style}
-        />
-        <span
-          className="pointer-events-none absolute inset-0 rounded-full"
-          style={{ boxShadow: 'inset 0 0 12px rgba(var(--tj-text-primary),0.12)' }}
-        />
-      </span>
-    );
-  }
-
-  return (
-    <div
-      className="relative shrink-0 flex items-center justify-center overflow-hidden font-serif font-semibold"
-      style={{
-        ...style,
-        fontSize: Math.max(16, Math.floor(size * 0.42)),
-        color: selected ? titleColor : accentColor,
-      }}
-    >
-      <span
-        className="absolute inset-[6px] rounded-full"
-        style={{ boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.38)' }}
-      />
-      {npc.姓名.slice(0, 1)}
-    </div>
-  );
-}
-
-function PresenceDot() {
-  return (
-    <span
-      className="h-2 w-2 shrink-0 rounded-full"
-      style={{
-        background: 'rgb(128, 224, 166)',
-        boxShadow: '0 0 8px rgba(var(--tj-ui-success),0.7)',
-      }}
-    />
-  );
-}
-
-function NpcDetail({
+const NpcDetail = memo(function NpcDetail({
   npc,
   album,
   onPromote,
@@ -417,14 +267,14 @@ function NpcDetail({
 }: {
   npc: NPC记录;
   album?: 相册系统;
-  onPromote: () => void;
-  onDemote: () => void;
-  onInviteToggle: () => void;
+  onPromote: (npcId: string) => void;
+  onDemote: (npcId: string) => void;
+  onInviteToggle: (npc: NPC记录) => void;
   nsfwEnabled: boolean;
   planning?: NPC关系规划条目;
   devMode: boolean;
   isPhoneContact: boolean;
-  onAddPhoneContact?: () => void;
+  onAddPhoneContact?: (npc: NPC记录) => void;
 }) {
   const isCompanion = npc.阶位 === 'companion';
   const [detailTab, setDetailTab] = useState<DetailTab>('archive');
@@ -447,7 +297,7 @@ function NpcDetail({
                   color: 'rgba(var(--tj-ui-success),0.96)',
                   background: 'rgba(var(--tj-panel-bg-start),0.92)',
                   boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-success),0.48)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_ITEM,
                 }}
               >
                 队伍中
@@ -480,17 +330,17 @@ function NpcDetail({
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <ActionChip active={isPhoneContact} onClick={() => onAddPhoneContact?.()}>
+              <ActionChip active={isPhoneContact} onClick={() => onAddPhoneContact?.(npc)}>
                 {isPhoneContact ? '已在手机联系人' : '添加到手机联系人'}
               </ActionChip>
               {isCompanion ? (
-                <ActionChip active={npc.同行} onClick={onInviteToggle}>
+                <ActionChip active={npc.同行} onClick={() => onInviteToggle(npc)}>
                   {npc.同行 ? '请离队伍' : '邀请入队'}
                 </ActionChip>
               ) : (
                 <ActionChip active={false} onClick={() => {
-                  onPromote();
-                  onInviteToggle();
+                  onPromote(npc.id);
+                  onInviteToggle(npc);
                 }}>
                   邀请入队
                 </ActionChip>
@@ -499,12 +349,12 @@ function NpcDetail({
                 npc.原著角色 ? (
                   <Chip tone="gold">常驻伙伴</Chip>
                 ) : (
-                  <ActionChip active onClick={onDemote}>
+                  <ActionChip active onClick={() => onDemote(npc.id)}>
                     移出伙伴
                   </ActionChip>
                 )
               ) : (
-                <ActionChip active={false} onClick={onPromote}>
+                <ActionChip active={false} onClick={() => onPromote(npc.id)}>
                   标为伙伴
                 </ActionChip>
               )}
@@ -602,7 +452,7 @@ function NpcDetail({
       {nsfwEnabled && detailTab === 'nsfw' && <NSFWArchivePanel npc={npc} />}
     </div>
   );
-}
+});
 
 function VisualArchivePanel({ npc, album }: { npc: NPC记录; album?: 相册系统 }) {
   return (
@@ -646,7 +496,7 @@ function AvatarSlotCard({
         boxShadow: src
           ? 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.32)'
           : 'inset 0 0 0 1px rgba(var(--tj-border), 0.48)',
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       <Avatar npc={npc} album={album} size={42} slot={slot} selected={Boolean(src)} />
@@ -675,7 +525,7 @@ function NSFWArchivePanel({ npc }: { npc: NPC记录 }) {
         style={{
           background: 'linear-gradient(135deg, rgba(var(--tj-ui-nsfw), 0.13), rgba(var(--tj-ui-panel), 0.72))',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw),0.22)',
-          clipPath: smallClip,
+          clipPath: CLIP_ITEM,
         }}
       >
         <div className="flex items-center justify-between gap-3">
@@ -772,7 +622,7 @@ function PartImageSlot({ title, src }: { title: string; src?: string }) {
       style={{
         background: src ? 'rgba(var(--tj-ui-nsfw), 0.075)' : 'rgba(var(--tj-ui-nsfw), 0.035)',
         boxShadow: src ? 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.28)' : 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.12)',
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       <div className="aspect-[4/3]" style={{ background: 'rgba(var(--tj-ui-panel-strong), 0.58)' }}>
@@ -806,7 +656,7 @@ function formatNsfwAge(age: NPC_NSFW年龄确认 | undefined): string {
 
 function TagGroup({ title, items, empty }: { title: string; items: string[]; empty: string }) {
   return (
-    <div className="min-w-0 px-3 py-3" style={{ background: 'rgba(var(--tj-ui-panel),0.68)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw),0.18)', clipPath: smallClip }}>
+    <div className="min-w-0 px-3 py-3" style={{ background: 'rgba(var(--tj-ui-panel),0.68)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw),0.18)', clipPath: CLIP_ITEM }}>
       <div className="mb-2 font-serif text-[11px] tracking-[0.24em]" style={{ color: 'rgba(var(--tj-ui-nsfw),0.82)' }}>
         {title}
       </div>
@@ -823,7 +673,7 @@ function TagGroup({ title, items, empty }: { title: string; items: string[]; emp
 
 function ArchiveField({ title, text }: { title: string; text?: string }) {
   return (
-    <div className="min-w-0 px-3 py-3" style={{ background: 'rgba(var(--tj-ui-panel),0.66)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw),0.16)', clipPath: smallClip }}>
+    <div className="min-w-0 px-3 py-3" style={{ background: 'rgba(var(--tj-ui-panel),0.66)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw),0.16)', clipPath: CLIP_ITEM }}>
       <div className="mb-2 font-serif text-[11px] tracking-[0.24em]" style={{ color: 'rgba(var(--tj-ui-nsfw),0.82)' }}>
         {title}
       </div>
@@ -834,7 +684,7 @@ function ArchiveField({ title, text }: { title: string; text?: string }) {
 
 function ListBlock({ title, items, empty }: { title: string; items: string[]; empty: string }) {
   return (
-    <div className="min-w-0 px-3 py-3" style={{ background: 'rgba(var(--tj-ui-panel),0.66)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw),0.16)', clipPath: smallClip }}>
+    <div className="min-w-0 px-3 py-3" style={{ background: 'rgba(var(--tj-ui-panel),0.66)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw),0.16)', clipPath: CLIP_ITEM }}>
       <div className="mb-2 font-serif text-[11px] tracking-[0.24em]" style={{ color: 'rgba(var(--tj-ui-nsfw),0.82)' }}>
         {title}
       </div>
@@ -860,7 +710,7 @@ function InfoPill({ label, value }: { label: string; value: string }) {
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-surface),0.62), rgba(var(--tj-surface-strong),0.72))',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.62)',
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       <div
@@ -887,7 +737,7 @@ function ActionChip({ active, onClick, children }: { active: boolean; onClick: (
         boxShadow: active
           ? 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.52)'
           : 'inset 0 0 0 1px rgba(var(--tj-border), 0.52)',
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       {children}
@@ -903,7 +753,7 @@ function AffinityBadge({ value }: { value: number }) {
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-surface),0.62), rgba(var(--tj-surface-strong),0.72))',
         boxShadow: `inset 0 0 0 1px ${tone.stroke}`,
-        clipPath: cardClip,
+        clipPath: CLIP_SECTION,
       }}
     >
       <div className="font-serif text-[34px] leading-none" style={{ color: tone.color }}>
@@ -920,66 +770,6 @@ function AffinityBadge({ value }: { value: number }) {
   );
 }
 
-function AffinityMeter({ value, compact = false }: { value: number; compact?: boolean }) {
-  const tone = getAffinityTone(value);
-  const percent = Math.max(0, Math.min(100, ((value - NPC_AFFINITY_MIN) / (NPC_AFFINITY_MAX - NPC_AFFINITY_MIN)) * 100));
-  return (
-    <div className={compact ? 'mt-1.5 flex items-center gap-2' : 'mt-2 flex items-center gap-2'}>
-      <span className="font-serif text-[12px]" style={{ color: tone.color }}>
-        ♥
-      </span>
-      <div
-        className="relative h-1.5 flex-1 overflow-hidden"
-        style={{
-          background: 'rgba(var(--tj-surface-strong),0.72)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.42)',
-        }}
-      >
-        <div
-          className="absolute inset-y-0 left-0"
-          style={{
-            width: `${percent}%`,
-            background: tone.fill,
-          }}
-        />
-      </div>
-      <span className="w-8 text-right font-mono text-[11px]" style={{ color: mutedColor }}>
-        {value > 0 ? '+' : ''}
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function getAffinityTone(value: number) {
-  if (value >= 60) {
-    return {
-      color: 'rgba(var(--tj-ui-nsfw),0.98)',
-      stroke: 'rgba(var(--tj-ui-nsfw),0.45)',
-      fill: 'linear-gradient(90deg, rgba(var(--tj-ui-nsfw),0.62), rgba(var(--tj-ui-nsfw),0.96))',
-    };
-  }
-  if (value >= 30) {
-    return {
-      color: 'rgba(var(--tj-ui-nsfw),0.96)',
-      stroke: 'rgba(var(--tj-ui-nsfw),0.38)',
-      fill: 'linear-gradient(90deg, rgba(var(--tj-ui-nsfw),0.5), rgba(var(--tj-ui-nsfw),0.9))',
-    };
-  }
-  if (value >= 0) {
-    return {
-      color: 'rgba(var(--tj-text-secondary),0.9)',
-      stroke: 'rgba(var(--tj-border), 0.42)',
-      fill: 'linear-gradient(90deg, rgba(var(--tj-text-secondary),0.4), rgba(var(--tj-text-secondary),0.78))',
-    };
-  }
-  return {
-    color: 'rgba(var(--tj-arcane-blue),0.86)',
-    stroke: 'rgba(var(--tj-arcane-blue),0.34)',
-    fill: 'linear-gradient(90deg, rgba(var(--tj-panel-bg-start),0.75), rgba(var(--tj-arcane-blue),0.62))',
-  };
-}
-
 function DetailBlock({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="px-4 py-4" style={panelStyle}>
@@ -992,7 +782,7 @@ function DetailBlock({ title, children }: { title: string; children: ReactNode }
 function SectionTitle({ children }: { children: ReactNode }) {
   return (
     <div className="mb-3 flex items-center gap-2">
-      <span className="h-3 w-[3px]" style={{ background: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start),0.86), rgba(var(--tj-btn-primary-end),0.82))' }} />
+      <span className="h-3 w-[3px]" style={{ background: gradientAccent(0.86, 0.82) }} />
       <h4 className="font-serif text-[13px] tracking-[0.26em]" style={{ color: accentColor }}>
         {children}
       </h4>
@@ -1039,7 +829,7 @@ function LedgerListCard({ title, items, tone = 'normal' }: { title: string; item
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-surface),0.58), rgba(var(--tj-surface-strong),0.72))',
         boxShadow: `inset 2px 0 0 ${railColor}, inset 0 0 0 1px rgba(var(--tj-border), 0.46)`,
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       <div className="flex min-w-0 items-center justify-between gap-2">
@@ -1144,7 +934,7 @@ function MemoryPanel({ npc, devMode = false }: { npc: NPC记录; devMode?: boole
                     color: bodyColor,
                     background: 'linear-gradient(135deg, rgba(var(--tj-surface),0.56), rgba(var(--tj-surface-strong),0.66))',
                     boxShadow: 'inset 2px 0 0 rgba(var(--tj-btn-primary-start), 0.54), inset 0 0 0 1px rgba(var(--tj-border), 0.48)',
-                    clipPath: smallClip,
+                    clipPath: CLIP_ITEM,
                   }}
                 >
                   <div className="mb-1 text-[11px] tracking-[0.18em]" style={{ color: accentColor }}>
@@ -1171,7 +961,7 @@ function MemoryPanel({ npc, devMode = false }: { npc: NPC记录; devMode?: boole
                   color: bodyColor,
                   background: 'linear-gradient(135deg, rgba(var(--tj-surface),0.62), rgba(var(--tj-surface-strong),0.72))',
                   boxShadow: 'inset 2px 0 0 rgba(var(--tj-arcane-accent-deep, var(--tj-accent-primary)), 0.62), inset 0 0 0 1px rgba(var(--tj-border), 0.56)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_ITEM,
                 }}
               >
                 {memory}
@@ -1211,23 +1001,10 @@ function Chip({ tone, children }: { tone: 'gold' | 'silver'; children: ReactNode
   return (
     <span
       className="px-2 py-0.5 font-serif text-[12px] tracking-[0.18em]"
-      style={{ color: palette.color, boxShadow: `inset 0 0 0 1px ${palette.stroke}`, clipPath: smallClip }}
+      style={{ color: palette.color, boxShadow: `inset 0 0 0 1px ${palette.stroke}`, clipPath: CLIP_ITEM }}
     >
       {children}
     </span>
-  );
-}
-
-function EmptyRoster({ tab }: { tab: NPC阶位 | 'graph' }) {
-  return (
-    <div className="px-4 py-8 text-center" style={panelStyle}>
-      <div className="font-serif text-[20px]" style={{ color: 'rgba(var(--tj-btn-primary-start), 0.45)' }}>
-        ✦
-      </div>
-      <div className="mt-2 font-serif text-[13px] tracking-[0.18em]" style={{ color: faintColor }}>
-        {tab === 'companion' ? '尚未结识伙伴' : '尚无路人档案'}
-      </div>
-    </div>
   );
 }
 

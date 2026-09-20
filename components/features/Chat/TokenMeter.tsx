@@ -1,3 +1,4 @@
+import { CLIP_SMALL } from '@/styles/clipPaths';
 import type { TokenTotals } from '@/utils/tokenUsageStats';
 
 interface TokenMeterProps {
@@ -6,7 +7,7 @@ interface TokenMeterProps {
   budgetTokens?: number;
 }
 
-const smallClip = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
 
 export function TokenMeter({ turnTokens, sessionTotal, budgetTokens }: TokenMeterProps) {
   const overBudget = Boolean(budgetTokens && budgetTokens > 0 && sessionTotal.totalTokens > budgetTokens);
@@ -19,7 +20,7 @@ export function TokenMeter({ turnTokens, sessionTotal, budgetTokens }: TokenMete
         color: overBudget ? "rgba(var(--tj-accent-secondary),0.95)" : "rgba(var(--tj-text-secondary),0.68)",
         background: overBudget ? "rgba(var(--tj-accent-secondary),0.09)" : "rgba(var(--tj-bg-primary),0.5)",
         boxShadow: `inset 0 0 0 1px ${overBudget ? "rgba(var(--tj-accent-secondary),0.35)" : "rgba(var(--tj-border),0.45)"}`,
-        clipPath: smallClip,
+        clipPath: CLIP_SMALL,
       }}>
         {text}{overBudget ? " · 超出预算" : ""}
       </span>

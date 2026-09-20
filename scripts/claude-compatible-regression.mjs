@@ -10,7 +10,11 @@ const useGame = fs.readFileSync('hooks/useGame.ts', 'utf8');
 const client = fs.readFileSync('services/ai/chatCompletionClient.ts', 'utf8');
 const providerRouting = fs.readFileSync('services/ai/providerRouting.ts', 'utf8');
 const apiTools = fs.readFileSync('services/ai/apiTools.ts', 'utf8');
-const apiSettings = fs.readFileSync('components/features/Settings/ApiSettings.tsx', 'utf8');
+// 提供商选项定义已抽到 data/aiProviderOptions.ts；按「API 设置页 + 提供商选项」整体读取。
+const apiSettings = [
+  fs.readFileSync('components/features/Settings/ApiSettings.tsx', 'utf8'),
+  fs.readFileSync('data/aiProviderOptions.ts', 'utf8'),
+].join('\n');
 const gameSettings = fs.readFileSync('components/features/Settings/GameSettings.tsx', 'utf8');
 const settingTabs = [
   'components/features/Settings/ApiSettings.tsx',
@@ -35,7 +39,7 @@ assert(settings.includes('enableClaudeMode: boolean'), '游戏设置必须保存
 assert(settings.includes('enableClaudeMode: false'), 'Claude 专用模式默认必须关闭。');
 assert(gameState.includes('enableClaudeMode: savedGame.enableClaudeMode ?? defaults.enableClaudeMode'), '旧存档读取必须归一化 Claude 模式。');
 assert(
-  useGame.includes('const s = stateRef.current') && useGame.includes('enableClaudeMode: s.gameSettings.enableClaudeMode === true'),
+  useGame.includes('const s = stateRef.current') && useGame.includes('enableClaudeMode') && useGame.includes('s.gameSettings.enableClaudeMode === true'),
   '主 API 运行时配置必须从最新状态注入 Claude 模式。',
 );
 
@@ -47,7 +51,7 @@ assert(gameSettings.includes('Gemini、DeepSeek、OpenAI 兼容模型仍走各�
 assert(apiSettings.includes('怎么选：其他功能用 Gemini 或通用中转时'), 'API 设置页必须用玩家可读文案提示其他功能如何选择供应商。');
 for (const file of settingTabs) {
   const text = fs.readFileSync(file, 'utf8');
-  assert(text.includes('claude_compatible') && text.includes('Claude 兼容'), `${file} 必须提供 Claude 兼容选项。`);
+  assert(text.includes("from '@/data/aiProviderOptions'") && text.includes('AI_PROVIDER_OPTIONS') || text.includes('Claude 兼容'), `${file} 必须提供 Claude 兼容选项。`);
 }
 for (const file of runtimeBuilders) {
   const text = fs.readFileSync(file, 'utf8');

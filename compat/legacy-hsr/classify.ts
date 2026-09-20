@@ -12,10 +12,6 @@ const LEGACY_CHARACTERS = new Set(['三月七', '丹恒', '姬子', '瓦尔特',
 const TEYVAT_STORY_SERIES = new Set(['mondstadt-prologue', 'liyue-chapter', 'inazuma-chapter', 'sumeru-chapter', 'fontaine-chapter', 'natlan-chapter']);
 const LEGACY_STORY_SERIES = new Set(['trailblaze-mission-herta', 'trailblaze-mission-belobog', 'trailblaze-mission-xianzhou', 'trailblaze-mission-penacony']);
 
-function isRecord(value: unknown): value is RecordValue {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 function stringAt(record: RecordValue, ...keys: string[]): string | undefined {
   for (const key of keys) {
     const value = record[key];
@@ -76,3 +72,4 @@ export function classifySaveUniverse(input: unknown): SaveUniverseClass {
   if (teyvat.size >= 2 && legacy.size < 2) return 'partial-teyvat';
   return 'unknown';
 }
+import { isRecord } from '@/utils/valueGuards';

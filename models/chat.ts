@@ -50,6 +50,7 @@ export interface 聊天消息 {
     deepSeekCotFakeHistorySkipped?: boolean;
     deepSeekPrefixMode?: boolean;
     deepSeekProtocolIssues?: string[];
+    narrativeNormalizationWarnings?: string[];
     deepSeekMainOriginalModel?: string;
     deepSeekMainAdaptedModel?: string;
     stV2Attempted?: boolean;

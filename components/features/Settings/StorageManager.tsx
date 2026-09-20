@@ -1,3 +1,4 @@
+import { CLIP_MEDIUM, CLIP_SMALL } from '@/styles/clipPaths';
 import { useEffect, useMemo, useState } from 'react';
 import {
   backupDesktopStateBeforeOneTimeMigration,
@@ -27,6 +28,8 @@ import {
   type SaveListItemSummary,
 } from '@/services/dbService';
 import { clearActiveSaveTreeMetaIfMatches } from '@/hooks/useGame/saveLoadWorkflow';
+import { createImportSourceFileBackup } from '@/services/exportService';
+import { runGuardedStorageImport } from '@/services/storage/guardedStorageImport';
 import {
   checkForDesktopUpdate,
   downloadAndInstallDesktopUpdate,
@@ -45,7 +48,6 @@ import {
   listDesktopDiagnosticReports,
   loadDesktopDiagnosticReport,
   writeDesktopDiagnosticReport,
-  type DesktopDiagnosticReport,
   type DesktopDiagnosticReportResult,
   type DesktopDiagnosticReportSummary,
 } from '@/services/desktop/desktopDiagnostics';
@@ -59,7 +61,6 @@ import {
   deleteDesktopSaveBackup,
   loadDesktopSaveBackup,
   listDesktopSaveBackups,
-  type DesktopSaveBackupRecord,
   type DesktopSaveBackupSummary,
 } from '@/services/desktop/desktopSaveBackup';
 import {
@@ -75,8 +76,25 @@ import {
   listDesktopSettingsMirrorKeys,
   listDesktopSpecialSettingMirrors,
 } from '@/services/desktop/desktopSettingsMirror';
-import { buildSaveTreeGroups, type SaveTreeDisplayGroup } from '@/utils/saveTreeView';
-import { getRuntimePlatform, type RuntimePlatform } from '@/utils/platform/desktopRuntime';
+import { buildSaveTreeGroups, filterSaveTreeDisplayGroup, type SaveTreeDisplayGroup } from '@/utils/saveTreeView';
+import { getRuntimePlatform } from '@/utils/platform/desktopRuntime';
+import { formatByteSize } from '@/utils/formatByteSize';
+import {
+  StorageActionButton as ActionButton,
+  StorageLegacyBackupSection,
+  StorageSaveTreeGroup,
+  StorageTreeSelector,
+} from './storage/StorageSaveTreeView';
+import {
+  countUnreadableDesktopBackups,
+  countUnreadableDesktopMigrationBackups,
+  DesktopStorageStatus,
+  downloadDesktopBackupRecord,
+  downloadDesktopDiagnosticReport,
+  findLatestRestorableDesktopBackup,
+  findLatestVerifiedDesktopMigrationBackup,
+  isRestorableDesktopBackup,
+} from './storage/DesktopStorageStatus';
 
 interface Props {
   onSave: () => Promise<number>;
@@ -86,10 +104,8 @@ interface Props {
 
 type Filter = 'all' | 'manual' | 'auto' | 'imported';
 
-const cardClip =
-  'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
+
 
 export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
   const [saves, setSaves] = useState<SaveListItemSummary[]>([]);
@@ -149,6 +165,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
   const [deletingDiagnosticReportPath, setDeletingDiagnosticReportPath] = useState<string | null>(null);
   const [updateProgress, setUpdateProgress] = useState<DesktopUpdateProgress | null>(null);
   const [updateError, setUpdateError] = useState('');
+  const [browserStorage, setBrowserStorage] = useState<{ usage: number; quota: number; persisted?: boolean } | null>(null);
 
   const refresh = async () => {
     setLoadError('');
@@ -191,6 +208,30 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       void refresh();
     }
   }), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const inspectBrowserStorage = async () => {
+      if (typeof navigator === 'undefined' || typeof navigator.storage?.estimate !== 'function') return;
+      try {
+        const [estimate, persisted] = await Promise.all([
+          navigator.storage.estimate(),
+          typeof navigator.storage.persisted === 'function' ? navigator.storage.persisted() : Promise.resolve(undefined),
+        ]);
+        if (!cancelled) {
+          setBrowserStorage({
+            usage: estimate.usage ?? 0,
+            quota: estimate.quota ?? 0,
+            ...(persisted === undefined ? {} : { persisted }),
+          });
+        }
+      } catch (error) {
+        console.warn('[storage-manager] browser storage estimate unavailable', error);
+      }
+    };
+    void inspectBrowserStorage();
+    return () => { cancelled = true; };
+  }, [saves.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -279,7 +320,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
   const allTreeGroups = useMemo(() => buildSaveTreeGroups(visibleSaves), [visibleSaves]);
   const visibleTreeGroups = useMemo(
     () => allTreeGroups
-      .map((group) => buildVisibleSaveTreeGroup(group, filter))
+      .map((group) => filterSaveTreeDisplayGroup(group, (save) => matchesSaveFilter(save, filter)))
       .filter((group): group is SaveTreeDisplayGroup => Boolean(group)),
     [allTreeGroups, filter],
   );
@@ -298,7 +339,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       return;
     }
     if (!selectedRootId || !visibleTreeGroups.some((group) => group.rootId === selectedRootId)) {
-      setSelectedRootId(visibleTreeGroups[0].rootId);
+      setSelectedRootId(visibleTreeGroups[0]?.rootId ?? null);
     }
   }, [selectedRootId, visibleTreeGroups]);
 
@@ -447,14 +488,13 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       if (!file) return;
       setImporting(true);
       try {
-        const imported = await importSaveFileAsMany(file);
-        const now = Date.now();
-        for (const [index, data] of imported.entries()) {
-          data.id = 0;
-          data.type = 'imported';
-          data.timestamp = now + index;
-          await saveGame(data);
-        }
+        const result = await runGuardedStorageImport(file, {
+          parse: importSaveFileAsMany,
+          confirm: (message) => window.confirm(message),
+          backup: createImportSourceFileBackup,
+          persist: saveGame,
+        });
+        if (result.status === 'cancelled') return;
         await refresh();
         await refreshDesktopMirrorCount();
         setFilter('imported');
@@ -917,7 +957,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
           color: 'rgba(var(--tj-text-primary),0.82)',
           background: 'rgba(var(--tj-arcane-accent),0.055)',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.13)',
-          clipPath: cardClip,
+          clipPath: CLIP_MEDIUM,
         }}
       >
         <Metric label="手动" value={grouped.manual.length} />
@@ -926,13 +966,28 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
         <Metric label="总计" value={saves.length} />
       </div>
 
+      {browserStorage && (
+        <div
+          className="px-3 py-2 text-[12px] leading-relaxed"
+          style={{
+            color: 'rgba(var(--tj-text-primary),0.76)',
+            background: 'rgba(var(--tj-panel-bg-start),0.38)',
+            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.12)',
+            clipPath: CLIP_MEDIUM,
+          }}
+        >
+          浏览器存储：已用 {formatByteSize(browserStorage.usage)} / {formatByteSize(browserStorage.quota)}
+          {browserStorage.persisted === undefined ? '' : browserStorage.persisted ? ' · 已获得持久存储保护' : ' · 当前为浏览器尽力存储，低磁盘空间时可能被清理'}
+        </div>
+      )}
+
       <div
         className="px-3 py-2 font-serif text-[12px] leading-relaxed tracking-wider"
         style={{
           color: 'rgba(var(--tj-text-primary),0.68)',
           background: 'rgba(var(--tj-panel-bg-start),0.42)',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.12)',
-          clipPath: cardClip,
+          clipPath: CLIP_MEDIUM,
         }}
       >
         导出存档包默认不包含 API Key / API 配置；导入存档包 / 旧 JSON 会放入导入存档分区。
@@ -1036,7 +1091,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
               color: 'rgba(var(--tj-text-secondary), 0.82)',
               background: 'rgba(var(--tj-danger), 0.28)',
               boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger), 0.25)',
-              clipPath: cardClip,
+              clipPath: CLIP_MEDIUM,
             }}
           >
             <div className="text-sm tracking-[0.18em]" style={{ color: 'rgba(var(--tj-danger),0.92)' }}>
@@ -1055,7 +1110,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
               color: 'rgba(var(--tj-text-primary),0.72)',
               background: 'rgba(var(--tj-panel-bg-start),0.46)',
               boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.15)',
-              clipPath: cardClip,
+              clipPath: CLIP_MEDIUM,
             }}
           >
             暂无对应存档
@@ -1089,288 +1144,6 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
   );
 }
 
-function StorageLegacyBackupSection({
-  backups,
-  loadingId,
-  deletingId,
-  deletingAll,
-  onLoad,
-  onExport,
-  onDelete,
-  onDeleteAll,
-}: {
-  backups: SaveListItemSummary[];
-  loadingId: number | null;
-  deletingId: number | null;
-  deletingAll: boolean;
-  onLoad: (id: number) => void;
-  onExport: (id: number) => void;
-  onDelete: (id: number) => void;
-  onDeleteAll: () => void;
-}) {
-  return (
-    <details
-      className="mb-3 overflow-hidden"
-      style={{
-        background: 'rgba(var(--tj-arcane-accent),0.04)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.15)',
-        clipPath: cardClip,
-      }}
-    >
-      <summary className="cursor-pointer px-4 py-3 font-serif text-[13px] tracking-[0.16em]" style={{ color: 'rgb(var(--tj-accent-secondary))' }}>
-        历史恢复点 {backups.length} 个
-      </summary>
-      <div className="space-y-3 border-t px-3 pb-3 pt-3" style={{ borderColor: 'rgba(var(--tj-arcane-accent),0.12)' }}>
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] leading-relaxed tracking-wider" style={{ color: 'rgba(var(--tj-text-primary),0.62)' }}>
-          <span>旧版本读档前自动创建的恢复点已停止新增，可按需读取、导出或清理。</span>
-          <ActionButton
-            label={deletingAll ? '清理中' : '清理全部旧恢复点'}
-            disabled={deletingAll || loadingId !== null || deletingId !== null}
-            onClick={onDeleteAll}
-          />
-        </div>
-        {backups.map((backup) => (
-          <SaveCard
-            key={backup.id}
-            save={backup}
-            loadingId={loadingId}
-            deletingId={deletingId}
-            onLoad={onLoad}
-            onExport={onExport}
-            onDelete={onDelete}
-            treeLabel="旧恢复点"
-          />
-        ))}
-      </div>
-    </details>
-  );
-}
-
-function StorageSaveTreeGroup({
-  group,
-  loadingId,
-  deletingId,
-  deletingRootId,
-  onLoad,
-  onExport,
-  onExportTree,
-  onDelete,
-  onDeleteTree,
-  catalogComplete,
-}: {
-  group: SaveTreeDisplayGroup;
-  loadingId: number | null;
-  deletingId: number | null;
-  deletingRootId: string | null;
-  onLoad: (id: number) => void;
-  onExport: (id: number) => void;
-  onExportTree: (rootId: string) => void;
-  onDelete: (id: number) => void;
-  onDeleteTree: (rootId: string, nodeCount: number) => void;
-  catalogComplete: boolean;
-}) {
-  return (
-    <section
-      className="min-w-0 p-2"
-      style={{
-        background: 'linear-gradient(135deg, rgba(var(--tj-panel-bg-start),0.52), rgba(var(--tj-panel-bg-end),0.56))',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.18)',
-        clipPath: cardClip,
-      }}
-    >
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-2 py-1.5 font-serif">
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-baseline gap-2">
-            <span className="text-[11px] tracking-[0.18em]" style={{ color: 'rgb(var(--tj-arcane-accent))' }}>
-              存档树
-            </span>
-            <span className="truncate text-[14px] font-bold tracking-wider" style={{ color: 'rgb(var(--tj-accent-secondary))' }}>
-              {group.latestSave.travelerName || group.rootSave.travelerName || '未命名旅人'}
-            </span>
-            <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-primary),0.42)' }}>
-              最新 #{group.latestSave.id}
-            </span>
-          </div>
-          <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] tracking-wider" style={{ color: 'rgba(var(--tj-text-primary),0.58)' }}>
-            <span>{group.nodeCount} 个节点</span>
-            <span>{group.branchCount} 个分支</span>
-            <span>{formatSize(group.totalSizeBytes)}</span>
-          </div>
-        </div>
-        <div className="text-[11px] tracking-[0.16em]" style={{ color: 'rgba(var(--tj-arcane-accent),0.82)' }}>
-          第 {group.latestSave.turnCount} 回合
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={!catalogComplete || loadingId !== null || deletingRootId !== null || deletingId !== null}
-            onClick={() => onExportTree(group.rootId)}
-            className="px-2.5 py-1 font-serif text-[11px] tracking-[0.14em] transition-all hover:opacity-90 disabled:opacity-50"
-            style={{
-              color: 'rgba(var(--tj-arcane-accent), 0.92)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.28)',
-              clipPath: smallClip,
-            }}
-          >
-            导出整树
-          </button>
-          <button
-            type="button"
-            disabled={!catalogComplete || loadingId !== null || deletingRootId !== null || deletingId !== null}
-            onClick={() => onDeleteTree(group.rootId, group.nodeCount)}
-            className="px-2.5 py-1 font-serif text-[11px] tracking-[0.14em] transition-all hover:opacity-90 disabled:opacity-50"
-            style={{
-              color: 'rgba(var(--tj-danger), 0.92)',
-              background: 'rgba(var(--tj-danger), 0.07)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger), 0.28)',
-              clipPath: smallClip,
-            }}
-          >
-            {deletingRootId === group.rootId ? '删除中' : catalogComplete ? '删除整树' : '目录恢复后可删'}
-          </button>
-        </div>
-      </div>
-      <div className="relative space-y-2 pl-5">
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 left-[7px] top-2 w-px"
-          style={{ background: 'linear-gradient(rgb(var(--tj-arcane-accent)), rgba(var(--tj-arcane-accent),0.08))' }}
-        />
-        {group.nodes.map((node, index) => {
-          const indent = Math.min(index, 5) * 14;
-          return (
-            <div key={node.save.id} className="relative" style={{ paddingLeft: indent }}>
-              {node.depth > 0 && (
-                <span
-                  aria-hidden="true"
-                  className="absolute left-1 top-4 h-px"
-                  style={{
-                    width: Math.max(8, indent - 6),
-                    background: 'rgba(var(--tj-arcane-accent),0.32)',
-                  }}
-                />
-              )}
-              <SaveCard
-                save={node.save}
-                loadingId={loadingId}
-                deletingId={deletingId}
-                onLoad={onLoad}
-                onExport={onExport}
-                onDelete={onDelete}
-                treeLabel={node.isRoot ? '根节点' : `分支 +${node.depth}`}
-                isLatest={node.isLatest}
-              />
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function StorageTreeSelector({
-  groups,
-  selectedRootId,
-  onSelect,
-}: {
-  groups: SaveTreeDisplayGroup[];
-  selectedRootId: string | null;
-  onSelect: (rootId: string) => void;
-}) {
-  return (
-    <aside
-      className="teyvat-options-scroll min-h-0 p-3 pb-5 font-serif lg:max-h-[calc(100vh-330px)] lg:overflow-y-auto"
-      style={{
-        background: 'rgba(0,0,0,0.18)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.12)',
-        clipPath: cardClip,
-      }}
-    >
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-[12px] font-medium tracking-[0.22em]" style={{ color: 'rgba(var(--tj-arcane-accent),0.86)' }}>
-          存档树列表
-        </h3>
-        <span className="text-[11px] tracking-[0.12em]" style={{ color: 'rgba(var(--tj-text-primary),0.42)' }}>
-          点击切换
-        </span>
-      </div>
-      <div className="grid gap-2">
-        {groups.map((group) => {
-          const active = group.rootId === selectedRootId;
-          const title = group.latestSave.travelerName || group.rootSave.travelerName || '未命名旅人';
-          return (
-            <button
-              key={group.rootId}
-              type="button"
-              onClick={() => onSelect(group.rootId)}
-              className="min-w-0 cursor-pointer px-3 py-2 text-left transition-all hover:opacity-90"
-              style={{
-                background: active
-                  ? 'linear-gradient(90deg, rgba(var(--tj-arcane-accent),0.18), rgba(var(--tj-arcane-accent-deep),0.06))'
-                  : 'rgba(var(--tj-arcane-accent),0.045)',
-                boxShadow: active
-                  ? 'inset 3px 0 0 rgb(var(--tj-arcane-accent)), inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.32)'
-                  : 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.12)',
-                clipPath: smallClip,
-              }}
-            >
-              <div className="flex min-w-0 items-center justify-between gap-2">
-                <span
-                  className="truncate text-[13px] font-semibold tracking-[0.12em]"
-                  style={{ color: active ? 'rgb(var(--tj-accent-secondary))' : 'rgba(var(--tj-text-primary),0.78)' }}
-                >
-                  {title}
-                </span>
-                <span className="shrink-0 text-[11px]" style={{ color: active ? 'rgb(var(--tj-arcane-accent))' : 'rgba(var(--tj-text-primary),0.42)' }}>
-                  #{group.latestSave.id}
-                </span>
-              </div>
-              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] tracking-[0.1em]" style={{ color: 'rgba(var(--tj-text-primary),0.54)' }}>
-                <span>{group.nodeCount} 节点</span>
-                <span>{group.branchCount} 分支</span>
-                <span>第 {group.latestSave.turnCount} 回合</span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </aside>
-  );
-}
-
-function ActionButton({
-  label,
-  tone = 'quiet',
-  disabled,
-  onClick,
-}: {
-  label: string;
-  tone?: 'primary' | 'quiet';
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="w-full cursor-pointer px-4 py-2 text-sm font-serif tracking-[0.18em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-      style={{
-        color: tone === 'primary' ? 'rgb(var(--tj-ui-active-text))' : 'rgba(var(--tj-arcane-accent),0.92)',
-        background: tone === 'primary'
-          ? 'linear-gradient(135deg, rgb(var(--tj-arcane-accent)), rgb(var(--tj-arcane-accent-deep)))'
-          : 'rgba(var(--tj-arcane-accent),0.07)',
-        boxShadow: tone === 'primary'
-          ? 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.55), 0 0 18px rgba(var(--tj-arcane-accent-deep),0.20)'
-          : 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.24)',
-        clipPath: smallClip,
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
 function FilterButton({
   label,
   count,
@@ -1395,7 +1168,7 @@ function FilterButton({
         boxShadow: active
           ? 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.55), 0 0 22px rgba(var(--tj-arcane-accent-deep),0.22)'
           : 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.15)',
-        clipPath: smallClip,
+        clipPath: CLIP_SMALL,
       }}
     >
       {label} <span style={{ opacity: 0.72 }}>{count}</span>
@@ -1412,1140 +1185,10 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function DesktopStorageStatus({
-  platform,
-  info,
-  releaseInfo,
-  probe,
-  error,
-  checking,
-  update,
-  updateProgress,
-  updateError,
-  checkingUpdate,
-  installingUpdate,
-  desktopMirrorCount,
-  desktopConfigCount,
-  desktopAssetCount,
-  desktopAssetSummary,
-  desktopSaveMirrorHealth,
-  desktopSaveDeltaMirrorHealth,
-  desktopAssetMirrorHealth,
-  desktopBackupCount,
-  desktopMigrationBackupCount,
-  unreadableDesktopMigrationBackupCount,
-  latestDesktopBackup,
-  desktopMigrationBackupPreview,
-  desktopBackups,
-  selectedDesktopBackup,
-  restoringDesktopMirror,
-  restoringDesktopBackup,
-  deletingDesktopBackupPath,
-  exportingDesktopBackupPath,
-  cleaningDesktopAssets,
-  repairingDesktopIndexes,
-  desktopIndexRepairSummary,
-  backingUpDesktop,
-  backingUpDesktopMigration,
-  latestDesktopMigrationBackup,
-  exportingDiagnostic,
-  latestDiagnosticReport,
-  diagnosticReports,
-  exportingDiagnosticReportPath,
-  deletingDiagnosticReportPath,
-  onProbe,
-  onOpenSaveDir,
-  onOpenBackupDir,
-  saveRootEdit,
-  backupRootEdit,
-  onChooseSaveRoot,
-  onChooseBackupRoot,
-  onResetSaveRoot,
-  onResetBackupRoot,
-  onApplyStorageRoots,
-  onOpenLogDir,
-  onOpenConfigDir,
-  onOpenCodexDir,
-  onOpenWorldbookDir,
-  onOpenAssetDir,
-  onCleanupDesktopAssets,
-  onRepairDesktopIndexes,
-  onBackupDesktopSaves,
-  onBackupDesktopMigration,
-  onWriteDiagnosticReport,
-  onExportDiagnosticReport,
-  onDeleteDiagnosticReport,
-  onRestoreDesktopBackup,
-  onDeleteDesktopBackup,
-  onExportDesktopBackup,
-  onSelectDesktopBackup,
-  onCheckUpdate,
-  onInstallUpdate,
-  onRestoreDesktopMirror,
-}: {
-  platform: RuntimePlatform;
-  info: DesktopAppInfo | null;
-  releaseInfo: DesktopReleaseInfo | null;
-  probe: DesktopProbeResult | null;
-  error: string;
-  checking: boolean;
-  update: DesktopUpdateStatus | null;
-  updateProgress: DesktopUpdateProgress | null;
-  updateError: string;
-  checkingUpdate: boolean;
-  installingUpdate: boolean;
-  desktopMirrorCount: number;
-  desktopConfigCount: number;
-  desktopAssetCount: number;
-  desktopAssetSummary: DesktopAssetMaintenanceSummary | null;
-  desktopSaveMirrorHealth: DesktopSaveMirrorHealth | null;
-  desktopSaveDeltaMirrorHealth: DesktopSaveDeltaMirrorHealth | null;
-  desktopAssetMirrorHealth: DesktopAssetMirrorHealth | null;
-  desktopBackupCount: number;
-  desktopMigrationBackupCount: number;
-  unreadableDesktopMigrationBackupCount: number;
-  latestDesktopBackup: DesktopSaveBackupSummary | null;
-  desktopMigrationBackupPreview: DesktopMigrationBackupPreview | null;
-  desktopBackups: DesktopSaveBackupSummary[];
-  selectedDesktopBackup: DesktopSaveBackupSummary | null;
-  restoringDesktopMirror: boolean;
-  restoringDesktopBackup: boolean;
-  deletingDesktopBackupPath: string | null;
-  exportingDesktopBackupPath: string | null;
-  cleaningDesktopAssets: boolean;
-  repairingDesktopIndexes: boolean;
-  desktopIndexRepairSummary: string;
-  backingUpDesktop: boolean;
-  backingUpDesktopMigration: boolean;
-  latestDesktopMigrationBackup: DesktopMigrationBackupSummary | null;
-  exportingDiagnostic: boolean;
-  latestDiagnosticReport: DesktopDiagnosticReportResult | DesktopDiagnosticReportSummary | null;
-  diagnosticReports: DesktopDiagnosticReportSummary[];
-  exportingDiagnosticReportPath: string | null;
-  deletingDiagnosticReportPath: string | null;
-  onProbe: () => void;
-  onOpenSaveDir: () => void;
-  onOpenBackupDir: () => void;
-  saveRootEdit: string | null;
-  backupRootEdit: string | null;
-  onChooseSaveRoot: () => void;
-  onChooseBackupRoot: () => void;
-  onResetSaveRoot: () => void;
-  onResetBackupRoot: () => void;
-  onApplyStorageRoots: () => void;
-  onOpenLogDir: () => void;
-  onOpenConfigDir: () => void;
-  onOpenCodexDir: () => void;
-  onOpenWorldbookDir: () => void;
-  onOpenAssetDir: () => void;
-  onCleanupDesktopAssets: () => void;
-  onRepairDesktopIndexes: () => void;
-  onBackupDesktopSaves: () => void;
-  onBackupDesktopMigration: () => void;
-  onWriteDiagnosticReport: () => void;
-  onExportDiagnosticReport: (report: DesktopDiagnosticReportSummary) => void;
-  onDeleteDiagnosticReport: (report: DesktopDiagnosticReportSummary) => void;
-  onRestoreDesktopBackup: (backup: DesktopSaveBackupSummary | null) => void;
-  onDeleteDesktopBackup: (backup: DesktopSaveBackupSummary) => void;
-  onExportDesktopBackup: (backup: DesktopSaveBackupSummary) => void;
-  onSelectDesktopBackup: (backup: DesktopSaveBackupSummary) => void;
-  onCheckUpdate: () => void;
-  onInstallUpdate: () => void;
-  onRestoreDesktopMirror: () => void;
-}) {
-  const isDesktop = platform === 'desktop';
-  const updateHint = buildUpdateHint(update, updateProgress, updateError);
-  const currentVersion = releaseInfo?.version ?? info?.version ?? update?.currentVersion ?? '读取中';
-  const latestVersion = releaseInfo?.latestVersion ?? update?.version ?? (update?.checked ? currentVersion : '待检查');
-  const updateStateLabel = updateError
-    ? '更新异常'
-    : updateProgress
-      ? '更新处理中'
-      : update?.available
-        ? '发现新版本'
-        : update?.checked
-          ? '已是最新'
-          : '等待检查';
-  return (
-    <section
-      className="grid min-w-0 gap-3 px-3 py-3 font-serif text-[12px] leading-relaxed tracking-wider lg:grid-cols-[1fr_auto]"
-      style={{
-        color: 'rgba(var(--tj-text-primary),0.72)',
-        background: isDesktop
-          ? 'linear-gradient(135deg, rgba(var(--tj-arcane-accent),0.09), rgba(var(--tj-accent-primary),0.045)), rgba(var(--tj-panel-bg-start),0.44)'
-          : 'rgba(var(--tj-panel-bg-start),0.34)',
-        boxShadow: isDesktop
-          ? 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.22)'
-          : 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.12)',
-        clipPath: cardClip,
-      }}
-    >
-      <div
-        className="grid min-w-0 gap-3 px-3 py-3 lg:col-span-2 lg:grid-cols-[1.15fr_0.85fr_auto]"
-        style={{
-          background: isDesktop
-            ? 'linear-gradient(135deg, rgba(var(--tj-panel-bg-end),0.82), rgba(var(--tj-surface-bg-start),0.62)), radial-gradient(circle at 12% 0%, rgba(var(--tj-accent-primary),0.13), transparent 34%)'
-            : 'rgba(0,0,0,0.16)',
-          boxShadow: isDesktop
-            ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.24), inset 0 1px 0 rgba(var(--tj-text-primary),0.08), 0 0 24px rgba(var(--tj-accent-primary),0.08)'
-            : 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.12)',
-          clipPath: cardClip,
-        }}
-      >
-        <div className="min-w-0">
-          <div className="text-[11px] tracking-[0.24em]" style={{ color: isDesktop ? 'rgba(var(--tj-accent-primary),0.86)' : 'rgba(var(--tj-text-primary),0.52)' }}>
-            关于 / 更新
-          </div>
-          <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-2">
-            <span className="text-[16px] font-bold tracking-[0.16em]" style={{ color: isDesktop ? 'rgb(var(--tj-accent-secondary))' : 'rgba(var(--tj-text-primary),0.72)' }}>
-              {isDesktop ? '旅行者纪事 Desktop Edition' : '旅行者纪事 Web Edition'}
-            </span>
-            <span
-              className="px-2 py-0.5 text-[11px] tracking-[0.16em]"
-              style={{
-                color: updateError ? 'rgba(var(--tj-danger),0.94)' : update?.available ? 'rgb(var(--tj-ui-active-text))' : 'rgba(var(--tj-arcane-accent),0.92)',
-                background: updateError
-                  ? 'rgba(var(--tj-danger),0.08)'
-                  : update?.available
-                    ? 'linear-gradient(135deg, rgb(var(--tj-btn-primary-start)), rgb(var(--tj-btn-primary-end)))'
-                    : 'rgba(var(--tj-arcane-accent),0.08)',
-                boxShadow: updateError
-                  ? 'inset 0 0 0 1px rgba(var(--tj-danger),0.24)'
-                  : update?.available
-                    ? 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.42), 0 0 16px rgba(var(--tj-accent-primary),0.14)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.22)',
-                clipPath: smallClip,
-              }}
-            >
-              {updateStateLabel}
-            </span>
-          </div>
-          <div className="mt-2 text-[11px]" style={{ color: updateError ? 'rgba(var(--tj-danger),0.9)' : 'rgba(var(--tj-text-primary),0.68)' }}>
-            {updateHint}
-          </div>
-        </div>
-        <div className="grid min-w-0 gap-1 text-[11px]">
-          <PathLine label="当前版本" value={`v${currentVersion}`} />
-          <PathLine label="最新版本" value={latestVersion === '待检查' ? latestVersion : `v${latestVersion}`} />
-          <PathLine label="更新渠道" value={releaseInfo?.releaseSource ?? (isDesktop ? 'desktop' : 'web')} />
-          <PathLine label="更新源" value={releaseInfo?.updateEndpoint ?? '桌面端可用'} />
-          <PathLine label="数据目录" value={info?.appDataDir ?? (isDesktop ? '读取中' : 'Web 存储')} />
-        </div>
-        <div className="flex min-w-[150px] flex-wrap content-start gap-2 lg:justify-end">
-          <button
-            type="button"
-            disabled={!isDesktop || checkingUpdate || installingUpdate}
-            onClick={onCheckUpdate}
-            className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{
-              color: isDesktop ? 'rgba(var(--tj-arcane-accent),0.94)' : 'rgba(var(--tj-text-primary),0.44)',
-              background: 'rgba(var(--tj-arcane-accent),0.08)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.26)',
-              clipPath: smallClip,
-            }}
-          >
-            {checkingUpdate ? '检查中' : '检查更新'}
-          </button>
-          {update?.available && (
-            <button
-              type="button"
-              disabled={!isDesktop || installingUpdate}
-              onClick={onInstallUpdate}
-              className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              style={{
-                color: 'rgb(var(--tj-ui-active-text))',
-                background: 'linear-gradient(135deg, rgb(var(--tj-btn-primary-start)), rgb(var(--tj-btn-primary-end)))',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.46), 0 0 18px rgba(var(--tj-accent-primary),0.16)',
-                clipPath: smallClip,
-              }}
-            >
-              {installingUpdate ? '安装中' : '下载并安装'}
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <span className="text-[11px] tracking-[0.2em]" style={{ color: isDesktop ? 'rgb(var(--tj-arcane-accent))' : 'rgba(var(--tj-text-primary),0.52)' }}>
-            运行平台
-          </span>
-          <span className="text-[14px] font-bold tracking-[0.16em]" style={{ color: isDesktop ? 'rgb(var(--tj-accent-secondary))' : 'rgba(var(--tj-text-primary),0.72)' }}>
-            {isDesktop ? 'Desktop Edition' : 'Web Edition'}
-          </span>
-          {info && (
-            <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-primary),0.46)' }}>
-              v{info.version}
-            </span>
-          )}
-        </div>
-        {isDesktop ? (
-          <div className="mt-2 grid min-w-0 gap-1 text-[11px]" style={{ color: 'rgba(var(--tj-text-primary),0.62)' }}>
-            {releaseInfo && (
-              <>
-                <PathLine label="发行版本" value={releaseInfo.title} />
-                <PathLine label="更新源" value={releaseInfo.updateEndpoint} />
-                <PathLine label="发行说明" value={releaseInfo.notes} />
-              </>
-            )}
-            <PathLine label="应用数据" value={info?.appDataDir ?? '读取中'} />
-            <PathLine label="存档目录" value={info?.saveDir ?? '读取中'} />
-            <PathLine label="备份目录" value={info?.backupDir ?? '读取中'} />
-            <PathLine label="图鉴目录" value={info?.codexDir ?? '读取中'} />
-            <PathLine label="世界书目录" value={info?.worldbookDir ?? '读取中'} />
-            <div
-              className="mt-2 grid gap-2 px-3 py-3"
-              style={{
-                background: 'rgba(var(--tj-panel-bg-start),0.62)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.16)',
-                clipPath: smallClip,
-              }}
-            >
-              <div className="text-[11px] tracking-[0.18em]" style={{ color: 'rgba(var(--tj-arcane-accent),0.84)' }}>
-                存储路径
-              </div>
-              <PathLine label="存档根目录" value={saveRootEdit || '跟随默认应用数据目录'} />
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={!isDesktop}
-                  onClick={onChooseSaveRoot}
-                  className="cursor-pointer px-2 py-1 text-[11px] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{
-                    color: 'rgba(var(--tj-arcane-accent),0.92)',
-                    background: 'rgba(var(--tj-arcane-accent),0.07)',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.24)',
-                    clipPath: smallClip,
-                  }}
-                >
-                  选择存档目录
-                </button>
-                <button
-                  type="button"
-                  disabled={!isDesktop}
-                  onClick={onResetSaveRoot}
-                  className="cursor-pointer px-2 py-1 text-[11px] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{
-                    color: 'rgba(var(--tj-text-primary),0.82)',
-                    background: 'rgba(var(--tj-text-primary),0.06)',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.18)',
-                    clipPath: smallClip,
-                  }}
-                >
-                  恢复默认
-                </button>
-              </div>
-              <PathLine label="备份根目录" value={backupRootEdit || '跟随默认应用数据目录'} />
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={!isDesktop}
-                  onClick={onChooseBackupRoot}
-                  className="cursor-pointer px-2 py-1 text-[11px] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{
-                    color: 'rgba(var(--tj-arcane-accent),0.92)',
-                    background: 'rgba(var(--tj-arcane-accent),0.07)',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.24)',
-                    clipPath: smallClip,
-                  }}
-                >
-                  选择备份目录
-                </button>
-                <button
-                  type="button"
-                  disabled={!isDesktop}
-                  onClick={onResetBackupRoot}
-                  className="cursor-pointer px-2 py-1 text-[11px] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{
-                    color: 'rgba(var(--tj-text-primary),0.82)',
-                    background: 'rgba(var(--tj-text-primary),0.06)',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.18)',
-                    clipPath: smallClip,
-                  }}
-                >
-                  恢复默认
-                </button>
-                <button
-                  type="button"
-                  disabled={!isDesktop}
-                  onClick={onApplyStorageRoots}
-                  className="cursor-pointer px-2 py-1 text-[11px] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{
-                    color: 'rgb(var(--tj-ui-active-text))',
-                    background: 'linear-gradient(135deg, rgb(var(--tj-btn-primary-start)), rgb(var(--tj-btn-primary-end)))',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.46)',
-                    clipPath: smallClip,
-                  }}
-                >
-                  应用路径
-                </button>
-              </div>
-            </div>
-            <PathLine label="镜像存档" value={`${desktopMirrorCount} 个`} />
-            {desktopSaveMirrorHealth && (
-              <PathLine label="存档镜像健康" value={formatDesktopSaveMirrorHealth(desktopSaveMirrorHealth)} />
-            )}
-            {desktopSaveDeltaMirrorHealth && (
-              <PathLine label="增量镜像健康" value={formatDesktopSaveDeltaMirrorHealth(desktopSaveDeltaMirrorHealth)} />
-            )}
-            <PathLine label="本地备份" value={`${desktopBackupCount} 份`} />
-            <PathLine
-              label="迁移备份"
-              value={`${desktopMigrationBackupCount} 份${unreadableDesktopMigrationBackupCount > 0 ? ` / 异常 ${unreadableDesktopMigrationBackupCount} 份` : ''}`}
-            />
-            {desktopMigrationBackupPreview && (
-              <PathLine
-                label="迁移预估"
-                value={`${desktopMigrationBackupPreview.indexedSaveCount} 个存档 / ${desktopMigrationBackupPreview.fileCount} 个文件 / ${formatSize(desktopMigrationBackupPreview.estimatedPayloadBytes)} / ${desktopMigrationBackupPreview.directoryCount} 个目录`}
-              />
-            )}
-            <PathLine label="配置镜像" value={`${desktopConfigCount} 项`} />
-            <PathLine label="资源镜像" value={`${desktopAssetCount} 个`} />
-            {desktopAssetMirrorHealth && (
-              <PathLine label="资源镜像健康" value={formatDesktopAssetMirrorHealth(desktopAssetMirrorHealth)} />
-            )}
-            {desktopAssetSummary && (
-              <>
-                <PathLine label="资源占用" value={formatSize(desktopAssetSummary.totalBytes)} />
-                <PathLine
-                  label="无引用资源"
-                  value={`${desktopAssetSummary.orphanAssets} 个 / ${formatSize(desktopAssetSummary.orphanBytes)}`}
-                />
-              </>
-            )}
-            {desktopIndexRepairSummary && (
-              <PathLine label="索引修复" value={desktopIndexRepairSummary} />
-            )}
-            {latestDesktopBackup && (
-              <PathLine
-                label="最近备份"
-                value={`${new Date(latestDesktopBackup.createdAt).toLocaleString('zh-CN')} / ${latestDesktopBackup.count} 个存档`}
-              />
-            )}
-            {latestDesktopMigrationBackup && (
-              <PathLine
-                label="迁移前完整备份"
-                value={`${new Date(latestDesktopMigrationBackup.createdAt).toLocaleString('zh-CN')} / ${latestDesktopMigrationBackup.indexedSaveCount} 个存档 / ${latestDesktopMigrationBackup.fileCount} 个文件 / ${formatSize(latestDesktopMigrationBackup.payloadBytes)} / ${latestDesktopMigrationBackup.path}`}
-              />
-            )}
-            {desktopBackups.length > 0 && (
-              <div className="mt-2 grid min-w-0 gap-1">
-                <div style={{ color: 'rgba(var(--tj-arcane-accent),0.72)' }}>备份列表</div>
-                {desktopBackups.slice(0, 5).map((backup) => (
-                  <div
-                    key={backup.path}
-                    className="grid min-w-0 gap-2 px-2 py-1 sm:grid-cols-[1fr_auto]"
-                    style={{
-                      background: 'rgba(var(--tj-arcane-accent),0.045)',
-                      boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.12)',
-                      clipPath: smallClip,
-                    }}
-                  >
-                    <div className="min-w-0 break-all" style={{ color: 'rgba(var(--tj-text-primary),0.68)' }}>
-                      {formatDesktopBackupLine(backup)}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      <button
-                        type="button"
-                        disabled={!isDesktop}
-                        onClick={() => onSelectDesktopBackup(backup)}
-                        className="cursor-pointer px-2 py-1 text-[11px] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                        style={{
-                          color: selectedDesktopBackup?.path === backup.path ? 'rgb(var(--tj-ui-active-text))' : 'rgba(var(--tj-arcane-accent),0.92)',
-                          background: selectedDesktopBackup?.path === backup.path
-                            ? 'linear-gradient(135deg, rgb(var(--tj-btn-primary-start)), rgb(var(--tj-btn-primary-end)))'
-                            : 'rgba(var(--tj-arcane-accent),0.08)',
-                          boxShadow: selectedDesktopBackup?.path === backup.path
-                            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.42)'
-                            : 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.22)',
-                          clipPath: smallClip,
-                        }}
-                      >
-                        详情
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!isDesktop || exportingDesktopBackupPath === backup.path}
-                        onClick={() => onExportDesktopBackup(backup)}
-                        className="cursor-pointer px-2 py-1 text-[11px] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                        style={{
-                          color: 'rgba(var(--tj-arcane-accent),0.92)',
-                          background: 'rgba(var(--tj-arcane-accent),0.08)',
-                          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.22)',
-                          clipPath: smallClip,
-                        }}
-                      >
-                        {exportingDesktopBackupPath === backup.path ? '导出中' : '导出'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!isDesktop || restoringDesktopBackup || !isRestorableDesktopBackup(backup)}
-                        onClick={() => onRestoreDesktopBackup(backup)}
-                        className="cursor-pointer px-2 py-1 text-[11px] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                        style={{
-                          color: 'rgba(var(--tj-accent-primary),0.96)',
-                          background: 'rgba(var(--tj-accent-primary),0.08)',
-                          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.22)',
-                          clipPath: smallClip,
-                        }}
-                      >
-                        恢复
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!isDesktop || deletingDesktopBackupPath === backup.path}
-                        onClick={() => onDeleteDesktopBackup(backup)}
-                        className="cursor-pointer px-2 py-1 text-[11px] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                        style={{
-                          color: 'rgba(var(--tj-danger),0.92)',
-                          background: 'rgba(var(--tj-danger),0.07)',
-                          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger),0.22)',
-                          clipPath: smallClip,
-                        }}
-                      >
-                        {deletingDesktopBackupPath === backup.path ? '删除中' : '删除'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {selectedDesktopBackup && (
-                  <DesktopBackupDetailPanel backup={selectedDesktopBackup} />
-                )}
-              </div>
-            )}
-            {probe && (
-              <PathLine label="探针文件" value={probe.probeFile} />
-            )}
-            {latestDiagnosticReport && (
-              <PathLine label="诊断报告" value={latestDiagnosticReport.path} />
-            )}
-            {diagnosticReports.length > 0 && (
-              <div className="mt-2 grid min-w-0 gap-1">
-                <div style={{ color: 'rgba(var(--tj-arcane-accent),0.72)' }}>日志中心</div>
-                {diagnosticReports.slice(0, 5).map((report) => (
-                  <div
-                    key={report.path}
-                    className="grid min-w-0 gap-2 px-2 py-1 sm:grid-cols-[1fr_auto]"
-                    style={{
-                      background: 'rgba(var(--tj-arcane-accent),0.045)',
-                      boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.12)',
-                      clipPath: smallClip,
-                    }}
-                  >
-                    <div className="min-w-0 break-all" style={{ color: 'rgba(var(--tj-text-primary),0.68)' }}>
-                      {formatDesktopDiagnosticReportLine(report)}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      <button
-                        type="button"
-                        disabled={!isDesktop || exportingDiagnosticReportPath === report.path}
-                        onClick={() => onExportDiagnosticReport(report)}
-                        className="cursor-pointer px-2 py-1 text-[11px] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                        style={{
-                          color: 'rgba(var(--tj-arcane-accent),0.92)',
-                          background: 'rgba(var(--tj-arcane-accent),0.08)',
-                          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.22)',
-                          clipPath: smallClip,
-                        }}
-                      >
-                        {exportingDiagnosticReportPath === report.path ? '导出中' : '导出'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!isDesktop || deletingDiagnosticReportPath === report.path}
-                        onClick={() => onDeleteDiagnosticReport(report)}
-                        className="cursor-pointer px-2 py-1 text-[11px] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                        style={{
-                          color: 'rgba(var(--tj-danger),0.92)',
-                          background: 'rgba(var(--tj-danger),0.07)',
-                          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger),0.22)',
-                          clipPath: smallClip,
-                        }}
-                      >
-                        {deletingDiagnosticReportPath === report.path ? '删除中' : '删除'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="mt-1" style={{ color: updateError ? 'rgba(var(--tj-danger),0.9)' : 'rgba(var(--tj-text-primary),0.62)' }}>
-              {updateHint}
-            </div>
-            {error && (
-              <div style={{ color: 'rgba(var(--tj-danger),0.9)' }}>{error}</div>
-            )}
-          </div>
-        ) : null}
-      </div>
-      {!isDesktop && (
-        <div className="col-span-2 mt-1 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary),0.58)' }}>
-          当前为浏览器运行模式，存档仍使用 Web 存储。桌面版会在本地应用数据目录创建 saves / backups / assets / logs 等目录，并提供应用内更新检查。
-        </div>
-      )}
-      <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
-        <button
-          type="button"
-          disabled={!isDesktop || checking}
-          onClick={onProbe}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgb(var(--tj-ui-active-text))' : 'rgba(var(--tj-text-primary),0.44)',
-            background: isDesktop ? 'linear-gradient(135deg, rgb(var(--tj-arcane-accent)), rgb(var(--tj-arcane-accent-deep)))' : 'rgba(var(--tj-arcane-accent),0.04)',
-            boxShadow: isDesktop
-              ? 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.55), 0 0 18px rgba(var(--tj-arcane-accent-deep),0.18)'
-              : 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.12)',
-            clipPath: smallClip,
-          }}
-        >
-          {checking ? '写入中' : '写入桌面探针'}
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop}
-          onClick={onOpenSaveDir}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgba(var(--tj-arcane-accent),0.92)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-arcane-accent),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          打开存档目录
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop || backingUpDesktop}
-          onClick={onBackupDesktopSaves}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgba(var(--tj-accent-primary),0.96)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-accent-primary),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          {backingUpDesktop ? '备份中' : '备份到本地'}
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop || backingUpDesktopMigration}
-          onClick={onBackupDesktopMigration}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgba(var(--tj-accent-primary),0.96)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-accent-primary),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          {backingUpDesktopMigration ? '备份中' : '迁移前完整备份'}
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop}
-          onClick={onOpenBackupDir}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgba(var(--tj-arcane-accent),0.92)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-arcane-accent),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          打开备份目录
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop}
-          onClick={onOpenLogDir}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgba(var(--tj-arcane-accent),0.92)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-arcane-accent),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          打开日志目录
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop || exportingDiagnostic}
-          onClick={onWriteDiagnosticReport}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgba(var(--tj-accent-primary),0.96)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-accent-primary),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          {exportingDiagnostic ? '导出中' : '导出诊断报告'}
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop || restoringDesktopBackup || !latestDesktopBackup || !isRestorableDesktopBackup(latestDesktopBackup)}
-          onClick={() => onRestoreDesktopBackup(latestDesktopBackup)}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop && latestDesktopBackup && isRestorableDesktopBackup(latestDesktopBackup) ? 'rgba(var(--tj-accent-primary),0.96)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-accent-primary),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          {restoringDesktopBackup ? '恢复中' : '恢复最近备份'}
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop}
-          onClick={onOpenConfigDir}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgba(var(--tj-arcane-accent),0.92)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-arcane-accent),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          打开配置目录
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop}
-          onClick={onOpenCodexDir}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgba(var(--tj-arcane-accent),0.92)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-arcane-accent),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          打开图鉴目录
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop}
-          onClick={onOpenWorldbookDir}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgba(var(--tj-arcane-accent),0.92)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-arcane-accent),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          打开世界书目录
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop}
-          onClick={onOpenAssetDir}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgba(var(--tj-arcane-accent),0.92)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-arcane-accent),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          打开资源目录
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop || cleaningDesktopAssets || !desktopAssetSummary || desktopAssetSummary.orphanAssets <= 0}
-          onClick={onCleanupDesktopAssets}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop && desktopAssetSummary && desktopAssetSummary.orphanAssets > 0 ? 'rgba(var(--tj-accent-primary),0.96)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-accent-primary),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          {cleaningDesktopAssets ? '清理中' : '清理无引用资源'}
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop || repairingDesktopIndexes}
-          onClick={onRepairDesktopIndexes}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop ? 'rgba(var(--tj-arcane-accent),0.92)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-arcane-accent),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          {repairingDesktopIndexes ? '修复中' : '修复镜像索引'}
-        </button>
-        <button
-          type="button"
-          disabled={!isDesktop || restoringDesktopMirror || desktopMirrorCount <= 0}
-          onClick={onRestoreDesktopMirror}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: isDesktop && desktopMirrorCount > 0 ? 'rgba(var(--tj-accent-primary),0.96)' : 'rgba(var(--tj-text-primary),0.44)',
-            background: 'rgba(var(--tj-accent-primary),0.07)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.24)',
-            clipPath: smallClip,
-          }}
-        >
-          {restoringDesktopMirror ? '恢复中' : '恢复本地镜像'}
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function DesktopBackupDetailPanel({ backup }: { backup: DesktopSaveBackupSummary }) {
-  const checksumPreview = backup.integrity?.checksum
-    ? `${backup.integrity.checksum.slice(0, 12)}...`
-    : '无';
-  return (
-    <div
-      className="mt-2 grid min-w-0 gap-2 px-3 py-2"
-      style={{
-        background: 'linear-gradient(135deg, rgba(var(--tj-panel-bg-end),0.58), rgba(var(--tj-surface-bg-start),0.42))',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)',
-        clipPath: smallClip,
-      }}
-    >
-      <div className="text-[11px] tracking-[0.18em]" style={{ color: 'rgba(var(--tj-accent-primary),0.82)' }}>
-        备份详情
-      </div>
-      <div className="grid min-w-0 gap-1 text-[11px] sm:grid-cols-2">
-        <PathLine label="文件名" value={backup.fileName} />
-        <PathLine label="创建时间" value={formatDesktopBackupCreatedAt(backup)} />
-        <PathLine label="备份来源" value={formatDesktopBackupReason(backup)} />
-        <PathLine label="存档数量" value={`${backup.count} 个`} />
-        <PathLine label="校验状态" value={formatDesktopBackupIntegrityStatus(backup)} />
-        <PathLine label="可恢复性" value={isRestorableDesktopBackup(backup) ? '可恢复' : '不可恢复'} />
-        <PathLine label="Payload 大小" value={backup.integrity ? formatSize(backup.integrity.payloadBytes) : '无校验记录'} />
-        <PathLine label="校验存档数" value={backup.integrity ? `${backup.integrity.saveCount} 个` : '无校验记录'} />
-        <PathLine label="校验算法" value={backup.integrity?.algorithm ?? '无校验记录'} />
-        <PathLine label="Checksum" value={checksumPreview} />
-        {backup.error && <PathLine label="读取错误" value={backup.error} />}
-        <PathLine label="本地路径" value={backup.path} />
-      </div>
-    </div>
-  );
-}
-
-function buildUpdateHint(
-  update: DesktopUpdateStatus | null,
-  progress: DesktopUpdateProgress | null,
-  error: string,
-): string {
-  if (error) return `更新检查失败：${error}`;
-  if (progress) {
-    const size = progress.contentLength ? ` / ${formatSize(progress.contentLength)}` : '';
-    if (progress.phase === 'installing') return '更新包已下载，正在安装。';
-    if (progress.phase === 'finished') return '更新包下载完成，准备安装。';
-    if (progress.phase === 'downloading') return `更新下载中：${formatSize(progress.downloadedBytes)}${size}`;
-    return '更新下载已开始。';
-  }
-  if (!update?.checked) return '桌面版可在此检查应用更新。';
-  if (!update.available) return '当前已是最新版本。';
-  return `发现新版本 ${update.version ?? ''}${update.currentVersion ? `，当前版本 ${update.currentVersion}` : ''}。`;
-}
-
-function formatDesktopSaveMirrorHealth(health: DesktopSaveMirrorHealth): string {
-  const sequenceIssue =
-    health.sequenceBehindIndex
-    || health.sequenceStatus === 'invalid'
-    || health.sequenceStatus === 'unreadable'
-    || (health.sequenceStatus === 'missing' && (health.indexedSaves > 0 || health.saveFiles > 0));
-  const issueCount =
-    health.invalidSaveFiles +
-    health.unreadableSaveFiles +
-    health.missingIndexedSaveFiles +
-    health.orphanSaveFiles +
-    health.pendingTransactions +
-    health.unreadableTransactions +
-    (sequenceIssue ? 1 : 0);
-  const sequenceLabel = `${formatDesktopMirrorIndexStatus(health.sequenceStatus)}#${health.sequenceLastSaveId || 0}${health.sequenceBehindIndex ? '落后' : ''}`;
-  return `索引 ${formatDesktopMirrorIndexStatus(health.indexStatus)} / 序列 ${sequenceLabel} / 有效 ${health.validSaveFiles}/${health.saveFiles} / 缺失 ${health.missingIndexedSaveFiles} / 孤儿 ${health.orphanSaveFiles} / 事务 ${health.pendingTransactions} / 异常 ${issueCount}`;
-}
-
-function formatDesktopSaveDeltaMirrorHealth(health: DesktopSaveDeltaMirrorHealth): string {
-  const issueCount =
-    health.invalidDeltaFiles +
-    health.unreadableDeltaFiles +
-    health.missingIndexedDeltaFiles +
-    health.orphanDeltaFiles;
-  return `索引 ${formatDesktopMirrorIndexStatus(health.indexStatus)} / 有效 ${health.validDeltaFiles}/${health.deltaFiles} / 缺失 ${health.missingIndexedDeltaFiles} / 孤儿 ${health.orphanDeltaFiles} / 异常 ${issueCount}`;
-}
-
-function formatDesktopAssetMirrorHealth(health: DesktopAssetMirrorHealth): string {
-  const issueCount =
-    health.invalidMetadataFiles +
-    health.unreadableMetadataFiles +
-    health.missingPayloadFiles +
-    health.missingIndexedMetadataFiles +
-    health.orphanMetadataFiles;
-  return `索引 ${formatDesktopMirrorIndexStatus(health.indexStatus)} / metadata ${health.validMetadataFiles}/${health.metadataFiles} / payload缺失 ${health.missingPayloadFiles} / 孤儿 ${health.orphanMetadataFiles} / 异常 ${issueCount}`;
-}
-
-function formatDesktopMirrorIndexStatus(status: DesktopSaveMirrorHealth['indexStatus'] | DesktopSaveMirrorHealth['sequenceStatus'] | DesktopSaveDeltaMirrorHealth['indexStatus'] | DesktopAssetMirrorHealth['indexStatus']): string {
-  const statusLabel: Record<typeof status, string> = {
-    ok: '正常',
-    missing: '缺失',
-    invalid: '格式异常',
-    unreadable: '不可读',
-  };
-  return statusLabel[status];
-}
-
-function formatDesktopBackupLine(backup: DesktopSaveBackupSummary): string {
-  const sizeLabel = backup.integrity?.payloadBytes ? ` / ${formatSize(backup.integrity.payloadBytes)}` : '';
-  const errorLabel = backup.error ? ` / ${backup.error}` : '';
-  return `${formatDesktopBackupCreatedAt(backup)} / ${formatDesktopBackupReason(backup)} / ${backup.count} 个存档 / ${formatDesktopBackupIntegrityStatus(backup)}${sizeLabel}${errorLabel} / ${backup.fileName}`;
-}
-
-function formatDesktopBackupCreatedAt(backup: DesktopSaveBackupSummary): string {
-  return backup.createdAt ? new Date(backup.createdAt).toLocaleString('zh-CN') : '时间未知';
-}
-
-function formatDesktopBackupReason(backup: DesktopSaveBackupSummary): string {
-  const reasonLabel: Record<NonNullable<DesktopSaveBackupSummary['reason']>, string> = {
-    manual: '手动备份',
-    'before-restore': '恢复前备份',
-    'before-replace': '替换前备份',
-    'before-repair': '修复前备份',
-  };
-  return backup.reason ? reasonLabel[backup.reason] ?? backup.reason : '未知来源';
-}
-
-function formatDesktopBackupIntegrityStatus(backup: DesktopSaveBackupSummary): string {
-  const integrityLabel: Record<DesktopSaveBackupSummary['integrityStatus'], string> = {
-    verified: '校验通过',
-    missing: '旧备份无校验',
-    mismatch: '校验异常',
-    unreadable: '不可读',
-  };
-  return integrityLabel[backup.integrityStatus];
-}
-
-function isRestorableDesktopBackup(backup: DesktopSaveBackupSummary | null): backup is DesktopSaveBackupSummary {
-  return Boolean(
-    backup
-    && backup.count > 0
-    && backup.integrityStatus !== 'unreadable'
-    && backup.integrityStatus !== 'mismatch',
-  );
-}
-
-function findLatestRestorableDesktopBackup(backups: DesktopSaveBackupSummary[]): DesktopSaveBackupSummary | null {
-  return backups.find(isRestorableDesktopBackup) ?? null;
-}
-
-function countUnreadableDesktopBackups(backups: DesktopSaveBackupSummary[]): number {
-  return backups.filter((backup) => backup.integrityStatus === 'unreadable').length;
-}
-
-function findLatestVerifiedDesktopMigrationBackup(backups: DesktopMigrationBackupSummary[]): DesktopMigrationBackupSummary | null {
-  return backups.find((backup) => backup.integrityStatus === 'verified') ?? null;
-}
-
-function countUnreadableDesktopMigrationBackups(backups: DesktopMigrationBackupSummary[]): number {
-  return backups.filter((backup) => backup.integrityStatus !== 'verified').length;
-}
-
-function formatDesktopDiagnosticReportLine(report: DesktopDiagnosticReportSummary): string {
-  const updateLabel = report.updateChecked
-    ? report.updateAvailable ? '发现更新' : '已检查更新'
-    : '未检查更新';
-  const errorLabel = report.lastError ? ` / 最近错误：${report.lastError}` : '';
-  return `${new Date(report.createdAt).toLocaleString('zh-CN')} / v${report.appVersion ?? '未知'} / ${updateLabel}${errorLabel} / ${report.fileName}`;
-}
-
-function downloadDesktopBackupRecord(record: DesktopSaveBackupRecord, fileName: string): void {
-  const json = JSON.stringify(record, null, 2);
-  const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `export-${fileName}`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-function downloadDesktopDiagnosticReport(report: DesktopDiagnosticReport, fileName: string): void {
-  const json = JSON.stringify(report, null, 2);
-  const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `export-${fileName}`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-function PathLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid min-w-0 gap-1 sm:grid-cols-[72px_1fr]">
-      <span style={{ color: 'rgba(var(--tj-arcane-accent),0.72)' }}>{label}</span>
-      <span className="min-w-0 break-all" style={{ color: 'rgba(var(--tj-text-primary),0.72)' }}>{value}</span>
-    </div>
-  );
-}
-
-function SaveCard({
-  save,
-  loadingId,
-  deletingId,
-  onLoad,
-  onExport,
-  onDelete,
-  treeLabel,
-  isLatest = false,
-}: {
-  save: SaveListItemSummary;
-  loadingId: number | null;
-  deletingId: number | null;
-  onLoad: (id: number) => void;
-  onExport: (id: number) => void;
-  onDelete: (id: number) => void;
-  treeLabel?: string;
-  isLatest?: boolean;
-}) {
-  return (
-    <div
-      className={`grid min-w-0 gap-3 lg:grid-cols-[1fr_auto] ${
-        isLatest ? 'p-4 lg:gap-4' : 'p-3'
-      }`}
-      style={{
-        background: isLatest
-          ? 'linear-gradient(135deg, rgba(var(--tj-arcane-accent),0.18), rgba(var(--tj-accent-primary),0.09)), rgba(var(--tj-panel-bg-start),0.92)'
-          : 'rgba(var(--tj-panel-bg-start),0.74)',
-        boxShadow: isLatest
-          ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.46), inset 0 0 0 2px rgba(var(--tj-arcane-accent),0.08), 0 0 28px rgba(var(--tj-arcane-accent),0.10), 0 0 22px rgba(var(--tj-accent-primary),0.08)'
-          : 'inset 0 0 0 1px rgba(var(--tj-arcane-accent),0.18)',
-        clipPath: cardClip,
-      }}
-    >
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <span className={`font-serif tracking-[0.16em] ${isLatest ? 'text-[12px]' : 'text-[11px]'}`} style={{ color: typeColor(save.type) }}>
-            {typeLabel(save.type)}
-          </span>
-          <span className={`font-serif font-bold tracking-wider ${isLatest ? 'text-[17px]' : 'text-[15px]'}`} style={{ color: 'rgb(var(--tj-accent-secondary))' }}>
-            {save.travelerName || '未命名旅人'}
-          </span>
-          <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-primary),0.42)' }}>#{save.id}</span>
-          {treeLabel && (
-            <span
-              className="px-1.5 py-0.5 text-[10px] font-serif tracking-[0.12em]"
-              style={{
-                color: 'rgba(var(--tj-arcane-accent), 0.92)',
-                background: 'rgba(var(--tj-arcane-accent), 0.09)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.25)',
-                clipPath: smallClip,
-              }}
-            >
-              {treeLabel}
-            </span>
-          )}
-          {isLatest && (
-            <span
-              className="px-1.5 py-0.5 text-[10px] font-serif tracking-[0.12em]"
-              style={{
-                color: 'rgb(var(--tj-accent-primary))',
-                background: 'rgba(var(--tj-accent-primary),0.08)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)',
-                clipPath: smallClip,
-              }}
-            >
-              最新
-            </span>
-          )}
-        </div>
-        <div className={`flex flex-wrap gap-x-3 gap-y-1 font-serif tracking-wider ${isLatest ? 'mt-2 text-[13px]' : 'mt-1 text-[12px]'}`} style={{ color: 'rgba(var(--tj-text-primary),0.78)' }}>
-          <span style={{ color: 'rgb(var(--tj-arcane-accent))' }}>第 {save.turnCount} 回合</span>
-          <span>{[save.currentDate, save.currentTime, save.currentLocation].filter(Boolean).join(' / ') || save.worldPeriodName || '未知坐标'}</span>
-          <span>{new Date(save.timestamp).toLocaleString('zh-CN')}</span>
-          <span>{formatSize(save.sizeBytes)}</span>
-        </div>
-        {save.lastSummary && (
-          <div className={`leading-relaxed ${isLatest ? 'mt-2 line-clamp-3 text-[13px]' : 'mt-1.5 line-clamp-2 text-[12px]'}`} style={{ color: 'rgba(var(--tj-text-primary),0.62)' }}>
-            {save.lastSummary}
-          </div>
-        )}
-      </div>
-      <div className="grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:items-center">
-        <ActionButton label={loadingId === save.id ? '读取中' : '读取'} disabled={loadingId !== null || deletingId !== null} onClick={() => onLoad(save.id)} />
-        <ActionButton label="导出" disabled={loadingId !== null || deletingId !== null} onClick={() => onExport(save.id)} />
-        <button
-          type="button"
-          disabled={loadingId !== null || deletingId !== null}
-          onClick={() => onDelete(save.id)}
-          className="w-full cursor-pointer px-3 py-2 text-[12px] font-serif tracking-[0.16em] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          style={{
-            color: 'rgba(var(--tj-danger),0.9)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger),0.28)',
-            clipPath: smallClip,
-          }}
-        >
-          {deletingId === save.id ? '删除中' : '删除'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function typeLabel(type: SaveListItemSummary['type']): string {
-  if (type === 'auto') return '自动';
-  if (type === 'backup') return '恢复点';
-  if (type === 'imported') return '导入';
-  return '手动';
-}
-
-function typeColor(type: SaveListItemSummary['type']): string {
-  if (type === 'auto') return 'rgba(var(--tj-arcane-accent), 0.86)';
-  if (type === 'backup') return 'rgba(var(--tj-arcane-accent), 0.9)';
-  if (type === 'imported') return 'rgba(var(--tj-ui-success), 0.9)';
-  return 'rgba(var(--tj-arcane-accent), 0.9)';
-}
-
-function formatSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
 
 function matchesSaveFilter(save: SaveListItemSummary, filter: Filter): boolean {
   if (filter === 'all') return true;
   if (filter === 'manual') return save.type === 'manual';
   if (filter === 'auto') return save.type === 'auto';
   return save.type === 'imported';
-}
-
-function buildVisibleSaveTreeGroup(group: SaveTreeDisplayGroup, filter: Filter): SaveTreeDisplayGroup | null {
-  const nodes = group.nodes.filter((node) => matchesSaveFilter(node.save, filter));
-  if (!nodes.length) return null;
-  const latestSave = [...nodes].sort((a, b) => b.save.timestamp - a.save.timestamp || b.save.id - a.save.id)[0].save;
-  const rootSave = nodes.find((node) => node.isRoot)?.save ?? nodes[nodes.length - 1].save;
-  const forkNodeIds = new Set<string>();
-  for (const node of nodes) {
-    const parentNodeId = node.save.saveTree?.parentNodeId;
-    if (parentNodeId && nodes.some((candidate) => candidate.save.saveTree?.nodeId === parentNodeId)) {
-      forkNodeIds.add(parentNodeId);
-    }
-  }
-  return {
-    ...group,
-    rootSave,
-    latestSave,
-    nodes,
-    nodeCount: nodes.length,
-    branchCount: Math.max(0, forkNodeIds.size ? group.branchCount : 0),
-    totalSizeBytes: nodes.reduce((sum, node) => sum + Math.max(0, node.save.sizeBytes || 0), 0),
-  };
 }

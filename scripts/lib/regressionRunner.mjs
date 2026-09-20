@@ -1,4 +1,13 @@
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+// 共享别名 loader：回归脚本会直接 import 生产 .ts（含 `@/...` 别名导入），
+// 裸 node 无法解析，这里统一注入 resolve 钩子，避免每个脚本各修一遍。
+const aliasRegisterUrl = new URL('./tsAliasRegister.mjs', import.meta.url).href;
+
+export function nodeScriptArgs(scriptPath) {
+  return ['--import', aliasRegisterUrl, scriptPath];
+}
 
 function tailLines(value, limit = 12) {
   return String(value || '').trim().split('\n').filter(Boolean).slice(-limit).join('\n');
@@ -21,7 +30,7 @@ export function formatRegressionFailure(result) {
 }
 
 export function runRegressionScript(nodePath, scriptPath, options = {}) {
-  return spawnSync(nodePath, [scriptPath], {
+  return spawnSync(nodePath, nodeScriptArgs(scriptPath), {
     stdio: 'pipe',
     encoding: 'utf8',
     timeout: options.timeout ?? 600_000,

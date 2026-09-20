@@ -1,9 +1,10 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 const builder = fs.readFileSync('hooks/useGame/systemPromptBuilder.ts', 'utf8');
 const contextSnapshot = fs.readFileSync('hooks/useGame/contextSnapshot.ts', 'utf8');
 const mainNarrative = fs.readFileSync('prompts/narrative/mainPrompt.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const sendWorkflow = readWorkflowSources();
 const variableExecutor = fs.readFileSync('utils/variableExecutor.ts', 'utf8');
 const worldEvents = fs.readFileSync('utils/worldEvents.ts', 'utf8');
 const promptModel = fs.readFileSync('models/prompts.ts', 'utf8');
@@ -63,9 +64,16 @@ assert(builder.includes('normalizeWorldEventFingerprint'), '近期事件必须�
 assert(!builder.includes('worldState.全局事件.map((e) => `- ${e}`).join'), '近期事件不得继续全量注入世界全局事件。');
 assert(worldEvents.includes('WORLD_EVENT_STORAGE_LIMIT = 30'), '世界全局事件存档层必须默认只保留最近 30 条。');
 assert(worldEvents.includes('function compactWorldEvents'), '世界全局事件必须有统一压缩/去重函数。');
-assert(sendWorkflow.includes('appendWorldEvents(worldAfter.全局事件, worldFactCandidates)'), '正文世界候选事实追加必须走 30 条存档上限。');
+// 迁移: 旧 `appendWorldEvents(worldAfter.全局事件, worldFactCandidates)`（内联在 sendWorkflow）
+//   -> `appendWorldEvents(world.全局事件, worldFactCandidates)`（搬到 hooks/useGame/narrativeWorldStage.ts 的
+//      applyNarrativeWorldStage，局部世界快照变量 worldAfter -> world）。
+// 理由: 意图不变——正文确认的世界候选事实必须走 appendWorldEvents（30 条存档上限 + 压缩去重），不得直连数组展开追加。
+assert(sendWorkflow.includes('appendWorldEvents(world.全局事件, worldFactCandidates)'), '正文世界候选事实追加必须走 30 条存档上限。');
 assert(variableExecutor.includes("root === '世界' && rest === '全局事件' && cmd.action === 'push'"), '变量命令 push 世界.全局事件 也必须走 30 条存档上限。');
-assert(!sendWorkflow.includes('全局事件: [...worldAfter.全局事件, ...parsedForDisplay.worldEvents]'), '正文动态世界事件不得继续无限追加进存档。');
+// 迁移: 旧负断言钉死 `全局事件: [...worldAfter.全局事件, ...parsedForDisplay.worldEvents]`；
+//   worldAfter 重命名后该字面量全仓不存在，负断言会永久空转。改为按“裸展开追加全局事件”的形态匹配，
+//   覆盖任意变量名。理由: 同一条意图（正文动态世界事件不得无限追加进存档）重新变得可证伪。
+assert(!/全局事件:\s*\[\.\.\.[^\]]*全局事件/.test(sendWorkflow), '正文动态世界事件不得继续无限追加进存档。');
 
 // 结构轮: 字数硬约束改由回复格式模块(scope=all,主剧情与开局都注入)+区E兜底承担,不再有硬编码调用。
 assert(contextSnapshot.includes('splitPromptSections(systemPrompt)'), '上下文查看必须展示 system prompt 分段，才能看到字数硬约束。');

@@ -457,7 +457,7 @@ function buildCanonSeriesFromCodexEntries(preset: BundledStoryWeavingPreset, ent
       可提前铺垫: index < entries.length - 1 && entries[index + 1]?.摘要
         ? [
             {
-              内容: entries[index + 1].摘要,
+              内容: entries[index + 1]?.摘要 ?? '',
               信息可见性: { 谁知道: [], 谁不知道: [], 是否仅读者视角可见: true },
             },
           ]
@@ -476,7 +476,7 @@ function buildCanonSeriesFromCodexEntries(preset: BundledStoryWeavingPreset, ent
           触发条件: [],
           阻断条件: ['玩家已经历、跳过或偏离该段剧情时，不得重新作为当前剧情注入。'],
           事件结果: fallbackEventResults,
-          对后续影响: index < entries.length - 1 && entries[index + 1]?.摘要 ? [entries[index + 1].摘要] : [],
+          对后续影响: index < entries.length - 1 && entries[index + 1]?.摘要 ? [entries[index + 1]?.摘要 ?? ''] : [],
           信息可见性: { 谁知道: [], 谁不知道: [], 是否仅读者视角可见: false },
         },
       ],

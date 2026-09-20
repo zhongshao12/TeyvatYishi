@@ -6,11 +6,9 @@
  */
 
 import type { STPreset, STPresetPrompt, STPresetOrder, STPresetOrderSlot, STPresetEntryV2, STSamplingParams } from '@/models/stTypes';
+import { readTrimmedText as readText } from '@/utils/valueGuards';
 
 // ── 字段级软读取工具 ──────────────────────────────────────────────
-
-const readText = (v: unknown): string =>
-  typeof v === 'string' ? v.trim() : '';
 
 const readBool = (v: unknown): boolean =>
   v === true;

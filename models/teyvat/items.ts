@@ -40,10 +40,6 @@ export function createEmptyTeyvatInventory(): TeyvatInventory {
   return { items: [], mora: 0 };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 function requireNonEmptyString(value: unknown, code: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(code);
   return value;
@@ -139,3 +135,4 @@ export function normalizeTeyvatInventory(input: unknown): TeyvatInventory {
     : [];
   return { items, mora, ...(discardedItemIds.length ? { discardedItemIds } : {}) };
 }
+import { isRecord } from '@/utils/valueGuards';

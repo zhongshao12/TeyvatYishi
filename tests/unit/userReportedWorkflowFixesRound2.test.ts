@@ -61,8 +61,8 @@ describe('second user-reported UX regression batch', () => {
       npcId: 'npc_amber', conversationId: 'private_amber', exchangeId: 'exchange_4', playerText: '谢谢你一直关心我。',
       replyTexts: ['不用客气！我们明天也一起巡逻吧。'], turn: 4,
     });
-    expect(after[0].好感度).toBeGreaterThan(8);
-    expect(after[0].同行记忆?.length).toBeGreaterThan(0);
+    expect(after[0]!.好感度).toBeGreaterThan(8);
+    expect(after[0]!.同行记忆?.length).toBeGreaterThan(0);
   });
 
   it('only lets genuinely connected NPCs become manual contacts', () => {
@@ -82,19 +82,37 @@ describe('second user-reported UX regression batch', () => {
       conversations: [{ id: 'g', title: '群聊', type: 'group', participantIds: ['player', 'amber-a', 'amber-b'], messages: [], unread: 0, typingMemberIds: [], updatedAt: 1 }],
     });
     expect(normalized.contacts).toHaveLength(1);
-    expect(normalized.contacts[0].avatar).toBe('/amber.webp');
-    expect(normalized.conversations[0].participantIds).toEqual(['player', normalized.contacts[0].id]);
+    expect(normalized.contacts[0]!.avatar).toBe('/amber.webp');
+    expect(normalized.conversations[0]!.participantIds).toEqual(['player', normalized.contacts[0]!.id]);
   });
 
-  it('prioritizes every explicit group @mention', () => {
-    const conversation = { id: 'g', participantIds: ['player', 'amber', 'lisa', 'kaeya'] };
+  it('keeps every explicit group @mention and adds two unmentioned participants', () => {
+    const conversation = { id: 'g', participantIds: ['player', 'amber', 'lisa', 'kaeya', 'barbara'] };
     const contacts = [
       { id: 'amber', name: '安柏', available: true },
       { id: 'lisa', name: '丽莎', available: true },
       { id: 'kaeya', name: '凯亚', available: true },
+      { id: 'barbara', name: '芭芭拉', available: true },
     ];
     const result = selectGroupReplyMembers(conversation, { id: 'm', senderId: 'player', senderName: '旅行者', role: 'user', content: '@安柏 ＠丽莎 你们怎么看？', turn: 2, timestamp: 2, readBy: [] }, 2, contacts);
-    expect(result).toEqual(['amber', 'lisa']);
+    expect(result.slice(0, 2)).toEqual(['amber', 'lisa']);
+    expect(new Set(result.slice(2))).toEqual(new Set(['kaeya', 'barbara']));
+  });
+
+  it('treats @全体成员 as an explicit all-member reply even when names are also mentioned', () => {
+    const conversation = { id: 'g', participantIds: ['player', 'amber', 'lisa', 'kaeya', 'barbara'] };
+    const contacts = [
+      { id: 'amber', name: '安柏', available: true },
+      { id: 'lisa', name: '丽莎', available: true },
+      { id: 'kaeya', name: '凯亚', available: true },
+      { id: 'barbara', name: '芭芭拉', available: true },
+    ];
+    const result = selectGroupReplyMembers(conversation, {
+      id: 'm-all', senderId: 'player', senderName: '旅行者', role: 'user',
+      content: '@全体成员 @安柏 今晚一起开会。', turn: 2, timestamp: 2, readBy: [],
+    }, 2, contacts);
+
+    expect(new Set(result)).toEqual(new Set(['amber', 'lisa', 'kaeya', 'barbara']));
   });
 
   it('starts a phone message in the current main-story turn', () => {
@@ -111,14 +129,15 @@ describe('second user-reported UX regression batch', () => {
       canonicalPresetChoice: '荧', canonicalTraveler: '无主角', storyMode: 'harem', talents: preset.天赋,
     });
     expect(payload.world.起航之地ID).toBe('official_mondstadt_dragon');
-    expect(payload.traveler.能力).toContain('特殊体质：天相隐魅体 (Hidden Allure)');
+    expect(payload.traveler.能力.join('\n')).not.toContain('天相隐魅体');
+    expect(payload.traveler.能力.join('\n')).not.toContain('Hidden Allure');
   });
 
   it('summarizes rather than republishes the raw Steambird source text', () => {
     const raw = '骑士团在清泉镇发布了很长的公告。'.repeat(30);
     const result = runSteambirdGenerationStep({ current: { articles: [] }, publicFacts: [{ title: '骑士团公告', detail: raw }], turnCount: 2, now: 2 });
-    expect(result?.steambird.articles[0].body.length).toBeLessThanOrEqual(180);
-    expect(result?.steambird.articles[0].body).not.toBe(raw);
+    expect(result?.steambird.articles[0]!.body.length).toBeLessThanOrEqual(180);
+    expect(result?.steambird.articles[0]!.body).not.toBe(raw);
   });
 
   it('understands next-day and numeric narrative clocks', () => {
@@ -141,7 +160,10 @@ describe('second user-reported UX regression batch', () => {
 
   it('contains the required visual alignment and legibility hooks', () => {
     const message = readFileSync(resolve(process.cwd(), 'components/features/Chat/MessageRenderers.tsx'), 'utf8');
-    const courier = readFileSync(resolve(process.cwd(), 'components/features/Courier/CourierModal.tsx'), 'utf8');
+    const courier = [
+      'components/features/Courier/CourierModal.tsx',
+      'components/features/Courier/CourierMessageTimeline.tsx',
+    ].map((path) => readFileSync(resolve(process.cwd(), path), 'utf8')).join('\n');
     const inventory = readFileSync(resolve(process.cwd(), 'components/features/GameSystems/InventoryPanel.tsx'), 'utf8');
     const album = readFileSync(resolve(process.cwd(), 'components/features/GameSystems/album/workspaces.tsx'), 'utf8');
     const app = readFileSync(resolve(process.cwd(), 'App.tsx'), 'utf8');

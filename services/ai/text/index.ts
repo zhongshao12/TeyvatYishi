@@ -9,6 +9,7 @@ export interface ChatRequest {
   messages: 聊天消息[];
   systemPrompt: string;
   onDelta: (delta: string) => void;
+  onStreamReset?: () => void;
   signal?: AbortSignal;
   streaming?: boolean;
   /** DeepSeek 主剧情锁格式：只在 DeepSeek provider 下生效。 */
@@ -77,6 +78,7 @@ export async function sendChatMessage(
   if (useStream) {
     const callbacks: StreamCallbacks = {
       onDelta: request.onDelta,
+      onReset: request.onStreamReset,
       onDone: () => {},
       onError: (err) => { throw err; },
       onFinishReason: (reason) => { finishReason = reason; },

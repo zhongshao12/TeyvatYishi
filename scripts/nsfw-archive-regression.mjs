@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -10,7 +11,11 @@ const variableModel = fs.readFileSync('services/ai/variableModel.ts', 'utf8');
 const domainRules = fs.readFileSync('prompts/subsystems/domainCommandPrompt.ts', 'utf8');
 const variableWorldbook = fs.readFileSync('data/variableWorldbook.ts', 'utf8');
 const nsfwWorldbook = fs.readFileSync('data/nsfwWorldbook.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+// 迁移: 主剧情工作流读取改走 readWorkflowSources()（WORKFLOW_FILES 登记文件的拼接视图）。
+// 理由: 这些断言保护的是行为，不是文件位置；阶段模块拆分后代码一搬走就不再假红。
+// 负断言 `!sendWorkflow.includes('非人/生物形态/怪物/机械')` 保持全视图：旧屏蔽文案出现在
+// 工作流层任何一处都属于同一类回归，视图变宽只会让它更严（已实测 38 个文件均无该文案）。
+const sendWorkflow = readWorkflowSources();
 const enrichment = fs.readFileSync('utils/npcArchiveEnrichment.ts', 'utf8');
 const companionPanel = fs.readFileSync('components/features/GameSystems/CompanionPanel.tsx', 'utf8');
 const variableManager = fs.readFileSync('components/features/Settings/VariableManager.tsx', 'utf8');

@@ -34,8 +34,8 @@ describe('storyWeavingConflict', () => {
     const series = 系列('s1', [段('seg1', 1, 'A', '当前'), 段('seg2', 2, 'B', '当前')]);
     const conflicts = 检测多个当前分段(series);
     expect(conflicts.length).toBeGreaterThan(0);
-    expect(conflicts[0].规则ID).toBe('multiple_active_segments');
-    expect(conflicts[0].严重度).toBe('error');
+    expect(conflicts[0]!.规则ID).toBe('multiple_active_segments');
+    expect(conflicts[0]!.严重度).toBe('error');
   });
 
   it('detects canon event replay for an unstarted segment', () => {
@@ -44,7 +44,7 @@ describe('storyWeavingConflict', () => {
     const system: 剧情编织系统 = { 系列列表: [系列('s1', [seg], 'canon')] };
     const conflicts = 检测原著事件重演(system, ['反物质军团入侵已经发生']);
     expect(conflicts).toHaveLength(1);
-    expect(conflicts[0].规则ID).toBe('canon_event_replay');
+    expect(conflicts[0]!.规则ID).toBe('canon_event_replay');
   });
 
   it('flags a blocked Teyvat anchor even when legacy keyword matching would otherwise advance it', () => {
@@ -66,8 +66,8 @@ describe('storyWeavingConflict', () => {
     const conflicts = 检测原著事件重演(system, ['没有眼泪的明天已经开始'], canonTrack);
 
     expect(conflicts).toHaveLength(1);
-    expect(conflicts[0].规则ID).toBe('canon_event_replay');
-    expect(conflicts[0].描述).toContain('teyvat_prologue_mondstadt_act2');
+    expect(conflicts[0]!.规则ID).toBe('canon_event_replay');
+    expect(conflicts[0]!.描述).toContain('teyvat_prologue_mondstadt_act2');
   });
 
   it('reports canon-wide blocked-anchor warnings exactly once while preserving per-series conflict order', () => {
@@ -94,7 +94,7 @@ describe('storyWeavingConflict', () => {
     const perSeriesErrors = conflicts.filter((conflict) => conflict.规则ID === 'multiple_active_segments');
 
     expect(canonWarnings).toHaveLength(1);
-    expect(canonWarnings[0].分段ID).toBe('blocked-future');
+    expect(canonWarnings[0]!.分段ID).toBe('blocked-future');
     expect(perSeriesErrors.map((conflict) => conflict.系列ID)).toEqual(['custom-first', 'story_canon_teyvat_mondstadt_prologue_act2']);
   });
 
@@ -104,14 +104,14 @@ describe('storyWeavingConflict', () => {
     const system: 剧情编织系统 = { 系列列表: [系列('s1', [段('seg1', 1, 'A', '未开始'), later], 'canon')] };
     const conflicts = 检测事实与时间线矛盾(system, ['玩家已抵达匹诺康尼']);
     expect(conflicts).toHaveLength(1);
-    expect(conflicts[0].规则ID).toBe('fact_timeline_contradiction');
+    expect(conflicts[0]!.规则ID).toBe('fact_timeline_contradiction');
   });
 
   it('flags diverged segments without a later route', () => {
     const system: 剧情编织系统 = { 系列列表: [系列('s1', [段('seg1', 1, 'A', '已偏离')])] };
     const conflicts = 检测偏离段缺失回归路径(system);
     expect(conflicts).toHaveLength(1);
-    expect(conflicts[0].规则ID).toBe('diverged_segment_no_rejoin');
+    expect(conflicts[0]!.规则ID).toBe('diverged_segment_no_rejoin');
   });
 
   it('applies mark_skip fix and collapses multiple active segments', () => {
@@ -119,8 +119,8 @@ describe('storyWeavingConflict', () => {
     const system: 剧情编织系统 = { 系列列表: [series] };
     const conflicts = 生成冲突报告(system, []);
     expect(conflicts.length).toBeGreaterThan(0);
-    const fixed = 应用冲突修复(system, conflicts[0]);
-    const active = fixed.系列列表[0].分段列表.filter((seg) => seg.运行状态 === '当前');
+    const fixed = 应用冲突修复(system, conflicts[0]!);
+    const active = fixed.系列列表[0]!.分段列表.filter((seg) => seg.运行状态 === '当前');
     expect(active).toHaveLength(1);
   });
 
@@ -160,12 +160,12 @@ describe('storyWeavingConflict extra branches', () => {
   it('applies mark_diverged and rejoin fixes, and demotes other active segments on rejoin', () => {
     const series = 系列('s1', [段('seg1', 1, 'A', '当前'), 段('seg2', 2, 'B', '已偏离')]);
     const system: 剧情编织系统 = { 系列列表: [series] };
-    const diverged = 生成冲突报告(system, [])[0];
+    const diverged = 生成冲突报告(system, [])[0]!;
     const marked = 应用冲突修复(system, { ...diverged, 建议动作: 'mark_diverged' });
-    expect(marked.系列列表[0].分段列表[1].运行状态).toBe('已偏离');
+    expect(marked.系列列表[0]!.分段列表[1]!.运行状态).toBe('已偏离');
 
     const rejoin = 应用冲突修复(system, { ...diverged, 分段ID: 'seg2', 建议动作: 'rejoin' });
-    const segments = rejoin.系列列表[0].分段列表;
+    const segments = rejoin.系列列表[0]!.分段列表;
     expect(segments.find((s) => s.id === 'seg2')?.运行状态).toBe('当前');
     expect(segments.filter((s) => s.运行状态 === '当前')).toHaveLength(1);
   });
@@ -173,11 +173,11 @@ describe('storyWeavingConflict extra branches', () => {
   it('returns the system unchanged for dismiss, missing segment id, or id mismatches', () => {
     const series = 系列('s1', [段('seg1', 1, 'A', '当前')]);
     const system: 剧情编织系统 = { 系列列表: [series] };
-    const base = 生成冲突报告(system, [])[0];
+    const base = 生成冲突报告(system, [])[0]!;
     expect(应用冲突修复(system, { ...base, 建议动作: 'dismiss' })).toBe(system);
     expect(应用冲突修复(system, { ...base, 分段ID: undefined })).toBe(system);
-    expect(应用冲突修复(system, { ...base, 系列ID: 'other' }).系列列表[0].分段列表[0].运行状态).toBe('当前');
-    expect(应用冲突修复(system, { ...base, 分段ID: 'missing' }).系列列表[0].分段列表[0].运行状态).toBe('当前');
+    expect(应用冲突修复(system, { ...base, 系列ID: 'other' }).系列列表[0]!.分段列表[0]!.运行状态).toBe('当前');
+    expect(应用冲突修复(system, { ...base, 分段ID: 'missing' }).系列列表[0]!.分段列表[0]!.运行状态).toBe('当前');
   });
 });
 

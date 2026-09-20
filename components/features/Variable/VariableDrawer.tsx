@@ -1,3 +1,4 @@
+import { CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 import { useMemo, useState } from 'react';
 import type { 变量命令批次, 变量命令结果, 变量命令动作 } from '@/models/variableCommand';
 import type { 队列任务ID, 队列任务记录, 队列任务状态 } from '@/models/queueTask';
@@ -11,8 +12,7 @@ interface Props {
   onRetryTask?: (task: 队列任务记录, mode: 'retry' | 'reroll') => void | Promise<void>;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
 
 // 命令 action → 颜色标签（参考墨色项目的配色风格）
 const ACTION_STYLE: Record<变量命令动作, { bg: string; border: string; color: string; label: string }> = {
@@ -154,9 +154,9 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
               color: 'rgb(var(--tj-accent-primary))',
               background:
                 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.12), rgba(var(--tj-accent-primary), 0.02))',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+              boxShadow: insetRing(0.45),
               clipPath:
-                'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+                CLIP_SMALL,
             }}
           >
             ◈
@@ -255,7 +255,7 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
               ? 'rgba(var(--tj-danger),0.35)'
               : 'rgba(var(--tj-border), 0.7)'
         }`,
-        clipPath: smallClip,
+        clipPath: CLIP_SMALL,
       }}
     >
       {/* 行头 */}
@@ -266,7 +266,7 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
           style={{
             color: 'rgb(var(--tj-accent-primary))',
             background: 'rgba(var(--tj-accent-primary), 0.08)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.5)',
+            boxShadow: insetRing(0.5),
           }}
         >
           {index}
@@ -318,8 +318,8 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
               style={{
                 color: 'rgba(var(--tj-accent-secondary),0.96)',
                 background: 'rgba(var(--tj-accent-primary), 0.08)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.34)',
-                clipPath: smallClip,
+                boxShadow: insetRing(0.34),
+                clipPath: CLIP_SMALL,
               }}
             >
               取消
@@ -369,8 +369,8 @@ function QueueActionButton({ label, onClick }: { label: string; onClick: () => v
       style={{
         color: 'rgb(var(--tj-accent-primary))',
         background: 'rgba(var(--tj-accent-primary), 0.08)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.3),
+        clipPath: CLIP_SMALL,
       }}
     >
       {label}
@@ -428,7 +428,7 @@ function StatusIcon({ status }: { status: TaskStatus }) {
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.72)',
           background: 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24)',
+          boxShadow: insetRing(0.24),
         }}
       >
         -
@@ -443,7 +443,7 @@ function StatusIcon({ status }: { status: TaskStatus }) {
         style={{
           color: 'rgba(var(--tj-accent-secondary),0.92)',
           background: 'rgba(var(--tj-accent-primary), 0.08)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
+          boxShadow: insetRing(0.3),
         }}
       >
         ×
@@ -457,7 +457,7 @@ function StatusIcon({ status }: { status: TaskStatus }) {
       style={{
           color: 'rgba(var(--tj-text-primary), 0.68)',
         background: 'rgba(var(--tj-accent-primary), 0.04)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+        boxShadow: insetRing(0.2),
       }}
     >
       ◇
@@ -518,7 +518,7 @@ function ViewButton({
           : 'rgba(var(--tj-accent-primary), 0.04)',
         boxShadow: active
           ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.55)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.32)',
+          : insetRing(0.32),
         clipPath:
           'polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px)',
       }}
@@ -543,7 +543,7 @@ function RawTextPanel({ raw }: { raw: string }) {
           color: 'rgba(var(--tj-text-primary), 0.94)',
           background: 'rgb(var(--tj-bubble))',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.7)',
-          clipPath: smallClip,
+          clipPath: CLIP_SMALL,
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
         }}
       >
@@ -568,7 +568,7 @@ function CommandsPanel({ batch }: { batch: 变量命令批次 }) {
           style={{
             color: 'rgba(var(--tj-text-primary), 0.82)',
             background: 'rgb(var(--tj-bubble))',
-            clipPath: smallClip,
+            clipPath: CLIP_SMALL,
           }}
         >
           {batch.report}
@@ -611,7 +611,7 @@ function CommandRow({ result }: { result: 变量命令结果 }) {
       style={{
         background: ok ? 'rgb(var(--tj-bubble))' : 'rgba(176, 72, 68, 0.1)',
         boxShadow: `inset 0 0 0 1px ${ok ? 'rgba(var(--tj-border), 0.68)' : 'rgba(176, 72, 68, 0.34)'}`,
-        clipPath: smallClip,
+        clipPath: CLIP_SMALL,
       }}
       title={reason}
     >

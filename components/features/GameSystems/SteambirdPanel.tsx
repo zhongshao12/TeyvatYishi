@@ -1,3 +1,4 @@
+import { CLIP_ITEM, insetRing } from '@/styles/clipPaths';
 import { useMemo, useState } from 'react';
 import type { SteambirdNews } from '@/models/teyvat/steambird';
 
@@ -84,7 +85,7 @@ export function SteambirdPanel({ steambird, turnCount }: { steambird: SteambirdN
                 {list.map((article) => {
                   const expanded = expandedIds.has(article.id);
                   return (
-                    <article key={article.id} className="p-3" style={{ background: 'rgba(var(--tj-bubble),0.6)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)', clipPath: 'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)' }}>
+                    <article key={article.id} className="p-3" style={{ background: 'rgba(var(--tj-bubble),0.6)', boxShadow: insetRing(0.16), clipPath: CLIP_ITEM }}>
                       <p className="text-[11px] tracking-[0.14em]" style={{ color: 'rgba(var(--tj-accent-primary),0.85)' }}>
                         {article.important ? '★ ' : ''}回合 {article.turn}
                       </p>

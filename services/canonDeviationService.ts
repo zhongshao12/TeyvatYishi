@@ -12,10 +12,6 @@ const CANON_ANCHORS = new Set<string>(TEYVAT_CANON_ANCHOR_IDS);
 const STATUSES = new Set<CanonDeviationStatus>(['active', 'resolved', 'archived']);
 const RETURNABILITY = new Set<CanonReturnability>(['none', 'conditional', 'open']);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 function normalizeAnchor(value: unknown): TeyvatCanonAnchorId | null {
   if (typeof value !== 'string') return null;
   const anchor = value.trim();
@@ -114,7 +110,8 @@ export function normalizeCanonTrack(input: unknown): CanonTrack {
       const normalized = normalizeCanonDeviation(candidate);
       if (!normalized) continue;
       const index = deviations.findIndex((item) => item.id === normalized.id);
-      if (index >= 0) deviations[index] = mergeCanonDeviation(deviations[index], normalized);
+      const existing = deviations[index];
+      if (index >= 0 && existing) deviations[index] = mergeCanonDeviation(existing, normalized);
       else deviations.push(normalized);
     }
   }
@@ -174,3 +171,4 @@ export function getBlockedCanonAnchorIds(track?: CanonTrack): Set<TeyvatCanonAnc
   }
   return blocked;
 }
+import { isRecord } from '@/utils/valueGuards';

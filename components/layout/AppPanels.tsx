@@ -1,3 +1,4 @@
+import { insetRing } from '@/styles/clipPaths';
 import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import type { MemoryRebuildProgress, MemoryRebuildTask } from '@/services/memoryRebuild';
@@ -128,7 +129,7 @@ export function MemoryRebuildModal({
             onClick={() => void handleRun()}
             disabled={running}
             className="px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-45"
-            style={{ color: 'rgb(var(--tj-text-primary))', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.5)', background: 'rgba(var(--tj-accent-primary),0.12)' }}
+            style={{ color: 'rgb(var(--tj-text-primary))', boxShadow: insetRing(0.5), background: 'rgba(var(--tj-accent-primary),0.12)' }}
           >
             {running ? '重建中...' : result?.status === 'paused_failed' ? '从失败批次继续' : '开始重建'}
           </button>

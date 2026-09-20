@@ -49,6 +49,7 @@ export async function hydrateAlbumContentHashes(album: 相册系统): Promise<�
   const assets: 图片资源[] = [];
   for (let index = 0; index < album.assets.length; index += 1) {
     const asset = album.assets[index];
+    if (!asset) continue;
     const existing = normalizeContentHash(asset.contentHash);
     if (existing) {
       assets.push(existing === asset.contentHash ? asset : { ...asset, contentHash: existing });
@@ -164,9 +165,11 @@ export async function deduplicateAlbumContent(input: 相册系统): Promise<相�
     const existingIndex = entryKeyToIndex.get(key);
     if (existingIndex !== undefined) {
       const existing = entries[existingIndex];
-      entries[existingIndex] = mergeAlbumEntryMetadata(existing, rewritten);
-      entryIdRemap.set(entry.id, existing.id);
-      continue;
+      if (existing) {
+        entries[existingIndex] = mergeAlbumEntryMetadata(existing, rewritten);
+        entryIdRemap.set(entry.id, existing.id);
+        continue;
+      }
     }
     entryKeyToIndex.set(key, entries.length);
     entryIdRemap.set(entry.id, entry.id);

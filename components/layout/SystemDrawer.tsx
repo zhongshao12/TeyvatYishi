@@ -1,5 +1,7 @@
+import { CLIP_PANEL, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
+import { useModalAccessibility } from '@/components/ui/Modal';
 
 interface SystemDrawerProps {
   open: boolean;
@@ -14,6 +16,7 @@ interface SystemDrawerProps {
 // 套用 journal-story-page 让内部 --tj-* 翻转为羊皮纸色，所有系统面板自动获得日式西幻皮肤；
 // 内容超长时在弹窗内部滚动。
 export function SystemDrawer({ open, title, subtitle, glyph, onClose, children }: SystemDrawerProps) {
+  const dialogRef = useModalAccessibility<HTMLElement>(onClose, open);
   if (!open) {
     return (
       <div aria-hidden style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none' }}>
@@ -22,12 +25,17 @@ export function SystemDrawer({ open, title, subtitle, glyph, onClose, children }
     );
   }
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4" role="dialog" aria-modal="true" aria-label={title}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4">
       <section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
         className="journal-story-page relative flex h-[min(92vh,880px)] w-[min(1120px,97vw)] flex-col overflow-hidden"
         style={{
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.4), inset 0 0 0 7px rgba(0, 0, 0, 0.08), 0 30px 70px rgba(0, 0, 0, 0.55)',
-          clipPath: 'polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)',
+          clipPath: CLIP_PANEL,
         }}
       >
         <header
@@ -40,8 +48,8 @@ export function SystemDrawer({ open, title, subtitle, glyph, onClose, children }
               style={{
                 color: 'rgb(var(--tj-accent-primary))',
                 background: 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.14), rgba(var(--tj-accent-primary), 0.03))',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
-                clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+                boxShadow: insetRing(0.45),
+                clipPath: CLIP_SMALL,
               }}
             >
               {glyph}
@@ -61,7 +69,7 @@ export function SystemDrawer({ open, title, subtitle, glyph, onClose, children }
             onClick={onClose}
             aria-label="关闭面板"
             className="flex h-10 w-10 flex-shrink-0 items-center justify-center font-serif text-lg transition-all hover:opacity-80"
-            style={{ color: 'rgba(var(--tj-text-secondary), 0.85)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)', clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)' }}
+            style={{ color: 'rgba(var(--tj-text-secondary), 0.85)', boxShadow: insetRing(0.3), clipPath: CLIP_SMALL }}
           >
             ✕
           </button>

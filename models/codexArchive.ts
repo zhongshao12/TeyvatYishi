@@ -380,7 +380,8 @@ export function 选择图鉴关键词互斥结果(matches: 图鉴关键词匹配
   }
 
   for (const groupMatches of groups.values()) {
-    selected.push([...groupMatches].sort(compareKeywordMatchSpecificity)[0]);
+    const best = [...groupMatches].sort(compareKeywordMatchSpecificity)[0];
+    if (best) selected.push(best);
   }
 
   return selected.sort(compareKeywordMatchSpecificity);
@@ -479,7 +480,7 @@ export function 获取图鉴核心触发词(entry: Pick<图鉴条目, '原文'>)
   const match = source.match(/核心触发词[:：]\s*([^\n]+)/u);
   if (!match) return [];
   return Array.from(new Set(
-    match[1]
+    (match[1] ?? '')
       .replace(/[。；;]+$/u, '')
       .split(/[,，、;；\n]/u)
       .map((item) => item.trim())
@@ -651,8 +652,8 @@ function normalizeEntry(entry: Partial<图鉴条目>): 图鉴条目 {
 function parseKeywordTag(keyword: string): { key: string; value: string } | null {
   const match = keyword.match(/^([^:：]+)[:：](.+)$/u);
   if (!match) return null;
-  const key = match[1].trim();
-  const value = match[2].trim();
+  const key = (match[1] ?? '').trim();
+  const value = (match[2] ?? '').trim();
   if (!key || !value) return null;
   return { key, value };
 }

@@ -1,18 +1,29 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const dbService = fs.readFileSync('services/dbService.ts', 'utf8');
+// IndexedDB 的库版本与表名常量已抽到 services/storage/gameDatabase.ts；
+// 这里按「存储层」整体读取，避免文件搬迁让断言失效（判据本身不变）。
+const dbService = [
+  fs.readFileSync('services/dbService.ts', 'utf8'),
+  fs.readFileSync('services/storage/gameDatabase.ts', 'utf8'),
+].join('\n');
 const saveCatalog = fs.readFileSync('services/storage/saveCatalog.ts', 'utf8');
 const saveCatalogRepair = fs.readFileSync('services/storage/saveCatalogRepair.ts', 'utf8');
 const saveRetention = fs.readFileSync('services/storage/saveRetention.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+// 迁移: 主剧情工作流读取改走 readWorkflowSources()（WORKFLOW_FILES 登记文件的拼接视图）。
+// 理由: 这些断言保护的是行为，不是文件位置；阶段模块拆分后代码一搬走就不再假红。
+// 注: dbService（services/dbService.ts + services/storage/gameDatabase.ts）、
+//     hooks/useGame/saveLoadWorkflow.ts（显式排除在视图外）、hooks/useGame/turnSnapshot.ts
+//     都保持各自的显式读取：前者不在登记表，后者承载自身精确断言。
+const sendWorkflow = readWorkflowSources();
 const compactor = fs.readFileSync('utils/saveRuntimeCompactor.ts', 'utf8');
 const turnSnapshot = fs.readFileSync('hooks/useGame/turnSnapshot.ts', 'utf8');
 
-const dbVersionMatch = dbService.match(/const DB_VERSION = (\d+)/);
+const dbVersionMatch = dbService.match(/(?:GAME_)?DB_VERSION = (\d+)/);
 assert(dbVersionMatch && Number(dbVersionMatch[1]) >= 5, '存档库版本必须继续升级，确保已打开过中间版本的玩家也会补建摘要表、图片资源表和增量节点表。');
 assert(dbService.includes('SAVE_SUMMARIES_STORE'), '必须有独立存档摘要表。');
 assert(dbService.includes('SAVE_ASSETS_STORE'), '必须有独立图片资源表，避免每个存档节点重复保存图片 base64。');

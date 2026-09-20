@@ -14,6 +14,20 @@ import type { 变量命令动作 } from '@/models/variableCommand';
 
 export type PathToken = string | number;
 
+const 危险对象键 = new Set(['__proto__', 'prototype', 'constructor']);
+
+function 是危险路径片段(token: PathToken): boolean {
+  if (typeof token !== 'string') return false;
+  const matcherField = token.startsWith('[') && token.endsWith(']')
+    ? token.slice(1, -1).split('=', 1)[0]?.trim()
+    : token;
+  return matcherField ? 危险对象键.has(matcherField) : false;
+}
+
+function 包含危险路径片段(tokens: readonly PathToken[]): boolean {
+  return tokens.some(是危险路径片段);
+}
+
 const 深拷贝 = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 const 是对象 = (v: unknown): v is Record<string, unknown> =>
@@ -24,6 +38,7 @@ const 深合并对象 = (left: unknown, right: unknown): unknown => {
   if (!是对象(right)) return 深拷贝(right);
   const seed: Record<string, unknown> = 是对象(left) ? 深拷贝(left as Record<string, unknown>) : {};
   Object.entries(right).forEach(([k, v]) => {
+    if (危险对象键.has(k)) return;
     seed[k] = 深合并对象(seed[k], v);
   });
   return seed;
@@ -50,6 +65,7 @@ function 解析数组匹配语法糖(tokens: PathToken[], rootValue: unknown): P
   let cursor: unknown = rootValue;
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
+    if (t === undefined) return null;
     if (typeof t === 'string' && t.startsWith('[') && t.endsWith(']')) {
       if (!Array.isArray(cursor)) return null;
       const inner = t.slice(1, -1); // 形如 "id=abc"
@@ -70,7 +86,7 @@ function 解析数组匹配语法糖(tokens: PathToken[], rootValue: unknown): P
     if (typeof t === 'number') {
       cursor = Array.isArray(cursor) ? cursor[t] : undefined;
     } else {
-      cursor = 是对象(cursor) ? cursor[t] : undefined;
+      cursor = 是对象(cursor) && Object.hasOwn(cursor, t) ? cursor[t] : undefined;
     }
   }
   return result;
@@ -80,6 +96,7 @@ function matchArrayItem(item: Record<string, unknown>, field: string, expected: 
   const normalizedExpected = expected.trim();
   if (!normalizedExpected) return false;
   const expectedLower = normalizedExpected.toLowerCase();
+  if (危险对象键.has(field) || !Object.hasOwn(item, field)) return false;
   const value = item[field];
   if (typeof value === 'string') {
     const normalizedValue = value.trim();
@@ -113,6 +130,9 @@ export function 应用路径命令(
   nextValue: unknown,
 ): 应用结果 {
   const rawTokens = 解析路径片段(rawPath);
+  if (包含危险路径片段(rawTokens)) {
+    return { ok: false, nextRootValue: rootValue, reason: `路径 ${rawPath} 包含不安全对象键` };
+  }
   const tokens = 解析数组匹配语法糖(rawTokens, rootValue);
   if (tokens === null) {
     return { ok: false, nextRootValue: rootValue, reason: '数组匹配语法 [id=xxx] 未找到对应元素' };
@@ -135,9 +155,11 @@ export function 应用路径命令(
   }
 
   // 有路径：克隆根，定位到倒数第二级，再操作最后一级
+  const first = tokens[0];
+  if (first === undefined) return { ok: false, nextRootValue: rootValue, reason: `路径 ${rawPath} 缺少首段` };
   const draft: unknown =
     rootValue === undefined
-      ? typeof tokens[0] === 'number'
+      ? typeof first === 'number'
         ? []
         : {}
       : 深拷贝(rootValue);
@@ -146,6 +168,9 @@ export function 应用路径命令(
   for (let i = 0; i < tokens.length - 1; i++) {
     const t = tokens[i];
     const next = tokens[i + 1];
+    if (t === undefined || next === undefined) {
+      return { ok: false, nextRootValue: rootValue, reason: `路径 ${rawPath} 包含空片段` };
+    }
     if (typeof t === 'number') {
       if (!Array.isArray(cursor)) return { ok: false, nextRootValue: rootValue, reason: `路径 ${rawPath} 在 [${t}] 处不是数组` };
       if (cursor[t] === undefined || cursor[t] === null) cursor[t] = typeof next === 'number' ? [] : {};
@@ -161,6 +186,7 @@ export function 应用路径命令(
   }
 
   const last = tokens[tokens.length - 1];
+  if (last === undefined) return { ok: false, nextRootValue: rootValue, reason: `路径 ${rawPath} 缺少末段` };
 
   // 处理 number last（数组索引）
   if (typeof last === 'number') {
@@ -219,6 +245,7 @@ export function 应用路径命令(
 /** 只读取路径上的值（用于校验路径是否存在）。 */
 export function 读取路径值(rootValue: unknown, rawPath: string): { exists: boolean; value: unknown } {
   const rawTokens = 解析路径片段(rawPath);
+  if (包含危险路径片段(rawTokens)) return { exists: false, value: undefined };
   const tokens = 解析数组匹配语法糖(rawTokens, rootValue);
   if (tokens === null) return { exists: false, value: undefined };
 
@@ -229,7 +256,7 @@ export function 读取路径值(rootValue: unknown, rawPath: string): { exists: 
       if (!Array.isArray(cursor) || t < 0 || t >= cursor.length) return { exists: false, value: undefined };
       cursor = cursor[t];
     } else {
-      if (!是对象(cursor) || !(t in cursor)) return { exists: false, value: undefined };
+      if (!是对象(cursor) || !Object.hasOwn(cursor, t)) return { exists: false, value: undefined };
       cursor = cursor[t];
     }
   }

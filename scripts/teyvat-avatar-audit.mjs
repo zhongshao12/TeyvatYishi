@@ -1,6 +1,6 @@
 import { access, readFile, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import sharp from '../node_modules/.pnpm/sharp@0.34.5/node_modules/sharp/lib/index.js';
+import sharp from 'sharp';
 import { teyvatAvatarRoster } from './teyvat-avatar-roster.mjs';
 
 const allowIncomplete = process.argv.includes('--allow-incomplete');

@@ -1,3 +1,4 @@
+import { CLIP_CARD, insetRing } from '@/styles/clipPaths';
 // 各游戏系统的占位面板。每个系统未来会替换为完整实现。
 
 interface PlaceholderProps {
@@ -5,8 +6,7 @@ interface PlaceholderProps {
   description: string;
 }
 
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
+
 
 function SystemPlaceholder({ label, description }: PlaceholderProps) {
   return (
@@ -16,8 +16,8 @@ function SystemPlaceholder({ label, description }: PlaceholderProps) {
         style={{
           background:
             'linear-gradient(180deg, rgba(var(--tj-accent-primary), 0.07), rgba(var(--tj-accent-primary), 0.015))',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.28),
+          clipPath: CLIP_CARD,
         }}
       >
         <div
@@ -38,8 +38,8 @@ function SystemPlaceholder({ label, description }: PlaceholderProps) {
         className="px-4 py-8 text-center font-serif text-xs italic tracking-[0.22em]"
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.65)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.15),
+          clipPath: CLIP_CARD,
         }}
       >
         <div className="mb-2 text-2xl" style={{ color: 'rgba(var(--tj-accent-primary), 0.35)' }}>

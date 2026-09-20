@@ -149,12 +149,25 @@ export function updateWorkflowRecoveryJournal(
 ): WorkflowRecoveryJournal {
   const now = Date.now();
   const changedPhase = patch.phase !== undefined && patch.phase !== journal.phase;
+  // These roots are produced by the typed runtime immediately before this
+  // call. Re-normalizing the whole save here duplicated the expensive NPC,
+  // chat, album and phone traversal on the critical post-turn path. Durable
+  // data is still fully normalized by parseWorkflowRecoveryJournal on load.
+  const pendingSettlement = patch.pendingSettlement
+    ? {
+        settlementId: patch.pendingSettlement.settlementId,
+        source: patch.pendingSettlement.source,
+        ...(patch.pendingSettlement.variableDraft !== undefined
+          ? { variableDraft: patch.pendingSettlement.variableDraft.slice(0, 100_000) }
+          : {}),
+      }
+    : undefined;
   return {
     ...journal,
     ...patch,
     ...(patch.pendingNarrative ? { pendingNarrative: normalizeNarrativeTurn(patch.pendingNarrative) } : {}),
-    ...(patch.pendingSettlement ? { pendingSettlement: parsePendingSettlement(patch.pendingSettlement) } : {}),
-    ...(patch.committedState ? { committedState: normalizeTeyvatGameState(patch.committedState) } : {}),
+    ...(pendingSettlement ? { pendingSettlement } : {}),
+    ...(patch.committedState ? { committedState: patch.committedState } : {}),
     updatedAt: now,
     phaseStartedAt: changedPhase ? now : journal.phaseStartedAt,
   };

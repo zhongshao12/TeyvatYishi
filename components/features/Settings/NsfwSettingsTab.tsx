@@ -1,3 +1,5 @@
+import { CLIP_MEDIUM, CLIP_SECTION, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
+import { useSavedFlash } from '@/hooks/useSavedFlash';
 ﻿import { useState } from 'react';
 import type { 游戏设置 } from '@/models/settings';
 import type { 提示词模块 } from '@/models/prompts';
@@ -8,8 +10,7 @@ interface Props {
   onChange: (s: 游戏设置) => void;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
 
 function setModuleEnabled(modules: 提示词模块[], id: string, v: boolean): 提示词模块[] {
   return modules.map((m) => (m.id === id ? { ...m, enabled: v, updatedAt: Date.now() } : m));
@@ -17,14 +18,13 @@ function setModuleEnabled(modules: 提示词模块[], id: string, v: boolean): �
 
 export function NsfwSettingsTab({ settings, onChange }: Props) {
   const [saveMessage, setSaveMessage] = useState('');
-  const [savedFlash, setSavedFlash] = useState(false);
+  const { savedFlash, showSavedFlash, clearSavedFlash } = useSavedFlash(1600);
 
   const handleSave = async () => {
     try {
       await saveSetting('gameSettings', settings);
       setSaveMessage('NSFW 设置已保存。');
-      setSavedFlash(true);
-      window.setTimeout(() => setSavedFlash(false), 1600);
+      showSavedFlash();
     } catch (err) {
       setSaveMessage(`保存失败：${err instanceof Error ? err.message : String(err)}`);
     }
@@ -46,7 +46,7 @@ export function NsfwSettingsTab({ settings, onChange }: Props) {
         style={{
           background: 'linear-gradient(135deg, rgba(var(--tj-arcane-accent), 0.10), rgba(var(--tj-accent-primary), 0.04))',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.18)',
-          clipPath: 'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)',
+          clipPath: CLIP_SECTION,
         }}
       >
         <div className="font-serif text-lg font-bold tracking-[0.24em]" style={{ color: 'rgb(var(--tj-text-primary))' }}>
@@ -76,8 +76,8 @@ export function NsfwSettingsTab({ settings, onChange }: Props) {
         className="px-4 py-4"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.45)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
-          clipPath: smallClip,
+          boxShadow: insetRing(0.16),
+          clipPath: CLIP_SMALL,
         }}
       >
         <div className="font-serif text-sm font-bold tracking-[0.18em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))' }}>
@@ -104,9 +104,9 @@ export function NsfwSettingsTab({ settings, onChange }: Props) {
             color: 'rgb(var(--tj-on-accent))',
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(165, 230, 170, 0.96), rgba(105, 190, 130, 0.92))'
-              : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
+              : gradientAccent(0.96, 0.84),
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.72), 0 0 18px rgba(var(--tj-arcane-accent),0.14)',
-            clipPath: smallClip,
+            clipPath: CLIP_SMALL,
           }}
         >
           {savedFlash ? '✓ 已 保 存' : '◆ 保存 NSFW 设置'}
@@ -135,8 +135,8 @@ function ToggleRow({
       style={{
         opacity: disabled ? 0.58 : 1,
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+        boxShadow: insetRing(0.15),
+        clipPath: CLIP_MEDIUM,
       }}
     >
       <div className="mr-3 min-w-0">
@@ -154,12 +154,12 @@ function ToggleRow({
         className="relative h-6 w-11 flex-shrink-0 transition-all disabled:cursor-not-allowed"
         style={{
           background: checked
-            ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
+            ? gradientAccent(0.95, 0.86)
             : 'rgba(var(--tj-bg-secondary), 0.68)',
           boxShadow: checked
             ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-          clipPath: smallClip,
+            : insetRing(0.2),
+          clipPath: CLIP_SMALL,
         }}
       >
         <div
@@ -167,7 +167,7 @@ function ToggleRow({
           style={{
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
-            clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+            clipPath: CLIP_XS,
           }}
         />
       </button>

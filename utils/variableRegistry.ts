@@ -434,10 +434,6 @@ function 同数组其它对象存在字段(rootValue: unknown, rawPath: string):
   return false;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 function hasIdSelector(rawPath: string): boolean {
   return /\[[^\]]+=/.test(rawPath);
 }
@@ -494,10 +490,12 @@ function selectorTargetExists(rootValue: unknown, rest: string): boolean {
   const arrayPath = getArrayPathBeforeSelector(rest);
   const selectorMatch = rest.slice(arrayPath.length).match(/^\[([^\]]+)\]/);
   if (!selectorMatch) return true;
-  const eq = selectorMatch[1].indexOf('=');
+  const selector = selectorMatch[1];
+  if (!selector) return true;
+  const eq = selector.indexOf('=');
   if (eq < 0) return true;
-  const field = selectorMatch[1].slice(0, eq).trim();
-  const expected = selectorMatch[1].slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+  const field = selector.slice(0, eq).trim();
+  const expected = selector.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
   const targetArray = arrayPath ? 读取路径值(rootValue, arrayPath).value : rootValue;
   if (!Array.isArray(targetArray)) return false;
   return targetArray.some((item) => {
@@ -539,11 +537,13 @@ function isInformationOnlyBackpackValue(value: Record<string, unknown>): boolean
 function isAutoEnsurableCanonicalNpcSelector(rest: string): boolean {
   const selector = rest.match(/^\[([^\]]+)\]/);
   if (!selector) return false;
-  const eq = selector[1].indexOf('=');
+  const expression = selector[1];
+  if (!expression) return false;
+  const eq = expression.indexOf('=');
   if (eq < 0) return false;
-  const field = selector[1].slice(0, eq).trim();
+  const field = expression.slice(0, eq).trim();
   if (field !== 'id' && field !== '姓名' && field !== '名称' && field !== '名字' && field !== '别名') return false;
-  const rawValue = selector[1].slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+  const rawValue = expression.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
   return Boolean(matchCanonical(npcSelectorValueToCanonicalName(rawValue)));
 }
 
@@ -710,7 +710,7 @@ export function validateCommand(cmd: 变量命令, state: Partial<VariableState>
       return { allowed: false, reason: '背包只允许 push 背包.items 或 sub 背包.items[id=...].quantity' };
     }
     if (quantitySubMatch) {
-      const expectedId = quantitySubMatch[1].trim().replace(/^["']|["']$/g, '');
+      const expectedId = (quantitySubMatch[1] ?? '').trim().replace(/^["']|["']$/g, '');
       const inventory = rootValue as TeyvatInventory;
       if (!expectedId || !inventory.items.some((item) => item.id === expectedId)) {
         return { allowed: false, reason: `背包中没有精确 id「${expectedId}」对应的物品` };
@@ -786,3 +786,4 @@ function isKnownNpcArchivePath(rawPath: string): boolean {
     (token) => typeof token === 'number' || (typeof token === 'string' && token.startsWith('[') && token.endsWith(']')),
   );
 }
+import { isRecord } from '@/utils/valueGuards';

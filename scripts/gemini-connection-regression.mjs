@@ -68,8 +68,8 @@ try {
 
   {
     const calls = [];
-    globalThis.fetch = async (url) => {
-      calls.push(String(url));
+    globalThis.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), init });
       return jsonResponse({
         models: [{ name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] }],
       });
@@ -80,7 +80,9 @@ try {
       apiKey: 'test-key',
     });
     assert.deepEqual(models, ['gemini-2.5-pro']);
-    assert.equal(calls[0], 'https://generativelanguage.googleapis.com/v1beta/models?key=test-key');
+    assert.equal(calls[0].url, 'https://generativelanguage.googleapis.com/v1beta/models');
+    assert.equal(calls[0].init.headers['x-goog-api-key'], 'test-key');
+    assert(!calls[0].url.includes('test-key'), 'Gemini model-list URL must not expose the API key');
   }
 
   {

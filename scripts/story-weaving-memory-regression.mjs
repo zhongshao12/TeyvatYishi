@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -50,7 +51,10 @@ for (const file of writeFiles) {
   }
 }
 
-const sendSource = read('hooks/useGame/sendWorkflow.ts');
+// 迁移: 原有数组里 App.tsx / useGame.ts / useGameState.ts / saveLoadWorkflow.ts / PlotPanel.tsx
+// 都不在主剧情工作流登记表中（useGameState.ts 属显式 out-of-scope，其余由存储层脚本负责），
+// 因此这些额外读取保持显式；只有 sendWorkflow.ts 换成登记表整体读取。
+const sendSource = readWorkflowSources();
 assert(!sendSource.includes('cloneForSnapshot(state.剧情编织)'), '每回合不得深拷贝完整剧情编织');
 assert(!sendSource.includes('cloneForSnapshot(state.相册)'), '每回合不得先深拷贝完整相册再压缩');
 assert(sendSource.includes('const preTurnSnapshot = compactPreTurnSnapshot({'), '快照必须直接从运行态构造压缩版本');

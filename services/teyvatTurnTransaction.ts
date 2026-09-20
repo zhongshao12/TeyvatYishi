@@ -35,7 +35,8 @@ export type TeyvatTurnTransactionResult =
   | TeyvatTurnCommittedResult
   | TeyvatTurnCommitFailedResult;
 
-export function reduceTeyvatTurn(
+/** Apply and validate a turn without the expensive whole-root normalization. */
+export function preflightTeyvatTurn(
   initial: TeyvatGameState,
   rawCommands: readonly unknown[],
   evidenceContext: TeyvatEvidenceContext = {},
@@ -60,7 +61,17 @@ export function reduceTeyvatTurn(
   });
 
   if (errors.length) return { status: 'rejected', nextState: initial, commands, errors };
-  return { status: 'accepted', nextState: normalizeTeyvatGameState(cursor), commands, errors: [] };
+  return { status: 'accepted', nextState: cursor, commands, errors: [] };
+}
+
+export function reduceTeyvatTurn(
+  initial: TeyvatGameState,
+  rawCommands: readonly unknown[],
+  evidenceContext: TeyvatEvidenceContext = {},
+): TeyvatTurnAcceptedResult | TeyvatTurnRejectedResult {
+  const preflight = preflightTeyvatTurn(initial, rawCommands, evidenceContext);
+  if (preflight.status === 'rejected') return preflight;
+  return { ...preflight, nextState: normalizeTeyvatGameState(preflight.nextState) };
 }
 
 export function commitTeyvatTurn(
@@ -69,17 +80,27 @@ export function commitTeyvatTurn(
   replaceGameState: (nextState: TeyvatGameState) => void,
   evidenceContext: TeyvatEvidenceContext = {},
 ): TeyvatTurnTransactionResult {
-  const reduced = reduceTeyvatTurn(initial, rawCommands, evidenceContext);
-  if (reduced.status === 'rejected') return reduced;
+  const preflight = preflightTeyvatTurn(initial, rawCommands, evidenceContext);
+  if (preflight.status === 'rejected') return preflight;
+  return commitPreflightedTeyvatTurn(initial, preflight, replaceGameState);
+}
+
+/** Commit a previously accepted preflight without rebuilding and applying its commands a second time. */
+export function commitPreflightedTeyvatTurn(
+  initial: TeyvatGameState,
+  preflight: TeyvatTurnAcceptedResult,
+  replaceGameState: (nextState: TeyvatGameState) => void,
+): TeyvatTurnTransactionResult {
+  const nextState = normalizeTeyvatGameState(preflight.nextState);
   try {
-    replaceGameState(reduced.nextState);
-    return { ...reduced, status: 'committed' };
+    replaceGameState(nextState);
+    return { ...preflight, nextState, status: 'committed' };
   } catch {
     return {
       status: 'commit_failed',
       nextState: initial,
-      commands: reduced.commands,
-      errors: [{ index: reduced.commands.length, code: 'COMMIT_FAILED' }],
+      commands: preflight.commands,
+      errors: [{ index: preflight.commands.length, code: 'COMMIT_FAILED' }],
     };
   }
 }

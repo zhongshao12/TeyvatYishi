@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -6,7 +7,8 @@ function assert(condition, message) {
 
 const variableFacts = fs.readFileSync('utils/variableFacts.ts', 'utf8');
 const variableRegistry = fs.readFileSync('utils/variableRegistry.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+// 迁移: 主剧情工作流已拆分为多阶段模块，改按登记表整体读取（只换读取源，断言语义不变）。
+const sendWorkflow = readWorkflowSources();
 const systemPromptBuilder = fs.readFileSync('hooks/useGame/systemPromptBuilder.ts', 'utf8');
 const codexRetrieval = fs.readFileSync('services/codexRetrieval.ts', 'utf8');
 const variableModel = fs.readFileSync('services/ai/variableModel.ts', 'utf8');

@@ -182,7 +182,7 @@ function processSTMacros(text: string, ctx: MacroContext): string {
     if (!trimmed) return '';
     const parts = trimmed.split('::').map((p) => p.trim()).filter(Boolean);
     if (parts.length === 0) return '';
-    if (parts.length === 1) return parts[0];
+    if (parts.length === 1) return parts[0] ?? '';
     // 用整个 match 作为 key（同一段 pick 文本共享一个 pick 池）
     if (!ctx.pickHistory) ctx.pickHistory = {};
     const key = match;
@@ -192,6 +192,7 @@ function processSTMacros(text: string, ctx: MacroContext): string {
     const candidates = remaining.length > 0 ? remaining : parts;
     const idx = Math.floor(Math.random() * candidates.length);
     const chosen = candidates[idx];
+    if (!chosen) return '';
     if (remaining.length > 0) {
       ctx.pickHistory[key] = [...used, chosen];
     } else {
@@ -207,7 +208,7 @@ function processSTMacros(text: string, ctx: MacroContext): string {
     if (!ctx.pickHistory) return '';
     const history = ctx.pickHistory[key];
     if (!history || history.length === 0) return '';
-    return history[history.length - 1];
+    return history.at(-1) ?? '';
   });
 
   // {{roll:dN}} / {{roll:N}} — 骰子
@@ -217,7 +218,7 @@ function processSTMacros(text: string, ctx: MacroContext): string {
     const dMatch = s.match(/^(\d*)d(\d+)$/i);
     if (dMatch) {
       const count = dMatch[1] ? parseInt(dMatch[1], 10) : 1;
-      const sides = parseInt(dMatch[2], 10);
+      const sides = parseInt(dMatch[2] ?? '0', 10);
       if (sides <= 0 || count <= 0) return '0';
       let total = 0;
       for (let i = 0; i < count; i++) {
@@ -228,7 +229,7 @@ function processSTMacros(text: string, ctx: MacroContext): string {
     // 纯数字格式：roll:N → 1-N 的随机整数
     const nMatch = s.match(/^(\d+)$/);
     if (nMatch) {
-      const n = parseInt(nMatch[1], 10);
+      const n = parseInt(nMatch[1] ?? '0', 10);
       if (n <= 0) return '0';
       return String(Math.floor(Math.random() * n) + 1);
     }
@@ -261,10 +262,10 @@ function processRandom(text: string): string {
     // 按 :: 分割选项
     const parts = trimmed.split('::');
     if (parts.length === 0) return '';
-    if (parts.length === 1) return parts[0].trim();
+    if (parts.length === 1) return parts[0]?.trim() ?? '';
     // 随机选一个
     const idx = Math.floor(Math.random() * parts.length);
-    return parts[idx].trim();
+    return parts[idx]?.trim() ?? '';
   });
 }
 
@@ -284,7 +285,7 @@ function processIfBlocks(text: string, ctx: MacroContext): string {
       const elseMatch = body.match(/^([\s\S]*?)\{\{else\}\}([\s\S]*)$/);
       const cond = evaluateCondition(condition.trim(), ctx);
       if (elseMatch) {
-        return cond ? elseMatch[1] : elseMatch[2];
+        return cond ? (elseMatch[1] ?? '') : (elseMatch[2] ?? '');
       }
       return cond ? body : '';
     });
@@ -326,13 +327,13 @@ function evaluateCondition(condition: string, ctx: MacroContext): boolean {
   // == 比较
   const eqMatch = cond.match(/^(.+?)\s*==\s*(.+)$/);
   if (eqMatch) {
-    return eqMatch[1].trim() === eqMatch[2].trim();
+    return (eqMatch[1]?.trim() ?? '') === (eqMatch[2]?.trim() ?? '');
   }
 
   // != 比较
   const neqMatch = cond.match(/^(.+?)\s*!=\s*(.+)$/);
   if (neqMatch) {
-    return neqMatch[1].trim() !== neqMatch[2].trim();
+    return (neqMatch[1]?.trim() ?? '') !== (neqMatch[2]?.trim() ?? '');
   }
 
   // 裸字符串：非空为 true

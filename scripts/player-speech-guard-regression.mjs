@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
@@ -136,7 +137,11 @@ assert(
   'rawText 含协议标签但缺 <正文> 时，不能把原始消息压成清洗后的纯正文。',
 );
 
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+// 迁移: 主剧情工作流读取改走 readWorkflowSources()（WORKFLOW_FILES 登记文件的拼接视图）。
+// 理由: 这些断言保护的是行为，不是文件位置；阶段模块拆分后代码一搬走就不再假红。
+// 注: systemPromptBuilder 等仍按单文件读取——它们承载负断言（不得再出现某段文案），
+//     视图变宽会让「别处出现」误伤，必须保持单文件精度。
+const sendWorkflow = readWorkflowSources();
 const renderers = fs.readFileSync('components/features/Chat/MessageRenderers.tsx', 'utf8');
 const chatList = fs.readFileSync('components/features/Chat/ChatList.tsx', 'utf8');
 const systemPromptBuilder = fs.readFileSync('hooks/useGame/systemPromptBuilder.ts', 'utf8');
@@ -147,7 +152,13 @@ const worldbookUtils = fs.readFileSync('utils/worldbook.ts', 'utf8');
 assert(sendWorkflow.includes("from '@/utils/playerSpeechGuard'"), 'sendWorkflow 必须使用玩家发言守卫清洗正文。');
 assert(sendWorkflow.includes('const finalBodyBlocks: NarrativeTurn'), 'sendWorkflow 必须把清洗后的正文重新构造成正式 NarrativeTurn body。');
 assert(sendWorkflow.includes('revalidateFactCandidatesForBody(cleanedParsed.factCandidates, finalBodyBlocks)'), '正文清洗后必须重新校验 factCandidates 证据，不能保留失效证据。');
-assert(sendWorkflow.includes('userInput,'), 'sendWorkflow 清洗玩家气泡时必须传入本回合玩家输入。');
+// 收紧：视图是 38 个文件拼接的，裸 `userInput,` 在 9 个文件里都出现，等于空转（无法证明
+// 清洗调用真的收到了本回合输入）。改为要求「清洗调用点自身」在有限跨度内同时出现
+// `normalizePlayerSpeechInBody({` 与 `userInput,`：两段代码仍一起搬迁，但证明力恢复。
+assert(
+  /normalizePlayerSpeechInBody\(\{[\s\S]{0,300}?userInput,/.test(sendWorkflow),
+  'sendWorkflow 清洗玩家气泡时必须传入本回合玩家输入。',
+);
 assert(renderers.includes('shouldRenderAsNarrationForPlayerLine'), '渲染层必须对旧消息玩家气泡做兜底归属检查。');
 assert(renderers.includes('normalizeInlineSpeakerTags'), '渲染层必须复用行内角色标签拆分工具。');
 assert(!renderers.includes('该行未识别为 【旁白】/【角色名】/【心声】 任一格式'), '无前缀正文应按普通旁白显示，不应在玩家界面用暗色警告。');

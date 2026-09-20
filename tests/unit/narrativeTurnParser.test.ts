@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   buildManuallyEditedNarrativeTurn,
+  getNarrativeTurnNormalizationWarnings,
   NarrativeTurnParseError,
   parseNarrativeTurn,
   revalidateFactCandidatesForBody,
@@ -11,6 +12,7 @@ import {
   parseStoredLegacyResponse,
 } from '../../services/ai/responseParser';
 import { extractStreamingNarrativeBody } from '../../components/features/Chat/MessageRenderers';
+import { sanitizeParsedResponse } from '../../utils/textSanitizer';
 
 function validPayload() {
   return {
@@ -47,9 +49,9 @@ describe('parseNarrativeTurn', () => {
       toolPayload: { call: 'write_state' },
       extraState: { mora: 999999 },
     });
-    Object.assign(payload.body[0], { hidden: true, prototype: { polluted: true } });
-    Object.assign(payload.choices[0], { html: '<button>hidden</button>' });
-    Object.assign(payload.factCandidates[0], { command: { set: 'world' } });
+    Object.assign(payload.body[0]!, { hidden: true, prototype: { polluted: true } });
+    Object.assign(payload.choices[0]!, { html: '<button>hidden</button>' });
+    Object.assign(payload.factCandidates[0]!, { command: { set: 'world' } });
     Object.assign(payload.continuation, { reasoning: 'secret' });
     const before = structuredClone(payload);
 
@@ -76,6 +78,27 @@ describe('parseNarrativeTurn', () => {
       { id: 'route', label: '保留第一个' },
       { id: 'camp', label: '去营地' },
     ]);
+  });
+
+  it('preserves non-standard body kinds as narration instead of silently swallowing dialogue', () => {
+    const payload = validPayload();
+    payload.body = [
+      { kind: 'monologue', speaker: '安柏', text: '我得先确认风向。' },
+      { kind: '心声', speaker: '丽莎', text: '小可爱今天似乎有心事。' },
+      { kind: 'action', text: '她轻轻合上书页。' },
+    ] as typeof payload.body;
+
+    expect(parseNarrativeTurn(JSON.stringify(payload)).body).toEqual([
+      { kind: 'narration', speaker: '安柏', text: '我得先确认风向。' },
+      { kind: 'narration', speaker: '丽莎', text: '小可爱今天似乎有心事。' },
+      { kind: 'narration', text: '她轻轻合上书页。' },
+    ]);
+    expect(getNarrativeTurnNormalizationWarnings(parseNarrativeTurn(JSON.stringify(payload))))
+      .toEqual(expect.arrayContaining([
+        expect.stringContaining('monologue'),
+        expect.stringContaining('心声'),
+        expect.stringContaining('action'),
+      ]));
   });
 
   it('drops invalid domains and facts without evidence tied to a visible block', () => {
@@ -109,6 +132,35 @@ describe('parseNarrativeTurn', () => {
     expect(revalidated[0]).not.toBe(factCandidates[0]);
     expect(factCandidates).toEqual(factsBefore);
     expect(finalBody).toEqual(bodyBefore);
+  });
+
+  it('matches fact evidence after whitespace and punctuation normalization', () => {
+    const body = [{ kind: 'narration' as const, text: '旅行者抵达蒙德城，时间是晚上八点。' }];
+    const facts = revalidateFactCandidatesForBody([
+      { domain: 'world', fact: '抵达蒙德城', evidence: '旅行者 抵达蒙德城；时间是晚上八点' },
+    ], body);
+
+    expect(facts).toEqual([
+      { domain: 'world', fact: '抵达蒙德城', evidence: '旅行者 抵达蒙德城；时间是晚上八点' },
+    ]);
+  });
+
+  it('keeps an originally grounded fact when display sanitizing changes its literal evidence', () => {
+    const turn = parseNarrativeTurn(JSON.stringify({
+      ...validPayload(),
+      body: [{ kind: 'narration', text: '旅行者抵达污染词蒙德城。' }],
+      factCandidates: [{ domain: 'world', fact: '抵达蒙德城', evidence: '抵达污染词蒙德城' }],
+    }));
+
+    const sanitized = sanitizeParsedResponse(turn, {
+      污染词清理: { enabled: true, words: ['污染词'] },
+      标签块隐藏: { enabled: true },
+    });
+
+    expect(sanitized.body[0]?.text).toBe('旅行者抵达蒙德城。');
+    expect(sanitized.factCandidates).toEqual([
+      { domain: 'world', fact: '抵达蒙德城', evidence: '抵达蒙德城' },
+    ]);
   });
 
   it('builds only valid trimmed manual body edits and clears stale facts immutably', () => {

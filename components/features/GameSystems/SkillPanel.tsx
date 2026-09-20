@@ -1,3 +1,4 @@
+import { CLIP_ITEM } from '@/styles/clipPaths';
 import { useMemo, useState } from 'react';
 import type { 角色数据结构 } from '@/models/character';
 import type { API设置 } from '@/models/settings';
@@ -23,7 +24,7 @@ const gold = 'rgb(var(--tj-accent-primary))';
 const goldSoft = (alpha: number) => `rgba(var(--tj-accent-primary), ${alpha})`;
 const ink = (alpha: number) => `rgba(var(--tj-text-primary), ${alpha})`;
 const muted = (alpha: number) => `rgba(var(--tj-text-secondary), ${alpha})`;
-const clipSmall = 'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)';
+
 
 export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPanelProps) {
   const [name, setName] = useState('');
@@ -124,12 +125,12 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
   const renderElementBadge = (element: ElementId | '', extraClass = '') => element ? (
     <span
       className={`inline-block px-1.5 py-0.5 text-[10px] leading-none ${extraClass}`}
-      style={{ color: ELEMENT_COLORS[element], boxShadow: `inset 0 0 0 1px ${ELEMENT_COLORS[element]}`, clipPath: clipSmall }}
+      style={{ color: ELEMENT_COLORS[element], boxShadow: `inset 0 0 0 1px ${ELEMENT_COLORS[element]}`, clipPath: CLIP_ITEM }}
     >
       {ELEMENT_LABELS[element]}
     </span>
   ) : (
-    <span className="inline-block px-1.5 py-0.5 text-[10px] leading-none" style={{ color: muted(0.7), boxShadow: `inset 0 0 0 1px ${muted(0.3)}`, clipPath: clipSmall }}>通用</span>
+    <span className="inline-block px-1.5 py-0.5 text-[10px] leading-none" style={{ color: muted(0.7), boxShadow: `inset 0 0 0 1px ${muted(0.3)}`, clipPath: CLIP_ITEM }}>通用</span>
   );
 
   return (
@@ -182,7 +183,7 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
               {talents.map((talent) => {
                 const editing = editingId === talent.id;
                 return (
-                  <article key={talent.id} className="p-4" style={{ background: 'rgba(var(--tj-panel-bg-end),0.54)', boxShadow: `inset 0 0 0 1px ${muted(0.16)}`, clipPath: clipSmall }}>
+                  <article key={talent.id} className="p-4" style={{ background: 'rgba(var(--tj-panel-bg-end),0.54)', boxShadow: `inset 0 0 0 1px ${muted(0.16)}`, clipPath: CLIP_ITEM }}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
@@ -194,8 +195,8 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        <button type="button" onClick={() => changeLevel(talent.id, -1)} disabled={talent.等级 <= 1} aria-label={`${talent.名称} 降级`} className="h-7 w-7 text-xs disabled:opacity-30" style={{ color: ink(0.85), boxShadow: `inset 0 0 0 1px ${muted(0.25)}`, clipPath: clipSmall }}>−</button>
-                        <button type="button" onClick={() => changeLevel(talent.id, 1)} disabled={talent.等级 >= MAX_TALENT_LEVEL} aria-label={`${talent.名称} 升级`} className="h-7 w-7 text-xs disabled:opacity-30" style={{ color: ink(0.85), boxShadow: `inset 0 0 0 1px ${muted(0.25)}`, clipPath: clipSmall }}>＋</button>
+                        <button type="button" onClick={() => changeLevel(talent.id, -1)} disabled={talent.等级 <= 1} aria-label={`${talent.名称} 降级`} className="h-7 w-7 text-xs disabled:opacity-30" style={{ color: ink(0.85), boxShadow: `inset 0 0 0 1px ${muted(0.25)}`, clipPath: CLIP_ITEM }}>−</button>
+                        <button type="button" onClick={() => changeLevel(talent.id, 1)} disabled={talent.等级 >= MAX_TALENT_LEVEL} aria-label={`${talent.名称} 升级`} className="h-7 w-7 text-xs disabled:opacity-30" style={{ color: ink(0.85), boxShadow: `inset 0 0 0 1px ${muted(0.25)}`, clipPath: CLIP_ITEM }}>＋</button>
                         <button type="button" onClick={() => (editing ? commitEdit(talent.id) : startEdit(talent))} className="px-2 py-1 text-xs" style={{ color: goldSoft(0.9) }}>
                           {editing ? '保存' : '编辑'}
                         </button>

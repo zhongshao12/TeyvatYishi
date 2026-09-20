@@ -1,3 +1,6 @@
+import { CLIP_CARD, CLIP_MEDIUM, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
+import { useSavedFlash } from '@/hooks/useSavedFlash';
+import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
 ﻿import { useMemo, useState } from 'react';
 import type { AI提供商, API设置, 游戏设置 } from '@/models/settings';
 import { 创建默认记忆系统设置 } from '@/models/settings';
@@ -10,21 +13,10 @@ interface Props {
   apiSettings: API设置;
 }
 
-const providerOptions: { value: AI提供商; label: string; defaultBaseUrl: string; defaultModel: string }[] = [
-  { value: 'openai_compatible', label: 'OpenAI 兼容', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { value: 'openai', label: 'OpenAI', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { value: 'deepseek', label: 'DeepSeek', defaultBaseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
-  { value: 'baidu', label: '百度千帆', defaultBaseUrl: 'https://qianfan.baidubce.com/v2', defaultModel: 'ernie-4.5-turbo-128k' },
-  { value: 'opencode', label: 'OpenCode Zen', defaultBaseUrl: 'https://opencode.ai/zen/v1', defaultModel: 'deepseek-v4-flash' },
-  { value: 'mimo', label: '小米 MiMo', defaultBaseUrl: 'https://api.xiaomimimo.com/v1', defaultModel: 'mimo-v2.5-pro' },
-  { value: 'ark', label: '火山方舟', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3', defaultModel: 'doubao-seed-1-6' },
-  { value: 'claude', label: 'Claude', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
-  { value: 'claude_compatible', label: 'Claude 兼容', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
-  { value: 'gemini', label: 'Gemini', defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta', defaultModel: 'gemini-2.5-pro' },
-];
+const providerOptions = AI_PROVIDER_OPTIONS;
 
-const cardClip = 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
-const smallClip = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
+
 
 export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Props) {
   const memory = settings.记忆系统 ?? 创建默认记忆系统设置();
@@ -38,7 +30,7 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
   const [message, setMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const { savedFlash, showSavedFlash, clearSavedFlash } = useSavedFlash(1800);
   const [saveMessage, setSaveMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
 
   const patchMemory = (patch: Partial<typeof memory>) => {
@@ -127,11 +119,10 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
   const handleSave = async () => {
     try {
       await saveSetting('gameSettings', settings);
-      setSavedFlash(true);
+      showSavedFlash();
       setSaveMessage({ kind: 'info', text: '记忆系统设置已保存。' });
-      window.setTimeout(() => setSavedFlash(false), 1800);
     } catch (err) {
-      setSavedFlash(false);
+      clearSavedFlash();
       setSaveMessage({ kind: 'error', text: `保存失败：${err instanceof Error ? err.message : String(err)}` });
     }
   };
@@ -143,8 +134,8 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.78)',
           background: 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.15),
+          clipPath: CLIP_CARD,
         }}
       >
         <div className="mb-1 font-serif text-[13px] tracking-[0.18em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))' }}>
@@ -191,7 +182,7 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
                 value={memory.记忆总结API.model}
                 onChange={(e) => patchApi({ model: e.target.value })}
                 className="teyvat-input flex-1 px-2.5 py-1.5 text-sm"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
                 placeholder="模型 ID"
               />
               <button
@@ -200,9 +191,9 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
                 className="px-3 py-1.5 text-xs font-serif tracking-wider transition-all disabled:opacity-50"
                 style={{
                   color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+                  boxShadow: insetRing(0.45),
                   background: 'rgba(var(--tj-accent-primary), 0.06)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 {loadingModels ? '获取中...' : '获取模型'}
@@ -215,7 +206,7 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
                   if (e.target.value) patchApi({ model: e.target.value });
                 }}
                 className="teyvat-input mt-2 w-full px-2.5 py-1.5 text-xs"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               >
                 <option value="">— 从列表选择（{modelChoices.length}）—</option>
                 {modelChoices.map((value) => (
@@ -272,9 +263,9 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
             className="px-3 py-1.5 text-sm font-serif tracking-wider transition-all disabled:opacity-50"
             style={{
               color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+              boxShadow: insetRing(0.45),
               background: 'rgba(var(--tj-accent-primary), 0.06)',
-              clipPath: smallClip,
+              clipPath: CLIP_SMALL,
             }}
           >
             {loadingModels ? '获取中...' : '获取模型'}
@@ -285,9 +276,9 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
             className="px-3 py-1.5 text-sm font-serif tracking-wider transition-all disabled:opacity-50"
             style={{
               color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+              boxShadow: insetRing(0.45),
               background: 'rgba(var(--tj-accent-primary), 0.06)',
-              clipPath: smallClip,
+              clipPath: CLIP_SMALL,
             }}
           >
             测试连接
@@ -306,8 +297,8 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
             style={{
               color: message.kind === 'error' ? '#ffb7b7' : 'rgba(var(--tj-text-secondary), 0.95)',
               background: message.kind === 'error' ? 'rgba(120, 30, 30, 0.35)' : 'rgba(var(--tj-accent-primary), 0.05)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.12),
+              clipPath: CLIP_SMALL,
             }}
           >
             {message.text}
@@ -320,8 +311,8 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
             style={{
               color: testResult.ok ? 'rgba(220, 240, 220, 0.95)' : '#ffb7b7',
               background: testResult.ok ? 'rgba(60, 120, 70, 0.28)' : 'rgba(120, 30, 30, 0.35)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.12),
+              clipPath: CLIP_SMALL,
             }}
           >
             {testResult.detail}
@@ -401,12 +392,12 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
           style={{
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
-              : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
+              : gradientAccent(0.96, 0.84),
             color: 'rgb(var(--tj-on-accent))',
             boxShadow: savedFlash
               ? 'inset 0 0 0 1px rgba(220, 255, 230, 0.5), 0 0 18px rgba(140, 220, 160, 0.35)'
               : 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 18px rgba(var(--tj-accent-primary), 0.22)',
-            clipPath: cardClip,
+            clipPath: CLIP_CARD,
           }}
         >
           {savedFlash ? '✓ 已 保 存' : '◆ 保 存 配 置'}
@@ -420,7 +411,7 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
 	              boxShadow: saveMessage.kind === 'error'
 	                ? 'inset 0 0 0 1px rgba(220, 120, 120, 0.25)'
 	                : 'inset 0 0 0 1px rgba(120, 200, 140, 0.25)',
-	              clipPath: smallClip,
+	              clipPath: CLIP_SMALL,
 	            }}
 	          >
             {saveMessage.text}
@@ -447,8 +438,8 @@ function ToggleField({
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+        boxShadow: insetRing(0.15),
+        clipPath: CLIP_MEDIUM,
       }}
     >
       <div className="min-w-0 mr-3">
@@ -464,12 +455,12 @@ function ToggleField({
         className="relative h-6 w-11 flex-shrink-0 transition-all"
         style={{
           background: checked
-            ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
+            ? gradientAccent(0.95, 0.86)
             : 'rgba(var(--tj-bg-secondary), 0.68)',
           boxShadow: checked
             ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-          clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+            : insetRing(0.2),
+          clipPath: CLIP_SMALL,
         }}
       >
         <div
@@ -477,7 +468,7 @@ function ToggleField({
           style={{
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
-            clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+            clipPath: CLIP_XS,
           }}
         />
       </button>
@@ -491,8 +482,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         className="px-4 py-4"
         style={{
           background: 'rgba(var(--tj-accent-primary), 0.035)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
-        clipPath: cardClip,
+          boxShadow: insetRing(0.18),
+        clipPath: CLIP_CARD,
       }}
     >
       <div className="flex items-center gap-2">
@@ -531,7 +522,7 @@ function InputField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className="teyvat-input w-full px-3 py-2 text-sm font-mono"
-        style={{ clipPath: smallClip }}
+        style={{ clipPath: CLIP_SMALL }}
       />
     </label>
   );
@@ -557,7 +548,7 @@ function SelectField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="teyvat-input w-full px-3 py-2 text-sm"
-        style={{ clipPath: smallClip }}
+        style={{ clipPath: CLIP_SMALL }}
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -599,7 +590,7 @@ function NumberField({
         value={value}
         onChange={(e) => onChange(Number(e.target.value) || min)}
         className="teyvat-input w-full px-3 py-2 text-sm"
-        style={{ clipPath: smallClip }}
+        style={{ clipPath: CLIP_SMALL }}
       />
       <div className="mt-1 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)' }}>
         {hint}
@@ -631,7 +622,7 @@ function TextareaField({
         rows={rows}
         onChange={(e) => onChange(e.target.value)}
         className="teyvat-input w-full px-3 py-2 text-sm leading-relaxed"
-        style={{ clipPath: smallClip }}
+        style={{ clipPath: CLIP_SMALL }}
       />
       <div className="mt-1 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)' }}>
         {hint}

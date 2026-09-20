@@ -4,7 +4,7 @@ import type { 世界状态 } from '@/models/world';
 import { 对齐世界日期与天数, 推进旅行日期 } from '@/models/world';
 import type { NPC记录, NPC关系类型 } from '@/models/npc';
 import { isReservedNpcIdentityName, 获取NPC关系阶段, 获取NPC兼容关系, 限制NPC好感度 } from '@/models/npc';
-import { matchCanonical } from '@/data/canonicalCharacters';
+import { CANONICAL_CHARACTERS, matchCanonical, matchCanonicalIdentity } from '@/data/canonicalCharacters';
 import {
   ARTIFACT_SLOTS,
   ITEM_CATEGORIES,
@@ -204,6 +204,8 @@ function 归一化年龄确认(value: unknown): 'adult' | 'unknown' | 'minor_blo
 }
 
 function npcNameFromId(id: string): string {
+  const canonical = matchCanonicalIdentity({ id });
+  if (canonical) return canonical.name;
   const normalized = id.replace(/^npc[_-]/i, '').toLowerCase();
   const map: Record<string, string> = {
     aether: '空', lumine: '荧', paimon: '派蒙', amber: '安柏', kaeya: '凯亚',
@@ -328,7 +330,10 @@ function 归一化事实(raw: unknown): 变量事实 | null {
   }
   if (type === 'npc') {
     const id = 读字符串(raw.id);
-    const name = 读字符串(raw.name || raw.姓名 || raw.名称) || npcNameFromId(id);
+    const rawName = 读字符串(raw.name || raw.姓名 || raw.名称) || npcNameFromId(id);
+    const rawAlias = 读字符串(raw.alias || raw.别名);
+    const canonical = matchCanonicalIdentity({ id, name: rawName, aliases: rawAlias ? [rawAlias] : [] });
+    const name = canonical?.name ?? rawName;
     if (!name || isReservedNpcIdentityName(name)) return null;
     const tier = 读字符串(raw.tier || raw.阶位);
     const relation = 读字符串(raw.relation || raw.关系);
@@ -336,7 +341,7 @@ function 归一化事实(raw: unknown): 变量事实 | null {
       type: 'npc',
       id: id || undefined,
       name,
-      alias: 读字符串(raw.alias || raw.别名) || undefined,
+      alias: rawAlias || undefined,
       tier: tier === 'companion' || tier === 'extra' ? tier : undefined,
       affinityDelta: 数字(raw.affinityDelta ?? raw.好感变化),
       affinitySet: 数字(raw.affinitySet ?? raw.好感度),
@@ -482,7 +487,7 @@ export function parseVariableFacts(rawText: string): { facts: 变量事实[]; pa
   const blockMatch = rawText.match(/<变量事实>([\s\S]*?)<\/变量事实>/);
   if (!blockMatch) return { facts, parseErrors };
 
-  const block = 清理事实块(blockMatch[1]);
+  const block = 清理事实块(blockMatch[1] ?? '');
   if (!block) return { facts, parseErrors };
 
   let parsed: unknown;
@@ -559,16 +564,20 @@ function 读取正文钟点候选(body: string): NarrativeClockCandidate[] {
   const numericPattern = /(?:现在|此时|钟楼(?:显示)?|时间(?:来到|到了|是)?)?\s*([01]?\d|2[0-3]):([0-5]\d)/gu;
   for (const match of body.matchAll(numericPattern)) {
     const index = match.index ?? 0;
+    const whole = match[0] ?? '';
+    const hour = match[1] ?? '0';
+    const minute = match[2] ?? '00';
     candidates.push({
       index,
-      end: index + match[0].length,
-      targetTime: `${match[1].padStart(2, '0')}:${match[2]}`,
+      end: index + whole.length,
+      targetTime: `${hour.padStart(2, '0')}:${minute}`,
     });
   }
 
   const chinesePattern = /(凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里)?\s*([零〇一二两三四五六七八九十]{1,3}|\d{1,2})\s*[点時时](半|[零〇一二两三四五六七八九十]{1,3}分?|\d{1,2}分?)?/gu;
   for (const match of body.matchAll(chinesePattern)) {
-    let hour = /^\d+$/.test(match[2]) ? Number(match[2]) : 解析中文整数(match[2]);
+    const hourText = match[2] ?? '';
+    let hour = /^\d+$/.test(hourText) ? Number(hourText) : 解析中文整数(hourText);
     if (hour === null || !Number.isInteger(hour) || hour < 0 || hour > 23) continue;
     const period = match[1] ?? '';
     if (/下午|傍晚|晚上|夜里/.test(period) && hour < 12) hour += 12;
@@ -584,7 +593,7 @@ function 读取正文钟点候选(body: string): NarrativeClockCandidate[] {
     }
     if (minute < 0 || minute > 59) continue;
     const index = match.index ?? 0;
-    candidates.push({ index, end: index + match[0].length, targetTime: 格式化分钟(hour * 60 + minute) });
+    candidates.push({ index, end: index + (match[0]?.length ?? 0), targetTime: 格式化分钟(hour * 60 + minute) });
   }
   return candidates.sort((a, b) => a.index - b.index || a.end - b.end);
 }
@@ -593,11 +602,11 @@ function 读取正文耗时候选(body: string): Array<{ index: number; end: num
   const candidates: Array<{ index: number; end: number; minutes: number }> = [];
   const pattern = /(半|几|数|\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:个)?\s*(小时|钟头|分钟)\s*(?:以后|之后|后|过去)/gu;
   for (const match of body.matchAll(pattern)) {
-    const amount = 解析中文整数(match[1]);
+    const amount = 解析中文整数(match[1] ?? '');
     if (amount === null || amount <= 0) continue;
     const minutes = Math.round(amount * (match[2] === '分钟' ? 1 : 60));
     const index = match.index ?? 0;
-    candidates.push({ index, end: index + match[0].length, minutes });
+    candidates.push({ index, end: index + (match[0]?.length ?? 0), minutes });
   }
   return candidates;
 }
@@ -668,6 +677,50 @@ export function deriveNarrativeTimeFact(
   return evidence ? { type: 'time', mode: 'elapsed', minutes: 3, evidence } : null;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Conservative fallback for named canon characters who visibly participate in the settled scene.
+ * A plain historical/lore mention is intentionally insufficient: the name must speak, act toward
+ * the player, or be explicitly met by the player.
+ */
+export function deriveNarrativeCanonicalNpcFacts(
+  body: string,
+): Array<Extract<变量事实, { type: 'npc' }>> {
+  if (!body.trim()) return [];
+  const facts: Array<Extract<变量事实, { type: 'npc' }>> = [];
+  for (const canonical of CANONICAL_CHARACTERS) {
+    const name = canonical.name;
+    if (!body.includes(name)) continue;
+    const escaped = escapeRegExp(name);
+    const speaks = new RegExp(`(?:^|\\n)\\s*[「『“\"']?${escaped}[」』”\"']?\\s*[：:]`, 'u');
+    const actsWithPlayer = new RegExp(`${escaped}.{0,36}(?:看向|望向|注视|打量|对你|向你|与你|朝你|问道|说道|开口|回答|递给|走向|靠近|迎上|伸手|微笑|轻笑)`, 'u');
+    const playerMeets = new RegExp(`(?:你|旅行者).{0,30}(?:见到|遇见|认识|碰见|看见|拜访|找到|走到|来到).{0,18}${escaped}`, 'u');
+    const canonicalMeetsPlayer = new RegExp(`${escaped}.{0,30}(?:见到|遇见|看见|找到|走到|来到|迎接).{0,18}(?:你|旅行者)`, 'u');
+    const matched = body.match(speaks) ?? body.match(actsWithPlayer) ?? body.match(playerMeets) ?? body.match(canonicalMeetsPlayer);
+    if (!matched) continue;
+    const matchIndex = matched.index ?? body.indexOf(name);
+    const sentenceStart = Math.max(0, body.lastIndexOf('\n', matchIndex), body.lastIndexOf('。', matchIndex - 1) + 1);
+    const sentenceEndCandidates = ['。', '！', '？', '\n']
+      .map((token) => body.indexOf(token, matchIndex + name.length))
+      .filter((index) => index >= 0);
+    const sentenceEnd = sentenceEndCandidates.length ? Math.min(...sentenceEndCandidates) + 1 : Math.min(body.length, matchIndex + 160);
+    const evidence = body.slice(sentenceStart, sentenceEnd).replace(/\s+/g, ' ').trim().slice(0, 240);
+    facts.push({
+      type: 'npc',
+      id: npcIdFromName(name),
+      name,
+      tier: 'companion',
+      recentInteraction: evidence,
+      memory: evidence,
+      evidence,
+    });
+  }
+  return facts;
+}
+
 /** 正文明确写出离队时的确定性兜底，防止变量模型漏报后队伍状态仍滞留。 */
 export function derivePartyPresenceFacts(
   body: string,
@@ -703,9 +756,10 @@ function parseNarrativeQuantity(text: string, itemName: string): number {
   const escapedName = itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = text.match(new RegExp(`([一二两三四五六七八九十\\d]+)\\s*(?:个|枚|份|瓶|块|件|颗|串)?\\s*${escapedName}`, 'u'));
   if (!match) return 1;
-  if (/^\d+$/.test(match[1])) return Math.max(1, Number(match[1]));
+  const quantityText = match[1] ?? '';
+  if (/^\d+$/.test(quantityText)) return Math.max(1, Number(quantityText));
   const values: Record<string, number> = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
-  return values[match[1]] ?? 1;
+  return values[quantityText] ?? 1;
 }
 
 /** 变量模型漏报时，只对正文中“物品名 + 明确扣除动词”做保守兜底。 */
@@ -814,13 +868,21 @@ function npcIdFromName(name: string): string {
   return buildTeyvatStableId('npc', [key]);
 }
 
+function matchCanonicalNpcFact(fact: Extract<变量事实, { type: 'npc' }>) {
+  return matchCanonicalIdentity({
+    id: fact.id,
+    name: fact.name,
+    aliases: fact.alias ? [fact.alias] : [],
+  });
+}
+
 function findNpc(records: NPC记录[], id: string, name: string): NPC记录 | undefined {
-  const targetCanonical = matchCanonical(name)?.name;
+  const targetCanonical = matchCanonicalIdentity({ id, name })?.name;
   return records.find((npc) =>
     npc.id === id ||
     npc.姓名 === name ||
     npc.别名 === name ||
-    (Boolean(targetCanonical) && matchCanonical(npc.姓名)?.name === targetCanonical),
+    (Boolean(targetCanonical) && matchCanonicalIdentity({ id: npc.id, name: npc.姓名, aliases: npc.别名 ? [npc.别名] : [] })?.name === targetCanonical),
   );
 }
 
@@ -1114,17 +1176,18 @@ export function factsToVariableCommands(
     }
 
     if (fact.type === 'npc') {
-      const id = fact.id?.trim() || npcIdFromName(fact.name);
-      const existing = findNpc(npcs, id, fact.name);
+      const canonical = matchCanonicalNpcFact(fact);
+      const resolvedName = canonical?.name ?? fact.name;
+      const id = fact.id?.trim() || npcIdFromName(resolvedName);
+      const existing = findNpc(npcs, id, resolvedName);
       if (!existing) {
-        const canonical = matchCanonical(fact.name);
         const initialAffinity = 限制NPC好感度(fact.affinitySet ?? fact.affinityDelta ?? 0);
         push({
           action: 'push',
           key: 'NPC',
           value: {
             id,
-            姓名: canonical?.name ?? fact.name,
+            姓名: resolvedName,
             别名: fact.alias,
             阶位: inferNpcTier(fact, canonical),
             好感度: initialAffinity,
@@ -1439,6 +1502,10 @@ export function factsToTeyvatDomainCommands(
           continue;
         }
         const existing = projectedInventory[existingIndex];
+        if (!existing) {
+          warnings.push(`item(${fact.action}) 已忽略：背包中的「${fact.name}」记录无效。`);
+          continue;
+        }
         if (existing.quantity < fact.quantity) {
           warnings.push(`item(${fact.action}) 已忽略：「${fact.name}」仅有 ${existing.quantity}，不能扣除 ${fact.quantity}。`);
           continue;
@@ -1466,8 +1533,10 @@ export function factsToTeyvatDomainCommands(
       }
       const existingIndex = projectedInventory.findIndex((item) => item.id === id && item.stackable !== false && fact.stackable !== false);
       if (existingIndex >= 0) {
+        const existing = projectedInventory[existingIndex];
+        if (!existing) continue;
         push({ action: 'add', root: '背包', path: `items${buildTeyvatIdSelector(id)}.quantity`, value: fact.quantity }, fact.evidence);
-        projectedInventory[existingIndex] = { ...projectedInventory[existingIndex], quantity: projectedInventory[existingIndex].quantity + fact.quantity };
+        projectedInventory[existingIndex] = { ...existing, quantity: existing.quantity + fact.quantity };
         continue;
       }
       const nextItem = {
@@ -1491,14 +1560,16 @@ export function factsToTeyvatDomainCommands(
     }
     if (fact.type === 'npc') {
       const requestedId = fact.id?.trim();
-      const id = requestedId && isTeyvatStableId(requestedId) ? requestedId : npcIdFromName(fact.name);
-      const existing = state.NPC.find((entry) => entry.id === id || entry.姓名 === fact.name || entry.aliases.includes(fact.name));
+      const canonical = matchCanonicalNpcFact(fact);
+      const resolvedName = canonical?.name ?? fact.name;
+      const id = requestedId && isTeyvatStableId(requestedId) ? requestedId : npcIdFromName(resolvedName);
+      const existing = state.NPC.find((entry) => entry.id === id || entry.姓名 === resolvedName || entry.aliases.includes(resolvedName)
+        || (Boolean(canonical) && matchCanonicalIdentity({ id: entry.id, name: entry.姓名, aliases: entry.aliases })?.name === canonical?.name));
       if (!existing) {
-        const canonical = matchCanonical(fact.name);
         const affinity = 限制NPC好感度(fact.affinitySet ?? fact.affinityDelta ?? 0);
         push({ action: 'push', root: 'NPC', path: 'records', value: {
-          id, 姓名: canonical?.name ?? fact.name, 地区: '', 身份: fact.intro ?? '', 天赋: [], 说明: fact.intro ?? '',
-          aliases: fact.alias ? [fact.alias] : [], roleTier: inferNpcTier(fact, canonical), affinity,
+          id, 姓名: resolvedName, 地区: '', 身份: fact.intro ?? '', 天赋: [], 说明: fact.intro ?? '',
+          aliases: Array.from(new Set([...(canonical?.aliases ?? []), ...(fact.alias ? [fact.alias] : [])])), roleTier: inferNpcTier(fact, canonical), affinity,
           relationship: 获取NPC兼容关系(affinity), intimate: fact.intimateRelationship ?? false,
           travelingTogether: fact.following ?? false, firstSeenTurn: turn, lastSeenTurn: turn,
           gender: fact.gender ?? canonical?.gender ?? '', playerAddress: fact.playerAddress ?? '',

@@ -5,6 +5,7 @@ import { isPioneerBaseUrl, normalizePioneerBaseUrl } from './pioneerProxyCore';
 import { isArkBaseUrl, normalizeArkBaseUrl } from './arkProxyCore';
 import { fetchOpenAICompatibleModels } from './openAICompatibleModels';
 import { normalizeGeminiBaseUrl } from './geminiEndpointPolicy';
+import { normalizeOpenCodeBaseUrl } from './openCodeEndpointPolicy';
 import {
   createConnectionTestChallenge,
   matchesConnectionTestChallenge,
@@ -16,7 +17,7 @@ export interface ConnectionTestResult {
   detail: string;
 }
 
-export async function fetchModels(config: any): Promise<string[]> {
+export async function fetchModels(config: any, signal?: AbortSignal): Promise<string[]> {
   const retryCount = Math.max(0, Math.trunc(Number(config?.retryCount ?? 0)) || 0);
   const baseRaw = (config?.baseUrl || '').trim();
   const apiKey = (config?.apiKey || '').trim();
@@ -26,48 +27,34 @@ export async function fetchModels(config: any): Promise<string[]> {
   return withRetries(
     async () => {
       if (config.provider === 'mimo' || /xiaomimimo|mimo\.mi/i.test(baseRaw)) {
-        return fetchMimoModels(baseRaw, apiKey);
+        return fetchMimoModels(baseRaw, apiKey, signal);
       }
       if (config.provider === 'gemini') {
-        return fetchGeminiModels(baseRaw, apiKey);
+        return fetchGeminiModels(baseRaw, apiKey, signal);
       }
       if (config.provider === 'claude' || config.provider === 'claude_compatible') {
-        return fetchClaudeModels(baseRaw, apiKey);
+        return fetchClaudeModels(baseRaw, apiKey, signal);
       }
       if (config.provider === 'baidu') {
-        return fetchBaiduQianfanModels(baseRaw, apiKey);
+        return fetchBaiduQianfanModels(baseRaw, apiKey, signal);
       }
       if (config.provider === 'opencode') {
-        return fetchOpenCodeModels(baseRaw, apiKey);
+        return fetchOpenCodeModels(baseRaw, apiKey, signal);
       }
       if (config.provider === 'ark' || isArkBaseUrl(baseRaw)) {
-        return fetchArkModels(baseRaw, apiKey);
+        return fetchArkModels(baseRaw, apiKey, signal);
       }
       if (isPioneerBaseUrl(baseRaw)) {
-        return fetchPioneerModels(baseRaw, apiKey);
+        return fetchPioneerModels(baseRaw, apiKey, signal);
       }
-      return fetchOpenAICompatibleModels(baseRaw, apiKey);
+      return fetchOpenAICompatibleModels(baseRaw, apiKey, signal);
     },
-    { retries: retryCount, label: '模型列表' },
+    { retries: retryCount, signal, label: '模型列表' },
   );
 }
 
-function normalizeOpenCodeModelsBaseUrl(baseRaw: string): string {
-  let base = baseRaw.replace(/\/+$/, '');
-  base = base.split('?')[0] ?? base;
-  base = base
-    .replace(/\/zen\/go\/v1/i, '/zen/v1')
-    .replace(/\/chat\/completions$/i, '')
-    .replace(/\/messages$/i, '')
-    .replace(/\/responses$/i, '')
-    .replace(/\/models(?:\/.*)?$/i, '');
-  if (/^https:\/\/opencode\.ai$/i.test(base)) return `${base}/zen/v1`;
-  if (/\/zen$/i.test(base)) return `${base}/v1`;
-  return base;
-}
-
-async function fetchOpenCodeModels(baseRaw: string, apiKey: string): Promise<string[]> {
-  const base = normalizeOpenCodeModelsBaseUrl(baseRaw);
+async function fetchOpenCodeModels(baseRaw: string, apiKey: string, signal?: AbortSignal): Promise<string[]> {
+  const base = normalizeOpenCodeBaseUrl(baseRaw);
   const candidates = Array.from(new Set([`${base}/models`, 'https://opencode.ai/zen/v1/models']));
   const errors: string[] = [];
 
@@ -81,6 +68,7 @@ async function fetchOpenCodeModels(baseRaw: string, apiKey: string): Promise<str
           baseUrl: url,
           apiKey,
         }),
+        signal,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -116,7 +104,7 @@ async function fetchOpenCodeModels(baseRaw: string, apiKey: string): Promise<str
   throw new Error(`OpenCode Zen 获取模型列表失败：\n${errors.join('\n')}`);
 }
 
-async function fetchMimoModels(baseRaw: string, apiKey: string): Promise<string[]> {
+async function fetchMimoModels(baseRaw: string, apiKey: string, signal?: AbortSignal): Promise<string[]> {
   const base = baseRaw.replace(/\/+$/, '');
   const normalized = base.replace(/\/v1$/i, '');
   const candidates = Array.from(new Set([`${normalized}/v1/models`, `${base}/models`]));
@@ -129,6 +117,7 @@ async function fetchMimoModels(baseRaw: string, apiKey: string): Promise<string[
           'Content-Type': 'application/json',
           'api-key': apiKey,
         },
+        signal,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -164,7 +153,7 @@ async function fetchMimoModels(baseRaw: string, apiKey: string): Promise<string[
   throw new Error(`小米 MiMo 获取模型列表失败：\n${errors.join('\n')}`);
 }
 
-async function fetchPioneerModels(baseRaw: string, apiKey: string): Promise<string[]> {
+async function fetchPioneerModels(baseRaw: string, apiKey: string, signal?: AbortSignal): Promise<string[]> {
   const base = normalizePioneerBaseUrl(baseRaw);
   const url = `${base}/models`;
   try {
@@ -176,6 +165,7 @@ async function fetchPioneerModels(baseRaw: string, apiKey: string): Promise<stri
         baseUrl: base,
         apiKey,
       }),
+      signal,
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -207,7 +197,7 @@ async function fetchPioneerModels(baseRaw: string, apiKey: string): Promise<stri
   }
 }
 
-async function fetchArkModels(baseRaw: string, apiKey: string): Promise<string[]> {
+async function fetchArkModels(baseRaw: string, apiKey: string, signal?: AbortSignal): Promise<string[]> {
   const base = normalizeArkBaseUrl(baseRaw);
   const url = `${base}/models`;
   try {
@@ -219,6 +209,7 @@ async function fetchArkModels(baseRaw: string, apiKey: string): Promise<string[]
         baseUrl: base,
         apiKey,
       }),
+      signal,
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -250,7 +241,7 @@ async function fetchArkModels(baseRaw: string, apiKey: string): Promise<string[]
   }
 }
 
-async function fetchBaiduQianfanModels(baseRaw: string, apiKey: string): Promise<string[]> {
+async function fetchBaiduQianfanModels(baseRaw: string, apiKey: string, signal?: AbortSignal): Promise<string[]> {
   const base = baseRaw.replace(/\/+$/, '');
   const root = base.replace(/\/v[12](?:\/.*)?$/i, '');
   const candidates = Array.from(new Set([`${root}/v2/models`, `${base}/models`]));
@@ -265,6 +256,7 @@ async function fetchBaiduQianfanModels(baseRaw: string, apiKey: string): Promise
           baseUrl: url,
           apiKey,
         }),
+        signal,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -299,10 +291,10 @@ async function fetchBaiduQianfanModels(baseRaw: string, apiKey: string): Promise
   throw new Error(`百度千帆获取模型列表失败：\n${errors.join('\n')}`);
 }
 
-async function fetchGeminiModels(baseRaw: string, apiKey: string): Promise<string[]> {
+async function fetchGeminiModels(baseRaw: string, apiKey: string, signal?: AbortSignal): Promise<string[]> {
   const base = normalizeGeminiBaseUrl(baseRaw);
-  const url = `${base}/models?key=${encodeURIComponent(apiKey)}`;
-  const res = await fetch(url).catch((e) => {
+  const url = `${base}/models`;
+  const res = await fetch(url, { headers: { 'x-goog-api-key': apiKey }, signal }).catch((e) => {
     void appendApiErrorReport({
       source: 'Gemini 模型列表',
       config: { provider: 'gemini', baseUrl: baseRaw, apiKey },
@@ -338,7 +330,7 @@ async function fetchGeminiModels(baseRaw: string, apiKey: string): Promise<strin
   return ids;
 }
 
-async function fetchClaudeModels(baseRaw: string, apiKey: string): Promise<string[]> {
+async function fetchClaudeModels(baseRaw: string, apiKey: string, signal?: AbortSignal): Promise<string[]> {
   const base = baseRaw.replace(/\/+$/, '');
   const url = base.endsWith('/v1') ? `${base}/models` : `${base.replace(/\/v1\/?$/, '')}/v1/models`;
   const res = await fetch(url, {
@@ -347,6 +339,7 @@ async function fetchClaudeModels(baseRaw: string, apiKey: string): Promise<strin
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
     },
+    signal,
   }).catch((e) => {
     void appendApiErrorReport({
       source: 'Claude 模型列表',
@@ -378,7 +371,7 @@ async function fetchClaudeModels(baseRaw: string, apiKey: string): Promise<strin
   return ids;
 }
 
-export async function testConnection(config: any): Promise<ConnectionTestResult> {
+export async function testConnection(config: any, signal?: AbortSignal): Promise<ConnectionTestResult> {
   const retryCount = Math.max(0, Math.trunc(Number(config?.retryCount ?? 0)) || 0);
   if (!config?.apiKey) return { ok: false, detail: '缺少 API Key' };
   if (!config?.baseUrl) return { ok: false, detail: '缺少 Base URL' };
@@ -395,8 +388,9 @@ export async function testConnection(config: any): Promise<ConnectionTestResult>
           maxTokens: 32,
           temperature: 0,
           deepSeekRecovery: 'disabled',
+          signal,
         }),
-      { retries: retryCount, label: '连接测试' },
+      { retries: retryCount, signal, label: '连接测试' },
     );
     const elapsed = Date.now() - startedAt;
     const body = normalizeConnectionTestResponse(text);

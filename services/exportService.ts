@@ -69,6 +69,25 @@ export async function createRawMigrationBackup(
   return { backupId };
 }
 
+/** Downloads the exact selected import file before Storage Manager writes any records. */
+export async function createImportSourceFileBackup(
+  file: Pick<File, 'name' | 'type' | 'arrayBuffer'>,
+): Promise<{ backupId: string; fileName: string; byteLength: number }> {
+  const bytes = await file.arrayBuffer();
+  const backupId = await createBackupId(new Uint8Array(bytes));
+  const fileName = safeImportSourceBackupFilename(file.name, backupId);
+  const blob = new Blob([bytes], { type: file.type || 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+  return { backupId, fileName, byteLength: bytes.byteLength };
+}
+
 /** Keeps the imported JSON text byte-for-byte when it represents the parsed source object. */
 export function resolveRawMigrationBackupText(raw: unknown, sourceJsonBytes?: string): string {
   if (sourceJsonBytes === undefined) return stableJsonStringify(raw);
@@ -100,7 +119,7 @@ const WINDOWS_RESERVED_DEVICE_STEMS = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
 
 export function safeRawSaveFilename(value: string): string {
   const raw = String(value || 'legacy-save').trim();
-  const deviceStem = raw.split('.', 1)[0];
+  const deviceStem = raw.split('.', 1)[0] ?? '';
   const stem = raw
     .replace(/\.[^.]+$/, '')
     .replace(/[^a-zA-Z0-9_-]+/g, '_')
@@ -113,11 +132,28 @@ export function safeRawSaveFilename(value: string): string {
 }
 
 async function createRawBackupId(serialized: string): Promise<string> {
+  return createBackupId(new TextEncoder().encode(serialized));
+}
+
+async function createBackupId(bytes: Uint8Array): Promise<string> {
   if (globalThis.crypto?.subtle) {
-    const hash = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(serialized));
+    const hash = await globalThis.crypto.subtle.digest('SHA-256', bytes);
     return `sha256-${[...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 16)}`;
   }
   return `random-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function safeImportSourceBackupFilename(sourceName: string, backupId: string): string {
+  const normalized = String(sourceName || 'import-source').trim();
+  const extensionMatch = normalized.match(/\.(json|ktysave|zip)$/i);
+  const extension = extensionMatch ? `.${(extensionMatch[1] ?? 'bin').toLowerCase()}` : '.bin';
+  const rawStem = extensionMatch ? normalized.slice(0, -extensionMatch[0].length) : normalized;
+  const stem = rawStem
+    .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, '_')
+    .replace(/[. ]+$/g, '')
+    .slice(0, 72) || 'import-source';
+  const safeStem = WINDOWS_RESERVED_DEVICE_STEMS.test(stem) ? 'import-source' : stem;
+  return `${safeStem}-source-backup-${backupId}${extension}`;
 }
 
 function stableJsonStringify(value: unknown): string {
@@ -148,7 +184,7 @@ export function 解析Markdown剧情(markdown: string): 聊天消息[] {
   let counter = 0;
   for (const block of blocks) {
     if (!block.trim()) continue;
-    const header = block.split(/\r?\n/, 1)[0].trim();
+    const header = (block.split(/\r?\n/, 1)[0] ?? '').trim();
     const content = block.slice(header.length).trim();
     if (!content) continue;
     const role = header.startsWith("AI") ? "assistant" : header.startsWith("玩家") ? "user" : "assistant";

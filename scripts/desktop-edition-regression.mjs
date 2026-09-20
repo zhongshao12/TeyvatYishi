@@ -94,6 +94,14 @@ assert(cargoToml.includes('custom-protocol'), 'Cargo.toml desktop build must ena
 assert(cargoToml.includes('tauri-plugin-updater = "2"'), 'Cargo.toml must include the Tauri updater plugin');
 assert(cargoToml.includes('serde_json = "1"'), 'Cargo.toml must support JSON payloads');
 
+const ciWorkflow = read('.github/workflows/ci.yml');
+assert(ciWorkflow.includes('desktop-rust:'), 'CI must define a desktop Rust compilation job');
+assert(ciWorkflow.includes('dtolnay/rust-toolchain@stable'), 'CI must install a stable Rust toolchain');
+assert(
+  ciWorkflow.includes('cargo check --locked --manifest-path src-tauri/Cargo.toml'),
+  'CI must compile the locked Tauri Rust manifest',
+);
+
 const rustLib = read('src-tauri/src/lib.rs');
 for (const subdir of ['saves', 'backups', 'assets/generated-images', 'logs', 'config', 'zhiku', 'worldbooks']) {
   assert(rustLib.includes(`"${subdir}"`), `Rust desktop data directories must include ${subdir}`);
@@ -233,8 +241,10 @@ assert(settingsMirror.includes("SETTINGS_PATH = 'config/settings.json'"), 'deskt
 assert(!settingsMirror.match(/const SPECIAL_SETTING_PATHS[^=]*=\s*\{[^}]*zhikuSystem/), 'desktop settings mirror must not actively write the retired zhikuSystem sidecar');
 assert(settingsMirror.includes('getLegacyDesktopSettingPath') && settingsMirror.includes('SPECIAL_SETTING_PATHS[key] ?? getLegacyDesktopSettingPath(key)'), 'desktop settings mirror must resolve the retired codex sidecar only through the read-only compat boundary');
 assert(settingsMirror.includes("worldbooks: 'worldbooks/worldbooks.json'"), 'desktop settings mirror must write worldbooks into worldbooks/worldbooks.json');
+assert(settingsMirror.includes("activeWorkflowRecoveryV1: 'logs/workflow-recovery.json'"), 'desktop settings mirror must isolate the active workflow recovery journal under logs');
 assert(settingsMirror.includes("kind: 'kaituoyishi-desktop-setting'"), 'desktop special setting mirrors must carry a stable kind');
 assert(settingsMirror.includes('mirrorSettingToDesktop'), 'desktop settings mirror must expose setting writes');
+assert(settingsMirror.includes('mirrorSettingsToDesktop'), 'desktop settings mirror must expose batched setting writes');
 assert(settingsMirror.includes('loadSettingFromDesktopMirror'), 'desktop settings mirror must expose setting reads');
 assert(settingsMirror.includes('removeSettingFromDesktopMirror'), 'desktop settings mirror must expose setting deletion');
 assert(settingsMirror.includes('listDesktopSettingsMirrorKeys'), 'desktop settings mirror must expose mirrored setting keys');
@@ -257,6 +267,9 @@ const assetMirror = read('services/desktop/desktopAssetMirror.ts');
 assert(assetMirror.includes("INDEX_PATH = 'assets/index.json'"), 'desktop asset mirror must keep a local asset index');
 assert(assetMirror.includes('ASSET_METADATA_RE = /\\.meta\\.json$/'), 'desktop asset mirror must recognize asset metadata files');
 assert(assetMirror.includes('assets/generated-images/${sanitizeAssetId(id)}.${extensionForMimeType(mimeType)}'), 'desktop asset mirror must write generated image files under assets/generated-images');
+assert(assetMirror.includes('matchesMirroredAssetRevision(byId.get(record.id), record)'), 'desktop asset mirror must skip unchanged payloads before base64 conversion');
+assert(assetMirror.includes('summary.size === size') && assetMirror.includes('summary.updatedAt === updatedAt'), 'desktop asset mirror incremental key must include size and revision');
+assert(assetMirror.includes('if (changed) await writeAssetIndex'), 'desktop asset mirror must avoid rewriting its index when every asset is unchanged');
 assert(assetMirror.includes('assets/generated-images/${sanitizeAssetId(id)}.meta.json'), 'desktop asset mirror must write generated image metadata files');
 assert(assetMirror.includes('mirrorAssetRecordsToDesktop'), 'desktop asset mirror must expose asset mirroring');
 assert(assetMirror.includes('loadDesktopAssetRecords'), 'desktop asset mirror must expose local asset payload reads');
@@ -418,6 +431,7 @@ for (const method of ['readText', 'writeText', 'readJson', 'writeJson', 'list', 
 }
 
 const dbService = read('services/dbService.ts').replace(/\r\n/g, '\n');
+const indexedSettingsStore = read('services/storage/indexedSettingsStore.ts').replace(/\r\n/g, '\n');
 assert(dbService.includes('mirrorSaveToDesktop'), 'saveGame must mirror saves into the desktop data directory');
 assert(dbService.includes('reserveDesktopSaveId'), 'saveGame must reserve desktop save ids before the IndexedDB compatibility write');
 const desktopSaveReservation = 'const desktopSaveId = options.requireIndexedDbAtomicCommit ? 0 : await reserveDesktopSaveIdSafely(db)';
@@ -529,28 +543,28 @@ assert(dbService.includes('backupDesktopStateBeforeOneTimeMigration'), 'dbServic
 assert(dbService.includes("writeDesktopMigrationBackup(currentSaves, 'before-migration')"), 'one-time migration backups must include current readable saves and desktop file snapshots');
 assert(dbService.includes('previewDesktopStateBeforeOneTimeMigration'), 'dbService must expose a one-time migration backup preview entrypoint');
 assert(dbService.includes("previewDesktopMigrationBackup(currentSaves, 'before-migration')"), 'one-time migration backup previews must inspect current readable saves and desktop file snapshots');
-assert(dbService.includes('mirrorSettingToDesktop'), 'saveSetting must mirror settings into the desktop config directory');
-assert(dbService.includes('loadSettingFromDesktopMirror'), 'loadSetting must read the desktop config mirror');
-assert(dbService.includes('removeSettingFromDesktopMirror'), 'deleteSetting must clean the desktop config mirror');
-assert(dbService.includes('await mirrorSettingToDesktop(key, value)'), 'desktop saveSetting must write desktop config files first');
-assert(dbService.includes('await cacheIndexedSettingSafely(key, value)'), 'desktop saveSetting must keep IndexedDB as a compatibility cache');
-assert(dbService.indexOf('await mirrorSettingToDesktop(key, value)') < dbService.indexOf('await cacheIndexedSettingSafely(key, value)'), 'desktop saveSetting must write desktop config before updating IndexedDB cache');
-assert(dbService.includes('await removeSettingFromDesktopMirror(key)'), 'desktop deleteSetting must remove desktop config files first');
-assert(dbService.includes('await deleteIndexedSettingSafely(key)'), 'desktop deleteSetting must keep IndexedDB deletion as a compatibility cache cleanup');
-assert(dbService.indexOf('await removeSettingFromDesktopMirror(key)') < dbService.indexOf('await deleteIndexedSettingSafely(key)'), 'desktop deleteSetting must remove desktop config before cleaning IndexedDB cache');
-assert(dbService.includes('cacheIndexedSettingSafely'), 'dbService must wrap IndexedDB setting cache writes safely');
-assert(dbService.includes('deleteIndexedSettingSafely'), 'dbService must wrap IndexedDB setting cache deletes safely');
-assert(dbService.includes('IndexedDB setting cache write failed'), 'desktop setting cache write failures must not break desktop config writes');
-assert(dbService.includes('IndexedDB setting cache delete failed'), 'desktop setting cache delete failures must not break desktop config deletion');
-assert(dbService.includes('const desktopValue = await loadDesktopSettingFirstSafely<T>(key)'), 'loadSetting must prefer desktop settings in desktop runtime');
-assert(dbService.includes('if (desktopValue !== null) return desktopValue'), 'loadSetting must return desktop settings before IndexedDB when available');
+assert(indexedSettingsStore.includes('mirrorSettingsToDesktop'), 'saveSettings must mirror settings into the desktop config directory');
+assert(indexedSettingsStore.includes('loadSettingFromDesktopMirror'), 'loadSetting must read the desktop config mirror');
+assert(indexedSettingsStore.includes('removeSettingFromDesktopMirror'), 'deleteSetting must clean the desktop config mirror');
+assert(indexedSettingsStore.includes('await mirrorSettingsToDesktop(persistentSettings)'), 'desktop saveSettings must write the sanitized desktop config first');
+assert(indexedSettingsStore.includes('await cacheIndexedSettingsSafely(persistentSettings)'), 'desktop saveSettings must keep sanitized values in the IndexedDB compatibility cache');
+assert(indexedSettingsStore.indexOf('await mirrorSettingsToDesktop(persistentSettings)') < indexedSettingsStore.indexOf('await cacheIndexedSettingsSafely(persistentSettings)'), 'desktop saveSettings must write desktop config before updating the IndexedDB cache');
+assert(indexedSettingsStore.includes('await removeSettingFromDesktopMirror(key)'), 'desktop deleteSetting must remove desktop config files first');
+assert(indexedSettingsStore.includes('await deleteIndexedSettingSafely(key)'), 'desktop deleteSetting must keep IndexedDB deletion as a compatibility cache cleanup');
+assert(indexedSettingsStore.indexOf('await removeSettingFromDesktopMirror(key)') < indexedSettingsStore.indexOf('await deleteIndexedSettingSafely(key)'), 'desktop deleteSetting must remove desktop config before cleaning IndexedDB cache');
+assert(indexedSettingsStore.includes('cacheIndexedSettingsSafely'), 'indexedSettingsStore must wrap IndexedDB setting cache writes safely');
+assert(indexedSettingsStore.includes('deleteIndexedSettingSafely'), 'indexedSettingsStore must wrap IndexedDB setting cache deletes safely');
+assert(indexedSettingsStore.includes('IndexedDB settings cache write failed'), 'desktop setting cache write failures must not break desktop config writes');
+assert(indexedSettingsStore.includes('IndexedDB setting cache delete failed'), 'desktop setting cache delete failures must not break desktop config deletion');
+assert(indexedSettingsStore.includes('const desktopValue = await loadDesktopSettingFirstSafely<T>(key)'), 'loadSetting must prefer desktop settings in desktop runtime');
+assert(indexedSettingsStore.includes('if (desktopValue !== null) return hydrateLoadedSetting(key, desktopValue)'), 'loadSetting must hydrate and return desktop settings before IndexedDB when available');
 assert(
-  dbService.indexOf('const desktopValue = await loadDesktopSettingFirstSafely<T>(key)') < dbService.indexOf('const db = await openDB();\n  const indexedValue = await new Promise<T | null>'),
+  indexedSettingsStore.indexOf('const desktopValue = await loadDesktopSettingFirstSafely<T>(key)') < indexedSettingsStore.indexOf('const db = await openGameDatabase();\n  const indexedValue = await new Promise<T | null>'),
   'loadSetting must try the desktop setting mirror before opening IndexedDB',
 );
-assert(dbService.includes('loadDesktopSettingFirstSafely'), 'dbService must wrap desktop setting priority reads safely');
-assert(dbService.includes('loadDesktopSettingFallbackSafely<T>(key)'), 'loadSetting must still fall back to the desktop setting mirror when IndexedDB is empty');
-assert(dbService.includes('setting priority load failed'), 'desktop setting priority failures must not break IndexedDB reads');
+assert(indexedSettingsStore.includes('loadDesktopSettingFirstSafely'), 'indexedSettingsStore must wrap desktop setting priority reads safely');
+assert(indexedSettingsStore.includes('loadDesktopSettingFallbackSafely<T>(key)'), 'loadSetting must still fall back to the desktop setting mirror when IndexedDB is empty');
+assert(indexedSettingsStore.includes('setting priority load failed'), 'desktop setting priority failures must not break IndexedDB reads');
 assert(dbService.includes('mirrorAssetRecordsToDesktop'), 'saveGame must mirror album image assets into the desktop asset directory');
 assert(dbService.includes('loadDesktopAssetRecords'), 'dbService must load desktop asset mirror payloads when reading saves');
 assert(dbService.includes('restoreDesktopAssetPayloadSafely'), 'dbService must restore desktop asset payloads from local image files');
@@ -565,7 +579,12 @@ assert(dbService.includes('collectReferencedDesktopAssetIds'), 'dbService must c
 assert(dbService.includes('collectSaveAlbumAssetIds(restoredSave)'), 'desktop asset maintenance must use restored saves to collect album asset references');
 assert(dbService.includes('cleanupDesktopAssetMirror(referencedAssetIds)'), 'dbService must clean desktop assets using the referenced asset set');
 
-const storageManager = read('components/features/Settings/StorageManager.tsx');
+// StorageManager 的桌面存储状态与存档树视图已拆到 components/features/Settings/storage/；按「存储设置 UI」整体读取。
+const storageManager = [
+  read('components/features/Settings/StorageManager.tsx'),
+  read('components/features/Settings/storage/DesktopStorageStatus.tsx'),
+  read('components/features/Settings/storage/StorageSaveTreeView.tsx'),
+].join('\n');
 assert(storageManager.includes('DesktopStorageStatus'), 'storage manager must render desktop status');
 assert(storageManager.includes('buildDesktopReleaseInfo'), 'storage manager must build desktop release info');
 assert(storageManager.includes('desktopReleaseInfo'), 'storage manager must keep desktop release info state');
@@ -837,6 +856,8 @@ assert(releaseGatesScript.includes('assertFile(latestPath'), 'desktop release ga
 assert(releaseGatesScript.includes('code-signing-decision.md'), 'desktop release gates must read code signing decisions');
 assert(releaseGatesScript.includes('buildCodeSigningDecisionSectionFromDecisionFile'), 'desktop release gates must restore signing evidence from the decision file');
 assert(releaseGatesScript.includes('hasFilledCodeSigningDecision'), 'desktop release gates must reject empty signing templates as evidence');
+assert(!releaseGatesScript.includes('DESKTOP_RELEASE_GATES_LOCAL_READY'), 'desktop release gates must not accept an environment-variable shortcut for local verification evidence');
+assert(!releaseGatesScript.includes('DESKTOP_RELEASE_GATES_READINESS_READY'), 'desktop release gates must not accept an environment-variable shortcut for readiness evidence');
 assert(verifyReleaseGatesScript.includes('release-gates.md'), 'desktop release gates verification must read release-gates.md');
 assert(verifyReleaseGatesScript.includes('unchecked checklist'), 'desktop release gates verification must reject unchecked checklist items');
 assert(verifyReleaseGatesScript.includes('githubReleaseUrl'), 'desktop release gates verification must require GitHub release URL evidence');

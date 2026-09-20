@@ -103,6 +103,7 @@ export function buildSaveNodeDeltaRecord(
   const formalBase = isFormalSave(options?.baseSave) ? options.baseSave : null;
   const baseMode: SaveNodeBaseMode =
     options?.storageMode === 'delta' && formalBase && Number.isFinite(options.baseSaveId)
+      && canStoreSaveAsDelta(compatibleSave, formalBase)
       ? 'delta'
       : 'checkpoint';
 
@@ -129,6 +130,16 @@ export function buildSaveNodeDeltaRecord(
       : undefined,
     createdAt: Date.now(),
   };
+}
+
+export function canStoreSaveAsDelta(
+  save: 存档数据 | TeyvatSaveData,
+  baseSave: 存档数据 | TeyvatSaveData,
+): boolean {
+  if (!isFormalSave(save) || !isFormalSave(baseSave)) return false;
+  const currentChat = save.对话.entries as unknown as 聊天消息[];
+  const baseChat = baseSave.对话.entries as unknown as 聊天消息[];
+  return isChatPrefix(currentChat, baseChat);
 }
 
 export function buildDeltaOnlyStoredSave(save: 存档数据 | TeyvatSaveData, baseSaveId: number): 存档数据 {
@@ -218,7 +229,7 @@ function buildChatDelta(current: 聊天消息[], base: 聊天消息[]): {
   baseLength: number;
   messages: 聊天消息[];
 } {
-  const baseIsPrefix = base.length <= current.length && base.every((message, index) => message.id === current[index]?.id);
+  const baseIsPrefix = isChatPrefix(current, base);
   if (baseIsPrefix) {
     return {
       mode: 'append',
@@ -231,6 +242,11 @@ function buildChatDelta(current: 聊天消息[], base: 聊天消息[]): {
     baseLength: 0,
     messages: current,
   };
+}
+
+function isChatPrefix(current: 聊天消息[], base: 聊天消息[]): boolean {
+  return base.length <= current.length
+    && base.every((message, index) => message.id === current[index]?.id);
 }
 
 function collectAssetIds(save: FormalDeltaSave): string[] {

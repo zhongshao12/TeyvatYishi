@@ -1,3 +1,4 @@
+import { CLIP_MEDIUM, insetRing } from '@/styles/clipPaths';
 import type { ReactNode } from 'react';
 import { useCallback, useState } from 'react';
 import {
@@ -28,7 +29,7 @@ import { StorageManagerTab } from './StorageManager';
 import { VariableManagerTab } from './VariableManager';
 import { ContextViewerTab } from './ContextViewer';
 import type { API设置, 游戏设置, 主题预设 } from '@/models/settings';
-import type { ContextSnapshot, ContextSnapshotKind } from '@/hooks/useGame/contextSnapshot';
+import type { ContextSnapshot, ContextSnapshotKind } from '@/hooks/useGame/contextSnapshotTypes';
 import type { 角色数据结构 } from '@/models/character';
 import type { 世界状态 } from '@/models/world';
 import type { 记忆系统 } from '@/models/memory';
@@ -39,6 +40,7 @@ import type { VariableSetters } from '@/utils/variableExecutor';
 import { saveSetting } from '@/services/dbService';
 import type { 世界书 } from '@/models/worldbook';
 import type { 聊天消息 } from '@/models/chat';
+import { useModalAccessibility } from '@/components/ui/Modal';
 
 export type SettingsTab = Tab;
 
@@ -67,7 +69,7 @@ interface SettingsModalProps {
   on剧情编织Change: React.Dispatch<React.SetStateAction<剧情编织系统>>;
   variableSetters: VariableSetters;
   variableEditingLocked?: boolean;
-  getContextSnapshot: (kind?: ContextSnapshotKind) => ContextSnapshot;
+  getContextSnapshot: (kind?: ContextSnapshotKind) => Promise<ContextSnapshot>;
   initialTab?: Tab;
   /** Phase 7.2：世界书数组（用于 ST 预设导入时注入 ST 世界书条目）。 */
   worldbooks: 世界书[];
@@ -125,6 +127,7 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [contextRefreshKey, setContextRefreshKey] = useState(0);
+  const dialogRef = useModalAccessibility<HTMLDivElement>(onClose);
   const persistGameSettingsChange = useCallback((next: 游戏设置) => {
     onGameSettingsChange(next);
     void saveSetting('gameSettings', next);
@@ -164,6 +167,7 @@ export function SettingsModal({
         return (
           <ContextViewerTab
             getSnapshot={getContextSnapshot}
+            refreshKey={contextRefreshKey}
             onRefresh={() => setContextRefreshKey((v) => v + 1)}
           />
         );
@@ -228,6 +232,11 @@ export function SettingsModal({
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="设置"
+        tabIndex={-1}
         className="teyvat-modal-shell teyvat-settings-shell journal-story-page flex h-[100dvh] w-full max-w-none animate-slide-up flex-col overflow-hidden md:h-[90vh] md:max-w-7xl md:flex-row"
         style={{
           clipPath: 'polygon(0 0, 100% 0, 100% 100%, 0 100%)',
@@ -284,8 +293,8 @@ export function SettingsModal({
                     borderLeft: active
                       ? '2px solid rgba(var(--tj-accent-primary), 0.96)'
                       : '2px solid transparent',
-                    boxShadow: active ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)' : 'none',
-                    clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+                    boxShadow: active ? insetRing(0.18) : 'none',
+                    clipPath: CLIP_MEDIUM,
                   }}
                 >
                   <span

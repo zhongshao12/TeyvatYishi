@@ -8,6 +8,26 @@ type CachedModels = {
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 const modelCache = new Map<string, CachedModels>();
 
+function fallbackSecretFingerprint(value: string): string {
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193) >>> 0;
+    second = Math.imul(second ^ (code + index), 0x85ebca6b) >>> 0;
+  }
+  return `${first.toString(16).padStart(8, '0')}${second.toString(16).padStart(8, '0')}`;
+}
+
+export async function buildOpenAICompatibleModelCacheKey(baseRaw: string, apiKey: string): Promise<string> {
+  const normalizedBase = baseRaw.trim().replace(/\/+$/, '').toLowerCase();
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) return `${normalizedBase}\u0000fingerprint:${fallbackSecretFingerprint(apiKey)}`;
+  const digest = await subtle.digest('SHA-256', new TextEncoder().encode(apiKey));
+  const fingerprint = Array.from(new Uint8Array(digest).slice(0, 16), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${normalizedBase}\u0000sha256:${fingerprint}`;
+}
+
 export function buildOpenAICompatibleModelUrls(baseRaw: string): string[] {
   let base = baseRaw.trim().replace(/\/+$/, '').split('?')[0] ?? '';
   base = base
@@ -22,12 +42,13 @@ export function buildOpenAICompatibleModelUrls(baseRaw: string): string[] {
   ]));
 }
 
-export async function fetchOpenAICompatibleModels(baseRaw: string, apiKey: string): Promise<string[]> {
+export async function fetchOpenAICompatibleModels(baseRaw: string, apiKey: string, signal?: AbortSignal): Promise<string[]> {
   const errors: string[] = [];
   for (const url of buildOpenAICompatibleModelUrls(baseRaw)) {
     try {
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${apiKey}` },
+        signal,
       });
       if (!response.ok) {
         const text = await response.text().catch(() => '');
@@ -65,7 +86,7 @@ export async function fetchOpenAICompatibleModels(baseRaw: string, apiKey: strin
 }
 
 export async function fetchOpenAICompatibleModelsCached(baseRaw: string, apiKey: string): Promise<string[]> {
-  const cacheKey = `${baseRaw.trim().replace(/\/+$/, '').toLowerCase()}\u0000${apiKey}`;
+  const cacheKey = await buildOpenAICompatibleModelCacheKey(baseRaw, apiKey);
   const cached = modelCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return [...cached.models];
 

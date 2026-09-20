@@ -256,6 +256,7 @@ const 提取正文中的显式章节标题 = (content: string): string => {
     .slice(0, 10);
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
+    if (line === undefined) continue;
     const match = 识别章节标题行(line, {
       上一行: index > 0 ? lines[index - 1] : '',
       下一行: index < lines.length - 1 ? lines[index + 1] : '',
@@ -271,7 +272,7 @@ const 去掉正文开头重复章节标题 = (content: string, title: string): s
   if (!normalizedContent || !normalizedTitle) return normalizedContent;
   const lines = normalizedContent.split('\n');
   if (lines.length <= 0) return normalizedContent;
-  const firstLine = 规范化章节标题文本(lines[0]);
+  const firstLine = 规范化章节标题文本(lines[0] ?? '');
   if (firstLine !== normalizedTitle) return normalizedContent;
   return 清理文本(lines.slice(1).join('\n'));
 };
@@ -674,6 +675,7 @@ export function 从TXT提取剧情章节(text: string): 剧情编织章节[] {
 
   for (let index = 0; index < lines.length; index += 1) {
     const rawLine = lines[index];
+    if (rawLine === undefined) continue;
     const line = rawLine.trim();
     const heading = 识别章节标题行(line, {
       上一行: index > 0 ? lines[index - 1] : '',
@@ -735,12 +737,15 @@ export function 根据章节生成剧情分段(chapters: 剧情编织章节[], �
   for (let index = 0; index < chapters.length; index += size) {
     const group = chapters.slice(index, index + size);
     if (!group.length) continue;
-    const start = group[0].序号;
-    const end = group[group.length - 1].序号;
+    const first = group[0];
+    const last = group[group.length - 1];
+    if (!first || !last) continue;
+    const start = first.序号;
+    const end = last.序号;
     const 原文内容 = group.map((chapter) => `【${chapter.标题}】\n${chapter.内容}`).join('\n\n');
     result.push(归一化剧情编织分段({
       组号: result.length + 1,
-      标题: group.length === 1 ? group[0].标题 : `${group[0].标题} - ${group[group.length - 1].标题}`,
+      标题: group.length === 1 ? first.标题 : `${first.标题} - ${last.标题}`,
       章节范围: start === end ? `第${start}章` : `第${start}章-第${end}章`,
       章节标题: group.map((chapter) => chapter.标题),
       是否开局组: index === 0,

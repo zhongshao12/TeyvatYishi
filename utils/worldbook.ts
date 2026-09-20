@@ -411,7 +411,8 @@ function applyGroupOverride<T extends { entry: 世界书条目 }>(items: T[]): T
       const sorted = [...groupItems].sort(
         (a, b) => (b.entry.groupWeight ?? 0) - (a.entry.groupWeight ?? 0),
       );
-      result.push(sorted[0]);
+      const winner = sorted[0];
+      if (winner) result.push(winner);
     } else {
       result.push(...groupItems);
     }

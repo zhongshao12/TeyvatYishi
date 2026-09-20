@@ -6,12 +6,17 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { readWorkflowSources, sliceWorkflowFile, sliceWorkflowMarker } from './lib/workflowSources.mjs';
 
 const root = process.cwd();
-const sendWorkflow = fs.readFileSync(path.join(root, 'hooks/useGame/sendWorkflow.ts'), 'utf8');
+// 迁移: 主剧情工作流已拆分为多阶段模块，改按登记表整体读取（只换读取源，断言语义不变）。
+const sendWorkflow = readWorkflowSources();
 const contextSnapshot = fs.readFileSync(path.join(root, 'hooks/useGame/contextSnapshot.ts'), 'utf8');
 const settings = fs.readFileSync(path.join(root, 'models/settings.ts'), 'utf8');
 const systemPromptBuilder = fs.readFileSync(path.join(root, 'hooks/useGame/systemPromptBuilder.ts'), 'utf8');
+// 迁移: apiMessages 的 V2/legacy 分叉已从 sendWorkflow 内联代码搬到本装配模块，
+// 因此把该模块纳入读取源（只扩大读取范围，不放宽断言）。
+const apiMessagesBuilder = fs.readFileSync(path.join(root, 'hooks/useGame/promptModuleMessageInjection.ts'), 'utf8');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -23,25 +28,53 @@ assert(sendWorkflow.includes('const currentPresetV2 = getCurrentSTPresetV2(state
 assert(sendWorkflow.includes('state.gameSettings.enableStPreset !== false'), 'ST V2 分流必须与 UI 一致：旧存档缺省视为开启，只有显式 false 才关闭');
 assert(sendWorkflow.includes('currentPresetV2?.preset?.prompts?.length'), 'ST V2 分流必须要求有效 prompts');
 assert(sendWorkflow.includes('currentPresetV2?.preset?.prompt_order?.length'), 'ST V2 分流必须要求有效 prompt_order');
-assert(sendWorkflow.includes('catch (error)'), 'ST V2 构建必须有 catch 回退');
+// 收紧：裸 `catch (error)` 在 9 个文件里都出现，等于空转。改为要求 catch 之后在有限跨度内
+// 依次出现「置空消息链 -> 记录 tavernV2Error -> 打印构建失败回退日志」这一整套回退动作，
+// 仍随代码整体搬迁，但只有真正的 ST V2 回退块能匹配。
+assert(
+  /catch \(error\) \{[\s\S]{0,200}?tavernV2Messages = null;[\s\S]{0,160}?console\.warn\('\[ST V2\] 消息链构建失败，已回退 legacy 主剧情路径'/.test(
+    sendWorkflow,
+  ),
+  'ST V2 构建必须有 catch 回退',
+);
 assert(sendWorkflow.includes('已回退 legacy 主剧情路径'), 'ST V2 失败必须记录回退 legacy');
-assert(sendWorkflow.includes('if (tavernV2Messages)') && sendWorkflow.includes('} else {'), 'apiMessages 组装必须保留非 V2 legacy 分支');
+// 迁移: 旧 sendWorkflow 内联 `if (tavernV2Messages) { ... } else { ... }`
+//   -> 新 装配收敛到 buildNarrativeApiMessages（hooks/useGame/promptModuleMessageInjection.ts），
+//      形参名为 input.tavernMessages，sendWorkflow 以 `tavernMessages: tavernV2Messages` 接入该装配。
+//   理由: 拆分只搬运代码、不改行为。断言意图不变：apiMessages 组装必须保留非 V2 的 legacy 分支，
+//   因此扩大读取源到装配模块，并同时校验 sendWorkflow 侧的 V2 旁路接线仍然存在。
+assert(sendWorkflow.includes('tavernMessages: tavernV2Messages'), 'apiMessages 组装必须保留非 V2 legacy 分支');
+assert(apiMessagesBuilder.includes('if (input.tavernMessages)') && apiMessagesBuilder.includes('} else {'), 'apiMessages 组装必须保留非 V2 legacy 分支');
 assert(sendWorkflow.includes('const recentHistory = getMainHistoryWindow(updatedHistory, state.gameSettings, state.记忆);'), 'ST V2 必须复用原生主剧情近期历史窗口');
 assert(sendWorkflow.includes('const tavernHistory = recentHistory.filter((msg) => msg.id !== userMsg.id);'), 'ST V2 Tavern 历史必须排除本轮用户输入，避免 chatHistory 与 userInput 重复');
-const tavernBuildCall = sendWorkflow.slice(
-  sendWorkflow.indexOf('tavernV2Messages = buildTavernMessageChain({'),
-  sendWorkflow.indexOf('}).map((msg) => 创建聊天消息(msg.role, msg.content));', sendWorkflow.indexOf('tavernV2Messages = buildTavernMessageChain({')),
-);
+// 迁移: 切片改用 sliceWorkflowFile —— 标记缺失即抛错，且限定在单个文件内，
+// 不再依赖「拼接视图里 indexOf 恰好命中本文件」这一隐含前提。
+// 用 sliceWorkflowMarker：该段代码已从 sendWorkflow.ts 搬到 mainPromptAssembly.ts，
+// 按标记自动定位后，后续阶段拆分不会再让这条断言失效（标记在 ≥2 个文件出现时会抛错，不会误判）。
+const tavernBuildCall = sliceWorkflowMarker(
+  'tavernV2Messages = buildTavernMessageChain({',
+  '}).map((msg) => 创建聊天消息(msg.role, msg.content));',
+).text;
 assert(tavernBuildCall.includes('chatHistory: tavernHistory'), 'ST V2 buildTavernMessageChain 必须只接收排除本轮输入后的 tavernHistory');
 assert(tavernBuildCall.includes('includeNativeContextInWorldbook: false'), 'ST V2 叠加模式不得在 Tavern worldbook 里重复注入原生底座模块');
 assert(tavernBuildCall.includes('includeNativeNarrative: false'), 'ST V2 叠加模式必须由 systemPrompt 唯一承载原生主叙事，Tavern messages 不得重复注入');
 assert(!tavernBuildCall.includes('worldbookExtraTexts: [天气片断]'), 'ST V2 不得重复把天气片段塞进 Tavern 消息链');
 assert(!tavernBuildCall.includes('chatHistory: updatedHistory') && !tavernBuildCall.includes('chatHistory: state.chatHistory'), 'ST V2 禁止向 Tavern chatHistory 传全量历史');
-const tavernBranch = sendWorkflow.slice(
-  sendWorkflow.indexOf('if (tavernV2Messages)'),
-  sendWorkflow.indexOf('} else {', sendWorkflow.indexOf('if (tavernV2Messages)')),
+// 迁移: 旧 在 sendWorkflow 内切片 `if (tavernV2Messages)`..`} else {`
+//   -> 新 在装配模块内切片 `if (input.tavernMessages)`..`} else {`。
+//   理由: 同上的拆分搬运，V2 分支现在只做纯追加。断言意图不变且更直接：
+//   ST V2 只能叠加 Tavern messages，该分支内不得触碰 systemPrompt，更不能清空原生游戏 systemPrompt。
+//   切片改用 sliceWorkflowFile：原先「先断言两个 indexOf 有效」由该 helper 的抛错语义承接
+//   （标记缺失即失败），且切片不再可能跨出装配模块。
+const tavernBranch = sliceWorkflowFile(
+  'hooks/useGame/promptModuleMessageInjection.ts',
+  'if (input.tavernMessages)',
+  '} else {',
+).text;
+assert(
+  tavernBranch.includes('messages.push(...input.tavernMessages)') && !tavernBranch.includes('systemPrompt'),
+  'ST V2 只能叠加 Tavern messages，不能清空原生游戏 systemPrompt',
 );
-assert(tavernBranch && !tavernBranch.includes("systemPrompt = ''"), 'ST V2 只能叠加 Tavern messages，不能清空原生游戏 systemPrompt');
 assert(contextSnapshot.includes("import { buildTavernMessageChain } from './tavernMessageChainBuilder';"), '主剧情上下文快照必须复用 Tavern V2 消息链构建器');
 assert(contextSnapshot.includes("import { getCurrentSTPresetV2 } from '@/utils/stSettingsNormalizer';"), '主剧情上下文快照必须通过 helper 派生当前 V2 预设');
 assert(contextSnapshot.includes('const currentPresetV2 = getCurrentSTPresetV2(state.gameSettings, getBuiltinPresetsV2());'), '主剧情上下文快照必须包含内置 V2 预设副本');

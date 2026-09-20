@@ -25,7 +25,7 @@ function assert(condition, message) {
 }
 
 const amphoreusPreset = JSON.parse(
-  fs.readFileSync('public/zhiku-presets/legacy-hsr/amphoreus-character-rebuild.json', 'utf8'),
+  fs.readFileSync('tests/fixtures/legacy-hsr/zhiku-presets/amphoreus-character-rebuild.json', 'utf8'),
 );
 
 for (const id of [

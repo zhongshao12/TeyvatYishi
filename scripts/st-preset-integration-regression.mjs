@@ -9,8 +9,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { readWorkflowSources, sliceWorkflowFile, sliceWorkflowMarker } from './lib/workflowSources.mjs';
 
 const root = process.cwd();
+// 子脚本同样需要 `@/` 别名解析钩子；否则直接 import 生产 .ts 的子脚本会 ERR_MODULE_NOT_FOUND。
+const aliasLoader = ['--import', pathToFileURL(path.join(root, 'scripts/lib/tsAliasRegister.mjs')).href];
 const node = process.execPath;
 
 function assert(condition, message) {
@@ -18,7 +22,7 @@ function assert(condition, message) {
 }
 
 function runScript(script) {
-  const result = spawnSync(node, [path.join(root, script)], {
+  const result = spawnSync(node, [...aliasLoader, path.join(root, script)], {
     cwd: root,
     stdio: 'inherit',
     env: process.env,
@@ -81,15 +85,27 @@ const systemPromptBuilder = read('hooks/useGame/systemPromptBuilder.ts');
 assert(systemPromptBuilder.includes('settings.enableStPreset === false || Boolean(settings.currentStPresetIdV2)'), 'V2 activation must filter legacy V1 st_import modules from native systemPrompt');
 assert(systemPromptBuilder.includes('避免同一份 ST 预设以 V1 模块和 V2 消息链两种形态重复注入'), 'systemPromptBuilder must document legacy V1/V2 duplicate injection isolation');
 
-const sendWorkflow = read('hooks/useGame/sendWorkflow.ts');
-const tavernBranchStart = sendWorkflow.indexOf('if (tavernV2Messages)');
-const tavernBranchEnd = sendWorkflow.indexOf('} else {', tavernBranchStart);
-assert(tavernBranchStart >= 0 && tavernBranchEnd > tavernBranchStart, 'sendWorkflow must keep a Tavern V2 messages branch');
-assert(!sendWorkflow.slice(tavernBranchStart, tavernBranchEnd).includes("systemPrompt = ''"), 'Tavern V2 must not replace the native game systemPrompt');
-const tavernBuildCall = sendWorkflow.slice(
-  sendWorkflow.indexOf('tavernV2Messages = buildTavernMessageChain({'),
-  sendWorkflow.indexOf('}).map((msg) => 创建聊天消息(msg.role, msg.content));', sendWorkflow.indexOf('tavernV2Messages = buildTavernMessageChain({')),
-);
+// 迁移: 主剧情工作流已拆分为多阶段模块，改按登记表整体读取（只换读取源，断言语义不变）。
+const sendWorkflow = readWorkflowSources();
+// 迁移: V2/legacy 的 apiMessages 分叉已抽到 hooks/useGame/promptModuleMessageInjection.ts，
+// 旧 `if (tavernV2Messages)` -> 新 `if (input.tavernMessages)`；sendWorkflow 侧以
+// `tavernMessages: tavernV2Messages` 接线。理由: apiMessages 装配与工作流解耦。
+// 该模块的 V2 分支切片改用 sliceWorkflowFile：标记缺失即抛错，且不会跨出单文件边界
+// （原 `indexOf` + `slice` 在拼接视图下可能被其它文件的偶然匹配伪造）。
+const tavernV2Branch = sliceWorkflowFile(
+  'hooks/useGame/promptModuleMessageInjection.ts',
+  'if (input.tavernMessages)',
+  '} else {',
+).text;
+assert(tavernV2Branch.includes('messages.push(...input.tavernMessages);'), 'Tavern V2 branch must append the preset message chain instead of rebuilding it');
+assert(!tavernV2Branch.includes('systemPrompt ='), 'Tavern V2 must not replace the native game systemPrompt');
+assert(sendWorkflow.includes('tavernMessages: tavernV2Messages'), 'sendWorkflow must wire the Tavern V2 message chain into the apiMessages assembly');
+// 用 sliceWorkflowMarker：该段代码已从 sendWorkflow.ts 搬到 mainPromptAssembly.ts，
+// 按标记自动定位后，后续阶段拆分不会再让这条断言失效（标记在 ≥2 个文件出现时会抛错，不会误判）。
+const tavernBuildCall = sliceWorkflowMarker(
+  'tavernV2Messages = buildTavernMessageChain({',
+  '}).map((msg) => 创建聊天消息(msg.role, msg.content));',
+).text;
 assert(sendWorkflow.includes('const recentHistory = getMainHistoryWindow(updatedHistory, state.gameSettings, state.记忆);'), 'Tavern V2 must start from the native main history window');
 assert(sendWorkflow.includes('const tavernHistory = recentHistory.filter((msg) => msg.id !== userMsg.id);'), 'Tavern V2 must remove the current user message from Tavern history');
 assert(tavernBuildCall.includes('chatHistory: tavernHistory'), 'Tavern V2 must use the filtered native main history window');

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -6,7 +7,7 @@ function assert(condition, message) {
 
 const builder = fs.readFileSync('hooks/useGame/systemPromptBuilder.ts', 'utf8');
 const historyWindow = fs.readFileSync('hooks/useGame/historyWindow.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const sendWorkflow = readWorkflowSources();
 const memoryUtils = fs.readFileSync('hooks/useGame/memoryUtils.ts', 'utf8');
 const npcMemorySanitizer = fs.readFileSync('utils/npcMemorySanitizer.ts', 'utf8');
 const variableFacts = fs.readFileSync('utils/variableFacts.ts', 'utf8');
@@ -15,8 +16,12 @@ const domainRules = fs.readFileSync('prompts/subsystems/domainCommandPrompt.ts',
 const variableWorldbook = fs.readFileSync('data/variableWorldbook.ts', 'utf8');
 const inputArea = fs.readFileSync('components/features/Chat/InputArea.tsx', 'utf8');
 const app = fs.readFileSync('App.tsx', 'utf8');
-// CRLF 环境下 \n}\n\n 匹配不到，先归一化行尾再提取
-const storyProgressNpcMemoryFunction = sendWorkflow.replace(/\r\n/g, '\n').match(/function applyStoryProgressNpcMemory[\s\S]*?\n}\n\nfunction formatCodexDiagnosticsPreview/)?.[0] ?? '';
+// CRLF 环境下 \n}\n 匹配不到，先归一化行尾再提取
+// 迁移: 旧切片以 `\n\nfunction formatCodexDiagnosticsPreview`（紧随其后的邻居函数）作为结束边界,
+//   但 applyStoryProgressNpcMemory 已从 sendWorkflow 搬到 hooks/useGame/postSettlementCommitStage.ts，
+//   其后继函数变成 planPostSettlementStoryAlignment。改为按「导出函数定义 + 顶层收尾括号」切片，不再依赖邻居函数名。
+// 理由: 切片仍精确覆盖同一个 helper 正文，后续再搬动邻居函数不会让负断言空转（切片为空时由下方 presence 断言兜住）。
+const storyProgressNpcMemoryFunction = sendWorkflow.replace(/\r\n/g, '\n').match(/export function applyStoryProgressNpcMemory\([\s\S]*?\n}\n/)?.[0] ?? '';
 
 assert(builder.includes('function buildNpcContinuitySection'), '主剧情 prompt 必须构建 NPC 连续性核对表。');
 assert(builder.includes('# 本回合人物关系连续性核对'), 'NPC 连续性核对表必须有可定位标题。');
@@ -54,9 +59,13 @@ assert(inputArea.includes('disabled={loading || disabled}'), '变量结算 pendi
 assert(app.includes('disabled={state.pendingVariable}'), 'App 必须把 pendingVariable 传给输入区。');
 assert(app.includes('disabled={state.loading || state.pendingVariable}'), '系统触发按钮也必须在变量结算期间禁用。');
 
-assert(sendWorkflow.includes('latestArchive?.角色推进摘要 ?? []'), 'story archive NPC memory must only read role progress summaries.');
-assert(sendWorkflow.includes('const matched = roleProgress.find'), 'story archive NPC memory must match summaries by NPC name.');
 assert(storyProgressNpcMemoryFunction, 'story progress NPC memory helper must be present.');
+// 迁移: 旧 `latestArchive?.角色推进摘要 ?? []`（内联在 applyStoryProgressNpcMemory 的 latestArchive 变量上）
+//   -> `const roleProgress = story.当前进度.历史归档.at(-1)?.角色推进摘要 ?? [];`（同 helper，写在 postSettlementCommitStage.ts）。
+// 理由: 意图不变——剧情存档写回 NPC 同行记忆时只准读「角色推进摘要」，不得读全量进度诊断行；
+//       断言改挂在 helper 切片内，比原来的全库 includes 更贴住这条链路。
+assert(storyProgressNpcMemoryFunction.includes('const roleProgress = story.当前进度.历史归档.at(-1)?.角色推进摘要 ?? [];'), 'story archive NPC memory must only read role progress summaries.');
+assert(sendWorkflow.includes('const matched = roleProgress.find'), 'story archive NPC memory must match summaries by NPC name.');
 assert(!storyProgressNpcMemoryFunction.includes('摘要: _memoryLine'), 'full story progress diagnostics must not be written into NPC companion memories.');
 assert(!storyProgressNpcMemoryFunction.includes('storyProgressMemoryLine'), 'story progress NPC memory helper must not read the full progress memory line.');
 assert(memoryUtils.includes('NPC_MEMORY_SYSTEM_NOISE_PATTERNS'), 'NPC memory compression must filter story progress/system diagnostic noise.');

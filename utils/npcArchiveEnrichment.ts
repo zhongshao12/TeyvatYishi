@@ -13,6 +13,15 @@ export type CanonicalArchiveBaseline = {
   nsfw年龄确认?: NonNullable<NPC_NSFW档案['年龄确认']>;
 };
 
+interface NpcArchiveEnrichmentCacheEntry {
+  codexEntries?: ArchiveCodex['entries'];
+  nsfwEnabled: boolean;
+  maleNsfwArchiveEnabled: boolean;
+  result: NPC记录;
+}
+
+const npcArchiveEnrichmentCache = new WeakMap<NPC记录, NpcArchiveEnrichmentCacheEntry>();
+
 const CANONICAL_ARCHIVE_BASELINES: Record<string, CanonicalArchiveBaseline> = {
   空: {
     性别: '男',
@@ -200,6 +209,14 @@ export function enrichNpcArchives(
 ): { records: NPC记录[]; changed: boolean } {
   let changed = false;
   const next = records.map((npc) => {
+    const cached = npcArchiveEnrichmentCache.get(npc);
+    if (cached
+      && cached.codexEntries === options.codex?.entries
+      && cached.nsfwEnabled === options.nsfwEnabled
+      && cached.maleNsfwArchiveEnabled === options.maleNsfwArchiveEnabled) {
+      if (cached.result !== npc) changed = true;
+      return cached.result;
+    }
     const canonical = matchCanonical(npc.姓名) ?? (npc.别名 ? matchCanonical(npc.别名) : null);
     const codexBaseline = buildCodexArchiveBaseline(npc, options.codex);
     const baseline: CanonicalArchiveBaseline = {
@@ -249,6 +266,14 @@ export function enrichNpcArchives(
       }
     }
 
+    const cacheEntry: NpcArchiveEnrichmentCacheEntry = {
+      codexEntries: options.codex?.entries,
+      nsfwEnabled: options.nsfwEnabled,
+      maleNsfwArchiveEnabled: options.maleNsfwArchiveEnabled,
+      result: updated,
+    };
+    npcArchiveEnrichmentCache.set(npc, cacheEntry);
+    npcArchiveEnrichmentCache.set(updated, cacheEntry);
     if (updated !== npc) changed = true;
     return updated;
   });

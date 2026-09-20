@@ -100,19 +100,19 @@ export function normalizePlayerSpeechInBody(options: PlayerSpeechGuardOptions): 
 
       const legacyDialogue = line.match(/^【\s*角色\s*】\s*([^：:]+)[：:]\s*(.*)$/);
       if (legacyDialogue) {
-        return [`【${legacyDialogue[1].trim()}】${legacyDialogue[2].trim()}`];
+        return [`【${legacyDialogue[1]?.trim() ?? ''}】${legacyDialogue[2]?.trim() ?? ''}`];
       }
 
       const narrationMatch = line.match(/^【\s*旁白\s*】\s*(.+)$/);
       if (narrationMatch) {
-        const text = narrationMatch[1].trim();
+        const text = narrationMatch[1]?.trim() ?? '';
         const quoted = text.match(quoteOnlyRe);
         if (
           quoted &&
-          isLikelyPlayerSpeech(stripOuterQuote(quoted[1])) &&
-          hasPlayerSpeechEvidence(stripOuterQuote(quoted[1]), evidence)
+          isLikelyPlayerSpeech(stripOuterQuote(quoted[1] ?? '')) &&
+          hasPlayerSpeechEvidence(stripOuterQuote(quoted[1] ?? ''), evidence)
         ) {
-          return [`【${safeName}】${stripOuterQuote(quoted[1])}`];
+          return [`【${safeName}】${stripOuterQuote(quoted[1] ?? '')}`];
         }
         return [raw];
       }
@@ -120,18 +120,18 @@ export function normalizePlayerSpeechInBody(options: PlayerSpeechGuardOptions): 
       const protagonistMatch =
         line.match(/^【\s*角色\s*】\s*([^：:]+)[：:]\s*(.+)$/) ??
         line.match(/^【\s*([^】]+?)\s*】\s*(.+)$/);
-      if (!protagonistMatch || !isPlayerSpeakerName(protagonistMatch[1], safeName)) return [raw];
+      if (!protagonistMatch || !isPlayerSpeakerName(protagonistMatch[1] ?? '', safeName)) return [raw];
 
-      const text = protagonistMatch[2].trim();
+      const text = protagonistMatch[2]?.trim() ?? '';
       const split = text.match(/^([“"「].+?[”"」][。！？!?]?)(\s+.+)$/);
-      const speechText = split ? stripOuterQuote(split[1]) : stripOuterQuote(text);
+      const speechText = split ? stripOuterQuote(split[1] ?? '') : stripOuterQuote(text);
       if (!isAllowedPlayerSpeech(speechText, evidence)) {
         return [`【旁白】${text}`];
       }
       if (!split) return [`【${safeName}】${speechText}`];
       return [
         `【${safeName}】${speechText}`,
-        `【旁白】${split[2].trim()}`,
+        `【旁白】${split[2]?.trim() ?? ''}`,
       ];
     })
     .join('\n');
@@ -152,7 +152,7 @@ function splitInlineSpeakerTagsInLine(line: string): string[] {
   INLINE_SPEAKER_TAG_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = INLINE_SPEAKER_TAG_RE.exec(line)) !== null) {
-    const label = match[1].trim();
+    const label = match[1]?.trim() ?? '';
     if (!shouldSplitInlineSpeakerTag(line, match.index, label)) continue;
     ranges.push(match.index);
   }
@@ -160,6 +160,7 @@ function splitInlineSpeakerTagsInLine(line: string): string[] {
   const result: string[] = [];
   for (let i = 0; i < ranges.length; i += 1) {
     const start = ranges[i];
+    if (start === undefined) continue;
     const end = ranges[i + 1] ?? line.length;
     const segment = line.slice(start, end).trim();
     if (segment) result.push(segment);
@@ -239,6 +240,7 @@ interface PlayerSpeechEvidence {
   normalizedInput: string;
   quoted: string[];
   explicitSpeechFragments: string[];
+  sentenceFragments: string[];
   hasExplicitSpeechInput: boolean;
   wholeInputCanBeSpeech: boolean;
 }
@@ -247,6 +249,7 @@ function buildPlayerSpeechEvidence(userInput: string): PlayerSpeechEvidence {
   const trimmed = userInput.trim();
   const quoted = extractQuotedFragments(trimmed);
   const explicitSpeechFragments = extractExplicitSpeechFragments(trimmed);
+  const sentenceFragments = splitPlayerInputSentences(trimmed);
   const hasExplicitSpeechInput =
     quoted.length > 0 ||
     explicitSpeechFragments.length > 0 ||
@@ -254,7 +257,7 @@ function buildPlayerSpeechEvidence(userInput: string): PlayerSpeechEvidence {
   const wholeInputCanBeSpeech =
     !hasExplicitSpeechInput &&
     trimmed.length > 0 &&
-    trimmed.length <= 80 &&
+    trimmed.length <= 160 &&
     !isSoundEffectLike(trimmed) &&
     !looksLikeActionNarration(trimmed);
   return {
@@ -262,9 +265,18 @@ function buildPlayerSpeechEvidence(userInput: string): PlayerSpeechEvidence {
     normalizedInput: normalizeForCompare(trimmed),
     quoted,
     explicitSpeechFragments,
+    sentenceFragments,
     hasExplicitSpeechInput,
     wholeInputCanBeSpeech,
   };
+}
+
+function splitPlayerInputSentences(text: string): string[] {
+  return text
+    .split(/(?<=[。！？!?；;])|\r?\n/u)
+    .map((fragment) => fragment.trim())
+    .filter((fragment) => fragment.length >= 2 && fragment.length <= 160)
+    .filter((fragment) => !isSoundEffectLike(fragment) && !looksLikeActionNarration(fragment));
 }
 
 function extractQuotedFragments(text: string): string[] {
@@ -272,7 +284,7 @@ function extractQuotedFragments(text: string): string[] {
   const re = /[“"「]([^”"」]{1,120})[”"」]/g;
   let match: RegExpExecArray | null;
   while ((match = re.exec(text)) !== null) {
-    const fragment = match[1].trim();
+    const fragment = match[1]?.trim() ?? '';
     if (fragment) result.push(fragment);
   }
   return result;
@@ -283,7 +295,7 @@ function extractExplicitSpeechFragments(text: string): string[] {
   const re = /(?:我|俺|本旅人|玩家)?\s*(?:说|喊|叫|问|回答|回应|解释|自我介绍|命令|低声|大声|开口|说道|喊道|问道|答道)\s*[：:]\s*([^。！？!?\n]{1,120}[。！？!?]?)/g;
   let match: RegExpExecArray | null;
   while ((match = re.exec(text)) !== null) {
-    const fragment = match[1].trim();
+    const fragment = match[1]?.trim() ?? '';
     if (fragment) result.push(fragment);
   }
   return result;
@@ -300,7 +312,11 @@ function isAllowedPlayerSpeech(text: string, evidence: PlayerSpeechEvidence): bo
 function hasPlayerSpeechEvidence(text: string, evidence: PlayerSpeechEvidence): boolean {
   const normalized = normalizeForCompare(text);
   if (!normalized) return false;
-  const pools = [...evidence.quoted, ...evidence.explicitSpeechFragments].map(normalizeForCompare).filter(Boolean);
+  const pools = [
+    ...evidence.quoted,
+    ...evidence.explicitSpeechFragments,
+    ...evidence.sentenceFragments,
+  ].map(normalizeForCompare).filter(Boolean);
   if (pools.some((item) => item.includes(normalized) || normalized.includes(item))) return true;
   if (evidence.wholeInputCanBeSpeech && evidence.normalizedInput) {
     return evidence.normalizedInput.includes(normalized) || normalized.includes(evidence.normalizedInput);
@@ -319,7 +335,8 @@ function isSoundEffectLike(text: string): boolean {
   const clean = normalizeSoundEffectText(text);
   if (!clean || clean.length > 18) return false;
   if (SOUND_EFFECT_TAGS.has(clean)) return true;
-  if (clean.length <= 8 && [...clean].every((char) => char === clean[0]) && SOUND_EFFECT_TAGS.has(clean[0])) return true;
+  const first = clean[0];
+  if (first && clean.length <= 8 && [...clean].every((char) => char === first) && SOUND_EFFECT_TAGS.has(first)) return true;
   if (/^(轰隆隆|轰隆|隆隆|轰|隆|砰|咚|咔哒|咔|吼|嗷|嘶|呜|滴滴|滴|嗡|滋|哐当|哐|啪|唰|咻){1,5}$/.test(clean)) return true;
   return false;
 }

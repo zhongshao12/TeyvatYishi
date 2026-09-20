@@ -1,11 +1,12 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
 const plotPanel = fs.readFileSync('components/features/GameSystems/PlotPanel.tsx', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const sendWorkflow = readWorkflowSources();
 
 assert(plotPanel.includes('const handlePreviewSeries = (series: 剧情编织系列) =>'), '剧情编织顶部轨道卡片应使用只读预览函数。');
 assert(!plotPanel.includes('const handleSelectSeries = async'), '顶部/左侧系列选择不得再使用会保存当前轨道的 handleSelectSeries。');
@@ -22,7 +23,17 @@ assert(plotPanel.includes('handleExportAllJson'), '完整系统备份必须使�
 assert(plotPanel.includes('导出自制') && plotPanel.includes('导出全部备份'), 'UI 必须区分自制导出和完整备份导出。');
 assert(plotPanel.includes('customOnly') && plotPanel.includes('已并入自制轨道'), '导入自制轨道 JSON 时必须并入现有系统，而不是覆盖内置原著。');
 
-assert(sendWorkflow.includes("loadSetting<剧情编织系统>('storyWeavingSystem')"), '后台写剧情编织前必须读取最新本地剧情编织，避免旧回合快照覆盖面板导入/分解。');
+// 迁移: 旧 sendWorkflow 内联 `loadSetting<剧情编织系统>('storyWeavingSystem')`
+//   -> 新 sendWorkflow 把最新本地读取作为 `loadLatest: () => loadSetting('storyWeavingSystem')` 注入
+//      resolveStoryWeavingForBackgroundWrite（该 helper 在 postSettlementCommitStage.ts:273 await input.loadLatest()）。
+//   理由: 带类型参数的同一调用现在只留在 hooks/useGameState.ts 的「启动预设水合」路径（1088/1094 行），
+//   那是开机加载内置预设，不是后台写入前的并发保护读取——把它当读取源会变成假绿。
+//   断言意图不变：后台写剧情编织前必须读取最新本地剧情编织，避免旧回合快照覆盖面板导入/分解。
+assert(
+  sendWorkflow.includes('await resolveStoryWeavingForBackgroundWrite({')
+  && sendWorkflow.includes("loadLatest: () => loadSetting('storyWeavingSystem'),"),
+  '后台写剧情编织前必须读取最新本地剧情编织，避免旧回合快照覆盖面板导入/分解。',
+);
 assert(sendWorkflow.includes('resolveStoryWeavingForBackgroundWrite'), 'sendWorkflow 必须通过并发保护解析剧情编织写入。');
 assert(sendWorkflow.includes('storyWeavingConcurrentChange'), '检测到面板并发更新时必须跳过后台覆盖。');
 assert(sendWorkflow.includes('本回合后台未覆盖最新导入/分解结果'), '并发保护应给出队列提示，方便排查自制轨道消失问题。');

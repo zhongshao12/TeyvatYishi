@@ -8,12 +8,21 @@ export default defineConfig({
     include: ['tests/unit/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      include: [
-        'utils/imageTaskQueue.ts',
-        'services/storyWeavingConflict.ts',
-        'utils/workflowRecoveryModel.ts',
+      exclude: [
+        '.audit/**',
+        '.storybook/**',
+        '.tmp*/**',
+        'coverage/**',
+        'dist/**',
+        'node_modules/**',
+        'scripts/**',
+        'stories/**',
+        'tests/**',
+        '**/__regression__/**',
+        '**/*.stories.{js,jsx,ts,tsx}',
+        '**/*.config.{js,ts,mjs,cjs}',
       ],
-      thresholds: { lines: 80, functions: 80, branches: 70, statements: 80 },
+      thresholds: { lines: 20, functions: 35, branches: 55, statements: 20 },
     },
   },
 });

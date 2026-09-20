@@ -4,6 +4,7 @@ import { ELEMENT_IDS, type ElementId } from '@/models/teyvat/elements';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
 import { withRetries } from '@/services/ai/retry';
 import { normalizeStructuredModelText, parseJsonWithRepair } from '@/services/ai/structuredOutputRepair';
+import { parseGameClock } from '@/utils/gameClock';
 
 export interface OpeningArchiveParseInput {
   regionName: string;
@@ -211,10 +212,6 @@ function isUsableCustomNpcName(value: string): boolean {
   return !['西风骑士团', '千岩军', '天领奉行', '幕府军', '教令院', '逐影庭', '冒险家协会', '愚人众', '深渊教团'].includes(value);
 }
 
-function readText(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 function uniqueStrings(values: unknown[]): string[] {
   return Array.from(new Set(values.map((item) => readText(item)).filter(Boolean)));
 }
@@ -222,9 +219,8 @@ function uniqueStrings(values: unknown[]): string[] {
 function normalizeClock(value?: string): string | undefined {
   const raw = value?.trim();
   if (!raw) return undefined;
-  const embedded = raw.match(/(\d{1,2}:\d{2})/);
-  if (embedded) return clampClock(embedded[1]);
-  if (/^\d{1,2}:\d{2}$/.test(raw)) return clampClock(raw);
+  const parsed = parseGameClock(raw);
+  if (parsed) return parsed;
   const legacyMap: Record<string, string> = {
     清晨: '06:40',
     上午: '09:40',
@@ -234,13 +230,6 @@ function normalizeClock(value?: string): string | undefined {
     深夜: '00:30',
   };
   return legacyMap[raw] ?? raw;
-}
-
-function clampClock(value: string): string {
-  const [hoursRaw, minutesRaw] = value.split(':').map((part) => Number(part));
-  const hours = Number.isFinite(hoursRaw) ? Math.max(0, Math.min(23, hoursRaw)) : 0;
-  const minutes = Number.isFinite(minutesRaw) ? Math.max(0, Math.min(59, minutesRaw)) : 0;
-  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 }
 
 function inferIdentityFallback(text: string): string | undefined {
@@ -279,3 +268,4 @@ function buildStartingSituationFallback(input: OpeningArchiveParseInput): string
 function truncateText(text: string, maxLength: number): string {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
+import { readTrimmedText as readText } from '@/utils/valueGuards';

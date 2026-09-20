@@ -8,6 +8,7 @@ coverage/
 *.tsbuildinfo
 .tmp/
 .tmp-*/
+.triage/
 .desktop-release/
 .wrangler/
 src-tauri/target/
@@ -41,7 +42,6 @@ Thumbs.db
 .superpowers/
 AGENTS.md
 AGENTS-OLD.md
-docs/
 
 # Logs
 *.log
@@ -49,7 +49,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-docs/design/
 nul
 
 # Codex working files

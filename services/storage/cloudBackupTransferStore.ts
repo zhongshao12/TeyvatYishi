@@ -1,4 +1,5 @@
 import type { CloudBackupPartMeta, CloudBackupPointerV2 } from '@/services/cloudBackupPackage';
+import { bindIndexedDbConnectionLifecycle } from '@/services/storage/indexedDbConnectionLifecycle';
 
 const CLOUD_TRANSFER_DB = 'KaiTuoYiShiCloudTransferDB';
 const CLOUD_TRANSFER_DB_VERSION = 1;
@@ -27,6 +28,7 @@ interface CloudBackupTransferPartRecord {
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
+let activeDb: IDBDatabase | null = null;
 
 export async function createCloudBackupTransfer(
   transferId: string,
@@ -157,6 +159,13 @@ export async function cleanupExpiredCloudBackupTransfers(now = Date.now()): Prom
 async function openTransferDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      dbPromise = null;
+      reject(error);
+    };
     const request = indexedDB.open(CLOUD_TRANSFER_DB, CLOUD_TRANSFER_DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -167,18 +176,22 @@ async function openTransferDB(): Promise<IDBDatabase> {
       }
     };
     request.onsuccess = () => {
+      if (settled) {
+        request.result.close();
+        return;
+      }
+      settled = true;
       const db = request.result;
-      db.onversionchange = () => {
-        db.close();
+      activeDb = db;
+      bindIndexedDbConnectionLifecycle(db, () => {
+        if (activeDb !== db) return;
+        activeDb = null;
         dbPromise = null;
-      };
+      });
       resolve(db);
     };
-    request.onerror = () => {
-      dbPromise = null;
-      reject(request.error);
-    };
-    request.onblocked = () => reject(new Error('云备份临时数据库被其他页面占用。'));
+    request.onerror = () => fail(request.error);
+    request.onblocked = () => fail(new Error('云备份临时数据库被其他页面占用。'));
   });
   return dbPromise;
 }

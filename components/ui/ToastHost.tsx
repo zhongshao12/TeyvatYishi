@@ -1,3 +1,4 @@
+import { CLIP_CARD, gradientAccent } from '@/styles/clipPaths';
 import { useSyncExternalStore } from 'react';
 import { dismissToast, getToasts, subscribeToasts, type ToastItem } from '@/utils/toastStore';
 
@@ -24,7 +25,7 @@ export function ToastHost() {
               background: 'rgba(var(--tj-surface-strong), 0.96)',
               borderLeft: `2px solid ${style.stroke}`,
               boxShadow: `inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12), 0 10px 26px rgba(var(--tj-shadow), 0.45)`,
-              clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+              clipPath: CLIP_CARD,
             }}
           >
             <div className="flex items-start gap-2">
@@ -50,7 +51,7 @@ export function ToastHost() {
                     className="mt-1.5 px-2 py-0.5 font-serif text-[11px] tracking-[0.14em] transition-opacity hover:opacity-85"
                     style={{
                       color: 'rgba(var(--tj-surface-bg-start), 1)',
-                      background: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.95))',
+                      background: gradientAccent(0.95, 0.95),
                       boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.6)',
                       clipPath: 'polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px)',
                     }}

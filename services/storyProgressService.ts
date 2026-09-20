@@ -272,7 +272,8 @@ function findCrossSeriesCanonAlignment(
       const segmentScores = completedSegments
         .map((segment) => ({ segment, score: scoreSegmentPresence(segment, source) }))
         .sort((a, b) => b.score.value - a.score.value || a.segment.组号 - b.segment.组号);
-      const bestSegment = segmentScores[0]?.score.value >= 4 ? segmentScores[0].segment : completedSegments[0];
+      const topSegmentScore = segmentScores[0];
+      const bestSegment = topSegmentScore && topSegmentScore.score.value >= 4 ? topSegmentScore.segment : completedSegments[0];
       return { series, score, bestSegment };
     })
     .filter((item): item is { series: 剧情编织系列; score: { value: number; reasons: string[] }; bestSegment: 剧情编织分段 } => Boolean(item.bestSegment))

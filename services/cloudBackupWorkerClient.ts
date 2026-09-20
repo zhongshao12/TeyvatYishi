@@ -28,7 +28,7 @@ export class CloudBackupWorkerClient {
         if (!response.ok) pending.reject(new Error(response.error));
         else pending.resolve(response);
       };
-      this.worker.onerror = () => this.failAll(new Error('云备份 Worker 异常终止。'));
+      this.worker.onerror = () => this.handleWorkerFailure();
     }
   }
 
@@ -97,6 +97,16 @@ export class CloudBackupWorkerClient {
   private failAll(error: Error): void {
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+  }
+
+  private handleWorkerFailure(): void {
+    const failedWorker = this.worker;
+    if (failedWorker) {
+      failedWorker.onerror = null;
+      failedWorker.terminate();
+      if (this.worker === failedWorker) this.worker = null;
+    }
+    this.failAll(new Error('云备份 Worker 异常终止。'));
   }
 }
 

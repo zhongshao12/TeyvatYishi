@@ -93,6 +93,7 @@ export async function tokenizeImagePrompt(
   systemPrompt: string,
   input: ImagePromptTokenizerInput,
   retryCount = 2,
+  signal?: AbortSignal,
 ): Promise<ImagePromptTokenizerResult> {
   const raw = await withRetries(
     () =>
@@ -126,10 +127,11 @@ export async function tokenizeImagePrompt(
             ].filter(Boolean).join('\n'),
           },
         ],
+        signal,
         maxTokens: config.maxTokens ?? 1600,
         temperature: config.temperature ?? 0.45,
       }),
-    { retries: retryCount, label: '文生图词组转化器' },
+    { retries: retryCount, signal, label: '文生图词组转化器' },
   );
   return parseTokenizerJson(raw, input.basePrompt, input.baseNegative);
 }

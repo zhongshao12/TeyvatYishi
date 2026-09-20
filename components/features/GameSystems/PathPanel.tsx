@@ -1,3 +1,4 @@
+import { CLIP_ITEM, insetRing } from '@/styles/clipPaths';
 import type { 角色数据结构 } from '@/models/character';
 import { ELEMENT_IDS, type ElementId } from '@/models/teyvat/elements';
 import { ELEMENT_COLORS, ELEMENT_EMBLEMS, ELEMENT_NAMES } from '@/styles/elementTokens';
@@ -45,7 +46,7 @@ export function PathPanel({ traveler, onTravelerChange, elementalField, elementa
 
   return (
     <div className="space-y-4">
-      <header className="px-4 py-3" style={{ background: 'rgba(var(--tj-panel-bg-start),0.72)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.24)' }}>
+      <header className="px-4 py-3" style={{ background: 'rgba(var(--tj-panel-bg-start),0.72)', boxShadow: insetRing(0.24) }}>
         <div className="font-serif text-sm tracking-[0.3em]" style={{ color: 'rgb(var(--tj-accent-primary))' }}>元素共鸣</div>
         <p className="mt-2 text-xs leading-6" style={{ color: 'rgba(var(--tj-text-secondary),0.85)' }}>
           旅行者可以与七种元素建立共鸣。熟练度范围为 0–100；主元素只能从已解锁的共鸣中选择。
@@ -88,7 +89,7 @@ export function PathPanel({ traveler, onTravelerChange, elementalField, elementa
       </div>
 
       {elementalField && (elementalField.auraElement || recentEvents.length > 0) && (
-        <section className="p-4" style={{ background: 'rgba(var(--tj-panel-bg-end),0.56)', boxShadow: `inset 0 0 0 1px rgba(var(--tj-text-secondary),0.18)`, clipPath: 'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)' }}>
+        <section className="p-4" style={{ background: 'rgba(var(--tj-panel-bg-end),0.56)', boxShadow: `inset 0 0 0 1px rgba(var(--tj-text-secondary),0.18)`, clipPath: CLIP_ITEM }}>
           <h3 className="font-serif text-[13px] tracking-[0.22em]" style={{ color: 'rgb(var(--tj-accent-primary))' }}>场面元素状态</h3>
           <p className="mt-2 text-xs leading-6" style={{ color: 'rgba(var(--tj-text-secondary),0.85)' }}>
             {elementalField.auraElement

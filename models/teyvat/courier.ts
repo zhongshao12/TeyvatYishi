@@ -1,3 +1,6 @@
+import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
+import type { TeyvatNpcRecord } from './character';
+
 export type CourierDeliveryStatus = 'pending' | 'delivered' | 'dismissed' | 'expired';
 
 export interface CourierContact {
@@ -101,12 +104,10 @@ export interface CourierSystem {
   wallpapers: { home?: string; conversation?: string };
 }
 
+export const MAX_COURIER_MESSAGES_PER_CONVERSATION = 400;
+
 export function createEmptyCourierSystem(): CourierSystem {
   return { contacts: [], letters: [], conversations: [], deliverySeeds: [], unreadTotal: 0, wallpapers: {} };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
@@ -154,17 +155,58 @@ function normalizeLocalArchive(value: unknown): CourierLocalArchive | undefined 
   };
 }
 
-function normalizeConversation(value: unknown): CourierConversation | null {
+export function normalizeCourierConversation(value: unknown): CourierConversation | null {
   if (!isRecord(value)) return null;
   const type = value.type === 'group' || value.type === 'system' ? value.type : 'private';
   const localArchive = normalizeLocalArchive(value.localArchive);
-  return {
+  const normalized: CourierConversation = {
     id: text(value.id), title: text(value.title), participantIds: textList(value.participantIds),
     messages: Array.isArray(value.messages) ? value.messages.flatMap((message) => normalizeMessage(message) ?? []) : [],
     unread: integer(value.unread), type, ...(localArchive ? { localArchive } : {}),
     ...(typeof value.pinned === 'boolean' ? { pinned: value.pinned } : {}), typingMemberIds: textList(value.typingMemberIds),
     ...(optionalText(value.inviteCode) ? { inviteCode: text(value.inviteCode) } : {}), ...(optionalText(value.announcement) ? { announcement: text(value.announcement) } : {}),
     ...(optionalText(value.creatorId) ? { creatorId: text(value.creatorId) } : {}), updatedAt: Number(value.updatedAt) || 0,
+  };
+  if (normalized.messages.length <= MAX_COURIER_MESSAGES_PER_CONVERSATION) return normalized;
+
+  const trimmed = normalized.messages.slice(0, -MAX_COURIER_MESSAGES_PER_CONVERSATION);
+  const kept = normalized.messages.slice(-MAX_COURIER_MESSAGES_PER_CONVERSATION);
+  const first = trimmed[0];
+  const last = trimmed.at(-1);
+  if (!first || !last) return { ...normalized, messages: kept };
+  const archiveId = `courier_archive_${normalized.id}_${first.id}_${last.id}`;
+  const summarySamples = [trimmed[0], trimmed[Math.floor(trimmed.length / 2)], trimmed.at(-1)]
+    .flatMap((message) => message ? [`${message.senderName}：${message.content.replace(/\s+/g, ' ').trim().slice(0, 80)}`] : []);
+  const summary = `已归档早期通讯 ${trimmed.length} 条（回合 ${first.turn}—${last.turn}）：${summarySamples.join('；')}`;
+  const previousArchive = normalized.localArchive ?? {
+    threshold: MAX_COURIER_MESSAGES_PER_CONVERSATION,
+    entries: [],
+    compressedSummaries: [],
+  };
+  const entries = previousArchive.entries.some((entry) => entry.id === archiveId)
+    ? previousArchive.entries
+    : [...previousArchive.entries, {
+        id: archiveId,
+        turn: last.turn,
+        summary,
+        source: normalized.type,
+        messageCount: trimmed.length,
+        createdAt: last.timestamp,
+      }].slice(-24);
+  const compressedSummaries = previousArchive.compressedSummaries.includes(summary)
+    ? previousArchive.compressedSummaries
+    : [...previousArchive.compressedSummaries, summary].slice(-24);
+  return {
+    ...normalized,
+    messages: kept,
+    unread: Math.min(normalized.unread, kept.length),
+    localArchive: {
+      ...previousArchive,
+      threshold: MAX_COURIER_MESSAGES_PER_CONVERSATION,
+      entries,
+      compressedSummaries,
+      lastCompressedTurn: last.turn,
+    },
   };
 }
 
@@ -209,6 +251,12 @@ export function normalizeCourierSystem(value: unknown): CourierSystem {
       continue;
     }
     const existing = contacts[existingIndex];
+    if (!existing) {
+      contacts.push({ ...contact, name });
+      contactIndex.set(identity, contacts.length - 1);
+      idAliases.set(contact.id, contact.id);
+      continue;
+    }
     idAliases.set(contact.id, existing.id);
     contacts[existingIndex] = {
       ...contact,
@@ -224,7 +272,7 @@ export function normalizeCourierSystem(value: unknown): CourierSystem {
   }
   const remapId = (id: string) => id === 'player' ? id : (idAliases.get(id) ?? id);
   const uniqueIds = (ids: string[]) => Array.from(new Set(ids.map(remapId).filter(Boolean)));
-  const conversations = (Array.isArray(raw.conversations) ? raw.conversations.flatMap((item) => normalizeConversation(item) ?? []) : [])
+  const conversations = (Array.isArray(raw.conversations) ? raw.conversations.flatMap((item) => normalizeCourierConversation(item) ?? []) : [])
     .map((conversation) => ({
       ...conversation,
       participantIds: uniqueIds(conversation.participantIds),
@@ -246,3 +294,110 @@ export function normalizeCourierSystem(value: unknown): CourierSystem {
     unreadTotal: integer(raw.unreadTotal), wallpapers: { home: optionalText(wallpapers.home), conversation: optionalText(wallpapers.conversation) },
   };
 }
+
+function courierNpcAvatar(npc: TeyvatNpcRecord): string | undefined {
+  return npc.visualArchive.slotImages.courier
+    || npc.visualArchive.slotImages.profile
+    || npc.visualArchive.profileImage
+    || npc.avatar
+    || undefined;
+}
+
+/**
+ * Keep the phone identity index aligned with encountered canon NPC records.
+ * Durable NPC ids win over model-written display labels, and private threads are renamed with them.
+ */
+export function reconcileCourierContactsWithNpcs(value: unknown, npcs: readonly TeyvatNpcRecord[]): CourierSystem {
+  const normalized = normalizeCourierSystem(value);
+  const npcById = new Map(npcs.map((npc) => [npc.id, npc]));
+  const npcByName = new Map<string, TeyvatNpcRecord>();
+  const npcByCanonicalName = new Map<string, TeyvatNpcRecord>();
+  for (const npc of npcs) {
+    if (npc.姓名 && !npcByName.has(npc.姓名)) npcByName.set(npc.姓名, npc);
+    for (const alias of npc.aliases) {
+      if (alias && !npcByName.has(alias)) npcByName.set(alias, npc);
+    }
+    const canonicalName = matchCanonicalIdentity({ id: npc.id, name: npc.姓名, aliases: npc.aliases })?.name;
+    if (canonicalName && !npcByCanonicalName.has(canonicalName)) npcByCanonicalName.set(canonicalName, npc);
+  }
+  const findNpc = (contact: CourierContact): TeyvatNpcRecord | undefined => {
+    const exactId = contact.npcId || contact.id;
+    const exact = npcById.get(exactId) ?? npcById.get(contact.id);
+    if (exact) return exact;
+    const canonical = matchCanonicalIdentity({ id: exactId, name: contact.name });
+    if (canonical) return npcByCanonicalName.get(canonical.name);
+    return npcByName.get(contact.name);
+  };
+
+  const contacts = normalized.contacts.map((contact) => {
+    const npc = findNpc(contact);
+    if (!npc) return contact;
+    const avatar = contact.avatar || courierNpcAvatar(npc);
+    return {
+      ...contact,
+      name: npc.姓名,
+      npcId: npc.id,
+      available: true,
+      status: 'available' as const,
+      ...(avatar ? { avatar } : {}),
+    };
+  });
+
+  const contactNpcIds = new Set(contacts.flatMap((contact) => [contact.id, contact.npcId ?? '']).filter(Boolean));
+  const contactNames = new Set(contacts.map((contact) => contact.name));
+  const contactCanonicalNames = new Set(contacts.flatMap((contact) => {
+    const name = matchCanonicalIdentity({ id: contact.npcId || contact.id, name: contact.name })?.name;
+    return name ? [name] : [];
+  }));
+  for (const npc of npcs) {
+    const encounteredCanon = npc.canonical
+      && npc.roleTier === 'companion'
+      && (npc.firstSeenTurn > 0 || npc.lastSeenTurn > 0 || Boolean(npc.relationshipLedger.recentInteraction));
+    if (!encounteredCanon) continue;
+    const canonical = matchCanonicalIdentity({ id: npc.id, name: npc.姓名, aliases: npc.aliases });
+    const exists = contactNpcIds.has(npc.id)
+      || contactNames.has(npc.姓名)
+      || (Boolean(canonical) && contactCanonicalNames.has(canonical!.name));
+    if (exists) continue;
+    const avatar = courierNpcAvatar(npc);
+    const added: CourierContact = {
+      id: `contact_${npc.id}`,
+      npcId: npc.id,
+      name: npc.姓名,
+      available: true,
+      status: 'available',
+      unlockSource: 'story',
+      lastActiveTurn: npc.lastSeenTurn || undefined,
+      ...(avatar ? { avatar } : {}),
+    };
+    contacts.push(added);
+    contactNpcIds.add(added.id);
+    contactNpcIds.add(npc.id);
+    contactNames.add(npc.姓名);
+    if (canonical) contactCanonicalNames.add(canonical.name);
+  }
+
+  const repaired = normalizeCourierSystem({ ...normalized, contacts });
+  const contactById = new Map(repaired.contacts.map((contact) => [contact.id, contact]));
+  const conversations = repaired.conversations.map((conversation) => {
+    if (conversation.type !== 'private') return conversation;
+    const contact = conversation.participantIds
+      .filter((id) => id !== 'player')
+      .map((id) => contactById.get(id))
+      .find(Boolean);
+    if (!contact) return conversation;
+    return {
+      ...conversation,
+      title: contact.name,
+      messages: conversation.messages.map((message) => message.senderId === contact.id
+        ? { ...message, senderName: contact.name, ...(contact.avatar ? { avatar: contact.avatar } : {}) }
+        : message),
+    };
+  });
+  const letters = repaired.letters.map((letter) => {
+    const contact = contactById.get(letter.senderId);
+    return contact ? { ...letter, senderName: contact.name } : letter;
+  });
+  return { ...repaired, conversations, letters };
+}
+import { isRecord } from '@/utils/valueGuards';

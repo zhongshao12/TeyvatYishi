@@ -1,3 +1,6 @@
+import { CLIP_CARD, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
+import { useSavedFlash } from '@/hooks/useSavedFlash';
+import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
 ﻿import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type {
   AI提供商,
@@ -28,8 +31,8 @@ interface Props {
 type Page = 'overview' | 'normal' | 'nsfw' | 'reference' | 'narrative' | 'tokenizer' | 'guide';
 type ApiKey = '普通接口' | 'NSFW接口';
 
-const smallClip = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
-const cardClip = 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
+
+
 const settingsGridLayer = 'linear-gradient(90deg, rgba(var(--tj-accent-primary),0.052) 1px, transparent 1px), linear-gradient(180deg, rgba(var(--tj-arcane-accent),0.04) 1px, transparent 1px)';
 const settingsHeroSurface = `${settingsGridLayer}, radial-gradient(circle at 14% 0%, rgba(var(--tj-arcane-accent), 0.12), transparent 34%), linear-gradient(180deg, rgba(var(--tj-surface),0.76), rgba(var(--tj-bg-primary),0.94))`;
 const settingsGridSize = '26px 26px, 26px 26px, auto, auto';
@@ -53,18 +56,9 @@ const backendOptions: { value: 文生图后端类型; label: string }[] = [
   { value: 'comfyui', label: 'ComfyUI' },
 ];
 
-const providerOptions: { value: AI提供商 | ''; label: string }[] = [
+const providerOptions: Array<{ value: AI提供商 | ''; label: string }> = [
   { value: '', label: '跟随主 API' },
-  { value: 'openai_compatible', label: 'OpenAI 兼容' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'baidu', label: '百度千帆' },
-  { value: 'opencode', label: 'OpenCode Zen' },
-  { value: 'mimo', label: '小米 MiMo' },
-  { value: 'ark', label: '火山方舟' },
-  { value: 'claude', label: 'Claude' },
-  { value: 'claude_compatible', label: 'Claude 兼容' },
-  { value: 'gemini', label: 'Gemini' },
+  ...AI_PROVIDER_OPTIONS,
 ];
 
 const responseOptions: { value: 文生图响应格式; label: string }[] = [
@@ -142,7 +136,7 @@ type WorkflowImportStatus = { tone: 'idle' | 'ok' | 'error'; text: string };
 export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: Props) {
   const [activePage, setActivePage] = useState<Page>('overview');
   const [message, setMessage] = useState('');
-  const [savedFlash, setSavedFlash] = useState(false);
+  const { savedFlash, showSavedFlash, clearSavedFlash } = useSavedFlash(1600);
   const [testingKey, setTestingKey] = useState<ApiKey | null>(null);
   const [tokenizerModels, setTokenizerModels] = useState<string[]>([]);
   const [tokenizerModelLoading, setTokenizerModelLoading] = useState(false);
@@ -233,8 +227,7 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: 
     try {
       await saveSetting('gameSettings', settings);
       setMessage('文生图设置已保存。');
-      setSavedFlash(true);
-      window.setTimeout(() => setSavedFlash(false), 1600);
+      showSavedFlash();
     } catch (err) {
       setMessage(`保存失败：${err instanceof Error ? err.message : String(err)}`);
     }
@@ -262,7 +255,7 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: 
           backgroundSize: settingsGridSize,
           backgroundPosition: '0 0, 0 0, center, center',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24), 0 0 26px rgba(var(--tj-arcane-accent), 0.06)',
-          clipPath: cardClip,
+          clipPath: CLIP_CARD,
         }}
       >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -290,12 +283,12 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: 
             style={{
               color: activePage === page.id ? 'rgb(var(--tj-ui-active-text))' : 'rgba(var(--tj-ui-body), 0.82)',
               background: activePage === page.id
-                ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start),0.95), rgba(var(--tj-btn-primary-end),0.82))'
+                ? gradientAccent(0.95, 0.82)
                 : 'rgba(var(--tj-ui-panel-strong), 0.42)',
               boxShadow: activePage === page.id
                 ? 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.4), 0 0 18px rgba(var(--tj-arcane-accent),0.14)'
-                : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)',
-              clipPath: smallClip,
+                : insetRing(0.16),
+              clipPath: CLIP_SMALL,
             }}
           >
             <div className="font-serif text-sm font-bold tracking-[0.16em]">{page.label}</div>
@@ -317,11 +310,11 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: 
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-1 block text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.8)' }}>并发数</span>
-                <input type="number" min={1} max={4} value={image.并发数 ?? 1} onChange={(e) => patchSystem({ 并发数: Math.max(1, Math.min(4, Number(e.target.value) || 1)) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
+                <input type="number" min={1} max={4} value={image.并发数 ?? 1} onChange={(e) => patchSystem({ 并发数: Math.max(1, Math.min(4, Number(e.target.value) || 1)) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
               </label>
               <label className="block">
                 <span className="mb-1 block text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.8)' }}>最大重试次数</span>
-                <input type="number" min={0} max={10} value={image.最大重试次数 ?? 2} onChange={(e) => patchSystem({ 最大重试次数: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
+                <input type="number" min={0} max={10} value={image.最大重试次数 ?? 2} onChange={(e) => patchSystem({ 最大重试次数: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
               </label>
             </div>
             <div className="mt-2 text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.65)' }}>并发数控制同时执行多少个生图任务；排队中的任务可在相册「图片任务」页取消。</div>
@@ -406,31 +399,31 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: 
             </Notice>
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="服务商">
-                <select value={image.词组转化器API.provider} onChange={(e) => patchTokenizerApi({ provider: e.target.value as AI提供商 | '' })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+                <select value={image.词组转化器API.provider} onChange={(e) => patchTokenizerApi({ provider: e.target.value as AI提供商 | '' })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                   {providerOptions.map((item) => <option key={item.value || 'main'} value={item.value}>{item.label}</option>)}
                 </select>
               </Field>
               <Field label="失败重试">
-                <input type="number" min={0} max={5} value={image.词组转化器API.retryCount ?? 2} onChange={(e) => patchTokenizerApi({ retryCount: Math.max(0, Number(e.target.value) || 0) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
+                <input type="number" min={0} max={5} value={image.词组转化器API.retryCount ?? 2} onChange={(e) => patchTokenizerApi({ retryCount: Math.max(0, Number(e.target.value) || 0) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
               </Field>
             </div>
             <Field label="Base URL">
-              <input value={image.词组转化器API.baseUrl} onChange={(e) => patchTokenizerApi({ baseUrl: e.target.value })} placeholder={mainConfig ? `留空则用主 API：${mainConfig.baseUrl}` : 'https://...'} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: smallClip }} />
+              <input value={image.词组转化器API.baseUrl} onChange={(e) => patchTokenizerApi({ baseUrl: e.target.value })} placeholder={mainConfig ? `留空则用主 API：${mainConfig.baseUrl}` : 'https://...'} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
               {!image.词组转化器API.baseUrl.trim() && mainConfig?.baseUrl && <FallbackHint text={`将复用主 API：${mainConfig.baseUrl}`} />}
             </Field>
             <Field label="API Key">
-              <input type="password" value={image.词组转化器API.apiKey} onChange={(e) => patchTokenizerApi({ apiKey: e.target.value })} placeholder={mainConfig?.apiKey ? '留空则用主 API 的 Key' : 'sk-...'} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: smallClip }} />
+              <input type="password" value={image.词组转化器API.apiKey} onChange={(e) => patchTokenizerApi({ apiKey: e.target.value })} placeholder={mainConfig?.apiKey ? '留空则用主 API 的 Key' : 'sk-...'} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
               {!image.词组转化器API.apiKey.trim() && mainConfig?.apiKey && <FallbackHint text="将复用主 API 的 Key" />}
             </Field>
             <Field label="模型">
               <div className="flex flex-col gap-2 sm:flex-row">
-                <input value={image.词组转化器API.model} onChange={(e) => patchTokenizerApi({ model: e.target.value })} placeholder={mainConfig?.model ? `留空则用主 API：${mainConfig.model}` : '模型 ID'} className="teyvat-input min-w-0 flex-1 px-3 py-2 text-sm font-mono" style={{ clipPath: smallClip }} />
-                <button type="button" onClick={() => void handleFetchTokenizerModels()} disabled={tokenizerModelLoading} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.22)', clipPath: smallClip }}>
+                <input value={image.词组转化器API.model} onChange={(e) => patchTokenizerApi({ model: e.target.value })} placeholder={mainConfig?.model ? `留空则用主 API：${mainConfig.model}` : '模型 ID'} className="teyvat-input min-w-0 flex-1 px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
+                <button type="button" onClick={() => void handleFetchTokenizerModels()} disabled={tokenizerModelLoading} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
                   {tokenizerModelLoading ? '获取中' : '获取列表'}
                 </button>
               </div>
               {tokenizerModels.length > 0 && (
-                <select value="" onChange={(e) => e.target.value && patchTokenizerApi({ model: e.target.value })} className="teyvat-input mt-2 w-full px-3 py-2 text-xs" style={{ clipPath: smallClip }}>
+                <select value="" onChange={(e) => e.target.value && patchTokenizerApi({ model: e.target.value })} className="teyvat-input mt-2 w-full px-3 py-2 text-xs" style={{ clipPath: CLIP_SMALL }}>
                   <option value="">— 从列表选择（{tokenizerModels.length}） —</option>
                   {tokenizerModels.map((model) => <option key={model} value={model}>{model}</option>)}
                 </select>
@@ -444,10 +437,10 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: 
             </Field>
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="最大输出 Token">
-                <input type="number" min={256} max={4096} value={image.词组转化器API.maxTokens ?? 1600} onChange={(e) => patchTokenizerApi({ maxTokens: Math.max(256, Number(e.target.value) || 1600) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
+                <input type="number" min={256} max={4096} value={image.词组转化器API.maxTokens ?? 1600} onChange={(e) => patchTokenizerApi({ maxTokens: Math.max(256, Number(e.target.value) || 1600) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
               </Field>
               <Field label="温度">
-                <input type="number" min={0} max={2} step={0.05} value={image.词组转化器API.temperature ?? 0.45} onChange={(e) => patchTokenizerApi({ temperature: Number(e.target.value) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
+                <input type="number" min={0} max={2} step={0.05} value={image.词组转化器API.temperature ?? 0.45} onChange={(e) => patchTokenizerApi({ temperature: Number(e.target.value) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
               </Field>
             </div>
           </SubPanel>
@@ -457,7 +450,7 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: 
               onChange={(e) => patchSystem({ promptTokenizerSystemPrompt: e.target.value })}
               rows={12}
               className="teyvat-input w-full resize-y px-3 py-2 text-sm leading-relaxed"
-              style={{ clipPath: smallClip }}
+              style={{ clipPath: CLIP_SMALL }}
             />
           </Field>
           <div className="grid gap-3 md:grid-cols-3">
@@ -495,7 +488,7 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: 
               ? 'linear-gradient(135deg, rgba(165, 230, 170, 0.96), rgba(105, 190, 130, 0.92))'
               : activeAccentSurface,
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.52), 0 0 18px rgba(var(--tj-arcane-accent),0.16)',
-            clipPath: smallClip,
+            clipPath: CLIP_SMALL,
           }}
         >
           {savedFlash ? '✓ 已 保 存' : '◆ 保存文生图设置'}
@@ -632,7 +625,7 @@ function ApiBlock({
           <div className="font-serif text-base font-bold tracking-[0.24em]" style={{ color: nsfw ? '#f1b7ce' : 'rgb(var(--tj-accent-primary))' }}>{title}</div>
           <div className="mt-1 text-sm leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary),0.72)' }}>{desc}</div>
         </div>
-        <button type="button" onClick={onTest} disabled={testing || !api.enabled} className="px-4 py-2 text-xs font-serif tracking-[0.18em] disabled:opacity-45" style={{ color: nsfw ? '#f1b7ce' : 'rgb(var(--tj-accent-primary))', background: nsfw ? 'rgba(214,142,174,0.08)' : 'rgba(var(--tj-accent-primary),0.055)', boxShadow: nsfw ? 'inset 0 0 0 1px rgba(214,142,174,0.3)' : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.28)', clipPath: smallClip }}>
+        <button type="button" onClick={onTest} disabled={testing || !api.enabled} className="px-4 py-2 text-xs font-serif tracking-[0.18em] disabled:opacity-45" style={{ color: nsfw ? '#f1b7ce' : 'rgb(var(--tj-accent-primary))', background: nsfw ? 'rgba(214,142,174,0.08)' : 'rgba(var(--tj-accent-primary),0.055)', boxShadow: nsfw ? 'inset 0 0 0 1px rgba(214,142,174,0.3)' : insetRing(0.28), clipPath: CLIP_SMALL }}>
           {testing ? '测试中...' : '测试连接'}
         </button>
       </div>
@@ -650,31 +643,31 @@ function ApiBlock({
                   onChange({ backend, presetPath: presetPathOptions[backend][0]?.value ?? api.presetPath });
                 }}
                 className="teyvat-input w-full px-3 py-2 text-sm"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               >
                 {backendOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
             </Field>
             <Field label="响应格式">
-              <select value={api.responseFormat} onChange={(e) => onChange({ responseFormat: e.target.value as 文生图响应格式 })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+              <select value={api.responseFormat} onChange={(e) => onChange({ responseFormat: e.target.value as 文生图响应格式 })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                 {responseOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
             </Field>
           </div>
 
           <Field label="Base URL">
-            <input value={api.baseUrl} onChange={(e) => onChange({ baseUrl: e.target.value })} placeholder={baseUrlPlaceholder(api.backend)} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: smallClip }} />
+            <input value={api.baseUrl} onChange={(e) => onChange({ baseUrl: e.target.value })} placeholder={baseUrlPlaceholder(api.backend)} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
           </Field>
 
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="接口路径模式">
-              <select value={api.pathMode} onChange={(e) => onChange({ pathMode: e.target.value === 'custom' ? 'custom' : 'preset' })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+              <select value={api.pathMode} onChange={(e) => onChange({ pathMode: e.target.value === 'custom' ? 'custom' : 'preset' })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                 <option value="preset">预设路径</option>
                 <option value="custom">自定义路径</option>
               </select>
             </Field>
             <Field label="预设路径">
-              <select value={api.presetPath} onChange={(e) => onChange({ presetPath: e.target.value as 文生图预设接口路径 })} disabled={api.pathMode === 'custom'} className="teyvat-input w-full px-3 py-2 text-sm disabled:opacity-50" style={{ clipPath: smallClip }}>
+              <select value={api.presetPath} onChange={(e) => onChange({ presetPath: e.target.value as 文生图预设接口路径 })} disabled={api.pathMode === 'custom'} className="teyvat-input w-full px-3 py-2 text-sm disabled:opacity-50" style={{ clipPath: CLIP_SMALL }}>
                 {presetPathOptions[api.backend].map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
             </Field>
@@ -682,19 +675,19 @@ function ApiBlock({
 
           {api.pathMode === 'custom' && (
             <Field label="自定义路径">
-              <input value={api.customPath} onChange={(e) => onChange({ customPath: e.target.value })} placeholder={readPresetPath(api.backend)} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: smallClip }} />
+              <input value={api.customPath} onChange={(e) => onChange({ customPath: e.target.value })} placeholder={readPresetPath(api.backend)} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
             </Field>
           )}
 
           <Field label="API Key / Token">
-            <input type="password" value={api.apiKey} onChange={(e) => onChange({ apiKey: e.target.value })} placeholder={api.backend === 'sd_webui' || api.backend === 'comfyui' ? '本地后端通常可留空' : '请填写密钥或 Token'} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: smallClip }} />
+            <input type="password" value={api.apiKey} onChange={(e) => onChange({ apiKey: e.target.value })} placeholder={api.backend === 'sd_webui' || api.backend === 'comfyui' ? '本地后端通常可留空' : '请填写密钥或 Token'} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
           </Field>
 
           <div className="grid gap-3 md:grid-cols-2">
             <Field label={api.backend === 'comfyui' ? 'Checkpoint / 模型名' : '模型'}>
               <div className="flex gap-2">
-                <input value={api.model} onChange={(e) => onChange({ model: e.target.value })} placeholder={api.backend === 'comfyui' ? '填写本机已有 ckpt_name，例如 novaAnimeXL_v70Happyhalloween.safetensors' : suggestions[0] ?? '模型 ID'} list={`${apiKey}-models`} className="teyvat-input min-w-0 flex-1 px-3 py-2 text-sm font-mono" style={{ clipPath: smallClip }} />
-                <button type="button" onClick={handleFetchImageModels} disabled={modelLoading || (api.backend !== 'novelai' && !api.baseUrl.trim()) || (api.backend === 'openai_compatible' && !api.apiKey.trim())} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.22)', clipPath: smallClip }}>
+                <input value={api.model} onChange={(e) => onChange({ model: e.target.value })} placeholder={api.backend === 'comfyui' ? '填写本机已有 ckpt_name，例如 novaAnimeXL_v70Happyhalloween.safetensors' : suggestions[0] ?? '模型 ID'} list={`${apiKey}-models`} className="teyvat-input min-w-0 flex-1 px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
+                <button type="button" onClick={handleFetchImageModels} disabled={modelLoading || (api.backend !== 'novelai' && !api.baseUrl.trim()) || (api.backend === 'openai_compatible' && !api.apiKey.trim())} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
                   {modelLoading ? '读取中' : '获取'}
                 </button>
               </div>
@@ -708,7 +701,7 @@ function ApiBlock({
               )}
             </Field>
             <Field label="默认尺寸">
-              <input value={api.defaultSize} onChange={(e) => onChange({ defaultSize: e.target.value })} placeholder="1024x1024" className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: smallClip }} />
+              <input value={api.defaultSize} onChange={(e) => onChange({ defaultSize: e.target.value })} placeholder="1024x1024" className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
             </Field>
           </div>
 
@@ -721,22 +714,22 @@ function ApiBlock({
             ) : (
               <>
                 <Field label="步数">
-                  <input type="number" min={1} max={80} value={api.steps} onChange={(e) => onChange({ steps: Math.max(1, Number(e.target.value) || 1) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
+                  <input type="number" min={1} max={80} value={api.steps} onChange={(e) => onChange({ steps: Math.max(1, Number(e.target.value) || 1) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
                 </Field>
                 <Field label="CFG">
-                  <input type="number" min={0} max={30} step={0.5} value={api.cfgScale} onChange={(e) => onChange({ cfgScale: Math.max(0, Number(e.target.value) || 0) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
+                  <input type="number" min={0} max={30} step={0.5} value={api.cfgScale} onChange={(e) => onChange({ cfgScale: Math.max(0, Number(e.target.value) || 0) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
                 </Field>
               </>
             )}
             <Field label="Seed">
-              <input type="number" value={api.seed} onChange={(e) => onChange({ seed: Number(e.target.value) || -1 })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
+              <input type="number" value={api.seed} onChange={(e) => onChange({ seed: Number(e.target.value) || -1 })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
             </Field>
           </div>
         </div>
 
         <div className="space-y-3">
           <SubPanel title="端点预览">
-            <div className="break-all rounded px-3 py-2 text-xs font-mono" style={{ color: 'rgba(var(--tj-text-secondary),0.8)', background: 'rgba(var(--tj-bg-primary),0.58)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)' }}>
+            <div className="break-all rounded px-3 py-2 text-xs font-mono" style={{ color: 'rgba(var(--tj-text-secondary),0.8)', background: 'rgba(var(--tj-bg-primary),0.58)', boxShadow: insetRing(0.12) }}>
               {endpoint || '填写 Base URL 后显示完整端点'}
             </div>
             {backendHints(api.backend).map((line) => <div key={line} className="text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary),0.72)' }}>{line}</div>)}
@@ -746,11 +739,11 @@ function ApiBlock({
               画风、画师串、负面词由规则中心统一控制；这里仅保留接口调用和失败重试。
             </Notice>
             <Field label="失败重试">
-              <input type="number" min={0} max={5} value={api.retryCount} onChange={(e) => onChange({ retryCount: Math.max(0, Number(e.target.value) || 0) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
+              <input type="number" min={0} max={5} value={api.retryCount} onChange={(e) => onChange({ retryCount: Math.max(0, Number(e.target.value) || 0) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
             </Field>
           </SubPanel>
           {testMessage && (
-            <div className="px-3 py-2 text-xs leading-relaxed" style={{ color: testMessage.startsWith('连接失败') ? 'rgba(255,180,180,0.92)' : 'rgba(165,230,170,0.9)', background: 'rgba(var(--tj-bg-primary),0.46)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)', clipPath: smallClip }}>
+            <div className="px-3 py-2 text-xs leading-relaxed" style={{ color: testMessage.startsWith('连接失败') ? 'rgba(255,180,180,0.92)' : 'rgba(165,230,170,0.9)', background: 'rgba(var(--tj-bg-primary),0.46)', boxShadow: insetRing(0.14), clipPath: CLIP_SMALL }}>
               {testMessage}
             </div>
           )}
@@ -760,7 +753,7 @@ function ApiBlock({
       {api.backend === 'novelai' && (
         <details
           className="group min-w-0 overflow-hidden"
-          style={{ background: 'rgba(var(--tj-bg-primary),0.34)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)', clipPath: cardClip }}
+          style={{ background: 'rgba(var(--tj-bg-primary),0.34)', boxShadow: insetRing(0.18), clipPath: CLIP_CARD }}
         >
           <summary className="flex min-w-0 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
             <div className="min-w-0">
@@ -776,7 +769,7 @@ function ApiBlock({
             <section className="min-w-0 space-y-3 border-t pt-4" style={{ borderColor: 'rgba(var(--tj-accent-primary),0.14)' }}>
               <div className="font-serif text-xs tracking-[0.18em]" style={{ color: 'rgba(var(--tj-accent-primary),0.82)' }}>参数模式</div>
               <Field label="NAI 规则预设">
-                <select value={api.novelAIAdvanced.activeRulePresetId || 'nai_rule_official_baseline'} onChange={(event) => selectNovelAIRule(event.target.value)} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+                <select value={api.novelAIAdvanced.activeRulePresetId || 'nai_rule_official_baseline'} onChange={(event) => selectNovelAIRule(event.target.value)} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                   {naiRules.map((preset) => <option key={preset.id} value={preset.id}>{preset.名称}</option>)}
                 </select>
               </Field>
@@ -793,8 +786,8 @@ function ApiBlock({
                       style={{
                         color: active ? 'rgb(var(--tj-ui-active-text))' : 'rgba(var(--tj-ui-body),0.82)',
                         background: active ? 'rgba(var(--tj-accent-primary),0.16)' : 'rgba(var(--tj-bg-secondary),0.42)',
-                        boxShadow: active ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.42)' : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)',
-                        clipPath: smallClip,
+                        boxShadow: active ? insetRing(0.42) : insetRing(0.12),
+                        clipPath: CLIP_SMALL,
                       }}
                     >
                       <span className="block font-serif text-xs font-bold tracking-[0.12em]">{option.label}</span>
@@ -805,17 +798,17 @@ function ApiBlock({
               </div>
               <div className="grid min-w-0 gap-3 md:grid-cols-3">
                 <Field label="NovelAI 采样器">
-                  <select value={api.sampler} onChange={(e) => onChange({ sampler: e.target.value as NovelAI采样器 })} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+                  <select value={api.sampler} onChange={(e) => onChange({ sampler: e.target.value as NovelAI采样器 })} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                     {samplerOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </Field>
                 <Field label="噪点表">
-                  <select value={api.noiseSchedule} onChange={(e) => onChange({ noiseSchedule: e.target.value as NovelAI噪点表 })} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+                  <select value={api.noiseSchedule} onChange={(e) => onChange({ noiseSchedule: e.target.value as NovelAI噪点表 })} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                     {noiseOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </Field>
                 <Field label="UC Preset">
-                  <select value={api.novelAIUcPreset} onChange={(e) => onChange({ novelAIUcPreset: e.target.value as NovelAIUcPreset })} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+                  <select value={api.novelAIUcPreset} onChange={(e) => onChange({ novelAIUcPreset: e.target.value as NovelAIUcPreset })} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                     {novelAIUcPresetOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </Field>
@@ -827,7 +820,7 @@ function ApiBlock({
               <div className="grid min-w-0 gap-4 lg:grid-cols-2">
                 <div className="min-w-0 space-y-3">
                   <Field label="Quality Tags 模式">
-                    <select value={api.novelAIAdvanced.qualityMode} onChange={(e) => patchNovelAIAdvanced({ qualityMode: e.target.value as NovelAIContentMode })} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+                    <select value={api.novelAIAdvanced.qualityMode} onChange={(e) => patchNovelAIAdvanced({ qualityMode: e.target.value as NovelAIContentMode })} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                       {novelAIContentModeOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                     </select>
                   </Field>
@@ -837,13 +830,13 @@ function ApiBlock({
                       onChange={(e) => patchNovelAIAdvanced({ qualityText: e.target.value })}
                       rows={4}
                       className="teyvat-input w-full min-w-0 resize-y px-3 py-2 text-xs"
-                      style={{ clipPath: smallClip }}
+                      style={{ clipPath: CLIP_SMALL }}
                     />
                   </Field>
                 </div>
                 <div className="min-w-0 space-y-3">
                   <Field label="UC 模式">
-                    <select value={api.novelAIAdvanced.ucMode} onChange={(e) => patchNovelAIAdvanced({ ucMode: e.target.value as NovelAIContentMode })} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+                    <select value={api.novelAIAdvanced.ucMode} onChange={(e) => patchNovelAIAdvanced({ ucMode: e.target.value as NovelAIContentMode })} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                       {novelAIContentModeOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                     </select>
                   </Field>
@@ -853,7 +846,7 @@ function ApiBlock({
                       onChange={(e) => patchNovelAIAdvanced({ ucText: e.target.value })}
                       rows={4}
                       className="teyvat-input w-full min-w-0 resize-y px-3 py-2 text-xs"
-                      style={{ clipPath: smallClip }}
+                      style={{ clipPath: CLIP_SMALL }}
                     />
                   </Field>
                 </div>
@@ -876,7 +869,7 @@ function ApiBlock({
                 type="button"
                 onClick={resetNovelAIAdvanced}
                 className="max-w-full px-3 py-2 text-xs font-serif tracking-[0.12em]"
-                style={{ color: 'rgba(var(--tj-accent-primary),0.9)', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.24)', clipPath: smallClip }}
+                style={{ color: 'rgba(var(--tj-accent-primary),0.9)', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.24), clipPath: CLIP_SMALL }}
               >
                 恢复 NovelAI 官方默认
               </button>
@@ -886,7 +879,7 @@ function ApiBlock({
       )}
 
       <Field label="默认负面提示词">
-        <textarea value={api.negativePrompt} onChange={(e) => onChange({ negativePrompt: e.target.value })} rows={3} className="teyvat-input w-full resize-y px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
+        <textarea value={api.negativePrompt} onChange={(e) => onChange({ negativePrompt: e.target.value })} rows={3} className="teyvat-input w-full resize-y px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
       </Field>
 
       {api.backend === 'comfyui' && (
@@ -897,13 +890,13 @@ function ApiBlock({
           </Notice>
           <div className="flex flex-wrap gap-2">
             <input ref={workflowFileRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportWorkflowFile} />
-            <button type="button" onClick={() => workflowFileRef.current?.click()} className="px-3 py-2 text-xs font-serif tracking-[0.14em]" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.22)', clipPath: smallClip }}>
+            <button type="button" onClick={() => workflowFileRef.current?.click()} className="px-3 py-2 text-xs font-serif tracking-[0.14em]" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
               导入 JSON
             </button>
-            <button type="button" onClick={() => handleFetchWorkflowCandidates('queue')} disabled={workflowLoading !== null || !api.baseUrl.trim()} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.22)', clipPath: smallClip }}>
+            <button type="button" onClick={() => handleFetchWorkflowCandidates('queue')} disabled={workflowLoading !== null || !api.baseUrl.trim()} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
               {workflowLoading === 'queue' ? '读取队列中' : '读取队列'}
             </button>
-            <button type="button" onClick={() => handleFetchWorkflowCandidates('history')} disabled={workflowLoading !== null || !api.baseUrl.trim()} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.22)', clipPath: smallClip }}>
+            <button type="button" onClick={() => handleFetchWorkflowCandidates('history')} disabled={workflowLoading !== null || !api.baseUrl.trim()} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
               {workflowLoading === 'history' ? '读取历史中' : '读取历史'}
             </button>
           </div>
@@ -923,7 +916,7 @@ function ApiBlock({
                   type="button"
                   onClick={() => handleSelectWorkflowCandidate(candidate)}
                   className="w-full px-3 py-2 text-left transition-all hover:opacity-90"
-                  style={{ background: 'rgba(var(--tj-bg-primary),0.42)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)', clipPath: smallClip }}
+                  style={{ background: 'rgba(var(--tj-bg-primary),0.42)', boxShadow: insetRing(0.16), clipPath: CLIP_SMALL }}
                 >
                   <div className="text-xs font-serif tracking-[0.12em]" style={{ color: 'rgb(var(--tj-accent-primary))' }}>
                     {candidate.title}
@@ -936,7 +929,7 @@ function ApiBlock({
             </div>
           )}
           <Field label="ComfyUI Workflow JSON">
-            <textarea value={api.comfyWorkflowJson} onChange={(e) => onChange({ comfyWorkflowJson: e.target.value })} rows={10} placeholder="支持 __MODEL__ / __CKPT_NAME__ / __SAMPLER__ / __SCHEDULER__ / __PROMPT__ / __NEGATIVE_PROMPT__ / __WIDTH__ / __HEIGHT__ / __STEPS__ / __CFG__ / __SEED__ 占位符" className="teyvat-input w-full resize-y px-3 py-2 text-xs font-mono" style={{ clipPath: smallClip }} />
+            <textarea value={api.comfyWorkflowJson} onChange={(e) => onChange({ comfyWorkflowJson: e.target.value })} rows={10} placeholder="支持 __MODEL__ / __CKPT_NAME__ / __SAMPLER__ / __SCHEDULER__ / __PROMPT__ / __NEGATIVE_PROMPT__ / __WIDTH__ / __HEIGHT__ / __STEPS__ / __CFG__ / __SEED__ 占位符" className="teyvat-input w-full resize-y px-3 py-2 text-xs font-mono" style={{ clipPath: CLIP_SMALL }} />
           </Field>
         </>
       )}
@@ -965,7 +958,7 @@ function PromptTextArea({ label, value, onChange, rows = 2 }: { label: string; v
         onChange={(event) => onChange(event.target.value)}
         rows={rows}
         className="teyvat-input w-full min-w-0 resize-y px-3 py-2 text-xs"
-        style={{ clipPath: smallClip }}
+        style={{ clipPath: CLIP_SMALL }}
       />
     </Field>
   );
@@ -974,7 +967,7 @@ function PromptTextArea({ label, value, onChange, rows = 2 }: { label: string; v
 function ReadOnlyValue({ label, value }: { label: string; value: string }) {
   return (
     <Field label={label}>
-      <div className="teyvat-input w-full px-3 py-2 text-sm" style={{ color: 'rgba(var(--tj-text-secondary),0.68)', clipPath: smallClip }}>
+      <div className="teyvat-input w-full px-3 py-2 text-sm" style={{ color: 'rgba(var(--tj-text-secondary),0.68)', clipPath: CLIP_SMALL }}>
         {value}
       </div>
     </Field>
@@ -992,13 +985,13 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function ToggleRow({ label, desc, checked, disabled = false, onChange }: { label: string; desc: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-3 py-2" style={{ opacity: disabled ? 0.58 : 1, background: 'rgba(var(--tj-bg-secondary), 0.45)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)', clipPath: smallClip }}>
+    <div className="flex items-center justify-between gap-3 px-3 py-2" style={{ opacity: disabled ? 0.58 : 1, background: 'rgba(var(--tj-bg-secondary), 0.45)', boxShadow: insetRing(0.15), clipPath: CLIP_SMALL }}>
       <div className="min-w-0">
         <div className="font-serif text-sm font-bold tracking-wider" style={{ color: 'rgb(var(--tj-text-primary))' }}>{label}</div>
         <div className="mt-0.5 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.65)' }}>{desc}</div>
       </div>
-      <button type="button" disabled={disabled} onClick={() => onChange(!checked)} className="relative h-6 w-11 flex-shrink-0 transition-all disabled:cursor-not-allowed" style={{ background: checked ? activeAccentSurface : 'rgba(var(--tj-bg-secondary), 0.68)', boxShadow: checked ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-arcane-accent), 0.22)' : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)', clipPath: smallClip }}>
-        <div className="absolute top-0.5 h-5 w-5 transition-transform" style={{ left: checked ? 'calc(100% - 1.375rem)' : '0.125rem', background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)', clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)' }} />
+      <button type="button" disabled={disabled} onClick={() => onChange(!checked)} className="relative h-6 w-11 flex-shrink-0 transition-all disabled:cursor-not-allowed" style={{ background: checked ? activeAccentSurface : 'rgba(var(--tj-bg-secondary), 0.68)', boxShadow: checked ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-arcane-accent), 0.22)' : insetRing(0.2), clipPath: CLIP_SMALL }}>
+        <div className="absolute top-0.5 h-5 w-5 transition-transform" style={{ left: checked ? 'calc(100% - 1.375rem)' : '0.125rem', background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)', clipPath: CLIP_XS }} />
       </button>
     </div>
   );
@@ -1006,7 +999,7 @@ function ToggleRow({ label, desc, checked, disabled = false, onChange }: { label
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="space-y-4 px-4 py-4" style={{ background: 'rgba(var(--tj-bg-secondary),0.48)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)', clipPath: cardClip }}>
+    <div className="space-y-4 px-4 py-4" style={{ background: 'rgba(var(--tj-bg-secondary),0.48)', boxShadow: insetRing(0.16), clipPath: CLIP_CARD }}>
       <div className="font-serif text-sm font-bold tracking-[0.24em]" style={{ color: 'rgb(var(--tj-accent-primary))' }}>{title}</div>
       {children}
     </div>
@@ -1015,7 +1008,7 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
 
 function SubPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="space-y-3 px-3 py-3" style={{ background: 'rgba(var(--tj-bg-primary),0.38)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)', clipPath: smallClip }}>
+    <div className="space-y-3 px-3 py-3" style={{ background: 'rgba(var(--tj-bg-primary),0.38)', boxShadow: insetRing(0.12), clipPath: CLIP_SMALL }}>
       <div className="font-serif text-xs tracking-[0.2em]" style={{ color: 'rgba(var(--tj-accent-primary),0.82)' }}>{title}</div>
       {children}
     </div>
@@ -1024,7 +1017,7 @@ function SubPanel({ title, children }: { title: string; children: ReactNode }) {
 
 function Notice({ children, nsfw = false }: { children: ReactNode; nsfw?: boolean }) {
   return (
-    <div className="px-3 py-2 text-xs leading-relaxed" style={{ color: nsfw ? 'rgba(241,183,206,0.9)' : 'rgba(var(--tj-text-secondary),0.76)', background: nsfw ? 'rgba(214,142,174,0.08)' : 'rgba(var(--tj-accent-primary),0.055)', boxShadow: nsfw ? 'inset 0 0 0 1px rgba(214,142,174,0.24)' : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)', clipPath: smallClip }}>
+    <div className="px-3 py-2 text-xs leading-relaxed" style={{ color: nsfw ? 'rgba(241,183,206,0.9)' : 'rgba(var(--tj-text-secondary),0.76)', background: nsfw ? 'rgba(214,142,174,0.08)' : 'rgba(var(--tj-accent-primary),0.055)', boxShadow: nsfw ? 'inset 0 0 0 1px rgba(214,142,174,0.24)' : insetRing(0.16), clipPath: CLIP_SMALL }}>
       {children}
     </div>
   );
@@ -1032,7 +1025,7 @@ function Notice({ children, nsfw = false }: { children: ReactNode; nsfw?: boolea
 
 function GuideCard({ title, desc }: { title: string; desc: string }) {
   return (
-    <div className="px-3 py-3" style={{ background: 'rgba(var(--tj-bg-primary),0.38)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)', clipPath: smallClip }}>
+    <div className="px-3 py-3" style={{ background: 'rgba(var(--tj-bg-primary),0.38)', boxShadow: insetRing(0.12), clipPath: CLIP_SMALL }}>
       <div className="font-serif text-sm font-bold tracking-[0.16em]" style={{ color: 'rgb(var(--tj-text-primary))' }}>{title}</div>
       <div className="mt-2 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary),0.72)' }}>{desc}</div>
     </div>
@@ -1043,7 +1036,7 @@ type StatusTone = 'ok' | 'muted' | 'info' | 'nsfw';
 function StatusCard({ label, value, tone }: { label: string; value: string; tone: StatusTone }) {
   const color = tone === 'ok' ? 'rgba(165,230,170,0.95)' : tone === 'info' ? 'rgba(160,205,235,0.92)' : tone === 'nsfw' ? 'rgba(241,183,206,0.95)' : 'rgba(var(--tj-text-secondary),0.72)';
   return (
-    <div className="px-3 py-2" style={{ background: 'rgba(var(--tj-bg-primary),0.42)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)', clipPath: smallClip }}>
+    <div className="px-3 py-2" style={{ background: 'rgba(var(--tj-bg-primary),0.42)', boxShadow: insetRing(0.14), clipPath: CLIP_SMALL }}>
       <div className="text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.62)' }}>{label}</div>
       <div className="mt-1 truncate font-serif text-sm font-bold" style={{ color }}>{value}</div>
     </div>
@@ -1133,7 +1126,7 @@ function ModelSuggestList({ models, current, onSelect }: {
           className="max-h-40 overflow-y-auto"
           style={{
             background: 'rgba(var(--tj-bg-secondary), 0.95)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+            boxShadow: insetRing(0.15),
           }}
         >
           {models.map((m) => (
@@ -1202,8 +1195,8 @@ function NarrativeImageSettings({ settings, onChange, apiSettings }: {
             style={{
               color: narrative.enabled ? 'rgba(165,230,170,0.92)' : 'rgba(var(--tj-text-secondary),0.78)',
               background: narrative.enabled ? 'rgba(100,220,140,0.07)' : 'rgba(var(--tj-bg-secondary),0.42)',
-              boxShadow: narrative.enabled ? 'inset 0 0 0 1px rgba(130,230,160,0.22)' : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)',
-              clipPath: smallClip,
+              boxShadow: narrative.enabled ? 'inset 0 0 0 1px rgba(130,230,160,0.22)' : insetRing(0.14),
+              clipPath: CLIP_SMALL,
             }}
           >
             当前状态：{narrative.enabled ? '已在总览开启' : '未在总览开启'}
@@ -1215,7 +1208,7 @@ function NarrativeImageSettings({ settings, onChange, apiSettings }: {
                 onChange={(e) => updateNarrative({ mode: e.target.value as 'auto' | 'manual' })}
                 disabled={!narrative.enabled}
                 className="teyvat-input w-full px-3 py-2 text-sm disabled:opacity-50"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               >
                 <option value="auto">自动</option>
                 <option value="manual">手动</option>
@@ -1227,7 +1220,7 @@ function NarrativeImageSettings({ settings, onChange, apiSettings }: {
                 onChange={(e) => updateNarrative({ playerAppearanceMode: e.target.value as 'off' | 'auto' | 'force' })}
                 disabled={!narrative.enabled}
                 className="teyvat-input w-full px-3 py-2 text-sm disabled:opacity-50"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               >
                 <option value="off">关闭</option>
                 <option value="auto">自动</option>
@@ -1240,8 +1233,8 @@ function NarrativeImageSettings({ settings, onChange, apiSettings }: {
                 style={{
                   color: 'rgba(var(--tj-text-primary),0.86)',
                   background: 'rgba(var(--tj-bg-secondary),0.42)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)',
-                  clipPath: smallClip,
+                  boxShadow: insetRing(0.18),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 故事快照
@@ -1253,7 +1246,7 @@ function NarrativeImageSettings({ settings, onChange, apiSettings }: {
                 onChange={(e) => updateNarrative({ timing: e.target.value as typeof narrative.timing })}
                 disabled={!narrative.enabled}
                 className="teyvat-input w-full px-3 py-2 text-sm disabled:opacity-50"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               >
                 <option value="immediate">立即阻塞</option>
                 <option value="queue_current">回合内排队</option>

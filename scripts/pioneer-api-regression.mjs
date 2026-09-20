@@ -32,7 +32,7 @@ assert(/isPioneerConfig\(deepSeekPayload\.config\)\s*\?\s*'\/api\/pioneer'/.test
 assert(client.includes('buildPioneerProxyBody(deepSeekPayload.config, requestBody)'), 'Non-stream Pioneer requests must send body through proxy wrapper.');
 
 assert(apiTools.includes('isPioneerBaseUrl(baseRaw)'), 'Model list fetch must detect Pioneer by Base URL.');
-assert(apiTools.includes('fetchPioneerModels(baseRaw, apiKey)'), 'Model list fetch must use dedicated Pioneer proxy function.');
+assert(apiTools.includes('fetchPioneerModels(baseRaw, apiKey, signal)'), 'Model list fetch must use dedicated Pioneer proxy function and forward cancellation.');
 assert(apiTools.includes("fetch('/api/pioneer'"), 'Pioneer model list fetch must use same-origin proxy to avoid browser CORS.');
 assert(apiTools.includes("kind: 'models'"), 'Pioneer model list proxy request must declare models kind.');
 assert(apiTools.includes("source: 'Pioneer"), 'Pioneer model list failures must be labeled in API error reports.');

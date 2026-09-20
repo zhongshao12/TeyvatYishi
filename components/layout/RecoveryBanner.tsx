@@ -1,3 +1,4 @@
+import { CLIP_PANEL, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 import type { WorkflowRecoveryJournal } from '@/utils/workflowRecoveryModel';
 
 interface RecoveryBannerProps {
@@ -7,8 +8,8 @@ interface RecoveryBannerProps {
   onDismiss: () => void;
 }
 
-const cardClip = 'polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)';
-const smallClip = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
+
 
 export function RecoveryBanner({ journal, resumable, onResume, onDismiss }: RecoveryBannerProps) {
   if (!journal) return null;
@@ -19,7 +20,7 @@ export function RecoveryBanner({ journal, resumable, onResume, onDismiss }: Reco
         style={{
           background: 'rgba(var(--tj-surface-strong),0.96)',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.45), 0 12px 32px rgba(0,0,0,0.35)',
-          clipPath: cardClip,
+          clipPath: CLIP_PANEL,
         }}
       >
         <div className="flex items-start justify-between gap-3">
@@ -41,8 +42,8 @@ export function RecoveryBanner({ journal, resumable, onResume, onDismiss }: Reco
                 style={{
                   color: 'rgba(var(--tj-text-primary))',
                   background: 'rgba(var(--tj-accent-primary),0.18)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.5)',
-                  clipPath: smallClip,
+                  boxShadow: insetRing(0.5),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 恢复上一回合
@@ -55,7 +56,7 @@ export function RecoveryBanner({ journal, resumable, onResume, onDismiss }: Reco
               style={{
                 color: 'rgba(var(--tj-text-secondary))',
                 boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.6)',
-                clipPath: smallClip,
+                clipPath: CLIP_SMALL,
               }}
             >
               忽略

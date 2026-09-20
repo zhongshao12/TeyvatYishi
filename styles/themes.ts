@@ -130,7 +130,7 @@ function buildParchmentTheme(input: {
   };
 }
 
-export const themes: ThemeDefinition[] = [
+export const themes: [ThemeDefinition, ...ThemeDefinition[]] = [
   buildParchmentTheme({
     id: 'mondstadt',
     name: '蒙德晨风',

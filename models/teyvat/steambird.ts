@@ -27,10 +27,6 @@ export function createEmptySteambirdNews(): SteambirdNews {
   return { articles: [] };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 export function normalizeSteambirdNews(input: unknown): SteambirdNews {
   const raw = isRecord(input) ? input : {};
   return {
@@ -50,3 +46,4 @@ export function normalizeSteambirdNews(input: unknown): SteambirdNews {
     }) : [],
   };
 }
+import { isRecord } from '@/utils/valueGuards';

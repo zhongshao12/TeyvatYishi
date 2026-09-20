@@ -1,0 +1,97 @@
+=== .git contents ===
+COMMIT_EDITMSG, config, description, HEAD, hooks, index, info, logs, objects, refs
+index signature=DIRC version=2 entries=973
+parsed 973 entries
+
+=== tracked count by top dir ===
+     245  public
+     215  scripts
+      89  components
+      76  services
+      65  src-tauri
+      47  utils
+      38  data
+      38  models
+      37  stories
+      34  tests
+      23  hooks
+      22  (root)
+      16  prompts
+       8  compat
+       8  functions
+       7  styles
+       2  .github
+       2  .storybook
+       1  workers
+
+=== tracked files matching suspicious patterns ===
+  [tsbuildinfo] -> 0
+  [.tmp-regression] -> 0
+  [docs/] -> 0
+  [assets-src] -> 0
+  [superpowers] -> 0
+  [reasonix] -> 0
+  [.trae/] -> 0
+  [workbuddy] -> 0
+  [bundle-baseline] -> 1:
+    .bundle-baseline.json
+  [stories/assets] -> 16:
+    stories/assets/accessibility.png
+    stories/assets/accessibility.svg
+    stories/assets/addon-library.png
+    stories/assets/assets.png
+    stories/assets/avif-test-image.avif
+    stories/assets/context.png
+    stories/assets/discord.svg
+    stories/assets/docs.png
+    stories/assets/figma-plugin.png
+    stories/assets/github.svg
+    stories/assets/share.png
+    stories/assets/styling.png
+    stories/assets/testing.png
+    stories/assets/theming.png
+    stories/assets/tutorials.svg
+  [.pnpm-store] -> 0
+
+=== tracked files > 100KB ===
+     2831 KB  src-tauri/icons/icon.icns
+     2061 KB  public/assets/zhiku/zhiku-archive-hall-background-concept-v3.png
+     1663 KB  src-tauri/icons/ios/AppIcon-512@2x.png
+     1658 KB  public/assets/zhiku/zhiku-archive-hall-background-concept-v2.png
+     1490 KB  public/data/builtin-presets/builtin_sanrennixing_v2.json
+     1237 KB  public/data/builtin-presets/builtin_shuangrenchenghang_v2.json
+      966 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_penacony_in_our_time.json
+      965 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_penacony_noise_and_fury.json
+      908 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_penacony_cat_among_pigeons.json
+      765 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_zhiku_jarilo_vi_chapters.json
+      604 KB  public/assets/teyvat-avatars/contact-sheet.webp
+      529 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_zhiku_xianzhou_luofu_travel_chapters.json
+      504 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_zhiku_jarilo_vi_sunrise_chapters.json
+      458 KB  public/codex-presets/teyvat-location-core.json
+      456 KB  stories/assets/addon-library.png
+      446 KB  public/data/builtin-presets/builtin_izumi_v2.json
+      438 KB  src-tauri/icons/icon.png
+      388 KB  public/zhiku-presets/legacy-hsr/amphoreus-character-rebuild.json
+      354 KB  public/zhiku-presets/legacy-hsr/xianzhou-luofu-character-rebuild.json
+      332 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_zhiku_xianzhou_luofu_cloud_tree_chapters.json
+      326 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_zhiku_herta_station_chapter1.json
+      321 KB  public/zhiku-presets/legacy-hsr/character-rebuild-core.json
+      320 KB  public/codex-presets/teyvat-characters-core.json
+      317 KB  src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher_foreground.png
+      299 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_penacony_farewell_penacony.json
+      298 KB  public/zhiku-presets/legacy-hsr/belobog-character-rebuild.json
+      281 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_penacony_depart_on_eighth_day.json
+      210 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_side_herta_crown_of_mundane_and_divine.json
+      190 KB  public/assets/zhiku/zhiku-archive-hall-background-concept-v3.webp
+      188 KB  public/zhiku-presets/legacy-hsr/penacony-character-rebuild.json
+      185 KB  src-tauri/icons/android/mipmap-xxhdpi/ic_launcher_foreground.png
+      184 KB  public/assets/zhiku/icon-trace/term-emblem-reference.png
+      178 KB  public/assets/backgrounds/sumeru.webp
+      178 KB  public/assets/backgrounds/snezhnaya.webp
+      176 KB  public/assets/backgrounds/natlan.webp
+      171 KB  src-tauri/icons/Square310x310Logo.png
+      170 KB  public/assets/backgrounds/fontaine.webp
+      170 KB  public/assets/backgrounds/liyue.webp
+      169 KB  public/data/story-weaving-canon/legacy-hsr/story_canon_side_xianzhou_foxian_tale.json
+      169 KB  hooks/useGame/sendWorkflow.ts
+  total >100KB tracked: 61

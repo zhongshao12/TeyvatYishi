@@ -11,6 +11,7 @@ import {
   sha256Bytes,
 } from './albumContent';
 import { getAlbumAssetBlob, materializeAlbumRuntimePayload } from '@/utils/albumObjectUrl';
+import { concatBytes, crc32, findEndOfCentralDirectory } from '@/utils/zip';
 
 export { materializeAlbumRuntimePayload } from '@/utils/albumObjectUrl';
 
@@ -234,6 +235,10 @@ async function parseLegacyArchiveManifest(manifest: unknown, files: Map<string, 
   let skippedEntries = 0;
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index];
+    if (!record) {
+      skippedEntries += 1;
+      continue;
+    }
     if (typeof record.file !== 'string' || !record.file.trim()) {
       skippedEntries += 1;
       continue;
@@ -315,9 +320,12 @@ export async function mergeAlbumsByContent(
       entry.slot === rewritten.slot,
     );
     if (existingIndex >= 0) {
-      entries[existingIndex] = mergeAlbumEntryMetadata(entries[existingIndex], rewritten);
-      mergedEntries += 1;
-      continue;
+      const existing = entries[existingIndex];
+      if (existing) {
+        entries[existingIndex] = mergeAlbumEntryMetadata(existing, rewritten);
+        mergedEntries += 1;
+        continue;
+      }
     }
     const id = uniqueId(rewritten.id, 'album_import', usedEntryIds);
     const added = { ...rewritten, id };
@@ -511,48 +519,20 @@ export function assertSafeZipPath(input: string): string {
   return normalized;
 }
 
-export function crc32(bytes: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
 function isArchiveManifestV2(value: unknown): value is AlbumArchiveManifestV2 {
   if (!value || typeof value !== 'object') return false;
   const manifest = value as Partial<AlbumArchiveManifestV2>;
   return manifest.format === ARCHIVE_FORMAT && manifest.version === ARCHIVE_VERSION && Array.isArray(manifest.assets) && Array.isArray(manifest.entries);
 }
 
-function findEndOfCentralDirectory(bytes: Uint8Array): number {
-  const minimum = Math.max(0, bytes.length - 22 - 0xffff);
-  for (let offset = bytes.length - 22; offset >= minimum; offset -= 1) {
-    if (readU32(bytes, offset) === 0x06054b50) return offset;
-  }
-  return -1;
-}
-
 function readU16(bytes: Uint8Array, offset: number): number {
   if (offset < 0 || offset + 2 > bytes.length) throw new Error('ZIP 数值字段超出范围。');
-  return bytes[offset] | (bytes[offset + 1] << 8);
+  return (bytes[offset] ?? 0) | ((bytes[offset + 1] ?? 0) << 8);
 }
 
 function readU32(bytes: Uint8Array, offset: number): number {
   if (offset < 0 || offset + 4 > bytes.length) throw new Error('ZIP 数值字段超出范围。');
-  return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
-}
-
-function concatBytes(parts: Uint8Array[]): Uint8Array {
-  const total = parts.reduce((sum, part) => sum + part.length, 0);
-  const output = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    output.set(part, offset);
-    offset += part.length;
-  }
-  return output;
+  return ((bytes[offset] ?? 0) | ((bytes[offset + 1] ?? 0) << 8) | ((bytes[offset + 2] ?? 0) << 16) | ((bytes[offset + 3] ?? 0) << 24)) >>> 0;
 }
 
 function u16(value: number): Uint8Array {

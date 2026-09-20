@@ -41,7 +41,7 @@ describe('providerRouting', () => {
     ['https://api.deepseek.com/v1', 'deepseek'],
     ['https://generativelanguage.googleapis.com/v1beta', 'gemini'],
   ])('infers %s as %s', (baseUrl, expected) => {
-    expect(detectChatProvider(config({ baseUrl }))).toBe(expected);
+    expect(detectChatProvider(config({ provider: '' as AI提供商, baseUrl }))).toBe(expected);
   });
 
   it('guards Claude-compatible routing with both the mode and model family', () => {
@@ -62,5 +62,13 @@ describe('providerRouting', () => {
     const official = config({ provider: 'claude', enableClaudeMode: false, model: 'custom-name' });
     expect(shouldUseClaudeMessagesApi(official)).toBe(true);
     expect(detectChatProvider(official)).toBe('claude');
+  });
+
+  it('does not override an explicit OpenAI-compatible provider from URL or model substrings', () => {
+    expect(detectChatProvider(config({
+      provider: 'openai_compatible',
+      baseUrl: 'https://relay.example.com/googleapis/v1',
+      model: 'vendor/gemini-compatible-chat',
+    }))).toBe('openai_compatible');
   });
 });

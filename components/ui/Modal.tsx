@@ -36,9 +36,9 @@ export function resolveTabFocusTarget<T>(
   if (candidates.length === 0) return null;
   const first = candidates[0];
   const last = candidates[candidates.length - 1];
-  if (!containsActive) return shiftKey ? last : first;
-  if (shiftKey && active === first) return last;
-  if (!shiftKey && active === last) return first;
+  if (!containsActive) return (shiftKey ? last : first) ?? null;
+  if (shiftKey && active === first) return last ?? null;
+  if (!shiftKey && active === last) return first ?? null;
   return null;
 }
 
@@ -54,6 +54,74 @@ export function resolveFocusRestoreTarget<T>(
       : remainingModal;
   }
   return previouslyFocused && isConnected(previouslyFocused) ? previouslyFocused : null;
+}
+
+/**
+ * 为自定义外观的弹窗复用与 Modal 相同的 Esc、焦点圈定、焦点恢复和栈顶语义。
+ * ref 必须挂在真正的 role="dialog" 容器上，而不是遮罩层上。
+ */
+export function useModalAccessibility<T extends HTMLElement>(onClose: () => void, enabled = true) {
+  const dialogRef = useRef<T>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!enabled || !dialog) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    activeModalStack.push(dialog);
+    document.body.classList.add('modal-open');
+    const initialFocus = focusableElements(dialog)[0] ?? dialog;
+    initialFocus.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (activeModalStack[activeModalStack.length - 1] !== dialog) return;
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const elements = focusableElements(dialog);
+      if (elements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const active = document.activeElement;
+      const target = resolveTabFocusTarget(
+        elements,
+        active instanceof HTMLElement ? active : null,
+        event.shiftKey,
+        dialog.contains(active),
+      );
+      if (target) {
+        event.preventDefault();
+        target.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      const stackIndex = activeModalStack.lastIndexOf(dialog);
+      if (stackIndex >= 0) activeModalStack.splice(stackIndex, 1);
+      const remainingModal = activeModalStack[activeModalStack.length - 1];
+      if (!remainingModal) document.body.classList.remove('modal-open');
+      const restoreTarget = resolveFocusRestoreTarget(
+        previouslyFocused,
+        remainingModal ?? null,
+        (candidate) => candidate.isConnected,
+        Boolean(previouslyFocused && remainingModal?.contains(previouslyFocused)),
+      );
+      restoreTarget?.focus();
+    };
+  }, [enabled]);
+
+  return dialogRef;
 }
 
 function isElementVisible(element: HTMLElement): boolean {
@@ -89,68 +157,8 @@ function focusableElements(dialog: HTMLElement): HTMLElement[] {
 }
 
 export function Modal({ children, onClose, title, className = 'max-w-2xl', ariaLabel = '应用对话框' }: ModalProps) {
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
+  const dialogRef = useModalAccessibility<HTMLDivElement>(onClose);
   const titleId = useId();
-
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    activeModalStack.push(dialog);
-    document.body.classList.add('modal-open');
-    const initialFocus = focusableElements(dialog)[0] ?? dialog;
-    initialFocus.focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (activeModalStack[activeModalStack.length - 1] !== dialog) return;
-      if (event.key === 'Escape') {
-        // 阻断 window 层快捷键监听（closeTop），避免一次 Esc 关掉多个弹窗。
-        event.stopPropagation();
-        event.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (event.key === 'Tab') {
-        const elements = focusableElements(dialog);
-        if (elements.length === 0) {
-          event.preventDefault();
-          dialog.focus();
-          return;
-        }
-        const active = document.activeElement;
-        const target = resolveTabFocusTarget(
-          elements,
-          active instanceof HTMLElement ? active : null,
-          event.shiftKey,
-          dialog.contains(active),
-        );
-        if (target) {
-          event.preventDefault();
-          target.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      const stackIndex = activeModalStack.lastIndexOf(dialog);
-      if (stackIndex >= 0) activeModalStack.splice(stackIndex, 1);
-      const remainingModal = activeModalStack[activeModalStack.length - 1];
-      if (!remainingModal) document.body.classList.remove('modal-open');
-      const restoreTarget = resolveFocusRestoreTarget(
-        previouslyFocused,
-        remainingModal ?? null,
-        (candidate) => candidate.isConnected,
-        Boolean(previouslyFocused && remainingModal?.contains(previouslyFocused)),
-      );
-      restoreTarget?.focus();
-    };
-  }, []);
 
   return (
     <div

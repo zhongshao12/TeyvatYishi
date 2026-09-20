@@ -736,19 +736,8 @@ export function 格式化旅行日期序数(serial: number): string {
 function normalizeClock(value?: string | null): string {
   const raw = value?.trim();
   if (!raw) return '';
-  const embedded = raw.match(/(\d{1,2}:\d{2})/);
-  if (embedded) {
-    const [hours, minutes] = embedded[1].split(':').map((part) => Number(part));
-    if (Number.isFinite(hours) && Number.isFinite(minutes)) {
-      return `${Math.max(0, Math.min(23, hours)).toString().padStart(2, '0')}:${Math.max(0, Math.min(59, minutes)).toString().padStart(2, '0')}`;
-    }
-  }
-  if (/^\d{1,2}:\d{2}$/.test(raw)) {
-    const [hours, minutes] = raw.split(':').map((part) => Number(part));
-    if (Number.isFinite(hours) && Number.isFinite(minutes)) {
-      return `${Math.max(0, Math.min(23, hours)).toString().padStart(2, '0')}:${Math.max(0, Math.min(59, minutes)).toString().padStart(2, '0')}`;
-    }
-  }
+  const parsed = parseGameClock(raw);
+  if (parsed) return parsed;
 
   const legacyMap: Record<string, string> = {
     清晨: '06:40',
@@ -1045,3 +1034,4 @@ function createPlaceholderPeriod(): 时段定义 {
     人物: [],
   };
 }
+import { parseGameClock } from '@/utils/gameClock';

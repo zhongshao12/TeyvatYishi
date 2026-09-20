@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { API设置, 游戏设置 } from '@/models/settings';
 import type { 剧情编织分段, 剧情编织进度锚点, 剧情编织系列, 剧情编织系统, 剧情编织运行状态 } from '@/models/storyWeaving';
@@ -38,8 +39,8 @@ interface SegmentDraft {
   涉及派系: string;
 }
 
-const cardClip = 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
-const smallClip = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
+
 
 type TrackTab = 'canon' | 'custom' | 'conflict';
 
@@ -173,6 +174,14 @@ function applyDraft(segment: 剧情编织分段, draft: SegmentDraft): 剧情编
   };
 }
 
+export function shouldReplaceSegmentDraft(
+  currentSegmentId: string | null,
+  incomingSegmentId: string | null,
+  draftDirty: boolean,
+): boolean {
+  return currentSegmentId !== incomingSegmentId || !draftDirty;
+}
+
 export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, apiSettings, variableFacts, canonTrack }: PlotPanelProps) {
   const txtInputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
@@ -185,6 +194,8 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
   const [pasteTitle, setPasteTitle] = useState('');
   const [pasteText, setPasteText] = useState('');
   const [draft, setDraft] = useState<SegmentDraft | null>(null);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const draftSegmentIdRef = useRef<string | null>(null);
   const [trackTab, setTrackTab] = useState<TrackTab>('canon');
 
   const normalized = useMemo(() => 归一化剧情编织系统(storyWeaving), [storyWeaving]);
@@ -246,8 +257,12 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
   }, [trackTab, viewSeries, visibleSeries, expandedSeriesId]);
 
   useEffect(() => {
+    const incomingSegmentId = selectedSegment?.id ?? null;
+    if (!shouldReplaceSegmentDraft(draftSegmentIdRef.current, incomingSegmentId, draftDirty)) return;
+    draftSegmentIdRef.current = incomingSegmentId;
     setDraft(selectedSegment ? draftFromSegment(selectedSegment) : null);
-  }, [selectedSegment?.id, selectedSegment?.updatedAt]);
+    setDraftDirty(false);
+  }, [selectedSegment?.id, selectedSegment?.updatedAt, draftDirty]);
 
   const persist = async (next: 剧情编织系统) => {
     const clean = 归一化剧情编织系统(next);
@@ -348,6 +363,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
       return;
     }
     const currentCustom = custom.find((series) => series.id === normalized.当前系列ID) ?? custom[0];
+    if (!currentCustom) return;
     downloadStoryWeavingJson(归一化剧情编织系统({
       系列列表: custom,
       当前系列ID: currentCustom.id,
@@ -465,6 +481,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
       分段列表: s.分段列表.map((item) => item.id === segment.id ? updated : item),
       updatedAt: Date.now(),
     }));
+    setDraftDirty(false);
     setMessage(`已保存分段：${updated.标题}`);
   };
 
@@ -537,7 +554,9 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
     setBusyBatch(label);
     try {
       for (let index = 0; index < targets.length; index += 1) {
-        const target = workingSeries.分段列表.find((item) => item.id === targets[index].id);
+        const targetId = targets[index]?.id;
+        if (!targetId) continue;
+        const target = workingSeries.分段列表.find((item) => item.id === targetId);
         if (!target) continue;
         setBusyId(target.id);
         setMessage(`批量分解 ${index + 1}/${targets.length}：${target.标题}`);
@@ -636,7 +655,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
             style={{
               background: 'rgba(var(--tj-bg-primary),0.52)',
               boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.16)',
-              clipPath: smallClip,
+              clipPath: CLIP_SMALL,
               color: 'rgba(var(--tj-text-secondary),0.76)',
             }}
           >
@@ -652,7 +671,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
             style={{
               background: 'rgba(var(--tj-bg-primary),0.45)',
               boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.14)',
-              clipPath: cardClip,
+              clipPath: CLIP_CARD,
             }}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -705,7 +724,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
                   </div>
                 )}
               </div>
-              <div className="flex shrink-0 gap-1 rounded-none p-1" style={{ background: 'rgba(var(--tj-bg-primary),0.58)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.16)', clipPath: smallClip }}>
+              <div className="flex shrink-0 gap-1 rounded-none p-1" style={{ background: 'rgba(var(--tj-bg-primary),0.58)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.16)', clipPath: CLIP_SMALL }}>
                 {([
                   ['canon', '原著剧情', canonSeries.length],
                   ['custom', '自制剧情', customSeries.length],
@@ -721,8 +740,8 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
                       style={{
                         color: active ? 'rgb(var(--tj-text-primary))' : 'rgba(var(--tj-text-secondary),0.78)',
                         background: active ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.16), rgba(var(--tj-arcane-accent), 0.08))' : 'transparent',
-                        boxShadow: active ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.32)' : 'none',
-                        clipPath: smallClip,
+                        boxShadow: active ? insetRing(0.32) : 'none',
+                        clipPath: CLIP_SMALL,
                       }}
                     >
                       {label} <span style={{ color: active ? 'rgb(var(--tj-accent-primary))' : 'rgba(var(--tj-arcane-accent), 0.66)' }}>{count}</span>
@@ -739,7 +758,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
                   color: 'rgba(var(--tj-accent-primary),0.88)',
                   background: 'rgba(var(--tj-accent-secondary),0.08)',
                   boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-secondary),0.22)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 检测到原著与自制轨道都存在“当前”分段。系统仍只会注入上方的主轨道，另一个建议标记为暂停、支线或偏离，避免正文抢线。
@@ -758,7 +777,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
                     className="shrink-0 px-3 py-2 text-left transition-all"
                     style={{
                       minWidth: 'min(180px, 78vw)',
-                      clipPath: smallClip,
+                      clipPath: CLIP_SMALL,
                       background: selected
                         ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.14), rgba(var(--tj-arcane-accent), 0.08))'
                         : 'rgba(var(--tj-bg-primary),0.62)',
@@ -790,7 +809,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
               {visibleSeries.length === 0 && (
                 <div
                   className="min-w-[260px] px-3 py-3 text-xs leading-relaxed"
-                  style={{ color: 'rgba(var(--tj-text-secondary),0.78)', background: 'rgba(var(--tj-bg-primary),0.5)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.14)', clipPath: smallClip }}
+                  style={{ color: 'rgba(var(--tj-text-secondary),0.78)', background: 'rgba(var(--tj-bg-primary),0.5)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.14)', clipPath: CLIP_SMALL }}
                 >
                   {trackTab === 'canon'
                     ? '暂无原著剧情轨道。可以点击“恢复内置原著”重新载入。'
@@ -806,8 +825,8 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
             className="grid gap-2 px-3 py-3"
             style={{
               background: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.06), rgba(var(--tj-arcane-accent), 0.04), rgba(var(--tj-bg-primary),0.7))',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)',
-              clipPath: cardClip,
+              boxShadow: insetRing(0.18),
+              clipPath: CLIP_CARD,
             }}
           >
             <div className="flex items-center justify-between gap-2">
@@ -823,7 +842,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
               onChange={(e) => setPasteTitle(e.target.value)}
               placeholder="剧情系列名称，例如：今天是昨天的明天"
               className="teyvat-input px-3 py-2 text-sm"
-              style={{ clipPath: smallClip }}
+              style={{ clipPath: CLIP_SMALL }}
             />
             <textarea
               value={pasteText}
@@ -831,7 +850,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
               rows={5}
               placeholder="把 TXT 正文粘贴在这里。系统会先按章节标题切分，识别不到章节时会按长度自动切片。"
               className="teyvat-input px-3 py-2 text-sm leading-relaxed"
-              style={{ clipPath: smallClip }}
+              style={{ clipPath: CLIP_SMALL }}
             />
             <div className="flex justify-end gap-2">
               <button className="panel-btn" onClick={() => setPasteOpen(false)}>取消</button>
@@ -882,19 +901,25 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
                     series={viewSeries}
                     segment={selectedSegment}
                     draft={draft}
-                    onDraftChange={setDraft}
+                    onDraftChange={(nextDraft) => {
+                      setDraft(nextDraft);
+                      setDraftDirty(true);
+                    }}
                     busy={busyId === selectedSegment.id}
                     onDecompose={() => void handleDecompose(viewSeries, selectedSegment)}
                     onSetCurrent={() => void handleSetCurrent(viewSeries, selectedSegment.组号)}
                     onSetRuntimeStatus={(status) => void handleSetRuntimeStatus(viewSeries, selectedSegment, status)}
                     onSaveDraft={() => void handleSaveDraft(viewSeries, selectedSegment)}
-                    onResetDraft={() => setDraft(draftFromSegment(selectedSegment))}
+                    onResetDraft={() => {
+                      setDraft(draftFromSegment(selectedSegment));
+                      setDraftDirty(false);
+                    }}
                     progress={selectedProgress}
                   />
                   {planningAnalysis && (
                     <div
                       className="px-3 py-3 text-xs leading-relaxed md:px-4"
-                      style={{ background: 'rgba(var(--tj-arcane-accent), 0.045)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.18)', clipPath: cardClip }}
+                      style={{ background: 'rgba(var(--tj-arcane-accent), 0.045)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.18)', clipPath: CLIP_CARD }}
                     >
                       <div className="font-serif text-[11px] tracking-[0.2em]" style={{ color: 'rgba(var(--tj-arcane-accent), 0.86)' }}>
                         规划分析
@@ -953,7 +978,7 @@ function HeaderCard({
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.12), rgba(var(--tj-arcane-accent), 0.05) 38%, rgba(var(--tj-bg-primary),0.95))',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.24), 0 0 18px rgba(var(--tj-accent-primary),0.06)',
-        clipPath: cardClip,
+        clipPath: CLIP_CARD,
       }}
     >
       <div className="pointer-events-none absolute right-3 top-4 text-[34px] font-bold opacity-[0.05] md:right-4 md:top-1/2 md:-translate-y-1/2 md:text-[42px]" style={{ color: 'rgb(var(--tj-text-primary))' }}>
@@ -998,7 +1023,7 @@ function ProgressMiniBlock({ label, values }: { label: string; values: string[] 
       style={{
         background: 'rgba(var(--tj-bg-primary),0.42)',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.14)',
-        clipPath: smallClip,
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="font-serif text-[10px] tracking-[0.16em]" style={{ color: 'rgba(var(--tj-arcane-accent), 0.74)' }}>{label}</div>
@@ -1016,7 +1041,7 @@ function StatCard({ label, value, tone }: { label: string; value: string; tone: 
       style={{
         background: 'rgba(var(--tj-bg-primary),0.55)',
         boxShadow: `inset 0 0 0 1px ${tone}33`,
-        clipPath: smallClip,
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.72)' }}>{label}</div>
@@ -1036,8 +1061,8 @@ function Pill({ text, tone }: { text: string; tone: 'gold' | 'cyan' | 'muted' })
       style={{
         color,
         background,
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.16),
+        clipPath: CLIP_SMALL,
       }}
     >
       {text}
@@ -1068,7 +1093,7 @@ function SeriesControl({
 }) {
   const done = series.分段列表.filter((item) => item.处理状态 === '已完成').length;
   return (
-    <div className="mb-3 px-3 py-3 md:px-4" style={{ background: 'rgba(var(--tj-accent-primary),0.045)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)', clipPath: cardClip }}>
+    <div className="mb-3 px-3 py-3 md:px-4" style={{ background: 'rgba(var(--tj-accent-primary),0.045)', boxShadow: insetRing(0.18), clipPath: CLIP_CARD }}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="break-words font-serif text-[15px] font-bold md:text-base" style={{ color: 'rgb(var(--tj-accent-primary))' }}>{series.标题}</div>
@@ -1082,17 +1107,17 @@ function SeriesControl({
           )}
           <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
             {series.核心角色.slice(0, 4).map((item) => (
-              <span key={item} className="px-2 py-1" style={{ background: 'rgba(var(--tj-accent-primary),0.08)', color: 'rgba(var(--tj-accent-primary),0.85)', clipPath: smallClip }}>
+              <span key={item} className="px-2 py-1" style={{ background: 'rgba(var(--tj-accent-primary),0.08)', color: 'rgba(var(--tj-accent-primary),0.85)', clipPath: CLIP_SMALL }}>
                 {item}
               </span>
             ))}
             {series.涉及地点索引.slice(0, 3).map((item) => (
-              <span key={item} className="px-2 py-1" style={{ background: 'rgba(var(--tj-ui-success),0.08)', color: 'rgba(var(--tj-ui-success),0.85)', clipPath: smallClip }}>
+              <span key={item} className="px-2 py-1" style={{ background: 'rgba(var(--tj-ui-success),0.08)', color: 'rgba(var(--tj-ui-success),0.85)', clipPath: CLIP_SMALL }}>
                 {item}
               </span>
             ))}
             {series.涉及派系索引.slice(0, 3).map((item) => (
-              <span key={item} className="px-2 py-1" style={{ background: 'rgba(var(--tj-arcane-blue),0.08)', color: 'rgba(var(--tj-arcane-blue),0.85)', clipPath: smallClip }}>
+              <span key={item} className="px-2 py-1" style={{ background: 'rgba(var(--tj-arcane-blue),0.08)', color: 'rgba(var(--tj-arcane-blue),0.85)', clipPath: CLIP_SMALL }}>
                 {item}
               </span>
             ))}
@@ -1139,7 +1164,7 @@ function SeriesTree({
           const expanded = expandedSeriesId === series.id;
           const completeCount = series.分段列表.filter((item) => item.处理状态 === '已完成').length;
           return (
-            <div key={series.id} className="w-[78vw] max-w-[280px] shrink-0 lg:w-auto lg:max-w-none" style={{ boxShadow: `inset 0 0 0 1px ${active ? 'rgba(var(--tj-accent-primary),0.35)' : 'rgba(var(--tj-accent-primary),0.14)'}`, background: active ? 'rgba(var(--tj-accent-primary),0.055)' : 'rgba(var(--tj-bg-primary),0.42)', clipPath: cardClip }}>
+            <div key={series.id} className="w-[78vw] max-w-[280px] shrink-0 lg:w-auto lg:max-w-none" style={{ boxShadow: `inset 0 0 0 1px ${active ? 'rgba(var(--tj-accent-primary),0.35)' : 'rgba(var(--tj-accent-primary),0.14)'}`, background: active ? 'rgba(var(--tj-accent-primary),0.055)' : 'rgba(var(--tj-bg-primary),0.42)', clipPath: CLIP_CARD }}>
               <button className="w-full px-3 py-2 text-left" onClick={() => onSelectSeries(series)}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="min-w-0 truncate font-serif text-xs font-bold" style={{ color: active ? 'rgb(var(--tj-accent-primary))' : 'rgba(var(--tj-text-secondary),0.86)' }}>{series.标题}</span>
@@ -1159,7 +1184,7 @@ function SeriesTree({
                         <button
                           key={chapter.id}
                           className="w-full truncate px-2 py-1 text-left text-[11px]"
-                          style={{ color: 'rgba(var(--tj-text-secondary),0.78)', background: 'rgba(var(--tj-accent-primary),0.035)', clipPath: smallClip }}
+                          style={{ color: 'rgba(var(--tj-text-secondary),0.78)', background: 'rgba(var(--tj-accent-primary),0.035)', clipPath: CLIP_SMALL }}
                           onClick={() => onSelectChapter(series, chapter.序号)}
                         >
                           {chapter.序号}. {chapter.标题}
@@ -1183,7 +1208,7 @@ function SeriesTree({
                             style={{
                               background: selected ? 'rgba(var(--tj-accent-primary),0.1)' : runtimeStatusBg[segment.运行状态] || statusBg[segment.处理状态],
                               boxShadow: `inset 0 0 0 1px ${current ? 'rgba(var(--tj-accent-primary),0.5)' : 'rgba(var(--tj-accent-primary),0.12)'}`,
-                              clipPath: smallClip,
+                              clipPath: CLIP_SMALL,
                             }}
                           >
                             <div className="flex items-center justify-between gap-2">
@@ -1241,7 +1266,7 @@ function SegmentDetail({
     <div className="space-y-3">
       <div
         className="px-3 py-3 md:px-4"
-        style={{ background: 'rgba(var(--tj-accent-primary),0.045)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)', clipPath: cardClip }}
+        style={{ background: 'rgba(var(--tj-accent-primary),0.045)', boxShadow: insetRing(0.18), clipPath: CLIP_CARD }}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -1263,7 +1288,7 @@ function SegmentDetail({
                       color: active ? 'rgb(var(--tj-text-primary))' : runtimeStatusColor[status],
                       background: active ? runtimeStatusBg[status] : 'rgba(var(--tj-bg-primary),0.36)',
                       boxShadow: `inset 0 0 0 1px ${active ? runtimeStatusColor[status] : 'rgba(var(--tj-accent-primary),0.12)'}`,
-                      clipPath: smallClip,
+                      clipPath: CLIP_SMALL,
                     }}
                   >
                     {status}
@@ -1433,19 +1458,19 @@ function SegmentDetail({
 function ManualEditor({ draft, onDraftChange }: { draft: SegmentDraft; onDraftChange: (draft: SegmentDraft) => void }) {
   const patch = (next: Partial<SegmentDraft>) => onDraftChange({ ...draft, ...next });
   return (
-    <div className="space-y-3 px-3 py-3" style={{ background: 'rgba(var(--tj-bg-primary),0.42)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)', clipPath: cardClip }}>
+    <div className="space-y-3 px-3 py-3" style={{ background: 'rgba(var(--tj-bg-primary),0.42)', boxShadow: insetRing(0.16), clipPath: CLIP_CARD }}>
       <div className="font-serif text-[12px] tracking-[0.18em] md:tracking-[0.2em]" style={{ color: 'rgba(var(--tj-accent-primary),0.78)' }}>手工校订</div>
       <div className="grid gap-2 md:grid-cols-2">
         <label className="block">
           <div className="mb-1 text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.82)' }}>分段标题</div>
-          <input value={draft.标题} onChange={(e) => patch({ 标题: e.target.value })} className="teyvat-input w-full px-2.5 py-2 text-sm" style={{ clipPath: smallClip }} />
+          <input value={draft.标题} onChange={(e) => patch({ 标题: e.target.value })} className="teyvat-input w-full px-2.5 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
         </label>
         <label className="block">
           <div className="mb-1 text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.82)' }}>章节范围</div>
-          <input value={draft.章节范围} onChange={(e) => patch({ 章节范围: e.target.value })} className="teyvat-input w-full px-2.5 py-2 text-sm" style={{ clipPath: smallClip }} />
+          <input value={draft.章节范围} onChange={(e) => patch({ 章节范围: e.target.value })} className="teyvat-input w-full px-2.5 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
         </label>
       </div>
-      <label className="flex items-center justify-between gap-3 px-2 py-2" style={{ background: 'rgba(var(--tj-accent-primary),0.04)', clipPath: smallClip }}>
+      <label className="flex items-center justify-between gap-3 px-2 py-2" style={{ background: 'rgba(var(--tj-accent-primary),0.04)', clipPath: CLIP_SMALL }}>
         <span className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary),0.82)' }}>参与主剧情滑窗注入</span>
         <input type="checkbox" checked={draft.启用注入} onChange={(e) => patch({ 启用注入: e.target.checked })} />
       </label>
@@ -1471,7 +1496,7 @@ function TextAreaField({ label, value, rows, onChange }: { label: string; value:
         rows={rows}
         onChange={(e) => onChange(e.target.value)}
         className="teyvat-input w-full px-2.5 py-2 text-xs leading-relaxed"
-        style={{ clipPath: smallClip }}
+        style={{ clipPath: CLIP_SMALL }}
       />
     </label>
   );
@@ -1493,7 +1518,7 @@ function InfoGrid({ items }: { items: Array<[string, string[]]> }) {
 
 function InfoBlock({ title, empty, children, hasContent = true }: { title: string; empty: string; children: React.ReactNode; hasContent?: boolean }) {
   return (
-    <div className="px-3 py-3 text-xs leading-relaxed" style={{ background: 'rgba(var(--tj-bg-primary),0.42)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)', clipPath: smallClip, color: 'rgba(var(--tj-text-secondary),0.84)' }}>
+    <div className="px-3 py-3 text-xs leading-relaxed" style={{ background: 'rgba(var(--tj-bg-primary),0.42)', boxShadow: insetRing(0.14), clipPath: CLIP_SMALL, color: 'rgba(var(--tj-text-secondary),0.84)' }}>
       <div className="mb-2 font-serif text-[12px] tracking-[0.2em]" style={{ color: 'rgba(var(--tj-accent-primary),0.78)' }}>{title}</div>
       {hasContent ? children : <span style={{ color: 'rgba(var(--tj-text-secondary),0.62)' }}>{empty}</span>}
     </div>
@@ -1520,7 +1545,7 @@ function EmptyState() {
   return (
     <div
       className="flex min-h-56 items-center justify-center px-4 py-8 text-center font-serif text-xs italic tracking-[0.18em]"
-      style={{ color: 'rgba(var(--tj-text-secondary),0.65)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.15)', clipPath: cardClip }}
+      style={{ color: 'rgba(var(--tj-text-secondary),0.65)', boxShadow: insetRing(0.15), clipPath: CLIP_CARD }}
     >
       导入 TXT 后，剧情会被拆成可分解、可校订、可注入主剧情的章节段落。
     </div>
@@ -1543,7 +1568,7 @@ function ConflictPanel({
     return (
       <div
         className="flex min-h-56 flex-1 items-center justify-center px-4 py-8 text-center font-serif text-xs italic tracking-[0.18em]"
-        style={{ color: 'rgba(var(--tj-text-secondary),0.65)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.15)', clipPath: cardClip }}
+        style={{ color: 'rgba(var(--tj-text-secondary),0.65)', boxShadow: insetRing(0.15), clipPath: CLIP_CARD }}
       >
         未检测到剧情冲突。
       </div>
@@ -1555,7 +1580,7 @@ function ConflictPanel({
         <div
           key={conflict.id}
           className="px-3 py-3"
-          style={{ background: 'rgba(var(--tj-bg-primary),0.5)', boxShadow: `inset 0 0 0 1px ${toneMap[conflict.严重度]}`, clipPath: cardClip }}
+          style={{ background: 'rgba(var(--tj-bg-primary),0.5)', boxShadow: `inset 0 0 0 1px ${toneMap[conflict.严重度]}`, clipPath: CLIP_CARD }}
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -1570,7 +1595,7 @@ function ConflictPanel({
                 type="button"
                 onClick={() => onApply(conflict)}
                 className="shrink-0 px-3 py-1.5 text-xs"
-                style={{ color: 'rgb(var(--tj-text-primary))', background: 'rgba(var(--tj-accent-primary),0.16)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.5)', clipPath: smallClip }}
+                style={{ color: 'rgb(var(--tj-text-primary))', background: 'rgba(var(--tj-accent-primary),0.16)', boxShadow: insetRing(0.5), clipPath: CLIP_SMALL }}
               >
                 一键修复
               </button>
@@ -1596,7 +1621,7 @@ function CanonDeviationJournal({ deviations }: { deviations: CanonDeviation[] })
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-accent-secondary),0.09), rgba(var(--tj-bg-primary),0.72))',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-secondary),0.26)',
-        clipPath: cardClip,
+        clipPath: CLIP_CARD,
       }}
     >
       <div>
@@ -1615,8 +1640,8 @@ function CanonDeviationJournal({ deviations }: { deviations: CanonDeviation[] })
             style={{
               color: 'rgba(var(--tj-text-secondary),0.9)',
               background: 'rgba(var(--tj-bg-primary),0.48)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.2)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.2),
+              clipPath: CLIP_SMALL,
             }}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1647,7 +1672,7 @@ function TrackEmptyState({ trackTab }: { trackTab: TrackTab }) {
   return (
     <div
       className="flex min-h-56 flex-1 items-center justify-center px-4 py-8 text-center font-serif text-xs italic tracking-[0.18em]"
-      style={{ color: 'rgba(var(--tj-text-secondary),0.65)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.15)', clipPath: cardClip }}
+      style={{ color: 'rgba(var(--tj-text-secondary),0.65)', boxShadow: insetRing(0.15), clipPath: CLIP_CARD }}
     >
       {trackTab === 'canon'
         ? '暂无原著剧情轨道。点击“恢复内置原著”后会显示内置主线。'

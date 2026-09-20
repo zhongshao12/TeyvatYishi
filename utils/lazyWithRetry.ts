@@ -11,10 +11,18 @@ function isChunkLoadError(error: unknown): boolean {
   return /dynamically imported module|failed to fetch|loading chunk|chunkloaderror/i.test(message);
 }
 
-function clearReloadMarker(): void {
+export function shouldClearChunkReloadMarker(marker: string | null, retryKey: string): boolean {
+  return marker === retryKey || marker === '1';
+}
+
+export function decideChunkReload(marker: string | null, _retryKey: string): 'reload' | 'fail' {
+  return marker ? 'fail' : 'reload';
+}
+
+function clearReloadMarker(retryKey: string): void {
   try {
     const url = new URL(window.location.href);
-    if (!url.searchParams.has(RELOAD_QUERY_KEY)) return;
+    if (!shouldClearChunkReloadMarker(url.searchParams.get(RELOAD_QUERY_KEY), retryKey)) return;
     url.searchParams.delete(RELOAD_QUERY_KEY);
     window.history.replaceState(window.history.state, '', url.toString());
   } catch {
@@ -22,19 +30,17 @@ function clearReloadMarker(): void {
   }
 }
 
-function reloadOnce(): boolean {
+function reloadOnce(retryKey: string): boolean {
   const url = new URL(window.location.href);
-  if (url.searchParams.get(RELOAD_QUERY_KEY) === '1') {
-    clearReloadMarker();
-    return false;
-  }
-  url.searchParams.set(RELOAD_QUERY_KEY, '1');
+  if (decideChunkReload(url.searchParams.get(RELOAD_QUERY_KEY), retryKey) === 'fail') return false;
+  url.searchParams.set(RELOAD_QUERY_KEY, retryKey);
   window.location.replace(url.toString());
   return true;
 }
 
 export function lazyWithRetry<T extends ComponentType<any>>(
   loader: () => Promise<{ default: T }>,
+  retryKey: string,
 ): PreloadableLazyComponent<T> {
   let modulePromise: Promise<{ default: T }> | null = null;
 
@@ -51,11 +57,11 @@ export function lazyWithRetry<T extends ComponentType<any>>(
   const component = lazy(async () => {
     try {
       const module = await loadModule();
-      clearReloadMarker();
+      clearReloadMarker(retryKey);
       return module;
     } catch (error) {
       if (!isChunkLoadError(error)) throw error;
-      if (reloadOnce()) return await new Promise<never>(() => {});
+      if (reloadOnce(retryKey)) return await new Promise<never>(() => {});
       throw error;
     }
   }) as PreloadableLazyComponent<T>;

@@ -13,6 +13,8 @@ assert(panel.includes('ChatBookmarksPanel'), 'bookmark panel component must exis
 // 2026-09-02 项目主要求：聊天区不再常驻书签面板（按钮与面板已移除），数据与工具链保留。
 assert(!chatList.includes('ChatBookmarksPanel'), 'ChatList must not render the bookmark panel overlay.');
 assert(chatList.includes('chat-msg-'), 'ChatList must give messages anchor ids for jumping.');
+const historyListInvocation = chatList.match(/<ChatHistoryList[\s\S]*?\/>/)?.[0] ?? '';
+assert(historyListInvocation.includes('onToggleBookmark={onToggleBookmark}'), 'ChatList must pass bookmark toggles into historical turns.');
 assert(turnItem.includes('onToggleBookmark'), 'TurnItem must accept bookmark toggle callback.');
 assert(turnItem.includes('label="书签"'), 'AI turn toolbar must expose a bookmark button.');
 assert(app.includes('切换剧情书签'), 'App must wire bookmark toggle into chat history.');

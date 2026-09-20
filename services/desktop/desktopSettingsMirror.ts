@@ -28,22 +28,31 @@ export interface DesktopSpecialSettingMirrorStatus {
 const SETTINGS_PATH = 'config/settings.json';
 const SPECIAL_SETTING_PATHS: Record<string, string> = {
   worldbooks: 'worldbooks/worldbooks.json',
+  activeWorkflowRecoveryV1: 'logs/workflow-recovery.json',
 };
 
 export async function mirrorSettingToDesktop(key: string, value: unknown): Promise<void> {
   if (!isDesktopRuntime()) return;
-  const mirror = await readSettingsMirror();
   if (isSpecialSettingKey(key)) {
-    const next = { ...mirror.settings };
-    delete next[key];
-    await writeSettingsMirror(next);
     await writeSpecialSettingMirror(key, value);
     return;
   }
-  await writeSettingsMirror({
-    ...mirror.settings,
-    [key]: value,
-  });
+  await mirrorSettingsToDesktop({ [key]: value });
+}
+
+export async function mirrorSettingsToDesktop(settings: Record<string, unknown>): Promise<void> {
+  if (!isDesktopRuntime()) return;
+  const generalEntries = Object.entries(settings).filter(([key]) => !isSpecialSettingKey(key));
+  const specialEntries = Object.entries(settings).filter(([key]) => isSpecialSettingKey(key));
+
+  if (generalEntries.length > 0) {
+    const mirror = await readSettingsMirror();
+    const next = { ...mirror.settings };
+    for (const [key, value] of generalEntries) next[key] = value;
+    await writeSettingsMirror(next);
+  }
+
+  await Promise.all(specialEntries.map(([key, value]) => writeSpecialSettingMirror(key, value)));
 }
 
 export async function loadSettingFromDesktopMirror<T>(key: string): Promise<T | null> {

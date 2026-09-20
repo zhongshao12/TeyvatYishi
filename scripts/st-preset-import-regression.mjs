@@ -65,6 +65,7 @@ cleanTempDir();
 transpileModule('utils/stPresetParser.ts');
 transpileModule('utils/jsonRepair.ts');
 transpileModule('utils/stSettingsNormalizer.ts');
+transpileModule('utils/valueGuards.ts');
 transpileModule('models/prompts.ts');
 transpileModule('utils/macroEngine.ts');
 transpileModule('hooks/useGame/tavernRegexProcessor.ts');

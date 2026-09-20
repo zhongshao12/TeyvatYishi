@@ -1,0 +1,288 @@
+scripts/*.mjs total: 208
+scripts/*-regression.mjs: 176
+EXTRA manifest entries: 3
+scripts run by test:all: 179
+
+=== ALL scripts/*.mjs NOT in the test:all suite (dead/orphan scripts) ===
+count: 29
+      3.2 KB  builtin-tavern-preset-surface-audit.mjs
+      1.9 KB  bundle-size-report.mjs
+      0.4 KB  check-node-version.mjs
+      5.2 KB  desktop-code-signing-decision.mjs
+      4.3 KB  desktop-github-release-notes.mjs
+      3.6 KB  desktop-github-upload-commands.mjs
+      5.6 KB  desktop-install-update-drill.mjs
+      2.2 KB  desktop-preflight.mjs
+     15.4 KB  desktop-readiness.mjs
+     15.1 KB  desktop-release-gates.mjs
+      2.3 KB  desktop-release-rules.mjs
+      2.2 KB  desktop-sign-updater.mjs
+      2.6 KB  desktop-stage-release.mjs
+     17.0 KB  desktop-storage-audit.mjs
+      9.0 KB  desktop-storage-strategy.mjs
+      1.7 KB  desktop-update-manifest.mjs
+      3.3 KB  desktop-verify-online-update.mjs
+      2.7 KB  desktop-verify-release-gates.mjs
+      4.0 KB  desktop-verify-release.mjs
+      1.6 KB  optimize-teyvat-avatar.mjs
+      1.1 KB  run-all-regressions.mjs
+      2.3 KB  run-prompt-regressions.mjs
+      3.1 KB  sync-teyvat-avatar-manifest.mjs
+      2.6 KB  teyvat-avatar-audit.mjs
+      2.0 KB  teyvat-avatar-contact-sheet.mjs
+      6.4 KB  teyvat-avatar-registry-sync.mjs
+      3.4 KB  teyvat-avatar-roster.mjs
+     11.3 KB  zhiku-project-language-audit.mjs
+      5.3 KB  zhiku-stage2-legacy-save-acceptance.mjs
+
+=== REGRESSION SCRIPT STYLE CENSUS (suite of 179) ===
+  usesReadFileSync       150  (84%)
+  usesImportTs             2  (1%)
+  usesAssertLib           43  (24%)
+  usesSpawn                3  (2%)
+  handRolledThrow        113  (63%)
+  stringMatchAssert      151  (84%)
+  regexAssert             46  (26%)
+  includesAssert         137  (77%)
+  functionalAssert        12  (7%)
+
+=== scripts that import a .ts module directly (behavioural) ===
+  background-stream-regression.mjs
+  cloud-backup-merge-regression.mjs
+  cloud-backup-package-regression.mjs
+  github-request-regression.mjs
+  memory-compression-threshold-regression.mjs
+  novelai-prompt-compiler-regression.mjs
+  save-catalog-behavior-regression.mjs
+  save-retention-behavior-regression.mjs
+  story-snapshot-pipeline-regression.mjs
+  teyvat-migration-failure-drill-regression.mjs
+  teyvat-six-opening-smoke-regression.mjs
+  zhiku-character-display-name-regression.mjs
+
+=== scripts that DO NOT import any .ts module (source-text only) ===
+  count: 167
+  action-options-cleanup-regression.mjs
+  adventurer-journal-layout-regression.mjs
+  affinity-gender-neutral-regression.mjs
+  affinity-intimacy-nsfw-regression.mjs
+  album-archive-content-dedup-regression.mjs
+  album-blob-runtime-regression.mjs
+  album-cache-lifecycle-regression.mjs
+  album-lazy-load-regression.mjs
+  album-operation-performance-regression.mjs
+  api-error-reports-regression.mjs
+  api-profile-regression.mjs
+  background-task-mode-regression.mjs
+  baidu-qianfan-regression.mjs
+  builtin-avatar-regression.mjs
+  builtin-presets-v2-regression.mjs
+  builtin-shuangrenchenghang-format-guard-regression.mjs
+  builtin-tavern-v2-message-chain-regression.mjs
+  bundle-size-regression.mjs
+  chat-history-turn-window-regression.mjs
+  chat-input-newline-regression.mjs
+  chat-scroll-smoothness-regression.mjs
+  claude-compatible-regression.mjs
+  cloud-backup-builder-regression.mjs
+  cloud-backup-transfer-regression.mjs
+  command-palette-regression.mjs
+  context-composition-regression.mjs
+  courier-memory-seed-regression.mjs
+  crash-guard-regression.mjs
+  crash-memory-regression.mjs
+  deepseek-format-stability-regression.mjs
+  deepseek-recovery-regression.mjs
+  desktop-edition-regression.mjs
+  desktop-sign-password-regression.mjs
+  desktop-storage-migration-safety-regression.mjs
+  equipment-retirement-regression.mjs
+  export-service-regression.mjs
+  extra-features-regression.mjs
+  gemini-connection-regression.mjs
+  github-cloud-save-regression.mjs
+  home-entry-preload-regression.mjs
+  idle-panel-preload-regression.mjs
+  image-generation-optimization-regression.mjs
+  image-queue-cancel-regression.mjs
+  image-queue-crash-recovery-regression.mjs
+  image-queue-runner-regression.mjs
+  image-rule-editor-regression.mjs
+  image-task-feed-regression.mjs
+  image-tokenizer-api-regression.mjs
+  independent-system-prompt-scope-regression.mjs
+  inventory-variable-regression.mjs
+  irminsul-archive-regression.mjs
+  keyboard-shortcuts-regression.mjs
+  long-session-oom-regression.mjs
+  main-injection-window-regression.mjs
+  memory-failure-draft-regression.mjs
+  memory-panel-mobile-regression.mjs
+  memory-rebuild-regression.mjs
+  memory-tier-regression.mjs
+  message-windowing-regression.mjs
+  mimo-api-adaptation-regression.mjs
+  model-quick-switch-regression.mjs
+  notifications-regression.mjs
+  novelai-image-regression.mjs
+  npc-archive-enrichment-regression.mjs
+  npc-consistency-assist-regression.mjs
+  npc-memory-continuity-regression.mjs
+  npc-profile-ledger-regression.mjs
+  nsfw-archive-completion-regression.mjs
+  nsfw-archive-regression.mjs
+  opencode-api-adaptation-regression.mjs
+  opening-preset-regression.mjs
+  opening-story-alignment-regression.mjs
+  opening-template-library-regression.mjs
+  phone-avatar-fallback-regression.mjs
+  phone-group-enhancements-regression.mjs
+  phone-group-full-workflow-regression.mjs
+  phone-knowledge-boundary-regression.mjs
+  phone-main-continuity-regression.mjs
+  phone-mobile-layout-regression.mjs
+  phone-persona-memory-regression.mjs
+  phone-reply-quality-regression.mjs
+  phone-scheduled-seed-regression.mjs
+  pioneer-api-regression.mjs
+  player-speech-control-regression.mjs
+  player-speech-guard-regression.mjs
+  power-system-worldbook-regression.mjs
+  presence-regression.mjs
+  prompt-context-regression.mjs
+  prompt-image-data-sanitizer-regression.mjs
+  quest-prompt-parsing-regression.mjs
+  quest-save-regression.mjs
+  quest-state-machine-regression.mjs
+  queue-task-retry-regression.mjs
+  reference-image-injection-control-regression.mjs
+  region-asset-provenance-regression.mjs
+  regression-runner-diagnostics-regression.mjs
+  relationship-graph-regression.mjs
+  release-announcements-regression.mjs
+  reroll-regression.mjs
+  reroll-snapshot-isolation-regression.mjs
+  response-parser-surface-cleanup-regression.mjs
+  response-truncation-regression.mjs
+  resume-prompt-regression.mjs
+  rewrite-service-regression.mjs
+  save-asset-store-regression.mjs
+  save-delete-regression.mjs
+  save-delta-regression.mjs
+  save-image-compaction-regression.mjs
+  save-isolation-regression.mjs
+  save-load-atomicity-regression.mjs
+  save-migration-ui-regression.mjs
+  save-package-regression.mjs
+  save-performance-regression.mjs
+  save-tree-regression.mjs
+  save-tree-ui-regression.mjs
+  save-tree-visualization-regression.mjs
+  settings-navigation-icons-regression.mjs
+  settings-save-regression.mjs
+  skill-system-regression.mjs
+  st-preset-import-regression.mjs
+  st-preset-import-runtime-regression.mjs
+  st-preset-integration-regression.mjs
+  st-preset-migration-regression.mjs
+  st-v2-send-workflow-guard-regression.mjs
+  st-v2-ui-edit-export-regression.mjs
+  steambird-update-regression.mjs
+  story-bookmark-regression.mjs
+  story-mode-worldbook-injection-regression.mjs
+  story-weaving-conflict-detection-regression.mjs
+  story-weaving-memory-regression.mjs
+  story-weaving-persistence-behavior-regression.mjs
+  story-weaving-regression.mjs
+  story-weaving-ui-regression.mjs
+  tavern-message-chain-regression.mjs
+  tavern-regex-processor-regression.mjs
+  test-entry-coverage-regression.mjs
+  teyvat-avatar-manifest-regression.mjs
+  timeline-view-regression.mjs
+  token-usage-regression.mjs
+  traveler-profile-guard-regression.mjs
+  traveler-template-regression.mjs
+  turn-usage-regression.mjs
+  variable-editor-stability-regression.mjs
+  version-consistency-regression.mjs
+  visual-text-settings-regression.mjs
+  volcengine-ark-api-regression.mjs
+  weather-atmosphere-regression.mjs
+  workflow-recovery-phase-regression.mjs
+  workflow-recovery-regression.mjs
+  workflow-recovery-resume-regression.mjs
+  zhiku-character-rebuild-regression.mjs
+  zhiku-custom-data-governance-regression.mjs
+  zhiku-design-lab-regression.mjs
+  zhiku-knowledge-migration-regression.mjs
+  zhiku-main-story-removal-regression.mjs
+  zhiku-multiform-character-regression.mjs
+  zhiku-official-backlog-expansion-regression.mjs
+  zhiku-official-language-audit-regression.mjs
+  zhiku-production-data-adapter-regression.mjs
+  zhiku-stage2-data-contract-regression.mjs
+  zhiku-stage3-ai-retrieval-index-regression.mjs
+  zhiku-stage3-keyword-recall-regression.mjs
+  zhiku-stage3-retrieval-mode-regression.mjs
+  zhiku-stage4-injection-content-regression.mjs
+  npc-ledger-variable-facts-behavior.mjs
+  teyvat-runtime-language-audit.mjs
+  validate-story-weaving-canon.mjs
+
+=== BUNDLE SIZE GATE ANALYSIS ===
+baseline.maxChunkBytes = 3024301 (2.88 MB)
+baseline.maxChunkName  = assets/chunk-st-presets-DMlFZxWT.js
+baseline.totalJsBytes  = 5463614 (5.21 MB)
+baseline.indexBytes    = 194447 (189.9 KB)
+baseline.at            = 2026-09-02T05:00:49.746Z
+
+derived caps: index<300.0KB  maxChunk<3396.4KB  totalJs<6135.9KB
+
+NOTE: baseline references 'assets/chunk-st-presets-DMlFZxWT.js'
+grep for that chunk name in source/config found no producer (manualChunks has no st-presets rule) ->
+  the referenced 3.02MB chunk is NOT produced by the current vite.config.ts manualChunks.
+
+In the CURRENT config, all app modules (services/ hooks/ models/) go into ONE chunk-app.
+Current baseline top-2: maxChunk 3.02MB (stale) + chunk-app 1.13MB.
+If the stale 3.02MB chunk no longer exists, the real max chunk is chunk-app ~1.13MB,
+so the gate would compute maxChunkBytes ~1.13MB < capMaxChunk 3.47MB -> PASSES but is vacuous.
+Conversely indexBytes cap is 300KB vs baseline index 194KB -> still enforceable.
+
+=== UNIT TEST INVENTORY ===
+tests/unit/*.test.ts : 32
+all files under tests/ : 34
+      0.2 KB  tests\fixtures\saves\legacy-hsr-save.json
+      0.5 KB  tests\fixtures\saves\partial-teyvat-save.json
+      9.0 KB  tests\unit\canonDeviationService.test.ts
+     12.2 KB  tests\unit\elementalAttunementService.test.ts
+      5.3 KB  tests\unit\elementalGauge.test.ts
+      3.7 KB  tests\unit\imageTaskQueue.test.ts
+      5.4 KB  tests\unit\legacySaveMigration.test.ts
+      4.6 KB  tests\unit\legacyWorldCompat.test.ts
+      3.2 KB  tests\unit\longSessionRetention.test.ts
+      2.1 KB  tests\unit\modalFocusBehavior.test.ts
+      9.9 KB  tests\unit\narrativeTurnParser.test.ts
+      5.2 KB  tests\unit\postSettlementRecovery.test.ts
+      2.3 KB  tests\unit\providerRouting.test.ts
+     15.8 KB  tests\unit\questService.test.ts
+      1.1 KB  tests\unit\regionVisuals.test.ts
+      3.0 KB  tests\unit\saveLoadWorkflowBaseGame.test.ts
+     10.7 KB  tests\unit\storyWeavingConflict.test.ts
+      1.5 KB  tests\unit\teyvatCharacterAvatarIntegration.test.ts
+      0.6 KB  tests\unit\teyvatElements.test.ts
+     39.7 KB  tests\unit\teyvatExtensionSystems.test.ts
+     14.1 KB  tests\unit\teyvatInventory.test.ts
+     10.9 KB  tests\unit\teyvatPromptContract.test.ts
+     30.5 KB  tests\unit\teyvatRuntimeReducer.test.ts
+     16.0 KB  tests\unit\teyvatSaveContract.test.ts
+      0.7 KB  tests\unit\teyvatState.test.ts
+      7.6 KB  tests\unit\teyvatSubsystemPrompt.test.ts
+     23.0 KB  tests\unit\teyvatTurnTransaction.test.ts
+      2.0 KB  tests\unit\tokenUsageStats.test.ts
+      3.1 KB  tests\unit\turnDiagnostics.test.ts
+      3.4 KB  tests\unit\userReportedTimeProgressionRound4.test.ts
+     12.3 KB  tests\unit\userReportedWorkflowFixes.test.ts
+      8.8 KB  tests\unit\userReportedWorkflowFixesRound2.test.ts
+      9.2 KB  tests\unit\userReportedWorkflowFixesRound3.test.ts
+     20.6 KB  tests\unit\workflowRecoveryModel.test.ts

@@ -9,6 +9,7 @@ import {
 import type { ParsedSavePackage, TeyvatSaveManifest } from '@/models/teyvat/save';
 import { compactDuplicatedSaveImages } from '@/utils/saveImageCompactor';
 import { expandSaveAssetPayloadForExport } from '@/utils/saveAssetStorage';
+import { concatBytes, crc32 } from '@/utils/zip';
 
 const PACKAGE_VERSION = 2;
 const encoder = new TextEncoder();
@@ -91,8 +92,10 @@ export async function buildSaveTreePackage(saves: Array<存档数据 | TeyvatSav
   const normalized = expandedSaves
     .map((save) => sanitizeTeyvatSaveForExport(save as unknown as TeyvatSaveData))
     .sort((a, b) => readSaveTimestamp(a) - readSaveTimestamp(b) || readSaveId(a) - readSaveId(b));
-  const rootId = getSaveTreeRootId(normalized[0]) || `tree-${Date.now()}`;
+  const first = normalized[0];
   const latest = [...normalized].sort((a, b) => readSaveTimestamp(b) - readSaveTimestamp(a))[0];
+  if (!first || !latest) throw new Error('没有可导出的有效存档树节点');
+  const rootId = getSaveTreeRootId(first) || `tree-${Date.now()}`;
   const nodeEntries = normalized.map((save, index) => {
     const tree = getSaveTreeMetaLoose(save);
     const id = readSaveId(save) || index + 1;
@@ -549,39 +552,4 @@ function dosDateTime(date: Date): { time: number; date: number } {
     time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
     date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
   };
-}
-
-function concatBytes(parts: Uint8Array[]): Uint8Array {
-  const total = parts.reduce((sum, part) => sum + part.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
-}
-
-let crcTable: Uint32Array | null = null;
-
-function crc32(bytes: Uint8Array): number {
-  const table = crcTable ?? buildCrcTable();
-  crcTable = table;
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function buildCrcTable(): Uint32Array {
-  const table = new Uint32Array(256);
-  for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let k = 0; k < 8; k++) {
-      c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
-    }
-    table[i] = c >>> 0;
-  }
-  return table;
 }

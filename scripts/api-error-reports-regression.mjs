@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -9,7 +10,9 @@ const tab = fs.readFileSync('components/features/Settings/ApiErrorReportsTab.tsx
 const modal = fs.readFileSync('components/features/Settings/SettingsModal.tsx', 'utf8');
 const client = fs.readFileSync('services/ai/chatCompletionClient.ts', 'utf8');
 const apiTools = fs.readFileSync('services/ai/apiTools.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+// 迁移: 主剧情工作流读取改走 readWorkflowSources()（WORKFLOW_FILES 登记文件的拼接视图）。
+// 理由: 这些断言保护的是行为，不是文件位置；阶段模块拆分后代码一搬走就不再假红。
+const sendWorkflow = readWorkflowSources();
 
 assert(service.includes("API_ERROR_REPORTS_KEY = 'apiErrorReports'"), 'API 错误报告必须有独立本地 settings key。');
 assert(service.includes('appendApiErrorReport'), '必须提供 API 错误报告写入函数。');

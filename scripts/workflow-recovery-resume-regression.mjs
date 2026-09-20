@@ -1,9 +1,11 @@
 import fs from 'node:fs';
+import { readWorkflowSources, assertSpanWithinSingleFile } from './lib/workflowSources.mjs';
 function assert(condition, message) { if (!condition) throw new Error(message); }
 const resume = fs.readFileSync('hooks/useGame/recoveryResume.ts', 'utf8');
 const banner = fs.readFileSync('components/layout/RecoveryBanner.tsx', 'utf8');
 const app = fs.readFileSync('App.tsx', 'utf8');
-const send = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+// 迁移: 主剧情工作流已拆分为多阶段模块，改按登记表整体读取（只换读取源，断言语义不变）。
+const send = readWorkflowSources();
 const model = fs.readFileSync('utils/workflowRecoveryModel.ts', 'utf8');
 const service = fs.readFileSync('services/workflowRecovery.ts', 'utf8');
 assert(resume.includes('canAutoResume'), 'recoveryResume must expose canAutoResume.');
@@ -37,5 +39,8 @@ assert(!send.includes("console.error('[quest] post-commit archive failed"), 'liv
 const liveCommit = send.indexOf('const committedSettlementGame = variableOverrides.committedGame');
 const localCommittedPhase = send.indexOf("phase: 'settlement_committed'", liveCommit);
 const abortCheckpoint = send.indexOf('assertWorkflowActive();', liveCommit);
+// 顺序断言跑在拼接视图上：显式声明这三个标记必须落在同一个文件区间内，
+// 否则「先后关系」可能被跨文件的偶然匹配伪造出来。
+assertSpanWithinSingleFile(liveCommit, abortCheckpoint);
 assert(liveCommit >= 0 && localCommittedPhase > liveCommit && abortCheckpoint > localCommittedPhase,
   'local recovery phase must advance immediately after root commit and before any abort checkpoint.');

@@ -15,9 +15,17 @@ export {
 
 export const WORKFLOW_RECOVERY_KEY = 'activeWorkflowRecoveryV1';
 
-export async function loadWorkflowRecoveryJournal(): Promise<WorkflowRecoveryJournal | null> {
+export async function loadWorkflowRecoveryJournal(
+  read: (key: string) => Promise<unknown> = loadSetting,
+  remove: (key: string) => Promise<void> = deleteSetting,
+): Promise<WorkflowRecoveryJournal | null> {
   try {
-    return parseWorkflowRecoveryJournal(await loadSetting<unknown>(WORKFLOW_RECOVERY_KEY));
+    const stored = await read(WORKFLOW_RECOVERY_KEY);
+    const journal = parseWorkflowRecoveryJournal(stored);
+    if (stored !== null && stored !== undefined && !journal) {
+      await remove(WORKFLOW_RECOVERY_KEY);
+    }
+    return journal;
   } catch (error) {
     console.warn('[workflow-recovery] failed to load journal', error);
     return null;

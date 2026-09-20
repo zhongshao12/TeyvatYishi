@@ -1,3 +1,4 @@
+import { CLIP_XS } from '@/styles/clipPaths';
 import type { 文生图API配置, 文生图参考图设置 } from '@/models/settings';
 import { cardClip, heroGridBackgroundStyle, heroSurface, smallClip } from './foundation';
 import { backendLabel, referenceBackendCapability } from './referenceInjection';
@@ -57,7 +58,7 @@ export function ReferenceInjectionWorkspace({ settings, normalApi, nsfwApi, onEn
               style={{
                 left: settings.enabled ? '25px' : '4px',
                 background: settings.enabled ? 'rgb(var(--tj-arcane-accent))' : 'rgba(var(--tj-ui-muted),0.72)',
-                clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+                clipPath: CLIP_XS,
               }}
             />
           </button>
@@ -93,7 +94,7 @@ export function ReferenceInjectionWorkspace({ settings, normalApi, nsfwApi, onEn
               style={{
                 left: settings.enableOpenAICompatibleReference ? '25px' : '4px',
                 background: settings.enableOpenAICompatibleReference ? 'rgb(var(--tj-arcane-accent))' : 'rgba(var(--tj-ui-muted),0.72)',
-                clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+                clipPath: CLIP_XS,
               }}
             />
           </button>

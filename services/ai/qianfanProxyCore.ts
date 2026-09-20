@@ -1,3 +1,10 @@
+import {
+  createProxyErrorResponse,
+  createProxyHeaders as proxyHeaders,
+  forwardProxyResponse,
+  readProxyText as readText,
+} from './upstreamProxy';
+
 type QianfanProxyBody = {
   baseUrl?: string;
   apiKey?: string;
@@ -11,10 +18,6 @@ type QianfanAttempt = {
   status: number;
   errorCode?: string;
 };
-
-function readText(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function buildQianfanChatUrl(baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/, '');
@@ -44,16 +47,6 @@ function buildQianfanModelsUrl(baseUrl: string): string {
   }
   const root = base.replace(/\/v[12](?:\/.*)?$/i, '');
   return `${root}/v2/models`;
-}
-
-function proxyHeaders(upstream?: Response): Headers {
-  const headers = new Headers();
-  headers.set('access-control-allow-origin', '*');
-  headers.set('access-control-allow-methods', 'GET,POST,OPTIONS');
-  headers.set('access-control-allow-headers', 'content-type');
-  headers.set('cache-control', 'no-store');
-  headers.set('content-type', upstream?.headers.get('content-type') || 'application/json; charset=utf-8');
-  return headers;
 }
 
 function buildQianfanChatPayloadVariants(body: unknown): unknown[] {
@@ -111,12 +104,9 @@ export async function handleQianfanProxyRequest(request: Request): Promise<Respo
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
         },
+        signal: request.signal,
       });
-      return new Response(upstream.body, {
-        status: upstream.status,
-        statusText: upstream.statusText,
-        headers: proxyHeaders(upstream),
-      });
+      return forwardProxyResponse(upstream);
     }
 
     const urls = [upstreamUrl, ...buildQianfanFallbackChatUrls(baseUrl)];
@@ -132,6 +122,7 @@ export async function handleQianfanProxyRequest(request: Request): Promise<Respo
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify(candidateBody ?? {}),
+          signal: request.signal,
         });
         attempts.push({
           url: candidateUrl,
@@ -151,6 +142,7 @@ export async function handleQianfanProxyRequest(request: Request): Promise<Respo
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(payload.body ?? {}),
+        signal: request.signal,
       });
       attempts.push({
         url: upstreamUrl,
@@ -173,6 +165,7 @@ export async function handleQianfanProxyRequest(request: Request): Promise<Respo
               Authorization: `Bearer ${apiKey}`,
             },
             body: JSON.stringify(candidateBody ?? {}),
+            signal: request.signal,
           });
           attempts.push({
             url: codingUrl,
@@ -194,17 +187,8 @@ export async function handleQianfanProxyRequest(request: Request): Promise<Respo
         headers: proxyHeaders(),
       });
     }
-    return new Response(upstream.body, {
-      status: upstream.status,
-      statusText: upstream.statusText,
-      headers: proxyHeaders(upstream),
-    });
+    return forwardProxyResponse(upstream);
   } catch (error) {
-    return new Response(JSON.stringify({
-      error: error instanceof Error ? error.message : String(error),
-    }), {
-      status: 502,
-      headers: proxyHeaders(),
-    });
+    return createProxyErrorResponse(error, 502);
   }
 }

@@ -14,10 +14,6 @@ export const DEFAULT_NOTIFICATION_SETTINGS: 通知设置 = {
 
 export type 通知事件类型 = keyof 通知设置["events"];
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 export function 归一化通知设置(input: unknown): 通知设置 {
   const raw = isRecord(input) ? input : {};
   const events = isRecord(raw.events) ? raw.events : {};
@@ -92,3 +88,4 @@ export function notifyEvent(
     }
   });
 }
+import { isRecord } from '@/utils/valueGuards';

@@ -12,7 +12,7 @@ export interface DesktopReleaseInfo {
   latestVersion?: string;
 }
 
-const DEFAULT_UPDATE_ENDPOINT = 'https://github.com/LingYuYue1/KaiTuoYiShi/releases/latest/download/latest.json';
+const DEFAULT_UPDATE_ENDPOINT = 'https://github.com/zhongshao12/TeyvatYishi/releases/latest/download/latest.json';
 
 export function buildDesktopReleaseInfo(
   appInfo: DesktopAppInfo | null,

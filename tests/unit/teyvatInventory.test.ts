@@ -176,7 +176,7 @@ describe('immutable inventory actions', () => {
     expect(next.items).toEqual([{ ...existing, quantity: 5 }]);
     expect(next.mora).toBe(1200);
     expect(next.items[0]).not.toBe(existing);
-    expect(inventory.items[0].quantity).toBe(2);
+    expect(inventory.items[0]!.quantity).toBe(2);
     expect(incoming.quantity).toBe(3);
   });
 
@@ -242,7 +242,7 @@ describe('formal inventory variable root', () => {
 
     expect(validateCommand(command, { 背包: inventory }).allowed).toBe(false);
     const reduced = reduceVariableCommands([command], { 背包: inventory } as never);
-    expect(reduced.results[0].ok).toBe(false);
+    expect(reduced.results[0]!.ok).toBe(false);
     expect(reduced.nextState.背包).toEqual(inventory);
   });
 
@@ -251,13 +251,13 @@ describe('formal inventory variable root', () => {
     const exact = reduceVariableCommands([
       { action: 'sub', key: '背包.items[id=food-egg-1].quantity', value: 1 },
     ], { 背包: inventory } as never);
-    expect(exact.results[0].ok).toBe(true);
-    expect((exact.nextState.背包 as itemModel.TeyvatInventory).items[0].quantity).toBe(1);
+    expect(exact.results[0]!.ok).toBe(true);
+    expect((exact.nextState.背包 as itemModel.TeyvatInventory).items[0]!.quantity).toBe(1);
 
     const underflow = reduceVariableCommands([
       { action: 'sub', key: '背包.items[id=food-egg-1].quantity', value: 3 },
     ], { 背包: inventory } as never);
-    expect(underflow.results[0].ok).toBe(false);
+    expect(underflow.results[0]!.ok).toBe(false);
     expect(underflow.nextState.背包).toEqual(inventory);
   });
 });

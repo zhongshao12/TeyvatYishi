@@ -42,10 +42,6 @@ export function createEmptyTeyvatMapState(): TeyvatMapState {
   return { unlockedStatues: ['mondstadt'], lastTeleportTurn: 0 };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 export function normalizeTeyvatMapState(value: unknown): TeyvatMapState {
   const raw = isRecord(value) ? value : {};
   const unlocked = Array.isArray(raw.unlockedStatues)
@@ -74,3 +70,4 @@ export function canTeleportTo(map: TeyvatMapState, regionId: RegionId): boolean 
 export function markTeleport(map: TeyvatMapState, turn: number): TeyvatMapState {
   return { ...map, lastTeleportTurn: Math.max(0, Math.trunc(turn)) };
 }
+import { isRecord } from '@/utils/valueGuards';

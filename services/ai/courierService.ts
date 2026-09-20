@@ -2,7 +2,7 @@ import type { NPC关系阶段, NPC记录 } from '@/models/npc';
 import { buildNpcMemoryLedgerView, 创建NPC记录, 格式化NPC关系, 获取NPC关系阶段, 获取NPC兼容关系, 读取NPC头像, 限制NPC好感度 } from '@/models/npc';
 import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { matchCanonical } from '@/data/canonicalCharacters';
-import { normalizeCourierSystem, type CourierContact, type CourierConversation, type CourierDeliverySeed, type CourierMessage, type CourierSystem } from '@/models/teyvat/courier';
+import { normalizeCourierConversation, normalizeCourierSystem, type CourierContact, type CourierConversation, type CourierDeliverySeed, type CourierMessage, type CourierSystem } from '@/models/teyvat/courier';
 import type { 提示词模块 } from '@/models/prompts';
 import { buildIndependentPromptModulesSection } from '@/services/promptModuleScopes';
 
@@ -19,13 +19,89 @@ export function calculateCourierUnread(system: Pick<CourierSystem, 'conversation
 export function appendCourierMessage(system: CourierSystem, conversationId: string, message: CourierMessage): CourierSystem {
   const conversations = system.conversations.map((conversation) => conversation.id !== conversationId
     ? conversation
-    : {
-      ...conversation,
-      messages: [...conversation.messages, { ...message, readBy: [...message.readBy] }],
-      unread: conversation.unread + 1,
-      updatedAt: message.timestamp,
-    });
+    : conversation.messages.some((existing) => existing.id === message.id)
+      ? conversation
+      : {
+          ...conversation,
+          messages: [...conversation.messages, { ...message, readBy: [...message.readBy] }],
+          unread: conversation.unread + 1,
+          updatedAt: Math.max(conversation.updatedAt, message.timestamp),
+        });
   return { ...system, conversations, unreadTotal: calculateCourierUnread({ conversations, deliverySeeds: system.deliverySeeds }) };
+}
+
+const courierReplyInFlight = new Set<string>();
+
+/** Prevent the immediate UI path and the post-turn background path from replying to the same snapshot. */
+export function beginCourierReply(conversationId: string): boolean {
+  if (!conversationId || courierReplyInFlight.has(conversationId)) return false;
+  courierReplyInFlight.add(conversationId);
+  return true;
+}
+
+export function endCourierReply(conversationId: string): void {
+  courierReplyInFlight.delete(conversationId);
+}
+
+export function isCourierReplyInFlight(conversationId: string): boolean {
+  return courierReplyInFlight.has(conversationId);
+}
+
+/**
+ * Apply a task result to the newest phone state. The task's input snapshot is
+ * used only to compute unread deltas; live messages, typing state and user UI
+ * edits are never replaced by a stale object graph.
+ */
+export function mergeCourierSystemUpdates(
+  current: CourierSystem,
+  taskBase: CourierSystem,
+  taskResult: CourierSystem,
+): CourierSystem {
+  const baseById = new Map(taskBase.conversations.map((conversation) => [conversation.id, conversation]));
+  const currentById = new Map(current.conversations.map((conversation) => [conversation.id, conversation]));
+  const resultById = new Map(taskResult.conversations.map((conversation) => [conversation.id, conversation]));
+  const conversationIds = Array.from(new Set([
+    ...current.conversations.map((conversation) => conversation.id),
+    ...taskResult.conversations.map((conversation) => conversation.id),
+  ]));
+  const conversations = conversationIds.flatMap((id) => {
+    const live = currentById.get(id);
+    const result = resultById.get(id);
+    if (!live) return result ? [{ ...result, messages: result.messages.map((message) => ({ ...message, readBy: [...message.readBy] })) }] : [];
+    if (!result) return [live];
+    const messageIds = new Set(live.messages.map((message) => message.id));
+    const appended = result.messages
+      .filter((message) => !messageIds.has(message.id))
+      .map((message) => ({ ...message, readBy: [...message.readBy] }));
+    const baseUnread = baseById.get(id)?.unread ?? 0;
+    const unreadDelta = Math.max(0, result.unread - baseUnread);
+    return [{
+      ...live,
+      messages: [...live.messages, ...appended],
+      unread: live.unread + unreadDelta,
+      updatedAt: Math.max(live.updatedAt, result.updatedAt),
+    }];
+  });
+
+  const mergeById = <T extends { id: string }>(live: readonly T[], result: readonly T[]): T[] => {
+    const map = new Map(result.map((item) => [item.id, item]));
+    for (const item of live) map.set(item.id, item);
+    return Array.from(map.values());
+  };
+  const resultSeeds = new Map(taskResult.deliverySeeds.map((seed) => [seed.id, seed]));
+  for (const seed of current.deliverySeeds) {
+    if (!resultSeeds.has(seed.id)) resultSeeds.set(seed.id, seed);
+  }
+  const contacts = normalizeCourierSystem({ contacts: [...current.contacts, ...taskResult.contacts] }).contacts;
+  const deliverySeeds = Array.from(resultSeeds.values());
+  const merged = {
+    ...current,
+    contacts,
+    letters: mergeById(current.letters, taskResult.letters),
+    conversations,
+    deliverySeeds,
+  };
+  return { ...merged, unreadTotal: calculateCourierUnread(merged) };
 }
 
 /** 玩家维护群聊的唯一服务入口：始终保留玩家，并过滤不存在、重复的联系人。 */
@@ -47,6 +123,25 @@ export function updateCourierGroupConversation(
     };
   });
   return { ...system, conversations, unreadTotal: calculateCourierUnread({ conversations, deliverySeeds: system.deliverySeeds }) };
+}
+
+/** 解散玩家创建的群聊；联系人和其他会话保持不变。 */
+export function dissolveCourierGroupConversation(
+  system: CourierSystem,
+  conversationId: string,
+  requesterId = 'player',
+): CourierSystem {
+  const target = system.conversations.find((conversation) => conversation.id === conversationId);
+  if (!target || target.type !== 'group') return system;
+  if (target.creatorId && target.creatorId !== requesterId) return system;
+  const conversations = system.conversations.filter((conversation) => conversation.id !== conversationId);
+  const deliverySeeds = system.deliverySeeds.filter((seed) => seed.targetId !== conversationId);
+  return {
+    ...system,
+    conversations,
+    deliverySeeds,
+    unreadTotal: calculateCourierUnread({ conversations, deliverySeeds }),
+  };
 }
 
 /** 只有已经与玩家建立可证明关系的角色，才允许从同伴档案手动加入手机。 */
@@ -341,7 +436,9 @@ function hashText(value: string): number {
 }
 
 function pick<T>(items: readonly T[], seedText: string): T {
-  return items[hashText(seedText) % items.length];
+  const item = items[hashText(seedText) % items.length];
+  if (item === undefined) throw new Error('手机消息模板列表不能为空。');
+  return item;
 }
 
 // ── 关系阶段化称呼与落款 ─────────────────────────────────────
@@ -471,13 +568,18 @@ export interface CourierReplyCandidate {
 }
 
 /** 找出需要回信的会话：最后一条是玩家发送、非系统会话，且存在可回信的联系人。 */
-export function findCourierReplyCandidates(system: CourierSystem, maxPerTurn = 2): CourierReplyCandidate[] {
+export function findCourierReplyCandidates(
+  system: CourierSystem,
+  maxPerTurn = 2,
+  includeInFlightIds: ReadonlySet<string> = new Set(),
+): CourierReplyCandidate[] {
   const limit = Math.max(1, Math.trunc(maxPerTurn) || 1);
   const candidates: CourierReplyCandidate[] = [];
   const byRecent = [...system.conversations].sort((a, b) => b.updatedAt - a.updatedAt);
   for (const conversation of byRecent) {
     if (candidates.length >= limit) break;
     if (conversation.type === 'system') continue;
+    if (courierReplyInFlight.has(conversation.id) && !includeInFlightIds.has(conversation.id)) continue;
     const last = conversation.messages.at(-1);
     if (!last || last.senderId !== 'player' || !last.content.trim()) continue;
     const lastContactMessage = [...conversation.messages].reverse().find((message) => message.senderId !== 'player');
@@ -548,10 +650,13 @@ export function composeCourierReplyLocally(context: CourierReplyContext): string
 }
 
 // ── 群聊：多人跟帖回信 ───────────────────────────────────────
-// 群会话里不再只有一个人回应：按稳定伪随机挑选若干成员跟帖，至少一人、至多封顶，
-// 每次回帖的成员组合随玩家这条消息变化，让群聊有疏有密、像真实群。
+// 普通群消息与 @全体成员 由全员接话；使用单独 @ 时收束为被点名者与至多两位旁听成员，
+// 旁听成员按消息稳定变化，保证打字指示与最终气泡保持一致。
 
-/** 选出本条玩家消息会跟帖的群成员（确定性伪随机，至少 1 人，至多 maxMembers）。 */
+/**
+ * 选出本条玩家消息会跟帖的群成员：普通消息全员回复；有 @ 时，
+ * 所有被点名者加至多两位按消息稳定选出的未点名成员回复。
+ */
 export function selectGroupReplyMembers(
   conversation: Pick<CourierConversation, 'id' | 'participantIds'>,
   playerMessage: Pick<CourierMessage, 'id'> & Partial<CourierMessage>,
@@ -560,22 +665,18 @@ export function selectGroupReplyMembers(
 ): string[] {
   const members = conversation.participantIds.filter((id) => id !== 'player');
   if (!members.length) return [];
-  const limit = Math.max(1, Math.min(Math.trunc(maxMembers) || 1, members.length));
+  // 保留参数以兼容既有调用；当前产品规则明确要求普通群消息由全员回应。
+  void maxMembers;
   const seedBase = `${conversation.id}:${playerMessage.id}`;
   // 稳定打乱：同一玩家消息得到的成员顺序可复现，便于打字指示与回帖保持一致。
   const ranked = [...members].sort((a, b) => hashText(`${seedBase}:${a}`) - hashText(`${seedBase}:${b}`));
+  if (/[@＠]全体成员(?=\s|$|[，。！？、,.!?])/u.test(playerMessage.content ?? '')) return ranked;
   const mentioned = contacts
     .filter((contact) => members.includes(contact.id) && new RegExp(`[@＠]${contact.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$|[，。！？、,.!?])`, 'u').test(playerMessage.content ?? ''))
-    .map((contact) => contact.id)
-    .slice(0, limit);
-  const selected: string[] = mentioned.length ? [...mentioned] : [ranked[0]];
-  for (const member of ranked.slice(1)) {
-    if (selected.length >= limit) break;
-    if (selected.includes(member)) continue;
-    // 约六成概率跟帖，避免每回都全员齐刷刷发言。
-    if (hashText(`${seedBase}:${member}:join`) % 10 < 6) selected.push(member);
-  }
-  return selected;
+    .map((contact) => contact.id);
+  if (!mentioned.length) return ranked;
+  const bystanders = ranked.filter((memberId) => !mentioned.includes(memberId)).slice(0, 2);
+  return [...mentioned, ...bystanders];
 }
 
 export interface CourierGroupReplyContext {
@@ -595,11 +696,17 @@ const GROUP_REPLY_OPENERS: Record<StageTone, readonly string[]> = {
 };
 
 const GROUP_REPLY_BODIES: readonly string[] = [
-  '「{quote}」这事我记下了，回头跟你细说。',
-  '看到你说的「{quote}」，我也在想这个。',
-  '聊到「{quote}」——算我一个，我也想听听后续。',
-  '「{quote}」？有点意思，{traveler}你展开讲讲。',
-  '你提的「{quote}」，我这边也有些想法，待会儿聊。',
+  '关于「{quote}」，我愿意认真说说自己的想法。',
+  '既然你说到「{quote}」，那也听听大家各自的心意吧。',
+  '「{quote}」——我会按自己的方式回应，也会尊重大家。',
+  '这件事关系到「{quote}」，可不能只用一句玩笑带过呀。',
+  '{traveler}，关于「{quote}」，我想先把自己的态度说清楚。',
+];
+
+const GROUP_RELATIONSHIP_BODIES: readonly string[] = [
+  '突然把关系说得这么直白……我会认真回应，但你也要好好听每个人自己的心意。',
+  '这种称呼可不能替大家一口决定呀。先彼此尊重、把话说开，我再告诉你我的答案。',
+  '想让大家好好相处，光靠一句宣告可不够。你得认真珍惜每个人不同的心意。',
 ];
 
 /**
@@ -611,11 +718,22 @@ export function composeCourierGroupReplyLocally(context: CourierGroupReplyContex
   const seedText = `${context.conversation.id}:${context.playerMessage.id}:${context.sender?.name ?? ''}`;
   const tone = stageToTone(resolveAffinityStage(context.sender?.affinity));
   const opener = pick(GROUP_REPLY_OPENERS[tone], seedText);
-  const quote = context.playerMessage.content.replace(/\s+/g, ' ').trim().slice(0, 20);
-  const body = (quote
-    ? pick(GROUP_REPLY_BODIES, seedText)
-    : '你们聊，我也搭一句。').replace('{quote}', quote).replace('{traveler}', travelerName);
-  return `${opener}${body}`.trim();
+  const playerText = context.playerMessage.content
+    .replace(/[@＠][^\s，。！？、,.!?]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const quote = playerText.slice(0, 20);
+  const relationshipTopic = /老婆|老公|恋人|爱你|喜欢你|在一起|好好相处/u.test(playerText);
+  const body = relationshipTopic
+    ? pick(GROUP_RELATIONSHIP_BODIES, seedText)
+    : (quote ? pick(GROUP_REPLY_BODIES, seedText) : '我在听，也会认真回应大家正在聊的事。');
+  const memoryAnchor = context.sender?.unfinishedBusiness?.[0]
+    || context.sender?.recentInteraction
+    || context.sender?.sharedExperiences?.at(-1);
+  const memoryTail = memoryAnchor
+    ? ` 至于${memoryAnchor.replace(/[。！？!?]+$/u, '')}，我也没有忘。`
+    : '';
+  return `${opener}${body.replace('{quote}', quote).replace('{traveler}', travelerName)}${memoryTail}`.trim();
 }
 
 // ── 手机消息拆条：一句一句话 ─────────────────────────────────
@@ -726,7 +844,9 @@ export function deliverDueCourierSeeds(
   now = Date.now(),
   context: CourierDeliveryContext = {},
 ): ScheduledCourierResult {
-  const normalizedSystem = normalizeCourierSystem(system);
+  // Runtime state is already canonical. Re-normalizing the whole phone here
+  // cloned every message in every conversation before and after one delivery.
+  const normalizedSystem = system;
   const npcByName = new Map<string, NPC记录>();
   for (const npc of context.npcs ?? []) {
     if (npc.姓名 && !npcByName.has(npc.姓名)) npcByName.set(npc.姓名, npc);
@@ -758,9 +878,16 @@ export function deliverDueCourierSeeds(
       contacts = [...contacts, buildContactForSeed(seed, npc, senderName)];
     }
 
-    // 单人单窗口：同一寄件人只投进同一个会话。
-    let conversationIndex = conversations.findIndex((conversation) => conversation.participantIds.includes(senderId));
-    if (conversationIndex < 0) conversationIndex = conversations.findIndex((conversation) => conversation.id === seed.targetId);
+    // 私聊种子只能进入私聊，不能因为寄件人也在某个群里就误投进群聊。
+    // 群聊种子优先使用明确 targetId，再退回到包含寄件人的同类型群。
+    let conversationIndex = seed.targetType === 'group'
+      ? conversations.findIndex((conversation) => conversation.type === 'group' && conversation.id === seed.targetId)
+      : conversations.findIndex((conversation) => conversation.type === 'private' && conversation.participantIds.includes(senderId));
+    if (conversationIndex < 0) {
+      conversationIndex = seed.targetType === 'group'
+        ? conversations.findIndex((conversation) => conversation.type === 'group' && conversation.participantIds.includes(senderId))
+        : conversations.findIndex((conversation) => conversation.type === 'private' && conversation.id === seed.targetId);
+    }
     if (conversationIndex < 0) {
       const participantIds = Array.from(new Set(['player', senderId, ...seed.relatedNpcIds].filter(Boolean)));
       conversations.push({
@@ -801,23 +928,26 @@ export function deliverDueCourierSeeds(
       scheduledAtTurn: dueTurn,
       deliveredAtTurn: currentTurn,
     }));
-    conversations[conversationIndex] = {
+    if (!conversation) continue;
+    const updatedConversation: CourierConversation = {
       ...conversation,
       title: conversation.title || senderName,
       messages: [...conversation.messages, ...deliveredMessages],
       unread: conversation.unread + 1,
       updatedAt: now + Math.max(0, deliveredMessages.length - 1),
     };
+    conversations[conversationIndex] = normalizeCourierConversation(updatedConversation) ?? updatedConversation;
   }
 
+  const next = {
+    ...normalizedSystem,
+    contacts,
+    conversations,
+    deliverySeeds,
+    unreadTotal: calculateCourierUnread({ conversations, deliverySeeds }),
+  };
   return {
-    next: normalizeCourierSystem({
-      ...normalizedSystem,
-      contacts,
-      conversations,
-      deliverySeeds,
-      unreadTotal: calculateCourierUnread({ conversations, deliverySeeds }),
-    }),
+    next,
     due,
   };
 }

@@ -181,7 +181,11 @@ export function 升级自制图鉴系统(system: 图鉴系统 | null | undefined
   return 归一化图鉴系统({
     自制资料契约版本: CODEX_CUSTOM_SCHEMA_VERSION,
     自制资料下一个序号: nextSequence,
-    条目: entries.map((entry) => (entry.builtin ? entry : migrated[customIndex++])),
+    条目: entries.flatMap((entry) => {
+      if (entry.builtin) return [entry];
+      const migratedEntry = migrated[customIndex++];
+      return migratedEntry ? [migratedEntry] : [];
+    }),
   });
 }
 

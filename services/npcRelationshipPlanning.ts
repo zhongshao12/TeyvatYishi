@@ -20,8 +20,11 @@ export interface NPC关系规划快照 {
 
 export function buildNpcRelationshipPlanning(npcs: NPC记录[], turnCount: number): NPC关系规划快照 {
   const entries = npcs
-    .filter((npc) => npc.阶位 === 'companion' || npc.同行 || 提取NPC同行记忆文本列表(npc).length > 0 || npc.好感度 !== 0 || npc.亲密关系)
-    .map((npc) => buildNpcRelationshipEntry(npc, turnCount))
+    .flatMap((npc) => {
+      const memories = 提取NPC同行记忆文本列表(npc);
+      const isRelevant = npc.阶位 === 'companion' || npc.同行 || memories.length > 0 || npc.好感度 !== 0 || npc.亲密关系;
+      return isRelevant ? [buildNpcRelationshipEntry(npc, turnCount, memories)] : [];
+    })
     .sort((a, b) => priorityRank(b.优先级) - priorityRank(a.优先级) || Math.abs(b.好感度) - Math.abs(a.好感度))
     .slice(0, 12);
   return {
@@ -32,8 +35,7 @@ export function buildNpcRelationshipPlanning(npcs: NPC记录[], turnCount: numbe
   };
 }
 
-function buildNpcRelationshipEntry(npc: NPC记录, turnCount: number): NPC关系规划条目 {
-  const memories = 提取NPC同行记忆文本列表(npc);
+function buildNpcRelationshipEntry(npc: NPC记录, turnCount: number, memories: string[]): NPC关系规划条目 {
   const recent = Number(npc.最近回合 || 0) >= Math.max(1, turnCount - 10);
   const hasPromise = memories.some((item) => /约|承诺|答应|欠|等待|再见|联系|冲突|警惕|怀疑|信任/.test(item));
   const needsMemory = recent && memories.length === 0 && (npc.同行 || npc.好感度 !== 0 || npc.亲密关系 || Math.abs(npc.好感度) >= 10);

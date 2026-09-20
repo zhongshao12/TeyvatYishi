@@ -56,8 +56,8 @@ export function parseNumberedRecallLines(rawText: string): Record<string, number
   for (const line of text.split(/\r?\n/)) {
     const match = line.match(/^([^:：]+)[:：]([\s\S]*)$/);
     if (!match) continue;
-    const label = match[1].trim();
-    const numbers = Array.from(match[2].matchAll(/\d+/g))
+    const label = (match[1] ?? '').trim();
+    const numbers = Array.from((match[2] ?? '').matchAll(/\d+/g))
       .map((item) => Number(item[0]))
       .filter((value) => Number.isInteger(value) && value > 0);
     if (numbers.length) output[label] = numbers;

@@ -1,3 +1,4 @@
+import { CLIP_ITEM } from '@/styles/clipPaths';
 import { useState } from 'react';
 import type { RegionId } from '@/models/teyvat/world';
 import { isStatueUnlocked, MAP_REGION_NAMES, type TeyvatMapState } from '@/models/teyvat/map';
@@ -13,7 +14,7 @@ export interface MapPanelProps {
 const gold = 'rgb(var(--tj-accent-primary))';
 const goldSoft = (alpha: number) => `rgba(var(--tj-accent-primary), ${alpha})`;
 const muted = (alpha: number) => `rgba(var(--tj-text-secondary), ${alpha})`;
-const clipSmall = 'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)';
+
 
 /** 七国地图（G2 一期）：以六国背景图作示意地图，七天神像激活后可传送。 */
 export function MapPanel({ map, currentRegion, turnCount, onUnlockStatue, onTeleport }: MapPanelProps) {
@@ -57,7 +58,7 @@ export function MapPanel({ map, currentRegion, turnCount, onUnlockStatue, onTele
               minHeight: 150,
               background: region.background ? `url(${region.background}) center/cover no-repeat` : 'rgba(var(--tj-panel-bg-end),0.6)',
               boxShadow: `inset 0 0 0 1px ${region.current ? goldSoft(0.7) : goldSoft(0.24)}`,
-              clipPath: clipSmall,
+              clipPath: CLIP_ITEM,
             }}
           >
             <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(10,9,7,0.48), rgba(10,9,7,0.88))' }} />
@@ -65,7 +66,7 @@ export function MapPanel({ map, currentRegion, turnCount, onUnlockStatue, onTele
               <div className="flex items-center justify-between gap-2">
                 <h3 className="font-serif text-lg font-bold tracking-[0.14em]" style={{ color: '#fff7df' }}>{region.name}</h3>
                 {region.current && (
-                  <span className="px-2 py-0.5 text-[10px] tracking-[0.14em]" style={{ color: 'rgb(var(--tj-on-accent))', background: goldSoft(0.9), clipPath: clipSmall }}>
+                  <span className="px-2 py-0.5 text-[10px] tracking-[0.14em]" style={{ color: 'rgb(var(--tj-on-accent))', background: goldSoft(0.9), clipPath: CLIP_ITEM }}>
                     当前所在
                   </span>
                 )}
@@ -79,7 +80,7 @@ export function MapPanel({ map, currentRegion, turnCount, onUnlockStatue, onTele
                     type="button"
                     onClick={() => onUnlockStatue(region.regionId)}
                     className="px-3 py-1.5 text-xs tracking-[0.12em]"
-                    style={{ color: '#fff7df', background: 'rgba(10,8,6,0.72)', boxShadow: `inset 0 0 0 1px ${goldSoft(0.72)}`, clipPath: clipSmall, textShadow: 'none' }}
+                    style={{ color: '#fff7df', background: 'rgba(10,8,6,0.72)', boxShadow: `inset 0 0 0 1px ${goldSoft(0.72)}`, clipPath: CLIP_ITEM, textShadow: 'none' }}
                   >
                     标记神像已激活
                   </button>

@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_ITEM } from '@/styles/clipPaths';
 import { useMemo, useState } from 'react';
 import type { 角色数据结构 } from '@/models/character';
 import { 创建空角色 } from '@/models/character';
@@ -36,8 +37,8 @@ const INK = 'var(--journal-ink)';
 const INK_MUTED = 'var(--journal-ink-muted)';
 const PAPER_BORDER = 'rgba(53, 46, 39, 0.16)';
 const goldSoft = (alpha: number) => `rgba(var(--tj-accent-primary), ${alpha})`;
-const clipSmall = 'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)';
-const cardClip = 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
+
+
 
 const STEPS = [
   { id: 1, label: '玩家档案' },
@@ -88,9 +89,7 @@ export function buildNewGameOpeningPayload(input: NewGameOpeningPayloadInput): {
     身份: input.identity?.trim() || openingGame.旅行者.身份,
     背景: input.background?.trim() ?? '',
     主元素: input.element,
-    能力: input.storyMode === 'harem'
-      ? Array.from(new Set([...(base.能力 ?? []), '特殊体质：天相隐魅体 (Hidden Allure)']))
-      : [...(base.能力 ?? [])],
+    能力: [...(base.能力 ?? [])],
     天赋: input.talents
       .filter((talent) => !talent.关联元素 || (input.elements?.length ? input.elements : [input.element]).includes(talent.关联元素))
       .map((talent) => ({ ...talent })),
@@ -226,7 +225,8 @@ export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate }: N
       if (current.includes(nextElement)) {
         if (current.length === 1) return current;
         const next = current.filter((id) => id !== nextElement);
-        if (element === nextElement) setElement(next[0]);
+        const nextPrimary = next[0];
+        if (element === nextElement && nextPrimary) setElement(nextPrimary);
         if (canonicalPresetChoice) setTalents((items) => items.filter((talent) => talent.关联元素 !== nextElement));
         return next;
       }
@@ -263,7 +263,7 @@ export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate }: N
       style={{ background: 'linear-gradient(180deg, var(--journal-leather), var(--journal-leather-deep) 74%)' }}
     >
       <div className="flex items-center justify-between">
-        <button type="button" onClick={onBack} className="px-3 py-1.5 text-xs tracking-[0.12em]" style={{ color: 'rgba(239,227,201,0.9)', boxShadow: 'inset 0 0 0 1px rgba(240,213,139,0.4)', clipPath: clipSmall }}>
+        <button type="button" onClick={onBack} className="px-3 py-1.5 text-xs tracking-[0.12em]" style={{ color: 'rgba(239,227,201,0.9)', boxShadow: 'inset 0 0 0 1px rgba(240,213,139,0.4)', clipPath: CLIP_ITEM }}>
           ← 返回首页
         </button>
         <span className="text-[11px] tracking-[0.3em]" style={{ color: 'rgba(240,213,139,0.75)' }}>❦ 旅行者建档 ❦</span>
@@ -353,7 +353,7 @@ export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate }: N
                     color: element === id ? 'var(--journal-leather-deep)' : INK,
                     background: element === id ? 'linear-gradient(135deg, #f0d58b, var(--journal-antique-gold))' : elements.includes(id) ? 'rgba(70,98,78,0.14)' : 'rgba(53,46,39,0.05)',
                     boxShadow: `inset 0 0 0 1px ${element === id ? 'rgba(240,213,139,0.8)' : elements.includes(id) ? 'rgba(70,98,78,0.5)' : PAPER_BORDER}`,
-                    clipPath: clipSmall,
+                    clipPath: CLIP_ITEM,
                   }}
                 >
                   {ELEMENT_LABELS[id]}
@@ -375,7 +375,7 @@ export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate }: N
             ) : (
               <div className="mt-3 space-y-2">
                 {talents.map((talent) => (
-                  <div key={talent.id} className="px-4 py-3" style={{ background: 'rgba(53,46,39,0.05)', boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}`, clipPath: clipSmall }}>
+                  <div key={talent.id} className="px-4 py-3" style={{ background: 'rgba(53,46,39,0.05)', boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}`, clipPath: CLIP_ITEM }}>
                     <div className="flex items-center justify-between gap-3">
                       <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(130px,1fr)_120px_90px]">
                         <input className={paperInput} value={talent.名称} onChange={(event) => patchTalent(talent.id, { 名称: event.target.value })} aria-label={`天赋名称 ${talent.id}`} />
@@ -413,7 +413,7 @@ export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate }: N
                   style={{
                     background: presetId === preset.id ? 'linear-gradient(135deg, #f0d58b33, #b68a4322)' : 'rgba(53,46,39,0.04)',
                     boxShadow: `inset 0 0 0 1px ${presetId === preset.id ? 'var(--journal-antique-gold)' : PAPER_BORDER}`,
-                    clipPath: clipSmall,
+                    clipPath: CLIP_ITEM,
                   }}
                 >
                   <strong className="font-serif text-sm" style={{ color: INK }}>{preset.title}</strong>
@@ -433,7 +433,7 @@ export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate }: N
                   style={{
                     background: storyMode === mode.id ? 'linear-gradient(135deg, #f0d58b33, #b68a4322)' : 'rgba(53,46,39,0.04)',
                     boxShadow: `inset 0 0 0 1px ${storyMode === mode.id ? 'var(--journal-antique-gold)' : PAPER_BORDER}`,
-                    clipPath: clipSmall,
+                    clipPath: CLIP_ITEM,
                   }}
                 >
                   <strong className="font-serif text-sm" style={{ color: INK }}>{mode.name}</strong>
@@ -463,7 +463,6 @@ export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate }: N
               <SummaryLine label="开局预设" value={canonicalPresetChoice ? OFFICIAL_OPENING_PRESETS.find((preset) => preset.id === 'official_mondstadt_dragon')?.title ?? selectedPreset.title : selectedPreset.title} />
               <SummaryLine label="剧情模式" value={storyModes.find((mode) => mode.id === storyMode)?.name ?? storyMode} />
               <SummaryLine label="天赋" value={talents.length ? `${talents.length} 条` : '暂无（开局后可补录）'} />
-              {storyMode === 'harem' && <SummaryLine label="特殊体质" value="天相隐魅体 (Hidden Allure)" />}
             </SummaryBlock>
             {(appearance || personality || background) && (
               <SummaryBlock label="档案细节" span>
@@ -488,7 +487,7 @@ export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate }: N
         {step > 1 ? (
           <PaperButton onClick={goPrev}>← 上一步</PaperButton>
         ) : (
-          <button type="button" onClick={onBack} className="px-4 py-2 text-xs tracking-[0.12em]" style={{ color: 'rgba(239,227,201,0.85)', boxShadow: 'inset 0 0 0 1px rgba(240,213,139,0.35)', clipPath: clipSmall }}>← 返回首页</button>
+          <button type="button" onClick={onBack} className="px-4 py-2 text-xs tracking-[0.12em]" style={{ color: 'rgba(239,227,201,0.85)', boxShadow: 'inset 0 0 0 1px rgba(240,213,139,0.35)', clipPath: CLIP_ITEM }}>← 返回首页</button>
         )}
         {step < 4 ? (
           <PaperButton onClick={goNext} disabled={step === 1 && !canLeaveStep1}>下一步 →</PaperButton>
@@ -517,7 +516,7 @@ function PaperSection({ title, subtitle, children }: { title: string; subtitle?:
       style={{
         background: 'linear-gradient(180deg, var(--journal-parchment), color-mix(in srgb, var(--journal-parchment) 88%, var(--journal-leather) 12%))',
         boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}, 0 14px 34px rgba(0, 0, 0, 0.32)`,
-        clipPath: cardClip,
+        clipPath: CLIP_CARD,
       }}
     >
       <h3 className="font-serif text-lg tracking-[0.14em]" style={{ color: INK }}>{title}</h3>
@@ -531,7 +530,7 @@ function PaperField({ label, children }: { label: string; children: React.ReactN
   return (
     <label className="block space-y-1 text-[11px] tracking-[0.08em]" style={{ color: INK_MUTED }}>
       <span>{label}</span>
-      <span className={paperInput} style={{ display: 'block', boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}`, clipPath: clipSmall, color: INK }}>{children}</span>
+      <span className={paperInput} style={{ display: 'block', boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}`, clipPath: CLIP_ITEM, color: INK }}>{children}</span>
     </label>
   );
 }
@@ -547,7 +546,7 @@ function PaperButton({ onClick, children, disabled }: { onClick: () => void; chi
         color: 'var(--journal-leather-deep)',
         background: 'linear-gradient(135deg, #f0d58b, var(--journal-antique-gold))',
         boxShadow: 'inset 0 0 0 1px rgba(240, 213, 139, 0.6)',
-        clipPath: clipSmall,
+        clipPath: CLIP_ITEM,
         fontWeight: 600,
       }}
     >
@@ -558,7 +557,7 @@ function PaperButton({ onClick, children, disabled }: { onClick: () => void; chi
 
 function SummaryBlock({ label, children, span }: { label: string; children: React.ReactNode; span?: boolean }) {
   return (
-    <div className={`px-3 py-3 ${span ? 'sm:col-span-2' : ''}`} style={{ background: 'rgba(53, 46, 39, 0.05)', boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}`, clipPath: clipSmall }}>
+    <div className={`px-3 py-3 ${span ? 'sm:col-span-2' : ''}`} style={{ background: 'rgba(53, 46, 39, 0.05)', boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}`, clipPath: CLIP_ITEM }}>
       <p className="text-[10px] tracking-[0.24em]" style={{ color: 'var(--journal-antique-gold)' }}>{label}</p>
       <div className="mt-2 space-y-1.5">{children}</div>
     </div>

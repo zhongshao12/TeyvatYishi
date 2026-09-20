@@ -12,7 +12,8 @@ export function updateTeyvatState(
   current: TeyvatGameState,
   updater: TeyvatStateUpdater,
 ): TeyvatGameState {
-  return normalizeTeyvatGameState(updater(current));
+  const next = updater(current);
+  return next === current ? current : next;
 }
 
 export interface TeyvatRuntime {

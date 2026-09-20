@@ -303,7 +303,6 @@ export interface NarrativeRuntime {
   元素事件: ElementalReactionEvent[];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === 'object' && !Array.isArray(value) }
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 const elementIdText = (value: unknown): string => {
   const candidate = text(value);
@@ -624,3 +623,4 @@ import { normalizeCourierSystem, type CourierSystem } from './courier';
 import { normalizeIrminsulMemory, type IrminsulMemory } from './irminsul';
 import { normalizeArchiveCodex, type ArchiveCodex } from './codex';
 import { normalizeSteambirdNews, type SteambirdNews } from './steambird';
+import { isRecord } from '@/utils/valueGuards';

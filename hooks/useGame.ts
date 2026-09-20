@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import { applyLegacyGameStateOverrides, useGameState, type UseGameStateReturn } from '@/hooks/useGameState';
 import { executeSendWorkflow, regenerateNarrativeImagesForMessage, retryQueueTask } from '@/hooks/useGame/sendWorkflow';
-import { buildContextSnapshot, type ContextSnapshotKind } from '@/hooks/useGame/contextSnapshot';
+import type { ContextSnapshot, ContextSnapshotKind } from '@/hooks/useGame/contextSnapshotTypes';
 import {
   buildSavePayload,
   commitActiveSaveTreeMeta,
@@ -19,6 +19,7 @@ import { retryMemoryFailureDraft } from '@/hooks/useGame/memoryUtils';
 import { narrativeTurnBodyText } from '@/models/teyvat/narrativeTurn';
 import { createEmptyCourierSystem, createEmptyIrminsulMemory, createEmptySteambirdNews, createEmptyTeyvatInventory } from '@/models/teyvat';
 import type { API配置项, 记忆系统设置 } from '@/models/settings';
+import { resolveActiveApiConfig } from '@/services/ai/activeApiConfig';
 import type { 队列任务记录 } from '@/models/queueTask';
 import { 根据开局档案创建初始NPC记录, 生成开局已成立事实, 归一化开局档案 } from '@/models/world';
 import { saveGame, saveSetting } from '@/services/dbService';
@@ -56,7 +57,7 @@ export interface UseGameReturn {
       onProgress?: (progress: MemoryRebuildProgress) => void;
     }) => Promise<MemoryRebuildTask>;
     handleRestartOpening: () => void;
-    getContextSnapshot: (kind?: ContextSnapshotKind) => ReturnType<typeof buildContextSnapshot>;
+    getContextSnapshot: (kind?: ContextSnapshotKind) => Promise<ContextSnapshot>;
   };
 }
 
@@ -71,22 +72,14 @@ export function useGame(): UseGameReturn {
 
   const getActiveConfig = useCallback((): API配置项 | null => {
     const s = stateRef.current;
-    if (!s.apiSettings.activeConfigId) {
-      if (s.apiSettings.configs.length > 0) {
-        const first = s.apiSettings.configs[0];
-        s.setApiSettings((prev) => ({ ...prev, activeConfigId: first.id }));
-        return {
-          ...first,
-          enableClaudeMode: s.gameSettings.enableClaudeMode === true,
-        };
-      }
-      return null;
+    const config = resolveActiveApiConfig(
+      s.apiSettings,
+      s.gameSettings.enableClaudeMode === true,
+    );
+    if (!s.apiSettings.activeConfigId && config) {
+      s.setApiSettings((prev) => ({ ...prev, activeConfigId: config.id }));
     }
-    const config = s.apiSettings.configs.find((c) => c.id === s.apiSettings.activeConfigId) ?? null;
-    return config ? {
-      ...config,
-      enableClaudeMode: s.gameSettings.enableClaudeMode === true,
-    } : null;
+    return config;
   }, []);
 
   const handleSend = useCallback(
@@ -171,7 +164,7 @@ export function useGame(): UseGameReturn {
     // 找到最后一条 AI 消息
     let lastAiIdx = -1;
     for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].role === 'assistant') {
+      if (history[i]?.role === 'assistant') {
         lastAiIdx = i;
         break;
       }
@@ -180,17 +173,20 @@ export function useGame(): UseGameReturn {
     // 它前面紧邻的 user 输入
     let lastUserIdx = -1;
     for (let i = lastAiIdx - 1; i >= 0; i--) {
-      if (history[i].role === 'user') {
+      if (history[i]?.role === 'user') {
         lastUserIdx = i;
         break;
       }
     }
     if (lastUserIdx === -1) return;
-    const userInput = history[lastUserIdx].content;
-    const snapshot = history[lastAiIdx].preTurnSnapshot;
-    const previousResponse = history[lastAiIdx].parsedResponse
-      ? narrativeTurnBodyText(history[lastAiIdx].parsedResponse!)
-      : history[lastAiIdx].content || '';
+    const userMessage = history[lastUserIdx];
+    const assistantMessage = history[lastAiIdx];
+    if (!userMessage || !assistantMessage) return;
+    const userInput = userMessage.content;
+    const snapshot = assistantMessage.preTurnSnapshot;
+    const previousResponse = assistantMessage.parsedResponse
+      ? narrativeTurnBodyText(assistantMessage.parsedResponse)
+      : assistantMessage.content || '';
     rerollContextRef.current = {
       nonce: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       previousResponse,
@@ -530,7 +526,8 @@ export function useGame(): UseGameReturn {
     s.setPendingOpeningTrigger('[系统] 开启第 0 回合');
   }, []);
 
-  const getContextSnapshot = useCallback((kind?: ContextSnapshotKind) => {
+  const getContextSnapshot = useCallback(async (kind?: ContextSnapshotKind): Promise<ContextSnapshot> => {
+    const { buildContextSnapshot } = await import('@/hooks/useGame/contextSnapshot');
     return buildContextSnapshot(stateRef.current, kind);
   }, []);
 

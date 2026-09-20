@@ -3,14 +3,15 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createEmptyCourierSystem, normalizeCourierSystem, type CourierConversation, type CourierDeliverySeed } from '@/models/teyvat/courier';
+import { createEmptyCourierSystem, MAX_COURIER_MESSAGES_PER_CONVERSATION, normalizeCourierSystem, type CourierConversation, type CourierDeliverySeed } from '@/models/teyvat/courier';
 import { createEmptyIrminsulMemory, normalizeIrminsulMemory } from '@/models/teyvat/irminsul';
 import { normalizeSteambirdNews } from '@/models/teyvat/steambird';
 import { normalizeArchiveCodex } from '@/models/teyvat/codex';
 import { normalizeTeyvatNpcRecords } from '@/models/teyvat/character';
 import { normalizeBackgroundQueueState, normalizeConversationLog } from '@/models/teyvat/runtimeSlices';
-import { appendCourierMessage, buildCourierSenderNpcRecords, calculateCourierUnread, composeCourierGroupReplyLocally, composeCourierLetterLocally, composeCourierReplyLocally, consumeCourierSeed, findCourierReplyCandidates, selectGroupReplyMembers, splitLetterIntoLines } from '@/services/ai/courierService';
+import { appendCourierMessage, beginCourierReply, buildCourierSenderNpcRecords, calculateCourierUnread, composeCourierGroupReplyLocally, composeCourierLetterLocally, composeCourierReplyLocally, consumeCourierSeed, endCourierReply, findCourierReplyCandidates, mergeCourierSystemUpdates, selectGroupReplyMembers, splitLetterIntoLines } from '@/services/ai/courierService';
 import { runCourierReplyPass } from '@/hooks/useGame/courierBackgroundJobs';
+import { buildCourierGroupReplyPrompt } from '@/services/ai/courierLetterModel';
 import { processScheduledCourierSeeds } from '@/hooks/useGame/courierWorkflow';
 import { buildIrminsulArchiveEntry } from '@/services/irminsulArchive';
 import { retrieveIrminsulEntries } from '@/services/irminsulRetrieval';
@@ -50,6 +51,33 @@ describe('Teyvat extension systems', () => {
     expect(dirty.conversations[0]).toHaveProperty('unknown', true);
   });
 
+  it('caps long phone threads and archives the trimmed prefix as a compact summary', () => {
+    const messages = Array.from({ length: MAX_COURIER_MESSAGES_PER_CONVERSATION + 15 }, (_, index) => ({
+      id: `m-${index}`,
+      senderId: index % 2 ? 'amber' : 'player',
+      senderName: index % 2 ? '安柏' : '旅行者',
+      role: index % 2 ? 'contact' : 'user',
+      content: `消息 ${index}`,
+      turn: index,
+      timestamp: index,
+      readBy: [],
+    }));
+    const normalized = normalizeCourierSystem({
+      conversations: [{
+        id: 'long-thread', title: '安柏', participantIds: ['player', 'amber'], messages,
+        unread: 0, type: 'private', typingMemberIds: [], updatedAt: messages.at(-1)?.timestamp,
+      }],
+    });
+
+    expect(normalized.conversations[0]?.messages).toHaveLength(MAX_COURIER_MESSAGES_PER_CONVERSATION);
+    expect(normalized.conversations[0]?.messages[0]?.id).toBe('m-15');
+    expect(normalized.conversations[0]?.localArchive?.entries.at(-1)).toMatchObject({
+      source: 'private',
+      messageCount: 15,
+    });
+    expect(normalized.conversations[0]?.localArchive?.compressedSummaries.at(-1)).toContain('消息 0');
+  });
+
   it('handles private, group, and system correspondence with deterministic unread and immutable seed updates', () => {
     const conversations: CourierConversation[] = [
       { id: 'private', title: '安柏', participantIds: ['amber'], messages: [], unread: 2, type: 'private', typingMemberIds: [], updatedAt: 1 },
@@ -64,10 +92,52 @@ describe('Teyvat extension systems', () => {
     expect(calculateCourierUnread(consumed)).toBe(4);
     expect(appended).not.toBe(system);
     expect(appended.conversations[1]).not.toBe(system.conversations[1]);
-    expect(appended.conversations[1].messages).toEqual([message]);
-    expect(system.conversations[1].messages).toEqual([]);
-    expect(consumed.deliverySeeds[0].status).toBe('generated');
-    expect(appended.deliverySeeds[0].status).toBe('pending');
+    expect(appended.conversations[1]!.messages).toEqual([message]);
+    expect(system.conversations[1]!.messages).toEqual([]);
+    expect(consumed.deliverySeeds[0]!.status).toBe('generated');
+    expect(appended.deliverySeeds[0]!.status).toBe('pending');
+  });
+
+  it('deduplicates message ids and merges background replies without overwriting live state', () => {
+    const system = normalizeCourierSystem({
+      contacts: [{ id: 'amber', name: '安柏', available: true }],
+      conversations: [{
+        id: 'amber', title: '安柏', type: 'private', participantIds: ['player', 'amber'],
+        messages: [{ id: 'player-1', senderId: 'player', senderName: '旅行者', role: 'user', content: '晚上好', turn: 1, timestamp: 1, readBy: ['player'] }],
+        unread: 0, typingMemberIds: ['amber'], updatedAt: 1,
+      }],
+    });
+    const reply = { id: 'reply-1', senderId: 'amber', senderName: '安柏', role: 'assistant', content: '晚上好！', turn: 1, timestamp: 2, readBy: ['amber'] };
+    const once = appendCourierMessage(system, 'amber', reply);
+    const twice = appendCourierMessage(once, 'amber', reply);
+    expect(twice.conversations[0]?.messages.map((message) => message.id)).toEqual(['player-1', 'reply-1']);
+
+    const live = appendCourierMessage(system, 'amber', { ...reply, id: 'live-reply', content: '我正在回你。' });
+    const background = appendCourierMessage(system, 'amber', reply);
+    const merged = mergeCourierSystemUpdates(live, system, background);
+    expect(merged.conversations[0]?.messages.map((message) => message.id)).toEqual(['player-1', 'live-reply', 'reply-1']);
+    expect(merged.conversations[0]?.typingMemberIds).toEqual(['amber']);
+  });
+
+  it('excludes conversations claimed by another phone reply path', () => {
+    const system = normalizeCourierSystem({
+      contacts: [{ id: 'amber', name: '安柏', available: true }],
+      conversations: [{
+        id: 'amber', title: '安柏', type: 'private', participantIds: ['player', 'amber'],
+        messages: [{ id: 'player-1', senderId: 'player', senderName: '旅行者', role: 'user', content: '在吗', turn: 1, timestamp: 1, readBy: ['player'] }],
+        unread: 0, typingMemberIds: [], updatedAt: 1,
+      }],
+    });
+
+    expect(beginCourierReply('amber')).toBe(true);
+    try {
+      expect(beginCourierReply('amber')).toBe(false);
+      expect(findCourierReplyCandidates(system, 2)).toEqual([]);
+      expect(findCourierReplyCandidates(system, 2, new Set(['amber']))).toHaveLength(1);
+    } finally {
+      endCourierReply('amber');
+    }
+    expect(findCourierReplyCandidates(system, 2)).toHaveLength(1);
   });
 
   it('delivers each due Courier seed as sentence-split messages and one conversation unread', () => {
@@ -89,7 +159,7 @@ describe('Teyvat extension systems', () => {
     const delivered = processScheduledCourierSeeds(system, 2, 2000);
 
     expect(delivered.due.map((seed) => seed.id)).toEqual(['seed-due']);
-    const messages = delivered.next.conversations[0].messages;
+    const messages = delivered.next.conversations[0]!.messages;
     expect(messages.length).toBeGreaterThanOrEqual(1);
     expect(messages.every((message) => message.senderId === 'amber' && message.senderName === '安柏')).toBe(true);
     expect(messages.every((message) => message.sourceSeedId === 'seed-due' && message.deliveredAtTurn === 2)).toBe(true);
@@ -99,10 +169,10 @@ describe('Teyvat extension systems', () => {
     expect(joined).not.toContain('—— 安柏');
     expect(joined.length).toBeGreaterThan(12);
     // 未读按「一封来信」计 1，不按拆分条数膨胀。
-    expect(delivered.next.conversations[0].unread).toBe(1);
-    expect(delivered.next.deliverySeeds[0].status).toBe('generated');
-    expect(system.conversations[0].messages).toEqual([]);
-    expect(system.conversations[0].unread).toBe(0);
+    expect(delivered.next.conversations[0]!.unread).toBe(1);
+    expect(delivered.next.deliverySeeds[0]!.status).toBe('generated');
+    expect(system.conversations[0]!.messages).toEqual([]);
+    expect(system.conversations[0]!.unread).toBe(0);
   });
 
   it('auto-creates contacts for unknown senders and keeps one conversation window per character', () => {
@@ -127,13 +197,13 @@ describe('Teyvat extension systems', () => {
     const first = processScheduledCourierSeeds(system, 3, 3000);
     expect(first.next.contacts).toEqual([expect.objectContaining({ id: 'paimon', name: '派蒙' })]);
     expect(first.next.conversations).toHaveLength(1);
-    expect(first.next.conversations[0].participantIds).toContain('paimon');
+    expect(first.next.conversations[0]!.participantIds).toContain('paimon');
 
     // 同一人物始终复用同一个窗口，不另开新会话。
     const second = processScheduledCourierSeeds(first.next, 4, 4000);
     expect(second.next.conversations).toHaveLength(1);
-    expect(second.next.conversations[0].messages.length).toBeGreaterThanOrEqual(2);
-    expect(second.next.conversations[0].messages.every((message) => message.senderName === '派蒙')).toBe(true);
+    expect(second.next.conversations[0]!.messages.length).toBeGreaterThanOrEqual(2);
+    expect(second.next.conversations[0]!.messages.every((message) => message.senderName === '派蒙')).toBe(true);
   });
 
   it('replies only to conversations whose last message is from the player, once per round-trip', () => {
@@ -152,13 +222,13 @@ describe('Teyvat extension systems', () => {
 
     const candidates = findCourierReplyCandidates(system, 2);
     expect(candidates).toHaveLength(1);
-    expect(candidates[0].contactId).toBe('amber');
-    expect(candidates[0].playerMessage.id).toBe('player-msg');
+    expect(candidates[0]!.contactId).toBe('amber');
+    expect(candidates[0]!.playerMessage.id).toBe('player-msg');
 
     // 本地回复：自然回应，但不重复联系人署名，也不摘抄玩家原文。
     const reply = composeCourierReplyLocally({
-      conversation: system.conversations[0],
-      playerMessage: system.conversations[0].messages[0],
+      conversation: system.conversations[0]!,
+      playerMessage: system.conversations[0]!.messages[0]!,
       sender: { name: '安柏' },
       travelerName: '旅人',
     });
@@ -230,9 +300,9 @@ describe('Teyvat extension systems', () => {
     const codex = normalizeArchiveCodex({ entries: [{ id: 'c-1', category: 'organization', name: '西风骑士团', description: '蒙德守护者', unlockedAtTurn: 1, tags: ['蒙德'], summary: '守护蒙德', sourceText: '骑士团负责蒙德城防务。', source: 'builtin', keywords: ['骑士团'], triggerKeywords: ['西风骑士团'], injection: { publicText: '骑士团守护蒙德。', hidden: 'drop' }, runtimeUnlock: { status: 'unlocked', note: '已会面' }, usage: { narrative: true, courier: true, news: true, variables: false }, relatedEntryIds: [], importance: 4, linkable: true, builtin: true, createdAt: 1, updatedAt: 1, unknown: true }], unlockedEntryIds: ['c-1'], unknown: true });
     const recalled = retrieveCodexEntries(codex, '西风骑士团', 3);
     expect(recalled.entries.map((entry) => entry.id)).toEqual(['c-1']);
-    expect(buildCodexEntryInjectionPreview(recalled.entries[0])).toContain('骑士团守护蒙德。');
+    expect(buildCodexEntryInjectionPreview(recalled.entries[0]!)).toContain('骑士团守护蒙德。');
     expect(codex.entries[0]).not.toHaveProperty('unknown');
-    expect(codex.entries[0].injection).not.toHaveProperty('hidden');
+    expect(codex.entries[0]!.injection).not.toHaveProperty('hidden');
     const index = buildCodexAiCandidateIndex(codex, recalled.entries);
     expect(compileCodexAiSelection(index, { selectedIds: ['c-1'] }).entries.map((entry) => entry.id)).toEqual(['c-1']);
   });
@@ -264,7 +334,7 @@ describe('Teyvat extension systems', () => {
 
     expect(result.changed).toBe(false);
     expect(result.unlocked).toEqual([]);
-    expect(result.codex.entries[0].updatedAt).toBe(17);
+    expect(result.codex.entries[0]!.updatedAt).toBe(17);
     expect(result.codex).toEqual(codex);
   });
 
@@ -379,8 +449,8 @@ describe('Teyvat extension systems', () => {
       图像档案: { 头像槽位: { 手机: 'legacy-avatar.png' } },
       同行记忆: [{ id: 'memory-1', 回合: 1, 摘要: '公开报道', 来源: '新闻' }],
     }]);
-    expect(npc.图像档案?.头像槽位).toEqual({ 手机: 'legacy-avatar.png' });
-    expect(npc.同行记忆?.[0]?.来源).toBeUndefined();
+    expect(npc!.图像档案?.头像槽位).toEqual({ 手机: 'legacy-avatar.png' });
+    expect(npc!.同行记忆?.[0]?.来源).toBeUndefined();
     expect(JSON.stringify(npc)).toContain('手机');
     expect(JSON.stringify(npc)).not.toContain('新闻');
 
@@ -411,7 +481,7 @@ describe('Teyvat extension systems', () => {
     const quests = 归一化任务系统({
       进行中: [{ id: 'quest-1', 标题: '报刊委托', 状态: '进行中', 奖励: [{ 类型: '新闻', 内容: '刊登报道' }] }],
     });
-    expect(quests.进行中[0].奖励).toEqual([{ 类型: '蒸汽鸟报', 内容: '刊登报道', 数量: undefined }]);
+    expect(quests.进行中[0]!.奖励).toEqual([{ 类型: '蒸汽鸟报', 内容: '刊登报道', 数量: undefined }]);
     expect(JSON.stringify(quests)).not.toContain('新闻');
   });
 
@@ -449,12 +519,12 @@ describe('Teyvat extension systems', () => {
       name: '夏洛蒂',
       sharedMemories: [{ id: 'memory-1', turn: 2, summary: '公开报道', sourceText: '正文', source: 'news', relatedNpcIds: [] }],
     }]);
-    expect(npc.sharedMemories[0]?.source).toBe('steambird');
+    expect(npc!.sharedMemories[0]?.source).toBe('steambird');
 
     const codex = normalizeArchiveCodex({
       entries: [{ id: 'entry-1', usage: { narrative: true, courier: true, news: true, variables: false } }],
     });
-    expect(codex.entries[0].usage).toEqual({ narrative: true, courier: true, steambird: true, variables: false });
+    expect(codex.entries[0]!.usage).toEqual({ narrative: true, courier: true, steambird: true, variables: false });
 
     const queue = normalizeBackgroundQueueState({
       tasks: [
@@ -500,13 +570,13 @@ describe('Teyvat extension systems', () => {
         },
       }],
     });
-    expect(conversation.entries[0].tokenUsage?.system).toBe('steambird');
-    expect(conversation.entries[0].debugMetadata).toEqual(expect.objectContaining({
+    expect(conversation.entries[0]!.tokenUsage?.system).toBe('steambird');
+    expect(conversation.entries[0]!.debugMetadata).toEqual(expect.objectContaining({
       irminsulRecallPreview: '旧世界树摘要',
       codexRecallPreview: '旧图鉴摘要',
     }));
-    expect(conversation.entries[0].debugMetadata).not.toHaveProperty('yitingRecallPreview');
-    expect(conversation.entries[0].debugMetadata).not.toHaveProperty('zhikuRecallPreview');
+    expect(conversation.entries[0]!.debugMetadata).not.toHaveProperty('yitingRecallPreview');
+    expect(conversation.entries[0]!.debugMetadata).not.toHaveProperty('zhikuRecallPreview');
   });
 
   it('exposes formal Codex workflow names and a functional Courier launcher prop', () => {
@@ -557,7 +627,7 @@ describe('courier sender registration and reply pass', () => {
     expect(records[0]).toMatchObject({
       id: 'npc_charlotte', 姓名: '夏洛蒂', 阶位: 'extra', 同行: false, 初见回合: 4, 最近回合: 4,
     });
-    expect(records[0].介绍).toContain('通过手机消息结识');
+    expect(records[0]!.介绍).toContain('通过手机消息结识');
   });
 
   it('skips senders that already have an NPC record', () => {
@@ -597,8 +667,8 @@ describe('courier sender registration and reply pass', () => {
     expect(result.replied).toBe(1);
     const conversation = result.courier.conversations[0];
     // 玩家 1 条 + 回信拆成 1~多条。
-    expect(conversation.messages.length).toBeGreaterThanOrEqual(2);
-    const replyMessages = conversation.messages.slice(1);
+    expect(conversation!.messages.length).toBeGreaterThanOrEqual(2);
+    const replyMessages = conversation!.messages.slice(1);
     expect(replyMessages.every((message) => message.senderId === 'npc_charlotte' && message.role === 'contact')).toBe(true);
     expect(replyMessages.every((message) => message.content.trim().length > 0)).toBe(true);
     expect(replyMessages.map((message) => message.content).join('\n').length).toBeGreaterThan(10);
@@ -622,18 +692,54 @@ describe('courier sender registration and reply pass', () => {
     }
   });
 
-  it('selects a deterministic, bounded set of group reply members excluding the player', () => {
+  it('lets every group member reply when the player does not mention anyone', () => {
     const conversation = { id: 'group_x', participantIds: ['player', 'amber', 'kaeya', 'lisa', 'barbara'] };
     const playerMessage = { id: 'player_msg' };
     const members = selectGroupReplyMembers(conversation, playerMessage, 3);
-    expect(members.length).toBeGreaterThanOrEqual(1);
-    expect(members.length).toBeLessThanOrEqual(3);
+    expect(new Set(members)).toEqual(new Set(['amber', 'kaeya', 'lisa', 'barbara']));
     expect(members).not.toContain('player');
     for (const member of members) expect(conversation.participantIds).toContain(member);
     // 同一玩家消息得到的成员组合可复现（打字指示与回帖保持一致）。
     expect(selectGroupReplyMembers(conversation, playerMessage, 3)).toEqual(members);
     // 只有玩家自己时无成员可回帖。
     expect(selectGroupReplyMembers({ id: 'solo', participantIds: ['player'] }, playerMessage)).toEqual([]);
+  });
+
+  it('lets the mentioned member and two deterministic random bystanders reply', () => {
+    const conversation = { id: 'group_x', participantIds: ['player', 'amber', 'kaeya', 'lisa', 'barbara'] };
+    const contacts = [
+      { id: 'amber', name: '安柏' },
+      { id: 'kaeya', name: '凯亚' },
+      { id: 'lisa', name: '丽莎' },
+      { id: 'barbara', name: '芭芭拉' },
+    ];
+    const playerMessage = { id: 'mention_msg', content: '@安柏 你怎么看？' };
+    const members = selectGroupReplyMembers(conversation, playerMessage, 3, contacts);
+
+    expect(members).toHaveLength(3);
+    expect(members[0]).toBe('amber');
+    expect(new Set(members.slice(1)).size).toBe(2);
+    expect(members.slice(1).every((member) => ['kaeya', 'lisa', 'barbara'].includes(member))).toBe(true);
+    expect(selectGroupReplyMembers(conversation, playerMessage, 3, contacts)).toEqual(members);
+  });
+
+  it('feeds each group speaker full persona and companion memories instead of a generic template', () => {
+    const prompt = buildCourierGroupReplyPrompt({
+      conversation: { id: 'g', title: '蒙德伙伴', participantIds: ['player', 'lisa'], messages: [], unread: 0, type: 'group', typingMemberIds: [], updatedAt: 1 },
+      playerMessage: { id: 'm', senderId: 'player', senderName: '旅行者', role: 'user', content: '我们以后也要好好相处。', turn: 2, timestamp: 2, readBy: [] },
+      sender: {
+        name: '丽莎', personality: '慵懒而敏锐', speechStyle: '从容、带一点亲昵调侃', background: '须弥教令院昔日天才',
+        longTermImpression: '愿意信任的同行者', recentInteraction: '共同整理归还的书', sharedExperiences: ['一起解决庙宇异变'],
+        unfinishedBusiness: ['约好喝下午茶'], unresolvedConflicts: ['担心旅行者过度冒险'], mustRemember: ['旅行者不喜欢被敷衍'],
+        summaryMemories: ['曾在图书馆坦诚交换秘密'], recentMemories: ['今天一起返回蒙德城'], recentMessages: ['旅行者：晚点见'],
+      },
+      travelerName: '云',
+    });
+    for (const expected of ['慵懒而敏锐', '亲昵调侃', '须弥教令院', '愿意信任', '一起解决庙宇异变', '约好喝下午茶', '过度冒险', '不喜欢被敷衍', '交换秘密', '返回蒙德城', '晚点见']) {
+      expect(prompt).toContain(expected);
+    }
+    expect(prompt).toContain('禁止使用“这事我记下了”');
+    expect(prompt).toContain('“待会儿聊”一类万能敷衍句');
   });
 
   it('replies to a group conversation with multiple members, each signing their own message', async () => {
@@ -656,7 +762,7 @@ describe('courier sender registration and reply pass', () => {
     const result = await runCourierReplyPass({ courier: system, npcs: [], letterApiConfig: null, turn: 9, travelerName: '旅人' });
     expect(result.replied).toBeGreaterThanOrEqual(1);
     const conversation = result.courier.conversations[0];
-    const replies = conversation.messages.slice(1);
+    const replies = conversation!.messages.slice(1);
     expect(replies.length).toBeGreaterThanOrEqual(1);
     // 每条跟帖都来自群内某位成员、署名各自联系人、内容非空。
     const memberIds = new Set(['amber', 'kaeya', 'lisa']);
@@ -668,6 +774,36 @@ describe('courier sender registration and reply pass', () => {
     // 回完后最后一条不再是玩家消息，第二轮不应重复回帖。
     const second = await runCourierReplyPass({ courier: result.courier, npcs: [], letterApiConfig: null, turn: 10, travelerName: '旅人' });
     expect(second.replied).toBe(0);
+  });
+
+  it('uses the character-aware API generator for every selected group speaker', async () => {
+    const system = {
+      ...createEmptyCourierSystem(),
+      contacts: [
+        { id: 'amber', name: '安柏', available: true },
+        { id: 'lisa', name: '丽莎', available: true },
+        { id: 'jean', name: '琴', available: true },
+      ],
+      conversations: [{
+        id: 'group_mondstadt', title: '蒙德伙伴', participantIds: ['player', 'amber', 'lisa', 'jean'],
+        messages: [{ id: 'player_group_msg', senderId: 'player', senderName: '云', role: 'user' as const, content: '大家今晚一起吃饭吧。', turn: 8, timestamp: 8000, readBy: ['player'] }],
+        unread: 0, type: 'group' as const, typingMemberIds: [], updatedAt: 8000,
+      }],
+    };
+    const groupReplyGenerator = vi.fn(async (_config, context) => `${context.sender?.name}的专属回复`);
+    const result = await runCourierReplyPass({
+      courier: system,
+      npcs: [],
+      letterApiConfig: {} as never,
+      turn: 9,
+      travelerName: '云',
+      groupReplyGenerator,
+    });
+
+    expect(groupReplyGenerator).toHaveBeenCalledTimes(3);
+    expect(result.courier.conversations[0]!.messages.slice(1).map((message) => message.content)).toEqual(
+      expect.arrayContaining(['安柏的专属回复', '丽莎的专属回复', '琴的专属回复']),
+    );
   });
 
   it('varies local letter warmth by affinity stage so letters do not read one-size-fits-all', () => {
@@ -690,7 +826,7 @@ describe('courier sender registration and reply pass', () => {
       id: 'group_mondstadt', title: '蒙德伙伴', participantIds: ['player', 'amber'],
       messages: [], unread: 0, type: 'group' as const, typingMemberIds: [], updatedAt: 1,
     } satisfies CourierConversation;
-    const longMessage = '今晚天气这么好，要不要大家一起去蒙德城的酒馆聚一聚，顺便聊聊最近冒险里遇到的那些有趣的事情呢？';
+    const longMessage = '@安柏 @丽莎 今晚天气这么好，要不要大家一起去蒙德城的酒馆聚一聚，顺便聊聊最近冒险里遇到的那些有趣的事情呢？';
     const playerMessage: import('@/models/teyvat/courier').CourierMessage = {
       id: 'player_msg', senderId: 'player', senderName: '旅人', role: 'user',
       content: longMessage, turn: 8, timestamp: 8000, readBy: ['player'],
@@ -700,6 +836,7 @@ describe('courier sender registration and reply pass', () => {
     // 群聊跟帖是口语短句：不带书信落款，只截取片段引用而不整段复读玩家原话。
     expect(reply).not.toContain('——');
     expect(reply).not.toContain(longMessage);
-    expect(reply).toContain(longMessage.slice(0, 20));
+    expect(reply).not.toContain('@安柏');
+    expect(reply).toContain('今晚天气这么好');
   });
 });

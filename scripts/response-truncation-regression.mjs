@@ -1,6 +1,7 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const sendWorkflow = readWorkflowSources();
 const textClient = fs.readFileSync('services/ai/text/index.ts', 'utf8');
 
 function assert(condition, message) {
@@ -24,9 +25,20 @@ assert(
   '主剧情抗截断禁止仅凭供应商 finishReason=length/max_tokens 触发续写。',
 );
 
+// 迁移: 旧正向注释 `主剧情不再执行“截断续写”自动重试` 与
+//   `JSON 合同失败由 parseResponse 抛出稳定错误并进入整回合重试，不做 tagged fallback。`
+//   -> 新工作流层的真实契约文本：
+//      - `请完全重写，不要延续上一版残缺输出。`（mainNarrativeRequestStage.ts buildDeepSeekProtocolRetryGuard）
+//        = 重试是「整回合重写」，不是从中断处续写；
+//      - `上一版 JSON 未通过 NarrativeTurn 协议校验。` = JSON 合同失败进入整回合重试；
+//      - `runMainNarrativeAttempts` = 整回合重试循环本体。
+//   理由: 说明性长注释被改写为上述可执行文案，停用「截断续写自动重试」的意图未变。
+//   负向断言保留且仍为真：工作流层不得回退到 tagged 解析，也不得出现 repairTags 合同。
 assert(
-  sendWorkflow.includes('主剧情不再执行“截断续写”自动重试') &&
-    sendWorkflow.includes('JSON 合同失败由 parseResponse 抛出稳定错误并进入整回合重试，不做 tagged fallback。') &&
+  sendWorkflow.includes('请完全重写，不要延续上一版残缺输出。') &&
+    sendWorkflow.includes('上一版 JSON 未通过 NarrativeTurn 协议校验。') &&
+    sendWorkflow.includes('runMainNarrativeAttempts') &&
+    !sendWorkflow.includes('parseStoredLegacyResponse') &&
     !sendWorkflow.includes('repairTags:') &&
     !textClient.includes('repairTags?:'),
   'sendWorkflow 必须记录停用抗截断续写的原因和兜底方式。',

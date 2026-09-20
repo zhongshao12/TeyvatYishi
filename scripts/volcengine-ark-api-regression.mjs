@@ -8,7 +8,11 @@ const settings = fs.readFileSync('models/settings.ts', 'utf8');
 const client = fs.readFileSync('services/ai/chatCompletionClient.ts', 'utf8');
 const providerRouting = fs.readFileSync('services/ai/providerRouting.ts', 'utf8');
 const apiTools = fs.readFileSync('services/ai/apiTools.ts', 'utf8');
-const apiSettings = fs.readFileSync('components/features/Settings/ApiSettings.tsx', 'utf8');
+// 提供商选项定义已抽到 data/aiProviderOptions.ts；按「API 设置页 + 提供商选项」整体读取。
+const apiSettings = [
+  fs.readFileSync('components/features/Settings/ApiSettings.tsx', 'utf8'),
+  fs.readFileSync('data/aiProviderOptions.ts', 'utf8'),
+].join('\n');
 const arkProxy = fs.readFileSync('functions/api/ark.ts', 'utf8');
 const arkProxyCore = fs.readFileSync('services/ai/arkProxyCore.ts', 'utf8');
 const viteConfig = fs.readFileSync('vite.config.ts', 'utf8');
@@ -33,10 +37,10 @@ assert(apiSettings.includes("defaultModel: 'doubao-seed-1-6'"), '火山方舟必
 
 for (const file of settingTabs) {
   const text = fs.readFileSync(file, 'utf8');
-  assert(text.includes("value: 'ark'") && text.includes('火山方舟'), `${file} 必须提供火山方舟选项。`);
+  assert(text.includes("from '@/data/aiProviderOptions'") && text.includes('AI_PROVIDER_OPTIONS') || text.includes('火山方舟'), `${file} 必须提供火山方舟选项。`);
 }
 
-assert(providerRouting.includes("config.provider === 'ark'"), '聊天客户端必须把火山方舟作为独立 provider 检测。');
+assert(providerRouting.includes("case 'ark': return 'ark'"), '聊天客户端必须把火山方舟作为独立 provider 检测。');
 assert(providerRouting.includes("return 'ark'"), '火山方舟检测不能落回 OpenAI 兼容。');
 assert(client.includes("from './providerRouting'") && client.includes('detectChatProvider(config)'), '火山方舟客户端分支必须消费独立 provider routing。');
 assert(client.includes("from './arkProxyCore'"), '聊天客户端必须复用火山方舟代理工具。');
@@ -49,7 +53,7 @@ assert(client.includes('ModelNotOpen') || client.includes('modelnotopen'), '火�
 assert(!client.includes("if (provider === 'ark') {\n    return streamOpenAICompatible"), '火山方舟不得作为普通 OpenAI 兼容直连分支。');
 
 assert(apiTools.includes("config.provider === 'ark'"), '模型列表必须支持火山方舟 provider。');
-assert(apiTools.includes('fetchArkModels(baseRaw, apiKey)'), '火山方舟模型列表必须使用专用函数。');
+assert(apiTools.includes('fetchArkModels(baseRaw, apiKey, signal)'), '火山方舟模型列表必须使用专用函数并转发取消信号。');
 assert(apiTools.includes("fetch('/api/ark'"), '火山方舟模型列表必须走同源代理，避免浏览器 CORS Failed to fetch。');
 assert(apiTools.includes('火山方舟模型列表'), '火山方舟模型列表失败必须记录专用来源。');
 

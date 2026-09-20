@@ -5,7 +5,10 @@ const chatList = fs.readFileSync('components/features/Chat/ChatList.tsx', 'utf8'
 
 assert(chatList.includes('const INITIAL_RENDER_TURNS = 20'), 'initial history window must contain 20 turns');
 assert(chatList.includes('const RENDER_TURN_INCREMENT = 20'), 'each history expansion must add 20 turns');
-assert(chatList.includes("messages[index].role !== 'assistant'"), 'history window must count assistant turns instead of raw messages');
+// 迁移: 旧 messages[index].role -> 新 messages[index]?.role，理由: findHistoryWindowStart 改用可选链读取
+// （见 ChatList.tsx 中 let assistantTurns = 0 的倒序计数循环），避免消息数组出现空位时抛错；
+// 断言意图不变：历史窗口按 assistant 回合计数，而不是按原始消息条数计数。
+assert(chatList.includes("messages[index]?.role !== 'assistant'"), 'history window must count assistant turns instead of raw messages');
 assert(chatList.includes('findHistoryWindowStart(visibleMessages, effectiveRenderTurnLimit)'), 'visible history must use the turn-based window');
 assert(chatList.includes('setRenderTurnLimit((current) => current + RENDER_TURN_INCREMENT)'), 'load-earlier must expand by one turn page');
 assert(chatList.includes('scrollHeight: el.scrollHeight') && chatList.includes('scrollTop: el.scrollTop'), 'load-earlier must capture the current scroll anchor');

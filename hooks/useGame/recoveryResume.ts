@@ -104,10 +104,14 @@ export async function runPendingSettlementRecovery(input: {
   if (journal.phase !== 'settlement_pending' || !journal.pendingNarrative || !journal.pendingSettlement) {
     return { ok: false, journal, error: 'RECOVERY_PENDING_SOURCE_MISSING' };
   }
-  const committed = hasCommittedSettlementIdentity(input.currentState, journal)
+  const committedCandidate = hasCommittedSettlementIdentity(input.currentState, journal)
     ? input.currentState
     : await input.settle(journal.pendingSettlement.source, journal.pendingSettlement.settlementId);
-  if (!committed) return { ok: false, journal, error: 'RECOVERY_SETTLEMENT_REJECTED' };
+  if (!committedCandidate) return { ok: false, journal, error: 'RECOVERY_SETTLEMENT_REJECTED' };
+  // Recovery accepts persisted/external input, so normalize once at this trust
+  // boundary. Normal turns no longer pay the same cost again in every journal
+  // phase update.
+  const committed = normalizeTeyvatGameState(committedCandidate);
 
   const committedJournal = updateWorkflowRecoveryJournal(journal, {
     phase: 'settlement_committed',

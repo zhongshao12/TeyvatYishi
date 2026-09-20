@@ -91,12 +91,12 @@ function collectVisibleNewCharacters(body: string, state: TeyvatGameState): stri
     const line = rawLine.trim();
     const match = line.match(/^【\s*([^】]+?)\s*】/);
     if (!match) continue;
-    let name = match[1].trim().replace(/[：:].*$/, '');
+    let name = (match[1] ?? '').trim().replace(/[：:].*$/, '');
     if (name === '角色') {
       const rest = line.slice(line.indexOf('】') + 1).trim();
       const nameMatch = rest.match(/^([^：:]+)[：:]/);
       if (!nameMatch) continue;
-      name = nameMatch[1].trim();
+      name = (nameMatch[1] ?? '').trim();
     }
     if (!name || known.has(name)) continue;
     if (name.length < 2 || name.length > 10) continue;

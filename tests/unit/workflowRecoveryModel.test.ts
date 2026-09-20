@@ -9,11 +9,23 @@ import {
 import { canAutoResume, resolveRecoveryTarget } from '../../hooks/useGame/recoveryResume';
 import { createEmptyTeyvatGameState, normalizeTeyvatGameState } from '../../models/teyvat';
 import { applyAbortedWorkflowPolicy, hasCommittedSettlementIdentity, runPendingSettlementRecovery, shouldRollbackAbortedWorkflow } from '../../hooks/useGame/recoveryResume';
-import { persistWorkflowRecoveryJournal } from '../../services/workflowRecovery';
+import { loadWorkflowRecoveryJournal, persistWorkflowRecoveryJournal, WORKFLOW_RECOVERY_KEY } from '../../services/workflowRecovery';
 import * as recoveryResume from '../../hooks/useGame/recoveryResume';
 import { buildCommittedQuestArchive } from '../../services/questService';
 
 describe('workflowRecoveryModel v2', () => {
+  it('deletes a malformed durable recovery journal instead of ignoring it forever', async () => {
+    const remove = vi.fn(async () => undefined);
+    const loaded = await loadWorkflowRecoveryJournal(
+      async () => ({ version: 3, workflowId: '', input: '' }),
+      remove,
+    );
+
+    expect(loaded).toBeNull();
+    expect(remove).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledWith(WORKFLOW_RECOVERY_KEY);
+  });
+
   it('creates and parses only formal phases for new journals', () => {
     const journal = createWorkflowRecoveryJournal('input', 3);
     expect(journal.phase).toBe('narrative_received');
@@ -80,6 +92,22 @@ describe('workflowRecoveryModel v2', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('does not re-normalize trusted game roots while advancing an in-memory journal', () => {
+    const root = createEmptyTeyvatGameState();
+    const journal = createWorkflowRecoveryJournal('input', 1);
+    const pending = updateWorkflowRecoveryJournal(journal, {
+      phase: 'settlement_pending',
+      pendingSettlement: { settlementId: journal.workflowId, source: root },
+    });
+    expect(pending.pendingSettlement?.source).toBe(root);
+
+    const committed = updateWorkflowRecoveryJournal(pending, {
+      phase: 'settlement_committed',
+      committedState: root,
+    });
+    expect(committed.committedState).toBe(root);
   });
 
 describe('workflowRecoveryModel completion and resume branches', () => {
@@ -184,9 +212,9 @@ describe('workflowRecoveryModel completion and resume branches', () => {
     expect(persisted).toEqual(['autosave_committed']);
 
     const mismatches = [
-      { label: 'assistant id', mutate: (root: typeof loaded) => { root.对话.entries[0].id = 'wrong'; } },
-      { label: 'assistant role', mutate: (root: typeof loaded) => { root.对话.entries[0].role = 'user'; } },
-      { label: 'assistant game time', mutate: (root: typeof loaded) => { root.对话.entries[0].gameTime = '3'; } },
+      { label: 'assistant id', mutate: (root: typeof loaded) => { root.对话.entries[0]!.id = 'wrong'; } },
+      { label: 'assistant role', mutate: (root: typeof loaded) => { root.对话.entries[0]!.role = 'user'; } },
+      { label: 'assistant game time', mutate: (root: typeof loaded) => { root.对话.entries[0]!.gameTime = '3'; } },
       { label: 'committed root turn', mutate: (root: typeof loaded) => { root.turnCount = 6; } },
     ];
     for (const mismatch of mismatches) {
@@ -391,7 +419,7 @@ describe('workflowRecoveryModel completion and resume branches', () => {
     expect((await retry()).ok).toBe(true);
     expect((await retry()).ok).toBe(true);
     expect(archive.entries).toHaveLength(1);
-    expect(archive.entries[0].id).toBe('irminsul_quest_10_quest_archive');
+    expect(archive.entries[0]!.id).toBe('irminsul_quest_10_quest_archive');
     expect(settle).not.toHaveBeenCalled();
     expect(persisted).toEqual(['autosave_committed', 'autosave_committed']);
   });

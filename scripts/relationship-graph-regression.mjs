@@ -2,7 +2,12 @@ import fs from 'node:fs';
 function assert(condition, message) { if (!condition) throw new Error(message); }
 const graph = fs.readFileSync('utils/relationshipGraph.ts', 'utf8');
 const panel = fs.readFileSync('components/features/GameSystems/RelationshipGraphPanel.tsx', 'utf8');
-const companion = fs.readFileSync('components/features/GameSystems/CompanionPanel.tsx', 'utf8');
+// 迁移: 伙伴面板侧栏已从 CompanionPanel.tsx 抽到 components/features/GameSystems/companion/CompanionRosterSidebar.tsx，
+// 理由: 伙伴面板拆分；「关系图」页签标签随侧栏一起搬迁，两文件合读。
+const companion = [
+  fs.readFileSync('components/features/GameSystems/CompanionPanel.tsx', 'utf8'),
+  fs.readFileSync('components/features/GameSystems/companion/CompanionRosterSidebar.tsx', 'utf8'),
+].join('\n');
 const app = fs.readFileSync('App.tsx', 'utf8');
 assert(graph.includes('构建关系图'), 'relationship graph util must build graphs.');
 assert(graph.includes('提取好感变化事件'), 'relationship graph util must extract affinity events.');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
+import { readWorkflowSources, readWorkflowFile } from './lib/workflowSources.mjs';
 import { createVisibilityBufferedPublisher } from '../utils/visibilityBufferedPublisher.ts';
 
 let hidden = true;
@@ -44,8 +44,16 @@ publisher.flush();
 assert.equal(unsubscribeCount, 1, 'dispose must remove the visibility listener exactly once');
 assert.deepEqual(commits, ['chunk-100'], 'disposed publishers must never flush buffered content');
 
-const sendWorkflow = await fs.readFile(new URL('../hooks/useGame/sendWorkflow.ts', import.meta.url), 'utf8');
+// 迁移: 主叙事流式会话已从 sendWorkflow.ts 抽到 hooks/useGame/mainNarrativeStreamingSession.ts，
+// 理由: 可见预览 epoch 失效逻辑随流式会话一起搬迁；按「主剧情工作流」整体读取。
+// 两个文件都在 WORKFLOW_FILES 登记表中，所以手工双文件数组收敛为 readWorkflowSources()。
+const sendWorkflow = readWorkflowSources();
 assert(sendWorkflow.includes('deltaPreviewEpoch !== previewEpoch'), 'queued visible previews must be invalidated across hide/show transitions');
-assert(!sendWorkflow.includes('if (isPageHidden()) {\n                  state.setStreamingMessage(streamedText);'), 'hidden preview queues must never commit React state');
+assert(
+  !readWorkflowFile('hooks/useGame/mainNarrativeStreamingSession.ts').includes(
+    'if (isPageHidden()) {\n                  state.setStreamingMessage(streamedText);',
+  ),
+  'hidden preview queues must never commit React state',
+);
 
 console.log('background stream regression ok');

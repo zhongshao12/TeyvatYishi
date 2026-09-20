@@ -2,10 +2,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import fs from 'fs';
+import { Readable } from 'node:stream';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { handleQianfanProxyRequest } from './services/ai/qianfanProxyCore';
 import { handleOpenCodeProxyRequest } from './services/ai/opencodeProxyCore';
 import { handlePioneerProxyRequest } from './services/ai/pioneerProxyCore';
 import { handleArkProxyRequest } from './services/ai/arkProxyCore';
+import { resolveManualChunk } from './build/manualChunkStrategy';
 
 function readRequestBody(req: import('node:http').IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -16,6 +19,50 @@ function readRequestBody(req: import('node:http').IncomingMessage): Promise<stri
     });
     req.on('end', () => resolve(body));
     req.on('error', reject);
+  });
+}
+
+function forwardProxyResponse(response: Response, res: ServerResponse): void {
+  res.statusCode = response.status;
+  response.headers.forEach((value, key) => {
+    res.setHeader(key, value);
+  });
+  if (!response.body) {
+    res.end();
+    return;
+  }
+  const source = Readable.fromWeb(
+    response.body as unknown as import('node:stream/web').ReadableStream,
+  );
+  const stopSource = () => {
+    if (!source.destroyed) source.destroy();
+  };
+  res.once('close', stopSource);
+  source.once('end', () => res.off('close', stopSource));
+  source.once('error', (error) => {
+    res.off('close', stopSource);
+    res.destroy(error);
+  });
+  source.pipe(res);
+}
+
+function createProxyRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathName: string,
+  body: string,
+): Request {
+  const abortController = new AbortController();
+  const abort = () => {
+    if (!abortController.signal.aborted) abortController.abort();
+  };
+  req.once('aborted', abort);
+  res.once('close', abort);
+  return new Request(`http://localhost${pathName}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+    signal: abortController.signal,
   });
 }
 
@@ -39,16 +86,8 @@ export default defineConfig({
             return;
           }
           const body = await readRequestBody(req);
-          const response = await handleQianfanProxyRequest(new Request('http://localhost/api/qianfan', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body,
-          }));
-          res.statusCode = response.status;
-          response.headers.forEach((value, key) => {
-            res.setHeader(key, value);
-          });
-          res.end(Buffer.from(await response.arrayBuffer()));
+          const response = await handleQianfanProxyRequest(createProxyRequest(req, res, '/api/qianfan', body));
+          forwardProxyResponse(response, res);
         });
         server.middlewares.use('/api/opencode', async (req, res) => {
           if (req.method === 'OPTIONS') {
@@ -64,16 +103,8 @@ export default defineConfig({
             return;
           }
           const body = await readRequestBody(req);
-          const response = await handleOpenCodeProxyRequest(new Request('http://localhost/api/opencode', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body,
-          }));
-          res.statusCode = response.status;
-          response.headers.forEach((value, key) => {
-            res.setHeader(key, value);
-          });
-          res.end(Buffer.from(await response.arrayBuffer()));
+          const response = await handleOpenCodeProxyRequest(createProxyRequest(req, res, '/api/opencode', body));
+          forwardProxyResponse(response, res);
         });
         server.middlewares.use('/api/pioneer', async (req, res) => {
           if (req.method === 'OPTIONS') {
@@ -89,16 +120,8 @@ export default defineConfig({
             return;
           }
           const body = await readRequestBody(req);
-          const response = await handlePioneerProxyRequest(new Request('http://localhost/api/pioneer', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body,
-          }));
-          res.statusCode = response.status;
-          response.headers.forEach((value, key) => {
-            res.setHeader(key, value);
-          });
-          res.end(Buffer.from(await response.arrayBuffer()));
+          const response = await handlePioneerProxyRequest(createProxyRequest(req, res, '/api/pioneer', body));
+          forwardProxyResponse(response, res);
         });
         server.middlewares.use('/api/ark', async (req, res) => {
           if (req.method === 'OPTIONS') {
@@ -114,16 +137,8 @@ export default defineConfig({
             return;
           }
           const body = await readRequestBody(req);
-          const response = await handleArkProxyRequest(new Request('http://localhost/api/ark', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body,
-          }));
-          res.statusCode = response.status;
-          response.headers.forEach((value, key) => {
-            res.setHeader(key, value);
-          });
-          res.end(Buffer.from(await response.arrayBuffer()));
+          const response = await handleArkProxyRequest(createProxyRequest(req, res, '/api/ark', body));
+          forwardProxyResponse(response, res);
         });
       },
     },
@@ -142,22 +157,12 @@ export default defineConfig({
   build: {
     // Tauri WebView2 与现代浏览器均支持 ES2022，减少转译产物体积。
     target: 'es2022',
+    // 项目另有更严格的字节级 bundle 门禁；这里仅让 Vite 使用同量级提示阈值。
+    chunkSizeWarningLimit: 1150,
     rollupOptions: {
       output: {
         manualChunks(id: string) {
-          if (!id.includes('node_modules')) {
-            if (id.includes('/services/') || id.includes('/hooks/') || id.includes('/models/')) return 'chunk-app';
-            return undefined;
-          }
-          // 按包名精确匹配，避免路径子串误判（如 lucide-react 被含 "react" 的通用规则截走）。
-          // 兼容 pnpm 的 .pnpm/<pkg>@<ver>/node_modules/<pkg> 嵌套布局。
-          const marker = id.lastIndexOf('node_modules/');
-          const rest = id.slice(marker + 'node_modules/'.length);
-          const pkg = rest.startsWith('@') ? rest.split('/').slice(0, 2).join('/') : rest.split('/')[0];
-          if (pkg === 'react' || pkg === 'react-dom' || pkg === 'scheduler') return 'vendor-react';
-          if (pkg === 'lucide-react') return 'vendor-icons';
-          if (pkg.startsWith('@dnd-kit')) return 'vendor-dnd';
-          return 'vendor-other';
+          return resolveManualChunk(id);
         },
       },
     },

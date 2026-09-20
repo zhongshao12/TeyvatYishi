@@ -65,7 +65,7 @@ describe('canonDeviationService', () => {
   });
 
   it('merges the same semantic deviation deterministically and deduplicates all evidence fields', () => {
-    const existing = recordCanonDeviation(createEmptyCanonTrack(), BASE_INPUT).deviations[0];
+    const existing = recordCanonDeviation(createEmptyCanonTrack(), BASE_INPUT).deviations[0]!;
     const incoming: CanonDeviation = {
       ...existing,
       evidence: ['玩家保护了本应受伤的侦察骑士', '风魔龙没有按原路线攻城'],
@@ -137,7 +137,7 @@ describe('canonDeviationService', () => {
   it.each(['none', 'conditional', 'open'] as const)('preserves and explains %s returnability', (returnability) => {
     const track = recordCanonDeviation(createEmptyCanonTrack(), { ...BASE_INPUT, returnability });
     const context = buildCanonContextWindow(track);
-    expect(track.deviations[0].returnability).toBe(returnability);
+    expect(track.deviations[0]!.returnability).toBe(returnability);
     expect(context).toContain(returnability);
   });
 
@@ -163,7 +163,7 @@ describe('canonDeviationService', () => {
         extra: 'drop',
       },
     });
-    expect(state.原著轨道.deviations[0].id).toBe('canon-deviation:teyvat_prologue_mondstadt_act1:7');
+    expect(state.原著轨道.deviations[0]!.id).toBe('canon-deviation:teyvat_prologue_mondstadt_act1:7');
     expect(state.原著轨道.deviations[0]).not.toHaveProperty('extra');
     expect(state.原著轨道).not.toHaveProperty('extra');
   });

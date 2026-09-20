@@ -38,6 +38,7 @@ const listeners = new Set<(state: SaveCatalogRepairState) => void>();
 const writeWaiters = new Set<() => void>();
 let repairPromise: Promise<SaveCatalogRepairResult> | null = null;
 let pendingWriteCount = 0;
+let saveMutationTail: Promise<void> = Promise.resolve();
 let currentState: SaveCatalogRepairState = {
   phase: 'idle',
   scope: 'missing-only',
@@ -71,9 +72,16 @@ export function startSaveCatalogRepairTask(
 
 export async function runWithSaveMutationPriority<T>(task: () => Promise<T>): Promise<T> {
   pendingWriteCount += 1;
+  const previousMutation = saveMutationTail;
+  let releaseMutation: () => void = () => {};
+  saveMutationTail = new Promise<void>((resolve) => {
+    releaseMutation = resolve;
+  });
+  await previousMutation;
   try {
     return await task();
   } finally {
+    releaseMutation();
     pendingWriteCount = Math.max(0, pendingWriteCount - 1);
     if (pendingWriteCount === 0) {
       for (const resolve of Array.from(writeWaiters)) resolve();

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
+import { readWorkflowSources, sliceWorkflowFile } from './lib/workflowSources.mjs';
 
 const root = process.cwd();
 const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'workflow-recovery-'));
@@ -78,7 +79,8 @@ assert.equal('systemPrompt' in parsed, false);
 assert.equal('streamedText' in parsed, false);
 
 const inputArea = await fs.readFile(path.join(root, 'components/features/Chat/InputArea.tsx'), 'utf8');
-const sendWorkflow = await fs.readFile(path.join(root, 'hooks/useGame/sendWorkflow.ts'), 'utf8');
+// 迁移: 主剧情工作流已拆分为多阶段模块，改按登记表整体读取（只换读取源，断言语义不变）。
+const sendWorkflow = readWorkflowSources();
 assert(inputArea.includes('setInput(recoveryDraft.input)'), 'interrupted input must be restored into the editor');
 const recoveryEffect = inputArea.slice(inputArea.indexOf('useEffect(() => {'), inputArea.indexOf('const handleSend'));
 assert(!recoveryEffect.includes('onSend('), 'recovery must never automatically resend or charge the API');
@@ -86,9 +88,18 @@ assert(sendWorkflow.includes("phase: 'settlement_pending'"), 'main response must
 assert(sendWorkflow.includes("phase: 'settlement_committed'"), 'successful root replace must advance to settlement_committed');
 assert(sendWorkflow.includes("phase: 'autosave_committed'"), 'autosave completion must be journaled');
 assert(sendWorkflow.includes('clearWorkflowRecoveryJournal(recoveryJournal.workflowId)'), 'successful and cancelled workflows must clear their own journal');
-const resumeStart = sendWorkflow.indexOf('async function runPostSettlementWorkflow');
-const resumeEnd = sendWorkflow.indexOf('export async function resumePostSettlementWorkflow', resumeStart);
-const resumeBody = sendWorkflow.slice(resumeStart, resumeEnd);
+// 迁移: 旧切片 sendWorkflow.ts ['async function runPostSettlementWorkflow' .. 'export async function resumePostSettlementWorkflow')
+//   -> 新切片 hooks/useGame/postSettlementRecoveryWorkflow.ts ['export async function runPostSettlementRecoveryWorkflow' .. 文件末尾)；
+// 理由: settlement_committed 的恢复尾流程已拆成独立模块（sendWorkflow.ts 只保留 resumePostSettlementWorkflow 懒加载入口），
+//   实现位置与函数名都变了，但意图不变——恢复必须执行幂等的任务归档，且绝不重放根命令事务。
+//   ⚠️ 该切片改用 sliceWorkflowFile：原先「单文件读取 + indexOf 起点 + length 终点」虽然没跨文件，
+//   但一旦改成拼接视图，切到「文件末尾」的写法就会吞掉后续登记文件（例如 variableSettlementWorkflow.ts
+//   含 commitTeyvatTurn(、questWorkflow.ts 含 deriveQuestSettlementPlan(），把负断言变成假绿。
+//   sliceWorkflowFile 把范围钉死在 postSettlementRecoveryWorkflow.ts 内，标记缺失即抛错。
+const resumeBody = sliceWorkflowFile(
+  'hooks/useGame/postSettlementRecoveryWorkflow.ts',
+  'export async function runPostSettlementRecoveryWorkflow',
+).text;
 assert(resumeBody.includes('archiveCommittedQuestSettlement'), 'settlement_committed recovery must resume the idempotent quest archive');
 assert(resumeBody.includes('deriveCommittedQuestArchiveFacts'), 'quest recovery archive must derive from committed quest state/facts');
 assert(!resumeBody.includes('commitTeyvatTurn('), 'settlement_committed recovery must never replay the root command transaction');

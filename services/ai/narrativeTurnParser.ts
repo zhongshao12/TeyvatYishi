@@ -6,6 +6,7 @@ import {
   type PlayerChoice,
   type StoryBlock,
 } from '@/models/teyvat/narrativeTurn';
+import { isRecord } from '@/utils/valueGuards';
 
 export type NarrativeTurnErrorCode =
   | 'INVALID_JSON'
@@ -22,8 +23,10 @@ export class NarrativeTurnParseError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const narrativeTurnNormalizationWarnings = new WeakMap<NarrativeTurn, string[]>();
+
+export function getNarrativeTurnNormalizationWarnings(turn: NarrativeTurn): readonly string[] {
+  return narrativeTurnNormalizationWarnings.get(turn) ?? [];
 }
 
 function requiredText(value: unknown): string | null {
@@ -50,7 +53,9 @@ function parseJsonWithOneFenceRepair(raw: string): unknown {
   const fenceMatches = [...source.matchAll(/```(?:json)?\s*\r?\n?([\s\S]*?)```/gi)];
   for (let i = fenceMatches.length - 1; i >= 0; i -= 1) {
     try {
-      return JSON.parse(fenceMatches[i][1].trim());
+      const fenced = fenceMatches[i]?.[1];
+      if (fenced === undefined) continue;
+      return JSON.parse(fenced.trim());
     } catch {
       /* 继续修复 */
     }
@@ -120,21 +125,42 @@ function extractTopLevelJsonSpans(source: string): string[] {
   return spans;
 }
 
-function normalizeBody(value: unknown): StoryBlock[] {
+function normalizeBody(value: unknown, warnings: string[]): StoryBlock[] {
   if (!Array.isArray(value)) throw new NarrativeTurnParseError('INVALID_REQUIRED_FIELD');
   return value.flatMap((item): StoryBlock[] => {
-    if (!isRecord(item) || !STORY_BLOCK_KINDS.includes(item.kind as StoryBlock['kind'])) return [];
+    if (!isRecord(item)) return [];
     const text = requiredText(item.text);
     if (!text) return [];
     const id = optionalText(item.id);
     const speaker = optionalText(item.speaker);
+    const kind = STORY_BLOCK_KINDS.includes(item.kind as StoryBlock['kind'])
+      ? item.kind as StoryBlock['kind']
+      : 'narration';
+    if (kind === 'narration' && item.kind !== 'narration') {
+      warnings.push(`未知正文块 kind「${String(item.kind ?? '缺失')}」已降级为 narration，文本已保留。`);
+    }
     return [{
-      kind: item.kind as StoryBlock['kind'],
+      kind,
       text,
       ...(id ? { id } : {}),
       ...(speaker ? { speaker } : {}),
     }];
   });
+}
+
+export function normalizeNarrativeEvidence(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase('zh-CN')
+    .replace(/[\s\p{P}\p{S}]+/gu, '')
+    .trim();
+}
+
+export function narrativeEvidenceMatches(bodyText: string, evidence: string): boolean {
+  if (bodyText.includes(evidence)) return true;
+  const normalizedBody = normalizeNarrativeEvidence(bodyText);
+  const normalizedEvidence = normalizeNarrativeEvidence(evidence);
+  return Boolean(normalizedBody && normalizedEvidence && normalizedBody.includes(normalizedEvidence));
 }
 
 function normalizeChoices(value: unknown): PlayerChoice[] {
@@ -156,7 +182,7 @@ function normalizeFactCandidates(value: unknown, body: readonly StoryBlock[]): F
     if (!isRecord(item) || !FACT_CANDIDATE_DOMAINS.includes(item.domain as FactCandidate['domain'])) return [];
     const fact = requiredText(item.fact);
     const evidence = requiredText(item.evidence);
-    if (!fact || !evidence || !body.some((block) => block.text.includes(evidence))) return [];
+    if (!fact || !evidence || !body.some((block) => narrativeEvidenceMatches(block.text, evidence))) return [];
     return [{ domain: item.domain as FactCandidate['domain'], fact, evidence }];
   });
 }
@@ -186,13 +212,16 @@ export function normalizeNarrativeTurn(value: unknown): NarrativeTurn {
   if (!('body' in value) || !('choices' in value) || !('factCandidates' in value) || !('continuation' in value)) {
     throw new NarrativeTurnParseError('INVALID_REQUIRED_FIELD');
   }
-  const body = normalizeBody(value.body);
-  return {
+  const warnings: string[] = [];
+  const body = normalizeBody(value.body, warnings);
+  const turn: NarrativeTurn = {
     body,
     choices: normalizeChoices(value.choices),
     factCandidates: revalidateFactCandidatesForBody(value.factCandidates, body),
     continuation: normalizeContinuation(value.continuation),
   };
+  if (warnings.length) narrativeTurnNormalizationWarnings.set(turn, warnings);
+  return turn;
 }
 
 export function buildManuallyEditedNarrativeTurn(

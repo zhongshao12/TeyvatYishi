@@ -1,3 +1,4 @@
+import { CLIP_MEDIUM } from '@/styles/clipPaths';
 import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState, memo } from 'react';
 import type { 聊天消息 } from '@/models/chat';
 import type { NPC记录 } from '@/models/npc';
@@ -34,7 +35,7 @@ const RENDER_TURN_INCREMENT = 20;
 function findHistoryWindowStart(messages: 聊天消息[], turnLimit: number): number {
   let assistantTurns = 0;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role !== 'assistant') continue;
+    if (messages[index]?.role !== 'assistant') continue;
     assistantTurns += 1;
     if (assistantTurns > turnLimit) return index + 1;
   }
@@ -74,7 +75,7 @@ const ChatHistoryList = memo(function ChatHistoryList({
   return (
     <>
       {messages.map((msg, idx) => {
-        const meta = neighborMeta[idx];
+        const meta = neighborMeta[idx] ?? {};
         return (
           <div key={msg.id} id={`chat-msg-${msg.id}`}>
           <TurnItem
@@ -107,6 +108,7 @@ function buildNeighborMeta(messages: 聊天消息[]): NeighborMeta[] {
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
+    if (!msg) continue;
     let fallbackElementId: string | undefined;
     let previousUserInput: string | undefined;
 
@@ -284,6 +286,7 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onToggleBoo
         messages={renderedMessages}
         neighborMeta={neighborMeta}
         onEditBody={onEditBody}
+        onToggleBookmark={onToggleBookmark}
         onRegenerateNarrativeImage={onRegenerateNarrativeImage}
         narrativeImageManualEnabled={narrativeImageManualEnabled}
         npcRecords={npcRecords}
@@ -350,7 +353,7 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onToggleBoo
             background: 'rgba(var(--tj-surface), 0.92)',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.34), 0 12px 28px rgba(var(--tj-shadow), 0.28)',
             backdropFilter: 'blur(4px)',
-            clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+            clipPath: CLIP_MEDIUM,
           }}
         >
           回到底部

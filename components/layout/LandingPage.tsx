@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_MEDIUM } from '@/styles/clipPaths';
 import { useEffect, useMemo, useState } from 'react';
 import { getSaveList, type SaveListItemSummary } from '@/services/dbService';
 import { buildResumePreview } from '@/hooks/useGameState';
@@ -112,7 +113,7 @@ export function LandingPage({
             color: 'rgba(var(--tj-accent-primary), 0.92)',
             background: 'rgba(0, 0, 0, 0.22)',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45), 0 10px 24px rgba(0,0,0,0.22)',
-            clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+            clipPath: CLIP_MEDIUM,
           }}
         >
           GitHub 云存档
@@ -125,7 +126,7 @@ export function LandingPage({
             color: 'rgba(var(--tj-text-primary), 0.9)',
             background: 'rgba(0, 0, 0, 0.18)',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.36), 0 10px 24px rgba(0,0,0,0.2)',
-            clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+            clipPath: CLIP_MEDIUM,
           }}
         >
           更新公告
@@ -138,7 +139,7 @@ export function LandingPage({
             color: 'rgba(var(--tj-accent-primary), 0.92)',
             background: 'rgba(0, 0, 0, 0.18)',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.34), 0 10px 24px rgba(0,0,0,0.2)',
-            clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+            clipPath: CLIP_MEDIUM,
           }}
         >
           Discord 帖
@@ -151,7 +152,7 @@ export function LandingPage({
             color: 'rgba(var(--tj-text-primary), 0.9)',
             background: 'rgba(0, 0, 0, 0.18)',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.36), 0 10px 24px rgba(0,0,0,0.2)',
-            clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+            clipPath: CLIP_MEDIUM,
           }}
         >
           神秘聊天
@@ -164,7 +165,7 @@ export function LandingPage({
           color: 'rgba(var(--tj-text-primary), 0.86)',
           background: 'rgba(0, 0, 0, 0.22)',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.34), 0 10px 24px rgba(0,0,0,0.22)',
-          clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+          clipPath: CLIP_MEDIUM,
         }}
       >
         <span
@@ -183,7 +184,7 @@ export function LandingPage({
         style={{
           background: 'linear-gradient(165deg, rgba(0, 0, 0, 0.24), rgba(0, 0, 0, 0.4))',
           boxShadow: 'inset 0 0 0 1px rgba(240, 213, 139, 0.4), inset 0 0 0 7px rgba(0, 0, 0, 0.12), inset 0 0 0 8px rgba(240, 213, 139, 0.2), 0 24px 60px rgba(0, 0, 0, 0.45)',
-          clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+          clipPath: CLIP_CARD,
         }}
       >
         <span
@@ -297,7 +298,7 @@ export function LandingPage({
                 color: 'rgba(var(--tj-text-primary),0.92)',
                 background: 'rgba(0, 0, 0, 0.26)',
                 boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.5), 0 12px 28px rgba(0,0,0,0.24)',
-                clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+                clipPath: CLIP_CARD,
               }}
             >
               <div className="font-serif text-[11px] tracking-[0.24em]" style={{ color: 'rgba(var(--tj-accent-primary),0.9)' }}>
@@ -333,7 +334,7 @@ export function LandingPage({
                   color: 'var(--journal-ink)',
                   background: 'linear-gradient(180deg, var(--journal-parchment), color-mix(in srgb, var(--journal-parchment) 88%, var(--journal-leather) 12%))',
                   boxShadow: `inset 0 0 0 1px rgba(53, 46, 39, 0.2), 0 10px 24px rgba(0, 0, 0, 0.28)`,
-                  clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+                  clipPath: CLIP_CARD,
                 }}
               >
                 读取存档
@@ -347,7 +348,7 @@ export function LandingPage({
                   color: 'var(--journal-ink)',
                   background: 'linear-gradient(180deg, var(--journal-parchment), color-mix(in srgb, var(--journal-parchment) 88%, var(--journal-leather) 12%))',
                   boxShadow: `inset 0 0 0 1px rgba(53, 46, 39, 0.2), 0 10px 24px rgba(0, 0, 0, 0.28)`,
-                  clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+                  clipPath: CLIP_CARD,
                 }}
               >
                 提瓦特之书
@@ -361,7 +362,7 @@ export function LandingPage({
                   color: 'var(--journal-ink)',
                   background: 'linear-gradient(180deg, var(--journal-parchment), color-mix(in srgb, var(--journal-parchment) 88%, var(--journal-leather) 12%))',
                   boxShadow: `inset 0 0 0 1px rgba(53, 46, 39, 0.2), 0 10px 24px rgba(0, 0, 0, 0.28)`,
-                  clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+                  clipPath: CLIP_CARD,
                 }}
               >
                 北陆图书馆

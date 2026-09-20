@@ -61,10 +61,6 @@ export function migrateLegacyImageRuleKeys(input: unknown): RecordValue {
   };
 }
 
-function isRecord(value: unknown): value is RecordValue {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
@@ -789,3 +785,4 @@ export function classifyAndMigrateDbSaveRecord(
   if (migration.status === 'legacy-universe') return { kind: 'legacy-hsr', raw: migration.raw, report: migration.report };
   return { kind: 'invalid', errors: migration.errors, report: migration.report };
 }
+import { isRecord } from '@/utils/valueGuards';

@@ -289,7 +289,7 @@ function parseStoredLegacyTaggedFields(rawText: string, options?: { repair?: boo
   );
   let closedMatch: RegExpExecArray | null;
   while ((closedMatch = closedPattern.exec(text)) !== null) {
-    applyMatch(closedMatch[1], closedMatch[2]);
+    applyMatch(closedMatch[1] ?? '', closedMatch[2] ?? '');
     consumedRanges.push([closedMatch.index, closedMatch.index + closedMatch[0].length]);
   }
 
@@ -302,7 +302,7 @@ function parseStoredLegacyTaggedFields(rawText: string, options?: { repair?: boo
 
   while ((match = pattern.exec(text)) !== null) {
     if (isInsideConsumed(match.index)) continue;
-    applyMatch(match[1], match[2]);
+    applyMatch(match[1] ?? '', match[2] ?? '');
     consumedRanges.push([match.index, match.index + match[0].length]);
   }
 

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function read(path) {
   return fs.readFileSync(path, 'utf8');
@@ -13,7 +14,15 @@ function assert(condition, message) {
 
 const settings = read('models/settings.ts');
 const gameSettings = read('components/features/Settings/GameSettings.tsx');
-const sendWorkflow = read('hooks/useGame/sendWorkflow.ts');
+// 迁移: 读取源由单个 sendWorkflow.ts 收敛为 scripts/lib/workflowSources.mjs 登记的工作流视图。
+// 理由: M6 把主叙事请求装配、DeepSeek 协议校验、重试预算搬进了阶段/策略模块
+//       （mainNarrativeRequestStage.ts / mainNarrativeRetryPolicy.ts / mainNarrativeAttemptRunner.ts），
+//       契约（主剧情仍走共享请求层、仍做协议校验与重试）没变，只是文件位置变了。
+//       这 4 个文件已全部登记进 WORKFLOW_FILES，故交给统一登记表读取；
+//       后续再搬文件只需调整登记表，行为断言范围不会被搬迁悄悄缩小。
+// 仍显式读取的非视图文件：hooks/useGameState.ts（状态容器）、hooks/useGame/saveLoadWorkflow.ts（存档工作流），
+//       二者在 WORKFLOW_OUT_OF_SCOPE 中「有意排除」，故保留显式读取。
+const sendWorkflow = readWorkflowSources();
 const textService = read('services/ai/text/index.ts');
 const client = read('services/ai/chatCompletionClient.ts');
 const recovery = read('services/ai/deepSeekRecovery.ts');
@@ -50,7 +59,16 @@ assert(gameSettings.includes('仅当主 API 供应商或 Base URL 命中 DeepSee
 
 assert(sendWorkflow.includes('isDeepSeekMainConfig'), '主剧情必须有 DeepSeek 主 API 检测。');
 assert(!sendWorkflow.includes('resolveMainStoryConfig'), 'DeepSeek reasoner 适配不得继续局限在主剧情局部逻辑。');
-assert(sendWorkflow.includes('sendChatMessage(mainStoryConfig'), '主剧情发送必须使用共享请求层。');
+// 迁移: 旧 `sendChatMessage(mainStoryConfig` 就地调用 -> 新「sendWorkflow 把 mainStoryConfig 交给
+//   阶段函数 requestMainNarrativeAttempt(config)，阶段函数内 `(options.send ?? sendChatMessage)(options.config` 调共享层」。
+//   理由: 请求装配搬进了 mainNarrativeRequestStage.ts，共享请求层（services/ai/text）没有被绕开；
+//   这里断言「配置来自编排器的 mainStoryConfig」+「阶段层实际调用共享 sendChatMessage」两段链路都在。
+assert(
+  sendWorkflow.includes('return requestMainNarrativeAttempt({') &&
+    sendWorkflow.includes('config: mainStoryConfig,') &&
+    sendWorkflow.includes('let result = await (options.send ?? sendChatMessage)(options.config, {'),
+  '主剧情发送必须使用共享请求层。',
+);
 assert(sendWorkflow.includes('!deepSeekMainActive'), 'DeepSeek 专用模式必须跳过 CoT 伪装历史。');
 assert(sendWorkflow.includes('const usePresetPrefill = false'), '正式主剧情不得使用预设 assistant prefill 截断 JSON。');
 assert(sendWorkflow.includes("const effectivePrefixContent = ''"), 'NarrativeTurn 主剧情必须禁用 assistant prefill。');
@@ -58,12 +76,32 @@ assert(sendWorkflow.includes('prefixContent: effectivePrefixContent'), '主剧�
 assert(!sendWorkflow.includes("prefixContent: '<正文>\\n'"), 'DeepSeek 主剧情不得锁到旧正文标签。');
 assert(sendWorkflow.includes('DEEPSEEK_MAIN_FORMAT_GUARD'), 'DeepSeek 标准/锁格式必须追加专属格式守卫。');
 assert(sendWorkflow.includes('apiMessages.push(创建聊天消息(\'user\', DEEPSEEK_MAIN_FORMAT_GUARD))'), 'DeepSeek 格式守卫必须作为最后 user 消息进入主请求。');
+// 迁移: DeepSeek 协议校验/重试守卫从 sendWorkflow 内联搬到 mainNarrativeRequestStage.ts
+//   （getDeepSeekMainProtocolIssues 在阶段层默认调用，buildDeepSeekProtocolRetryGuard 作为重试指令）。
+//   理由: 校验逻辑本身没被删除，只是随请求阶段一起搬家；断言的仍是「必须校验 + 必须追加重试守卫」。
 assert(sendWorkflow.includes('getDeepSeekMainProtocolIssues'), 'DeepSeek 主剧情必须校验 NarrativeTurn JSON 协议。');
 assert(sendWorkflow.includes('buildDeepSeekProtocolRetryGuard'), 'DeepSeek 协议失败时必须追加重试守卫。');
-assert(sendWorkflow.includes('Math.max(2, configuredMaxAttempts)'), 'DeepSeek 专用模式至少要保留一次协议失败重试。');
+// 迁移: 旧 `Math.max(2, configuredMaxAttempts)` 内联在 sendWorkflow -> 新
+//   `resolveMainNarrativeMaxAttempts({... requiresValidationRepair ...})`，
+//   函数体在 services/ai/mainNarrativeRetryPolicy.ts：`return input.requiresValidationRepair ? Math.max(2, configured) : configured;`。
+//   理由: 重试预算抽成可单测策略，语义不变（需要校验修复时至少 2 次尝试 = 至少一次协议失败重试）。
+assert(
+  sendWorkflow.includes('resolveMainNarrativeMaxAttempts({') &&
+    sendWorkflow.includes('requiresValidationRepair: Boolean(deepSeekMainActive') &&
+    sendWorkflow.includes('return input.requiresValidationRepair ? Math.max(2, configured) : configured;'),
+  'DeepSeek 专用模式至少要保留一次协议失败重试。',
+);
 assert(sendWorkflow.includes('deepSeekMainMode: deepSeekMainActive ? deepSeekMainMode : \'off\''), 'debugContext 必须记录本轮 DeepSeek 模式。');
 assert(sendWorkflow.includes('result.deepSeekRecovery?.originalModel') && sendWorkflow.includes('result.deepSeekRecovery?.fallbackModel'), 'debugContext 必须记录共享 DeepSeek 恢复的原模型和回退模型。');
-assert(sendWorkflow.includes('isNonRetryableAIError(innerErr)'), '共享恢复耗尽后主剧情不得重新运行完整恢复链。');
+// 迁移: 旧内联 `if (isNonRetryableAIError(innerErr)) throw innerErr;` -> 新
+//   sendWorkflow `isNonRetryableError: isNonRetryableAIError` 传入重试运行器，
+//   services/ai/mainNarrativeAttemptRunner.ts 内 `if (options.isNonRetryableError?.(error) || attempt >= maxAttempts) throw error;`。
+//   理由: 短路点从内联判断改成注入的守卫函数，语义不变（恢复耗尽后不再重跑完整恢复链）。
+assert(
+  sendWorkflow.includes('isNonRetryableError: isNonRetryableAIError') &&
+    sendWorkflow.includes('if (options.isNonRetryableError?.(error) || attempt >= maxAttempts) throw error;'),
+  '共享恢复耗尽后主剧情不得重新运行完整恢复链。',
+);
 assert(sendWorkflow.includes('deepSeekProtocolIssues: deepSeekProtocolIssuesForTurn'), 'debugContext 必须记录 DeepSeek 协议校验失败项。');
 assert(sendWorkflow.includes('const shouldStreamMainRequest = state.gameSettings.enableStreaming && !isPageHidden()'), '主剧情真实请求是否流式只能由流式设置和页面可见性决定。');
 assert(sendWorkflow.includes('streaming: shouldStreamMainRequest'), '主剧情必须把真实流式开关传给 text service。');

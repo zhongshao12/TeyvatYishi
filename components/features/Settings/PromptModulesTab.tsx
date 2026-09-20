@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_MEDIUM, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
 import { useEffect, useMemo, useState } from 'react';
 import type { 游戏设置, API设置, API配置项 } from '@/models/settings';
 import type { 提示词模块, 提示词模块类目, 提示词模块作用域 } from '@/models/prompts';
@@ -33,7 +34,7 @@ const isNativePromptModule = (m: 提示词模块) =>
   !isSTImportedModule(m) && !m.id.startsWith('adapted_');
 
 /** 独立系统分组映射：calibration 模块按子系统归类 */
-const CALIBRATION_SYSTEM_GROUPS: Record<string, { label: string; icon: string; emoji: string; match: (id: string) => boolean }> = {
+const CALIBRATION_SYSTEM_GROUPS = {
   steambird: { label: '蒸汽鸟报', icon: '◈', emoji: '🗞️', match: (id) => id.startsWith('builtin_steambird_') || id.startsWith('st_import_steambird_') || id.startsWith('custom_steambird_') },
   courier: { label: '手机消息', icon: '◈', emoji: '💬', match: (id) => id.startsWith('builtin_courier_') || id.startsWith('st_import_courier_') || id.startsWith('custom_courier_') },
   codex: { label: '图鉴', icon: '◈', emoji: '📚', match: (id) => id.startsWith('builtin_codex_') || id.startsWith('st_import_codex_') || id.startsWith('custom_codex_') },
@@ -41,11 +42,13 @@ const CALIBRATION_SYSTEM_GROUPS: Record<string, { label: string; icon: string; e
   variable: { label: '变量系统', icon: '◈', emoji: '⚙️', match: (id) => id === 'builtin_domain_command_rules' || id === 'builtin_variable_worldbook' || id === 'builtin_domain_command_output_format' || id.startsWith('st_import_variable_') || id.startsWith('custom_variable_') },
   companionArchive: { label: '伙伴档案', icon: '◈', emoji: '👥', match: (id) => id === 'builtin_companion_archive_worldbook' || id.startsWith('st_import_companion_archive_') || id.startsWith('custom_companionArchive_') },
   storyWeaving: { label: '剧情编织系统', icon: '◈', emoji: '📖', match: (id) => id === 'builtin_canon_decomposition_rules' || id === 'builtin_canon_worldbook' || id === 'builtin_canon_output_format' || id.startsWith('st_import_story_weaving_') || id.startsWith('custom_storyWeaving_') },
-};
+} satisfies Record<string, { label: string; icon: string; emoji: string; match: (id: string) => boolean }>;
 const CALIBRATION_GROUP_ORDER = ['steambird', 'courier', 'codex', 'irminsul', 'variable', 'companionArchive', 'storyWeaving'] as const;
+type CalibrationGroupKey = typeof CALIBRATION_GROUP_ORDER[number];
+type CustomModuleSystemKey = CalibrationGroupKey | 'main';
 
 /** 根据模块 id 获取所属的系统分组 key，不属于任何已知系统的归入 'other' */
-const getCalibrationGroupKey = (m: 提示词模块): string => {
+const getCalibrationGroupKey = (m: 提示词模块): CalibrationGroupKey | 'other' => {
   for (const key of CALIBRATION_GROUP_ORDER) {
     if (CALIBRATION_SYSTEM_GROUPS[key].match(m.id)) return key;
   }
@@ -179,6 +182,7 @@ function computePresetSwitchApiChange(
     return { nextConfigs: configs, nextBackup: null };
   }
   const activeConfig = configs[activeIndex];
+  if (!activeConfig) return { nextConfigs: configs, nextBackup: currentBackup ?? null };
   if (targetSampling) {
     // 切到带参数预设：首次进入才备份（已有备份则保留，避免连环覆盖丢失原始值）
     const nextBackup = currentBackup ?? extractSamplingParams(activeConfig);
@@ -199,8 +203,7 @@ function computePresetSwitchApiChange(
   return { nextConfigs: configs, nextBackup: null };
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
 
 const TAVERN_RUNTIME_SLOT_IDS = new Set([
   'worldInfoBefore',
@@ -350,7 +353,7 @@ function TogglePill({
         style={{
           background: checked ? 'rgba(var(--tj-ui-nsfw), 0.2)' : 'rgba(var(--tj-bg-primary), 0.42)',
           boxShadow: `inset 0 0 0 1px ${checked ? 'rgba(var(--tj-ui-nsfw), 0.42)' : 'rgba(var(--tj-text-secondary), 0.18)'}`,
-          clipPath: smallClip,
+          clipPath: CLIP_SMALL,
           opacity: disabled ? 0.62 : 1,
         }}
       >
@@ -506,7 +509,7 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
   };
 
   const addCustomModule = (
-    systemKey: string,
+    systemKey: CustomModuleSystemKey,
     category: 提示词模块类目,
     replaceMode: 'replace' | 'coexist',
   ) => {
@@ -984,7 +987,7 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
           style={{
             background: 'rgba(var(--tj-bg-secondary), 0.35)',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.18)',
-            clipPath: smallClip,
+            clipPath: CLIP_SMALL,
           }}
         >
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1015,7 +1018,7 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
                   boxShadow: (settings.enableStPreset ?? true)
                     ? 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.45)'
                     : 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.2)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                   cursor: 'pointer',
                 }}
               >
@@ -1025,11 +1028,11 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
                   className="relative inline-flex h-4 w-7 flex-shrink-0 items-center transition-all"
                   style={{
                     background: (settings.enableStPreset ?? true)
-                      ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.92), rgba(var(--tj-btn-primary-end), 0.82))'
+                      ? gradientAccent(0.92, 0.82)
                       : 'rgba(var(--tj-bg-secondary), 0.68)',
                     boxShadow: (settings.enableStPreset ?? true)
                       ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.4)'
-                      : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+                      : insetRing(0.2),
                     clipPath: 'polygon(3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%, 0 3px)',
                   }}
                 >
@@ -1051,7 +1054,7 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
                   background: 'linear-gradient(135deg, rgba(var(--tj-ui-nsfw), 0.18), rgba(var(--tj-ui-nsfw), 0.08))',
                   color: 'rgba(var(--tj-ui-nsfw), 0.95)',
                   boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.35)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
                 title="导入 SillyTavern 预设文件"
               >
@@ -1087,7 +1090,7 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
                 style={{
                   background: item.active ? 'rgba(var(--tj-ui-nsfw), 0.08)' : 'rgba(var(--tj-bg-primary), 0.32)',
                   boxShadow: `inset 0 0 0 1px ${item.active ? 'rgba(var(--tj-ui-nsfw), 0.26)' : 'rgba(var(--tj-accent-primary), 0.12)'}`,
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div className="text-[11px] font-serif tracking-[0.14em]" style={{ color: 'rgba(var(--tj-text-secondary), 0.64)' }}>
@@ -1124,19 +1127,19 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
               style={{
                 background: 'rgba(var(--tj-bg-primary), 0.32)',
                 color: 'rgba(var(--tj-text-secondary), 0.74)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-                clipPath: smallClip,
+                boxShadow: insetRing(0.12),
+                clipPath: CLIP_SMALL,
               }}
             >
               <div className="font-serif text-base tracking-[0.14em]" style={{ color: 'rgba(var(--tj-accent-primary), 0.9)' }}>
                 运行诊断
               </div>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
-                <div className="px-2 py-1.5" style={{ background: 'rgba(var(--tj-bg-secondary), 0.28)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.1)', clipPath: smallClip }}>
+                <div className="px-2 py-1.5" style={{ background: 'rgba(var(--tj-bg-secondary), 0.28)', boxShadow: insetRing(0.1), clipPath: CLIP_SMALL }}>
                   <div className="text-xs font-serif tracking-[0.14em]" style={{ color: 'rgba(var(--tj-accent-primary), 0.8)' }}>原始结构</div>
                   <div className="mt-1 leading-5">酒馆预设保持 `prompts + prompt_order` 原结构，不再转译成提示词模块。</div>
                 </div>
-                <div className="px-2 py-1.5" style={{ background: 'rgba(var(--tj-bg-secondary), 0.28)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.1)', clipPath: smallClip }}>
+                <div className="px-2 py-1.5" style={{ background: 'rgba(var(--tj-bg-secondary), 0.28)', boxShadow: insetRing(0.1), clipPath: CLIP_SMALL }}>
                   <div className="text-xs font-serif tracking-[0.14em]" style={{ color: 'rgba(var(--tj-accent-primary), 0.8)' }}>消息链</div>
                   <div className="mt-1 leading-5">只有总开关开启且选中有效预设时，主剧情才会尝试使用酒馆消息链。</div>
                 </div>
@@ -1164,8 +1167,8 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
       <div className="flex max-h-[34dvh] min-w-0 flex-shrink-0 flex-col gap-2 md:max-h-none md:w-[360px]">
         <div className="flex gap-1 p-1" style={{
           background: 'rgba(var(--tj-bg-secondary), 0.5)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-          clipPath: smallClip,
+          boxShadow: insetRing(0.15),
+          clipPath: CLIP_SMALL,
         }}>
           {([
             { key: 'main', label: '主剧情' },
@@ -1180,10 +1183,10 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
                 className="flex-1 px-3 py-1.5 text-sm font-serif tracking-[0.12em] transition-all"
                 style={{
                   background: active
-                    ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.92), rgba(var(--tj-btn-primary-end), 0.82))'
+                    ? gradientAccent(0.92, 0.82)
                     : 'transparent',
                   color: active ? 'rgb(var(--tj-on-accent))' : 'rgba(var(--tj-text-secondary), 0.7)',
-                  clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+                  clipPath: CLIP_XS,
                   cursor: 'pointer',
                 }}
               >
@@ -1232,8 +1235,8 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
             style={{
               background: 'transparent',
               color: 'rgba(var(--tj-text-secondary), 0.82)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.3),
+              clipPath: CLIP_SMALL,
             }}
           >
             重置内置模块
@@ -1253,9 +1256,9 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
             onClick={() => setShowAddModal(true)}
             className="px-3 py-1 text-xs font-serif tracking-wider transition-all hover:opacity-90"
             style={{
-              background: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.92), rgba(var(--tj-btn-primary-end), 0.82))',
+              background: gradientAccent(0.92, 0.82),
               color: 'rgb(var(--tj-on-accent))',
-              clipPath: smallClip,
+              clipPath: CLIP_SMALL,
             }}
           >
             + 新增自定义模块
@@ -1273,8 +1276,8 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
               className="flex flex-1 items-center justify-center text-sm"
               style={{
                 color: 'rgba(var(--tj-text-secondary), 0.5)',
-                clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.06)',
+                clipPath: CLIP_MEDIUM,
+                boxShadow: insetRing(0.06),
                 background: 'radial-gradient(circle at 50% 40%, rgba(var(--tj-accent-primary), 0.018) 0%, transparent 60%)',
                 padding: '2rem 1rem',
                 textAlign: 'center',
@@ -1297,281 +1300,6 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
 }
 
 /** ST 预设切换器：下拉选当前预设 + 重命名按钮 + 删除按钮。 */
-function PresetSwitcher({
-  presets,
-  currentId,
-  onSwitch,
-  onRename,
-  onDelete,
-}: {
-  presets: STPresetEntry[];
-  currentId: string | null;
-  onSwitch: (presetId: string | null) => void;
-  onRename: (presetId: string, newName: string) => void;
-  onDelete: (presetId: string) => void;
-}) {
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState('');
-  const current = presets.find((p) => p.id === currentId);
-
-  const startRename = () => {
-    if (!current) return;
-    setRenameValue(current.name);
-    setRenaming(true);
-  };
-  const commitRename = () => {
-    if (current) onRename(current.id, renameValue);
-    setRenaming(false);
-  };
-
-  return (
-    <div
-      className="flex flex-col gap-2 px-3 py-2.5"
-      style={{
-        background: 'rgba(var(--tj-ui-nsfw), 0.06)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.22)',
-        clipPath: smallClip,
-      }}
-    >
-      <div className="flex items-center gap-1">
-        <span
-          className="text-sm font-serif tracking-[0.14em]"
-          style={{ color: 'rgba(var(--tj-ui-nsfw), 0.92)' }}
-        >
-          提示词预设
-        </span>
-        <span className="ml-auto text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>
-          {presets.length} 套
-        </span>
-      </div>
-      {!renaming ? (
-        <div className="flex items-center gap-1">
-          <select
-            value={currentId ?? ''}
-            onChange={(e) => onSwitch(e.target.value || null)}
-            className="min-w-0 flex-1 px-2 py-1 text-xs"
-            style={{
-              background: 'rgba(var(--tj-bg-primary), 0.6)',
-              color: 'rgb(var(--tj-text-primary))',
-              border: '1px solid rgba(var(--tj-ui-nsfw), 0.3)',
-              borderRadius: '2px',
-              outline: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            {presets.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.isBuiltin ? '◆ ' : ''}{p.name}{p.modules.length > 0 ? ` · ${p.modules.length} 条` : ''}
-              </option>
-            ))}
-          </select>
-          {current && !current.isBuiltin && (
-            <>
-              <button
-                type="button"
-                onClick={startRename}
-                title="重命名当前预设"
-                className="px-2.5 py-1.5 text-xs transition-all hover:opacity-80"
-                style={{
-                  color: 'rgba(var(--tj-ui-nsfw), 0.92)',
-                  background: 'rgba(var(--tj-ui-nsfw), 0.1)',
-                  border: '1px solid rgba(var(--tj-ui-nsfw), 0.3)',
-                  cursor: 'pointer',
-                }}
-              >
-                ✎
-              </button>
-              <button
-                type="button"
-                onClick={() => onDelete(current.id)}
-                title="删除当前预设"
-                className="px-2.5 py-1.5 text-xs transition-all hover:opacity-80"
-                style={{
-                  color: 'rgba(var(--tj-danger), 0.92)',
-                  background: 'rgba(var(--tj-danger), 0.08)',
-                  border: '1px solid rgba(var(--tj-danger), 0.3)',
-                  cursor: 'pointer',
-                }}
-              >
-                ✕
-              </button>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center gap-1">
-          <input
-            type="text"
-            value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitRename();
-              if (e.key === 'Escape') setRenaming(false);
-            }}
-            autoFocus
-            className="min-w-0 flex-1 px-2 py-1 text-xs"
-            style={{
-              background: 'rgba(var(--tj-bg-primary), 0.6)',
-              color: 'rgb(var(--tj-text-primary))',
-              border: '1px solid rgba(var(--tj-ui-nsfw), 0.45)',
-              borderRadius: '2px',
-              outline: 'none',
-            }}
-          />
-          <button
-            type="button"
-            onClick={commitRename}
-            className="px-2.5 py-1.5 text-xs transition-all hover:opacity-80"
-            style={{
-              color: 'rgba(var(--tj-ui-nsfw), 0.92)',
-              background: 'rgba(var(--tj-ui-nsfw), 0.1)',
-              border: '1px solid rgba(var(--tj-ui-nsfw), 0.3)',
-              cursor: 'pointer',
-            }}
-          >
-            ✓
-          </button>
-          <button
-            type="button"
-            onClick={() => setRenaming(false)}
-            className="px-2.5 py-1.5 text-xs transition-all hover:opacity-80"
-            style={{
-              color: 'rgba(var(--tj-text-secondary), 0.7)',
-              background: 'transparent',
-              border: '1px solid rgba(var(--tj-text-secondary), 0.3)',
-              cursor: 'pointer',
-            }}
-          >
-            取消
-          </button>
-        </div>
-      )}
-      {current && (
-        <div className="text-xs leading-5" style={{ color: 'rgba(var(--tj-text-secondary), 0.55)' }}>
-          编辑模块自动保存到此预设
-        </div>
-      )}
-    </div>
-  );
-}
-
-function V1PresetEntriesPanel({ preset }: { preset: STPresetEntry | null }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const modules = preset?.modules ?? [];
-  const enabledCount = modules.filter((module) => module.enabled !== false).length;
-  const groupedSummary = modules.reduce<Record<string, number>>((acc, module) => {
-    acc[module.category] = (acc[module.category] ?? 0) + 1;
-    return acc;
-  }, {});
-
-  return (
-    <div
-      className="flex flex-col gap-2 px-3 py-2.5"
-      style={{
-        background: 'rgba(var(--tj-bg-primary), 0.24)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.16)',
-        clipPath: smallClip,
-      }}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-serif tracking-[0.14em]" style={{ color: 'rgba(var(--tj-ui-nsfw), 0.92)' }}>
-          V1 条目
-        </span>
-        <span className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>
-          {enabledCount}/{modules.length} 启用
-        </span>
-      </div>
-
-      {modules.length > 0 ? (
-        <>
-          <div className="flex flex-wrap gap-1.5">
-            {Object.entries(groupedSummary).map(([category, count]) => (
-              <span
-                key={category}
-                className="px-2 py-1 text-xs"
-                style={{
-                  color: 'rgba(var(--tj-text-secondary), 0.72)',
-                  background: 'rgba(var(--tj-bg-secondary), 0.34)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-                  clipPath: smallClip,
-                }}
-              >
-                {PROMPT_MODULE_CATEGORY_LABELS[category as 提示词模块类目] ?? category} {count}
-              </span>
-            ))}
-          </div>
-          <div className="flex max-h-72 flex-col gap-2 overflow-y-auto pr-1">
-            {modules.map((module, index) => {
-              const expanded = expandedId === module.id;
-              const contentPreview = module.content.replace(/\s+/g, ' ').trim().slice(0, 90);
-              return (
-                <button
-                  key={module.id}
-                  type="button"
-                  onClick={() => setExpandedId((current) => (current === module.id ? null : module.id))}
-                  className="min-w-0 px-3 py-2 text-left text-sm transition-all hover:opacity-90"
-                  style={{
-                    background: expanded ? 'rgba(var(--tj-ui-nsfw), 0.1)' : 'rgba(var(--tj-bg-primary), 0.22)',
-                    color: module.enabled === false ? 'rgba(var(--tj-text-secondary), 0.42)' : 'rgba(var(--tj-text-primary), 0.82)',
-                    boxShadow: `inset 0 0 0 1px ${expanded ? 'rgba(var(--tj-ui-nsfw), 0.28)' : 'rgba(var(--tj-accent-primary), 0.1)'}`,
-                    clipPath: smallClip,
-                  }}
-                >
-                  <span className="grid items-start gap-2" style={{ gridTemplateColumns: '2.25rem minmax(0,1fr) auto' }}>
-                    <span style={{ color: 'rgba(var(--tj-ui-nsfw), 0.75)' }}>#{index + 1}</span>
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium" title={module.title}>{module.title}</span>
-                      <span className="mt-1 block truncate text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.52)' }} title={module.id}>
-                        {module.id}
-                      </span>
-                      {!expanded && contentPreview && (
-                        <span className="mt-1 block truncate text-xs leading-5" style={{ color: 'rgba(var(--tj-text-secondary), 0.48)' }} title={contentPreview}>
-                          {contentPreview}
-                        </span>
-                      )}
-                    </span>
-                    <span className="flex flex-col items-end gap-1 text-xs">
-                      <span style={{ color: 'rgba(var(--tj-text-secondary), 0.55)' }}>
-                        {module.role ?? 'system'}
-                      </span>
-                      <span style={{ color: module.enabled === false ? 'rgba(var(--tj-text-secondary), 0.42)' : 'rgba(var(--tj-ui-nsfw), 0.78)' }}>
-                        {module.enabled === false ? 'off' : 'on'}
-                      </span>
-                    </span>
-                  </span>
-                  {expanded && (
-                    <span className="mt-3 block space-y-2">
-                      <span className="grid grid-cols-3 gap-2 text-xs">
-                        <span style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>order {module.order}</span>
-                        <span style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>{PROMPT_MODULE_CATEGORY_LABELS[module.category] ?? module.category}</span>
-                        <span style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>{module.injectionPosition === 1 ? `depth ${module.injectionDepth ?? 4}` : 'system'}</span>
-                      </span>
-                      <span
-                        className="block max-h-56 overflow-y-auto whitespace-pre-wrap px-3 py-2 font-mono text-xs leading-6"
-                        style={{
-                          background: 'rgba(var(--tj-bg-primary), 0.45)',
-                          color: 'rgba(var(--tj-text-primary), 0.76)',
-                          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-                        }}
-                      >
-                        {module.content || '（空内容）'}
-                      </span>
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </>
-      ) : (
-        <div className="px-3 py-3 text-sm" style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>
-          当前为原生内置入口，没有 V1 导入条目。
-        </div>
-      )}
-    </div>
-  );
-}
-
 function V2PresetSwitcher({
   presets,
   currentId,
@@ -1715,9 +1443,11 @@ function V2PresetSwitcher({
       return;
     }
     if (raw && typeof raw === 'object') {
+      const existing = raw[entryKey];
+      if (!existing) return;
       const nextWorldInfo: Record<string, STWorldInfoEntry> = {
         ...raw,
-        [entryKey]: { ...raw[entryKey], ...partial },
+        [entryKey]: { ...existing, ...partial },
       };
       patchCurrentPreset({
         ...current.preset,
@@ -1765,8 +1495,8 @@ function V2PresetSwitcher({
       className="flex flex-col gap-1.5 px-2 py-1.5"
       style={{
         background: 'rgba(var(--tj-accent-primary), 0.06)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.22)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.22),
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="flex flex-wrap items-center gap-3">
@@ -1847,8 +1577,8 @@ function V2PresetSwitcher({
               style={{
                 background: 'rgba(var(--tj-bg-primary), 0.52)',
                 color: 'rgba(var(--tj-text-primary), 0.82)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.22)',
-                clipPath: smallClip,
+                boxShadow: insetRing(0.22),
+                clipPath: CLIP_SMALL,
               }}
             >
               导出
@@ -1862,7 +1592,7 @@ function V2PresetSwitcher({
                   background: 'rgba(var(--tj-danger), 0.08)',
                   color: 'rgba(var(--tj-danger), 0.9)',
                   boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger), 0.24)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 删除
@@ -1876,7 +1606,7 @@ function V2PresetSwitcher({
                 background: 'rgba(var(--tj-ui-nsfw), 0.12)',
                 color: 'rgba(var(--tj-ui-nsfw), 0.95)',
                 boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.28)',
-                clipPath: smallClip,
+                clipPath: CLIP_SMALL,
               }}
             >
               本地审查
@@ -1891,8 +1621,8 @@ function V2PresetSwitcher({
             style={{
               background: 'rgba(var(--tj-bg-primary), 0.32)',
               color: 'rgba(var(--tj-text-secondary), 0.68)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.12),
+              clipPath: CLIP_SMALL,
             }}
           >
             {'{{char}}'} 已由项目内置兼容层接管：会被理解为当前剧情中的主要互动对象、出场 NPC 与 AI 负责扮演的角色集合，无需玩家手动填写。
@@ -1904,8 +1634,8 @@ function V2PresetSwitcher({
             className="grid h-[min(68vh,760px)] min-h-[520px] gap-3 overflow-hidden px-3 py-2.5 xl:grid-cols-[minmax(320px,0.95fr)_minmax(0,1.05fr)]"
             style={{
               background: 'rgba(var(--tj-bg-primary), 0.28)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.14),
+              clipPath: CLIP_SMALL,
             }}
           >
             <div className="flex min-h-0 flex-col gap-2 overflow-hidden">
@@ -1937,7 +1667,7 @@ function V2PresetSwitcher({
                       color: active ? 'rgba(var(--tj-ui-nsfw), 0.95)' : 'rgba(var(--tj-text-secondary), 0.62)',
                       background: active ? 'rgba(var(--tj-ui-nsfw), 0.12)' : 'rgba(var(--tj-bg-primary), 0.35)',
                       boxShadow: `inset 0 0 0 1px ${active ? 'rgba(var(--tj-ui-nsfw), 0.3)' : 'rgba(var(--tj-accent-primary), 0.12)'}`,
-                      clipPath: smallClip,
+                      clipPath: CLIP_SMALL,
                     }}
                   >
                     {label}
@@ -1967,7 +1697,7 @@ function V2PresetSwitcher({
                       gridTemplateColumns: '2.25rem minmax(0, 1fr) auto',
                       background: active ? 'rgba(var(--tj-accent-primary), 0.12)' : 'transparent',
                       color: slot.enabled === false ? 'rgba(var(--tj-text-secondary), 0.42)' : 'rgba(var(--tj-text-primary), 0.82)',
-                      clipPath: smallClip,
+                      clipPath: CLIP_SMALL,
                     }}
                   >
                     <span style={{ color: slot.enabled === false ? 'rgba(var(--tj-text-secondary), 0.42)' : 'rgba(var(--tj-ui-nsfw), 0.82)' }}>
@@ -1989,7 +1719,7 @@ function V2PresetSwitcher({
                         <span className="mt-1 inline-flex px-1.5 py-0.5 text-xs" style={{
                           color: macro.level === 'advanced' ? 'rgba(var(--tj-danger), 0.86)' : 'rgba(var(--tj-ui-nsfw), 0.78)',
                           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.18)',
-                          clipPath: smallClip,
+                          clipPath: CLIP_SMALL,
                         }}>
                           {macro.level === 'advanced' ? '高级宏' : '基础宏'}
                         </span>
@@ -2085,7 +1815,7 @@ function V2PresetSwitcher({
                 )}
               </div>
             ) : (
-              <div className="flex flex-1 items-center justify-center p-6 text-sm" style={{ color: 'rgba(var(--tj-text-secondary), 0.55)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.08)', clipPath: smallClip }}>
+              <div className="flex flex-1 items-center justify-center p-6 text-sm" style={{ color: 'rgba(var(--tj-text-secondary), 0.55)', boxShadow: insetRing(0.08), clipPath: CLIP_SMALL }}>
                 从左侧选择一个顺序项查看正文和宏检测。
               </div>
             )}
@@ -2096,8 +1826,8 @@ function V2PresetSwitcher({
               className="px-3 py-2"
               style={{
                 background: 'rgba(var(--tj-bg-primary), 0.24)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-                clipPath: smallClip,
+                boxShadow: insetRing(0.12),
+                clipPath: CLIP_SMALL,
               }}
             >
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -2127,7 +1857,7 @@ function V2PresetSwitcher({
                           background: enabled ? 'rgba(var(--tj-bg-secondary), 0.26)' : 'rgba(var(--tj-bg-primary), 0.18)',
                           color: enabled ? 'rgba(var(--tj-text-primary), 0.76)' : 'rgba(var(--tj-text-secondary), 0.45)',
                           boxShadow: `inset 0 0 0 1px ${enabled ? 'rgba(var(--tj-accent-primary), 0.13)' : 'rgba(var(--tj-text-secondary), 0.08)'}`,
-                          clipPath: smallClip,
+                          clipPath: CLIP_SMALL,
                         }}
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -2178,7 +1908,7 @@ function V2PresetSwitcher({
             style={{
               background: 'linear-gradient(135deg, rgba(var(--tj-bg-primary), 0.26), rgba(var(--tj-ui-nsfw), 0.045))',
               boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.16)',
-              clipPath: smallClip,
+              clipPath: CLIP_SMALL,
             }}
           >
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -2189,7 +1919,7 @@ function V2PresetSwitcher({
                 <span className="px-2 py-0.5 text-xs" style={{
                   color: 'rgba(var(--tj-text-secondary), 0.66)',
                   boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.18)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}>
                   仅审查 / 干跑
                 </span>
@@ -2211,8 +1941,8 @@ function V2PresetSwitcher({
                 style={{
                   background: 'rgba(var(--tj-bg-primary), 0.22)',
                   color: 'rgba(var(--tj-text-secondary), 0.66)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.1)',
-                  clipPath: smallClip,
+                  boxShadow: insetRing(0.1),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div className="font-serif tracking-[0.1em]" style={{ color: 'rgba(var(--tj-text-primary), 0.76)' }}>
@@ -2232,7 +1962,7 @@ function V2PresetSwitcher({
                   </div>
                   <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
                     {regexScripts.map((script, index) => {
-                      const safety = regexScriptSafety[index];
+                      const safety = regexScriptSafety[index] ?? analyzeTavernRegexScript(script);
                       const active = effectiveRegexIndex === index;
                       const title = getPresetRegexTitle(script, index);
                       const findPreview = getPresetRegexFindText(script).replace(/\s+/g, ' ').trim();
@@ -2246,7 +1976,7 @@ function V2PresetSwitcher({
                             background: active ? 'rgba(var(--tj-ui-nsfw), 0.1)' : 'rgba(var(--tj-bg-primary), 0.18)',
                             color: safety.disabled ? 'rgba(var(--tj-text-secondary), 0.45)' : 'rgba(var(--tj-text-primary), 0.78)',
                             boxShadow: `inset 0 0 0 1px ${active ? 'rgba(var(--tj-ui-nsfw), 0.28)' : 'rgba(var(--tj-accent-primary), 0.1)'}`,
-                            clipPath: smallClip,
+                            clipPath: CLIP_SMALL,
                           }}
                         >
                           <div className="flex items-start justify-between gap-2">
@@ -2261,7 +1991,7 @@ function V2PresetSwitcher({
                             <span className="px-1.5 py-0.5" style={{
                               color: safety.kind === 'blocked' ? 'rgba(var(--tj-danger), 0.92)' : safety.risky ? 'rgba(var(--tj-ui-nsfw), 0.9)' : 'rgba(var(--tj-accent-primary), 0.82)',
                               boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.16)',
-                              clipPath: smallClip,
+                              clipPath: CLIP_SMALL,
                             }}>
                               {getPresetRegexKindLabel(safety.kind)}
                             </span>
@@ -2269,7 +1999,7 @@ function V2PresetSwitcher({
                               <span className="px-1.5 py-0.5" style={{
                                 color: 'rgba(var(--tj-danger), 0.9)',
                                 boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger), 0.22)',
-                                clipPath: smallClip,
+                                clipPath: CLIP_SMALL,
                               }}>
                                 协议标签风险
                               </span>
@@ -2296,8 +2026,8 @@ function V2PresetSwitcher({
                           <div key={label} className="px-2 py-1.5 text-xs" style={{
                             background: 'rgba(var(--tj-bg-primary), 0.26)',
                             color: 'rgba(var(--tj-text-primary), 0.74)',
-                            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.1)',
-                            clipPath: smallClip,
+                            boxShadow: insetRing(0.1),
+                            clipPath: CLIP_SMALL,
                           }}>
                             <div style={{ color: 'rgba(var(--tj-text-secondary), 0.52)' }}>{label}</div>
                             <div className="mt-1 truncate">{value}</div>
@@ -2313,8 +2043,8 @@ function V2PresetSwitcher({
                               <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-xs leading-5" style={{
                                 background: 'rgba(var(--tj-bg-primary), 0.36)',
                                 color: 'rgba(var(--tj-text-primary), 0.76)',
-                                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.1)',
-                                clipPath: smallClip,
+                                boxShadow: insetRing(0.1),
+                                clipPath: CLIP_SMALL,
                               }}>{getPresetRegexFindText(selectedRegexScript) || '空'}</pre>
                             </div>
                             <div>
@@ -2322,8 +2052,8 @@ function V2PresetSwitcher({
                               <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-xs leading-5" style={{
                                 background: 'rgba(var(--tj-bg-primary), 0.36)',
                                 color: 'rgba(var(--tj-text-primary), 0.76)',
-                                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.1)',
-                                clipPath: smallClip,
+                                boxShadow: insetRing(0.1),
+                                clipPath: CLIP_SMALL,
                               }}>{getPresetRegexReplaceText(selectedRegexScript) || '空'}</pre>
                             </div>
                             <div className="text-xs leading-5" style={{ color: selectedRegexSafety.risky ? 'rgba(var(--tj-ui-nsfw), 0.82)' : 'rgba(var(--tj-text-secondary), 0.64)' }}>
@@ -2352,8 +2082,8 @@ function V2PresetSwitcher({
                               className="px-2 py-1 text-xs"
                               style={{
                                 color: 'rgba(var(--tj-text-secondary), 0.65)',
-                                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
-                                clipPath: smallClip,
+                                boxShadow: insetRing(0.14),
+                                clipPath: CLIP_SMALL,
                               }}
                             >
                               重置样例
@@ -2375,7 +2105,7 @@ function V2PresetSwitcher({
                             background: selectedRegexDryRun.ok ? 'rgba(var(--tj-accent-primary), 0.055)' : 'rgba(var(--tj-ui-nsfw), 0.06)',
                             color: 'rgba(var(--tj-text-primary), 0.78)',
                             boxShadow: `inset 0 0 0 1px ${selectedRegexDryRun.ok ? 'rgba(var(--tj-accent-primary), 0.14)' : 'rgba(var(--tj-ui-nsfw), 0.18)'}`,
-                            clipPath: smallClip,
+                            clipPath: CLIP_SMALL,
                           }}>
                             {selectedRegexDryRun.after}
                           </pre>
@@ -2398,8 +2128,8 @@ function V2PresetSwitcher({
             className="px-3 py-2"
             style={{
               background: 'rgba(var(--tj-bg-primary), 0.24)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.12),
+              clipPath: CLIP_SMALL,
             }}
           >
             <button
@@ -2429,7 +2159,7 @@ function V2PresetSwitcher({
               style={{
                 background: 'rgba(var(--tj-bg-primary), 0.3)',
                 boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.18)',
-                clipPath: smallClip,
+                clipPath: CLIP_SMALL,
               }}
             >
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -2460,8 +2190,8 @@ function V2PresetStructurePreview({ preset, characterId }: { preset: STPresetEnt
       className="flex flex-col gap-2 px-3 py-2.5"
       style={{
         background: 'rgba(var(--tj-bg-primary), 0.28)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.14),
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="flex items-center justify-between gap-2">
@@ -2511,7 +2241,7 @@ function MacroInspector({ content }: { content: string }) {
   const macro = detectTavernMacroInfo(content);
   if (macro.level === 'none') {
     return (
-      <div className="px-3 py-2 text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.58)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.08)', clipPath: smallClip }}>
+      <div className="px-3 py-2 text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.58)', boxShadow: insetRing(0.08), clipPath: CLIP_SMALL }}>
         宏检测：未发现宏。
       </div>
     );
@@ -2522,7 +2252,7 @@ function MacroInspector({ content }: { content: string }) {
       style={{
         color: 'rgba(var(--tj-text-secondary), 0.72)',
         boxShadow: `inset 0 0 0 1px ${macro.level === 'advanced' ? 'rgba(var(--tj-danger), 0.22)' : 'rgba(var(--tj-ui-nsfw), 0.18)'}`,
-        clipPath: smallClip,
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="font-serif tracking-[0.14em]" style={{ color: macro.level === 'advanced' ? 'rgba(var(--tj-danger), 0.86)' : 'rgba(var(--tj-ui-nsfw), 0.82)' }}>
@@ -2530,7 +2260,7 @@ function MacroInspector({ content }: { content: string }) {
       </div>
       <div className="flex flex-wrap gap-1.5">
         {macro.macros.map((item) => (
-          <span key={item} className="px-1.5 py-0.5" style={{ color: 'rgba(var(--tj-text-primary), 0.72)', background: 'rgba(var(--tj-bg-primary), 0.36)', clipPath: smallClip }}>
+          <span key={item} className="px-1.5 py-0.5" style={{ color: 'rgba(var(--tj-text-primary), 0.72)', background: 'rgba(var(--tj-bg-primary), 0.36)', clipPath: CLIP_SMALL }}>
             {item}
           </span>
         ))}
@@ -2579,16 +2309,16 @@ function ModuleList({
       <div className="mb-2 space-y-3">
         {CALIBRATION_GROUP_ORDER.filter((k) => grouped[k]?.length).map((key) => {
           const group = CALIBRATION_SYSTEM_GROUPS[key];
-          const items = grouped[key];
+          const items = grouped[key] ?? [];
           return (
             <SystemGroupSection key={key} group={group} items={items} selected={selected} onSelect={onSelect} onToggle={onToggle} />
           );
         })}
         {/* 未归类模块兜底 */}
-        {grouped['other']?.length > 0 && (
+        {(grouped.other?.length ?? 0) > 0 && (
           <SystemGroupSection
             group={{ label: '其他系统', icon: '◈', emoji: '⚡', match: () => false }}
-            items={grouped['other']}
+            items={grouped.other ?? []}
             selected={selected}
             onSelect={onSelect}
             onToggle={onToggle}
@@ -2831,7 +2561,7 @@ function ModuleItem({
     : m.builtin
       ? {
           color: 'rgb(var(--tj-bg-primary))',
-          background: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.92), rgba(var(--tj-btn-primary-end), 0.82))',
+          background: gradientAccent(0.92, 0.82),
         }
       : {
           color: 'rgba(var(--tj-accent-primary), 0.94)',
@@ -2843,12 +2573,12 @@ function ModuleItem({
       className="mb-1 w-full px-3 py-2 text-left transition-all"
       style={{
         background: active
-          ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.16), rgba(var(--tj-btn-primary-end), 0.04))'
+          ? gradientAccent(0.16, 0.04)
           : 'rgba(var(--tj-bg-secondary), 0.45)',
         boxShadow: active
           ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.55), 0 0 0 1px rgba(var(--tj-accent-primary), 0.06), 0 0 12px rgba(var(--tj-accent-glow), 0.04)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: smallClip,
+          : insetRing(0.15),
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="flex items-center gap-2">
@@ -2916,11 +2646,11 @@ function ModuleItem({
           className="relative inline-flex h-4 w-7 flex-shrink-0 cursor-pointer items-center transition-all"
           style={{
             background: toggleDisabled || m.enabled
-              ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.92), rgba(var(--tj-btn-primary-end), 0.82))'
+              ? gradientAccent(0.92, 0.82)
               : 'rgba(var(--tj-bg-secondary), 0.68)',
             boxShadow: toggleDisabled || m.enabled
               ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.4)'
-              : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+              : insetRing(0.2),
             clipPath: 'polygon(3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%, 0 3px)',
             cursor: toggleDisabled ? 'not-allowed' : 'pointer',
             opacity: toggleDisabled ? 0.6 : 1,
@@ -2976,7 +2706,7 @@ function EditorPanel({
           background: 'linear-gradient(90deg, rgba(var(--tj-accent-primary), 0.06) 0%, transparent 100%)',
           color: 'rgba(var(--tj-accent-primary), 0.7)',
           clipPath:
-            'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+            CLIP_SMALL,
         }}
       >
         <span>{layerLabel}</span>
@@ -3003,7 +2733,7 @@ function EditorPanel({
             background: 'linear-gradient(90deg, rgba(var(--tj-ui-nsfw), 0.08) 0%, transparent 100%)',
             boxShadow: 'inset 2px 0 0 rgba(var(--tj-ui-nsfw), 0.6), inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.15)',
             clipPath:
-              'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+              CLIP_SMALL,
           }}
         >
           <span
@@ -3026,9 +2756,9 @@ function EditorPanel({
         className="flex flex-col items-stretch gap-3 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.45)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+          boxShadow: insetRing(0.15),
           clipPath:
-            'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+            CLIP_MEDIUM,
         }}
       >
         <div className="min-w-0 sm:mr-3">
@@ -3058,12 +2788,12 @@ function EditorPanel({
           className="relative h-6 w-11 flex-shrink-0 transition-all"
           style={{
             background: toggleDisabled || m.enabled
-                  ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
+                  ? gradientAccent(0.95, 0.86)
                   : 'rgba(var(--tj-bg-secondary), 0.68)',
             boxShadow: toggleDisabled || m.enabled
               ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-              : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-            clipPath: smallClip,
+              : insetRing(0.2),
+            clipPath: CLIP_SMALL,
             cursor: toggleDisabled ? 'not-allowed' : 'pointer',
             opacity: toggleDisabled ? 0.82 : 1,
           }}
@@ -3074,7 +2804,7 @@ function EditorPanel({
               left: toggleDisabled || m.enabled ? 'calc(100% - 1.375rem)' : '0.125rem',
               background: toggleDisabled || m.enabled ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
               clipPath:
-                'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+                CLIP_XS,
             }}
           />
         </button>
@@ -3088,7 +2818,7 @@ function EditorPanel({
           readOnly={readonly}
           onChange={(e) => onPatch({ title: e.target.value })}
           className="teyvat-input w-full min-w-0 px-3 py-2 text-sm"
-          style={{ clipPath: smallClip, opacity: readonly ? 0.7 : 1 }}
+          style={{ clipPath: CLIP_SMALL, opacity: readonly ? 0.7 : 1 }}
         />
       </Field>
 
@@ -3100,7 +2830,7 @@ function EditorPanel({
           readOnly={readonly}
           onChange={(e) => onPatch({ description: e.target.value })}
           className="teyvat-input w-full min-w-0 px-3 py-2 text-sm"
-          style={{ clipPath: smallClip, opacity: readonly ? 0.7 : 1 }}
+          style={{ clipPath: CLIP_SMALL, opacity: readonly ? 0.7 : 1 }}
         />
       </Field>
 
@@ -3114,7 +2844,7 @@ function EditorPanel({
               onPatch({ category: e.target.value as 提示词模块类目 })
             }
             className="teyvat-input w-full min-w-0 px-3 py-2 text-sm"
-            style={{ clipPath: smallClip, opacity: readonly ? 0.7 : 1 }}
+            style={{ clipPath: CLIP_SMALL, opacity: readonly ? 0.7 : 1 }}
           >
             {(Object.keys(PROMPT_MODULE_CATEGORY_LABELS) as 提示词模块类目[]).map((c) => (
               <option key={c} value={c}>
@@ -3130,7 +2860,7 @@ function EditorPanel({
             disabled={readonly}
             onChange={(e) => onPatch({ order: Number(e.target.value) })}
             className="teyvat-input w-full min-w-0 px-3 py-2 text-sm sm:w-24"
-            style={{ clipPath: smallClip, opacity: readonly ? 0.7 : 1 }}
+            style={{ clipPath: CLIP_SMALL, opacity: readonly ? 0.7 : 1 }}
           />
         </Field>
       </div>
@@ -3160,7 +2890,7 @@ function EditorPanel({
           onChange={(e) => onPatch({ content: e.target.value })}
           rows={16}
           className="teyvat-input w-full min-w-0 resize-none px-3 py-2 font-mono text-xs"
-          style={{ clipPath: smallClip, opacity: readonly ? 0.8 : 1 }}
+          style={{ clipPath: CLIP_SMALL, opacity: readonly ? 0.8 : 1 }}
         />
       </Field>
       <div className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)' }}>
@@ -3179,7 +2909,7 @@ function EditorPanel({
               background: 'transparent',
               color: 'rgba(220, 100, 100, 0.85)',
               boxShadow: 'inset 0 0 0 1px rgba(220, 100, 100, 0.4)',
-              clipPath: smallClip,
+              clipPath: CLIP_SMALL,
             }}
           >
             ✕ 删除此模块
@@ -3219,10 +2949,10 @@ function AddCustomModuleModal({
   onConfirm,
   onCancel,
 }: {
-  onConfirm: (systemKey: string, category: 提示词模块类目, replaceMode: 'replace' | 'coexist') => void;
+  onConfirm: (systemKey: CustomModuleSystemKey, category: 提示词模块类目, replaceMode: 'replace' | 'coexist') => void;
   onCancel: () => void;
 }) {
-  const [systemKey, setSystemKey] = useState<string>('main');
+  const [systemKey, setSystemKey] = useState<CustomModuleSystemKey>('main');
   const [category, setCategory] = useState<提示词模块类目>('cot');
   const [replaceMode, setReplaceMode] = useState<'replace' | 'coexist'>('replace');
 
@@ -3243,7 +2973,7 @@ function AddCustomModuleModal({
         style={{
           background: 'rgb(var(--tj-bg-primary))',
           boxShadow: '0 0 40px rgba(var(--tj-accent-primary), 0.12), inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.25)',
-          clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+          clipPath: CLIP_CARD,
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -3276,13 +3006,13 @@ function AddCustomModuleModal({
                     className="px-2.5 py-1.5 text-xs font-serif tracking-wider transition-all"
                     style={{
                       background: active
-                        ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.88), rgba(var(--tj-btn-primary-end), 0.78))'
+                        ? gradientAccent(0.88, 0.78)
                         : 'rgba(var(--tj-bg-secondary), 0.5)',
                       color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.82)',
                       boxShadow: active
                         ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.45)'
-                        : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-                      clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+                        : insetRing(0.2),
+                      clipPath: CLIP_XS,
                       cursor: 'pointer',
                     }}
                   >
@@ -3316,8 +3046,8 @@ function AddCustomModuleModal({
                       color: active ? 'rgb(var(--tj-bg-primary))' : `rgba(var(${CATEGORY_COLOR_VAR[cat]}), 0.85)`,
                       boxShadow: active
                         ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.35)'
-                        : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-                      clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+                        : insetRing(0.2),
+                      clipPath: CLIP_XS,
                       cursor: 'pointer',
                     }}
                   >
@@ -3349,13 +3079,13 @@ function AddCustomModuleModal({
                     className="flex-1 px-2.5 py-2 text-xs transition-all"
                     style={{
                       background: active
-                        ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.88), rgba(var(--tj-btn-primary-end), 0.78))'
+                        ? gradientAccent(0.88, 0.78)
                         : 'rgba(var(--tj-bg-secondary), 0.5)',
                       color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.82)',
                       boxShadow: active
                         ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.45)'
-                        : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-                      clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+                        : insetRing(0.2),
+                      clipPath: CLIP_XS,
                       cursor: 'pointer',
                     }}
                   >
@@ -3381,8 +3111,8 @@ function AddCustomModuleModal({
             style={{
               background: 'transparent',
               color: 'rgba(var(--tj-text-secondary), 0.82)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.25)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.25),
+              clipPath: CLIP_SMALL,
               cursor: 'pointer',
             }}
           >
@@ -3393,9 +3123,9 @@ function AddCustomModuleModal({
             onClick={handleConfirm}
             className="flex-1 px-3 py-2 text-xs font-serif tracking-wider transition-all hover:opacity-90"
             style={{
-              background: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.92), rgba(var(--tj-btn-primary-end), 0.82))',
+              background: gradientAccent(0.92, 0.82),
               color: 'rgb(var(--tj-on-accent))',
-              clipPath: smallClip,
+              clipPath: CLIP_SMALL,
               cursor: 'pointer',
             }}
           >
@@ -3444,14 +3174,14 @@ function ScopeChips({
             className="px-2.5 py-1 text-xs font-serif tracking-wider transition-all"
             style={{
               background: active
-                ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.85), rgba(var(--tj-btn-primary-end), 0.78))'
+                ? gradientAccent(0.85, 0.78)
                 : 'rgba(var(--tj-bg-secondary), 0.5)',
               color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.82)',
               boxShadow: active
                 ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5)'
-                : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+                : insetRing(0.2),
               clipPath:
-                'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+                CLIP_XS,
               opacity: readonly ? 0.7 : 1,
               cursor: readonly ? 'not-allowed' : 'pointer',
             }}

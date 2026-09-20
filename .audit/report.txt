@@ -1,0 +1,608 @@
+=== SUMMARY ===
+total files scanned: 676
+ts/tsx code files: 400
+total ts/tsx lines: 114902
+
+=== 1. TYPE ESCAPE HATCHES ===
+
+-- @ts-ignore: 0 occurrences in 0 files
+
+-- @ts-expect-error: 0 occurrences in 0 files
+
+-- @ts-nocheck: 0 occurrences in 0 files
+
+-- as any: 5 occurrences in 2 files
+      4  scripts/dump-injected-prompts.ts
+      1  services/ai/imageGeneration.ts
+
+-- as unknown as: 63 occurrences in 22 files
+     12  utils/saveDeltaStorage.ts
+      8  services/dbService.ts
+      8  services/savePackage.ts
+      5  tests/unit/workflowRecoveryModel.test.ts
+      4  tests/unit/legacyWorldCompat.test.ts
+      3  hooks/useGame/saveLoadWorkflow.ts
+      3  services/cloudBackupMerge.ts
+      3  tests/unit/teyvatInventory.test.ts
+      2  components/features/Settings/ApiSettings.tsx
+      2  services/cloudBackupBuilder.ts
+      2  tests/unit/teyvatSubsystemPrompt.test.ts
+      1  data/codexPreset.ts
+
+-- : any: 8 occurrences in 4 files
+      3  services/ai/chatCompletionClient.ts
+      2  hooks/useGame/tavernMessageChainBuilder.ts
+      2  services/ai/apiTools.ts
+      1  services/ai/imageGeneration.ts
+
+-- <any>: 4 occurrences in 3 files
+      2  utils/lazyWithRetry.ts
+      1  services/ai/imageGeneration.ts
+      1  utils/jsonRepair.ts
+
+-- eslint-disable: 2 occurrences in 2 files
+      1  components/features/Courier/CourierModal.tsx
+      1  components/features/Settings/PromptModulesTab.tsx
+
+-- non-null !: 29 occurrences in 8 files
+     14  components/features/Settings/PromptModulesTab.tsx
+      5  models/memory.ts
+      3  utils/storyBookmarks.ts
+      2  models/settings.ts
+      2  services/memoryRebuild.ts
+      1  components/features/Chat/ChatList.tsx
+      1  hooks/useGame/historyWindow.ts
+      1  services/ai/storySnapshotPipeline.ts
+
+-- TODO/FIXME/HACK/XXX: 1 occurrences in 1 files
+      1  components/features/Settings/PromptModulesTab.tsx
+
+-- console.log: 2 occurrences in 1 files
+      2  scripts/dump-injected-prompts.ts
+
+-- console.warn: 72 occurrences in 21 files
+     25  services/dbService.ts
+     11  hooks/useGame/sendWorkflow.ts
+      5  services/desktop/desktopSaveMirror.ts
+      4  hooks/useGameState.ts
+      4  services/ai/chatCompletionClient.ts
+      3  services/desktop/desktopAssetMirror.ts
+      3  services/desktop/desktopSaveDeltaMirror.ts
+      2  App.tsx
+      2  hooks/useGame/courierBackgroundJobs.ts
+      2  services/workflowRecovery.ts
+      1  components/features/SaveLoad/SaveLoadModal.tsx
+      1  components/features/Settings/StorageManager.tsx
+
+-- console.error: 50 occurrences in 6 files
+     32  components/features/Settings/StorageManager.tsx
+      9  components/features/SaveLoad/SaveLoadModal.tsx
+      4  components/layout/DesktopHomeScreen.tsx
+      2  App.tsx
+      2  index.tsx
+      1  hooks/useGame/sendWorkflow.ts
+
+=== 2. NEAR-DUPLICATE CODE BLOCKS (>=12 identical non-trivial lines) ===
+raw duplicate window groups: 63
+
+  duplicated in [compat/legacy-hsr/readOnly.ts, utils/saveDeltaStorage.ts]
+    memories: number;
+    irminsulEntries: number;
+    codexEntries: number;
+    courierContacts: number;
+
+  duplicated in [components/features/SaveLoad/SaveLoadModal.tsx, components/features/Settings/StorageManager.tsx]
+    alert(`删除失败：${err instanceof Error ? err.message : '存档删除过程异常'}`);
+    await refresh();
+    setDeletingId(null);
+    }
+
+  duplicated in [components/features/Settings/ApiSettings.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx]
+    const providerOptions: { value: AI提供商; label: string; defaultBaseUrl: string; defaultModel: string }[] = [
+    { value: 'openai_compatible', label: 'OpenAI 兼容', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
+    { value: 'openai', label: 'OpenAI', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
+    { value: 'deepseek', label: 'DeepSeek', defaultBaseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
+
+  duplicated in [components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx]
+    import { fetchModels } from '@/services/ai/apiTools';
+    import { saveSetting } from '@/services/dbService';
+    interface Props {
+    settings: 游戏设置;
+
+  duplicated in [components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx, components/features/Settings/VariableUpdateSettings.tsx]
+    apiSettings: API设置;
+    }
+    const smallClip =
+    'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
+  duplicated in [components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx, components/features/Settings/StoryWeavingSettingsTab.tsx, components/features/Settings/VariableUpdateSettings.tsx]
+    const providerOptions: { value: AI提供商; label: string }[] = [
+    { value: 'openai_compatible', label: 'OpenAI 兼容' },
+    { value: 'openai', label: 'OpenAI' },
+    { value: 'deepseek', label: 'DeepSeek' },
+
+  duplicated in [components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx]
+    className="teyvat-input flex-1 px-2.5 py-2 text-sm font-mono"
+    style={{ clipPath: smallClip }}
+    />
+    <button
+
+  duplicated in [components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx, components/features/Settings/VariableUpdateSettings.tsx]
+    </div>
+    <div className="flex flex-col items-stretch gap-2 pt-1">
+    <button
+    onClick={handleSave}
+
+  duplicated in [components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx, components/features/Settings/StoryWeavingSettingsTab.tsx]
+    <div className="flex flex-col items-stretch gap-2 pt-1">
+    <button
+    onClick={handleSave}
+    className="w-full py-3 text-sm font-serif tracking-[0.4em] transition-all hover:opacity-90"
+
+  duplicated in [components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx, components/features/Settings/StoryWeavingSettingsTab.tsx]
+    onClick={handleSave}
+    className="w-full py-3 text-sm font-serif tracking-[0.4em] transition-all hover:opacity-90"
+    style={{
+    background: savedFlash
+
+  duplicated in [components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx, components/features/Settings/StoryWeavingSettingsTab.tsx, components/features/Settings/VariableManager.tsx]
+    className="w-full py-3 text-sm font-serif tracking-[0.4em] transition-all hover:opacity-90"
+    style={{
+    background: savedFlash
+    ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
+
+  duplicated in [components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx, components/features/Settings/StoryWeavingSettingsTab.tsx]
+    </div>
+    <button
+    onClick={() => onChange(!checked)}
+    className="relative h-6 w-11 flex-shrink-0 transition-all"
+
+  duplicated in [components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx]
+    { value: 'openai_compatible', label: 'OpenAI 兼容' },
+    { value: 'openai', label: 'OpenAI' },
+    { value: 'deepseek', label: 'DeepSeek' },
+    { value: 'baidu', label: '百度千帆' },
+
+  duplicated in [components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx]
+    {savedFlash ? '✓ 已 保 存' : '◆ 保 存 配 置'}
+    </button>
+    {saveMessage && (
+    <div
+
+  duplicated in [components/features/Settings/GameSettings.tsx, components/features/Settings/VariableUpdateSettings.tsx]
+    <button
+    onClick={() => onChange(!checked)}
+    className="relative h-6 w-11 flex-shrink-0 transition-all"
+    style={{
+
+  duplicated in [components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx]
+    import { 创建默认记忆系统设置 } from '@/models/settings';
+    import { fetchModels, testConnection, type ConnectionTestResult } from '@/services/ai/apiTools';
+    import { saveSetting } from '@/services/dbService';
+    interface Props {
+
+  duplicated in [components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx, components/features/Settings/StoryWeavingSettingsTab.tsx]
+    style={{
+    background: savedFlash
+    ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
+    : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
+
+  duplicated in [components/features/Settings/MemorySystemSettings.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx]
+    ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
+    : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
+    color: 'rgb(var(--tj-on-accent))',
+    boxShadow: savedFlash
+
+  duplicated in [components/layout/TopBar.tsx, hooks/useGame/worldEvolution.ts, models/world.ts]
+    const raw = value?.trim();
+    if (!raw) return '';
+    const embedded = raw.match(/(\d{1,2}:\d{2})/);
+    if (embedded) {
+
+  duplicated in [hooks/useGame/sendWorkflow.ts, utils/variableFacts.ts]
+    function normalizeCourierSeedComparableText(text: string): string {
+    return text
+    .replace(/\s+/g, '')
+    .replace(/[，。！？!?；;、,.…~～“”"'\[\]（）()《》<>]/g, '')
+
+  duplicated in [services/ai/arkProxyCore.ts, services/ai/pioneerProxyCore.ts]
+    if (payload.kind === 'models') return `${base}/models`;
+    return `${base}/chat/completions`;
+    }
+    function proxyHeaders(upstream?: Response): Headers {
+
+  duplicated in [services/ai/chatCompletionClient.ts, services/ai/text/index.ts]
+    /** 保留概率最高的前 K 个候选词。仅 Gemini 原生消费。 */
+    topK?: number;
+    /** 动态阈值采样。当前预留，无 provider 实际消费。 */
+    topA?: number;
+
+  duplicated in [services/npcRelationshipPlanning.ts, services/storyPlanningAnalysis.ts]
+    }
+    function uniqueText(items: string[], limit: number): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+
+=== 3. FILE SIZE DISTRIBUTION ===
+  <200         258 files
+  200-500      78 files
+  500-1000     36 files
+  1000-2000    23 files
+  >2000        5 files
+
+  files > 1000 lines:
+     3728  hooks/useGame/sendWorkflow.ts
+     3466  components/features/Settings/PromptModulesTab.tsx
+     2772  components/features/GameSystems/album/workspaces.tsx
+     2552  components/features/Settings/StorageManager.tsx
+     2510  services/ai/chatCompletionClient.ts
+     1976  services/dbService.ts
+     1658  components/features/GameSystems/PlotPanel.tsx
+     1649  utils/variableFacts.ts
+     1530  App.tsx
+     1520  components/features/SaveLoad/SaveLoadModal.tsx
+     1501  components/features/Settings/ApiSettings.tsx
+     1482  components/features/GameSystems/AlbumPanel.tsx
+     1390  models/settings.ts
+     1376  components/features/ImageGeneration/ImageRuleTemplateEditor.tsx
+     1345  models/npc.ts
+     1298  components/features/Worldbook/WorldbookManagerModal.tsx
+     1292  components/features/Settings/ImageGenerationSettingsTab.tsx
+     1277  data/teyvatAvatarRegistry.generated.ts
+     1270  utils/imagePromptRules.ts
+     1257  hooks/useGameState.ts
+     1248  components/features/GameSystems/CompanionPanel.tsx
+     1246  hooks/useGame/systemPromptBuilder.ts
+     1238  components/features/Chat/TurnItem.tsx
+     1231  components/features/Settings/VariableManager.tsx
+     1210  data/builtinPromptModules.ts
+     1145  services/ai/imageGeneration.ts
+     1097  services/storyProgressService.ts
+     1048  models/world.ts
+
+=== 4. TESTS ===
+test files: 32
+modules referenced by tests: 119
+
+  source modules NOT referenced by any test: 267 / 400
+  (top 60 by size)
+     3466  components/features/Settings/PromptModulesTab.tsx
+     2772  components/features/GameSystems/album/workspaces.tsx
+     2552  components/features/Settings/StorageManager.tsx
+     2510  services/ai/chatCompletionClient.ts
+     1976  services/dbService.ts
+     1658  components/features/GameSystems/PlotPanel.tsx
+     1530  App.tsx
+     1520  components/features/SaveLoad/SaveLoadModal.tsx
+     1501  components/features/Settings/ApiSettings.tsx
+     1482  components/features/GameSystems/AlbumPanel.tsx
+     1376  components/features/ImageGeneration/ImageRuleTemplateEditor.tsx
+     1298  components/features/Worldbook/WorldbookManagerModal.tsx
+     1292  components/features/Settings/ImageGenerationSettingsTab.tsx
+     1277  data/teyvatAvatarRegistry.generated.ts
+     1238  components/features/Chat/TurnItem.tsx
+     1231  components/features/Settings/VariableManager.tsx
+     1145  services/ai/imageGeneration.ts
+      888  hooks/useGame/memoryUtils.ts
+      872  services/githubCloudSave.ts
+      844  models/codexArchive.ts
+      797  data/journeyPresets.ts
+      721  components/features/GameSystems/InventoryPanel.tsx
+      718  components/features/Settings/IrminsulSettingsTab.tsx
+      651  hooks/useGame/tavernMessageChainBuilder.ts
+      648  components/features/Variable/VariableDrawer.tsx
+      642  components/features/Settings/MemorySystemSettings.tsx
+      641  components/features/GameSystems/album/albumArchive.ts
+      618  services/ai/narrativeImageParse.ts
+      617  data/storyWeavingPreset.ts
+      613  components/features/Settings/GameSettings.tsx
+      591  services/memoryRebuild.ts
+      583  services/desktop/desktopSaveMirror.ts
+      574  hooks/useGame.ts
+      552  utils/teyvatCommandRegistry.ts
+      536  components/features/CloudSave/GitHubCloudSaveModal.tsx
+      506  components/features/GameSystems/MemoryPanel.tsx
+      494  components/layout/DesktopHomeScreen.tsx
+      466  data/codexIdentityRegistry.ts
+      460  services/ai/storySnapshotPipeline.ts
+      427  services/ai/apiTools.ts
+      427  utils/macroEngine.ts
+      413  components/features/Settings/VariableUpdateSettings.tsx
+      412  data/builtinWorldbookConfig.ts
+      411  compat/legacy-hsr/readOnly.ts
+      411  services/ai/variableModel.ts
+      410  components/features/Chat/InputArea.tsx
+      406  services/desktop/desktopAssetMirror.ts
+      403  components/layout/LandingPage.tsx
+      393  hooks/useGame/tavernRegexProcessor.ts
+      382  components/features/Settings/SettingsModal.tsx
+      362  components/features/Chat/ChatList.tsx
+      361  services/ai/novelaiPromptCompiler.ts
+      342  models/imageGeneration.ts
+      337  utils/playerSpeechGuard.ts
+      335  styles/themes.ts
+      327  data/codexPreset.ts
+      321  functions/api/presence.ts
+      315  components/features/Settings/StoryWeavingSettingsTab.tsx
+      314  hooks/useGame/contextSnapshot.ts
+      304  components/features/Codex/CodexManagerModal.tsx
+
+=== 5. FAN-IN (most imported internal modules) ===
+    97  models/settings
+    55  models/npc
+    44  models/imageGeneration
+    34  models/character
+    32  services/dbService
+    32  models/world
+    31  models/teyvat
+    30  models/chat
+    27  models/storyWeaving
+    26  models/teyvat/elements
+    24  models/prompts
+    21  models/teyvat/narrativeTurn
+    20  models/teyvat/courier
+    20  models/teyvat/state
+    18  models/memory
+    18  models/teyvat/character
+    18  models/worldbook
+    17  compat/legacy-hsr/readOnly
+    15  utils/platform/desktopRuntime
+    15  models/teyvat/codex
+    15  models/teyvat/irminsul
+    15  models/teyvat/steambird
+    14  utils/albumActions
+    14  services/ai/chatCompletionClient
+    13  utils/albumObjectUrl
+    13  models/teyvat/items
+    12  hooks/useGameState
+    12  models/teyvat/opening
+    12  models/teyvat/world
+    12  compat/legacy-hsr/migrate
+    11  styles/elementTokens
+    11  components/features/GameSystems/album/foundation
+    11  data/canonicalCharacters
+    11  models/variableCommand
+    11  services/ai/apiTools
+
+=== 6. POTENTIAL CIRCULAR DEPENDENCIES ===
+distinct circular chains found: 6
+  compat/legacy-hsr/readOnly.ts -> models/codexArchive.ts -> compat/legacy-hsr/readOnly.ts
+  models/settings.ts -> utils/imagePromptRules.ts -> models/settings.ts
+  compat/legacy-hsr/migrate.ts -> models/teyvat/index.ts -> models/teyvat/save.ts -> compat/legacy-hsr/migrate.ts
+  models/storyWeaving.ts -> models/settings.ts -> models/storyWeaving.ts
+  services/dbService.ts -> services/desktop/desktopSaveMirror.ts -> services/dbService.ts
+  services/ai/apiTools.ts -> services/ai/connectionTestPolicy.ts -> services/ai/apiTools.ts
+
+=== 7. REACT PERFORMANCE SMELLS ===
+
+-- inline arrow in JSX prop: 891
+     75  components/features/ImageGeneration/ImageRuleTemplateEditor.tsx
+     71  components/features/Settings/ImageGenerationSettingsTab.tsx
+     66  components/features/GameSystems/album/workspaces.tsx
+     52  components/features/Settings/PromptModulesTab.tsx
+     45  components/features/GameSystems/PlotPanel.tsx
+     44  components/features/Settings/VariableManager.tsx
+
+-- useMemo: 122
+     17  App.tsx
+      8  components/features/GameSystems/PlotPanel.tsx
+      7  components/features/Codex/CodexManagerModal.tsx
+      7  components/features/GameSystems/AlbumPanel.tsx
+      5  components/features/Chat/ChatList.tsx
+      5  components/features/Chat/MessageRenderers.tsx
+
+-- useCallback: 63
+     21  App.tsx
+     17  hooks/useGame.ts
+      6  components/features/Chat/InputArea.tsx
+      5  components/layout/DesktopHomeScreen.tsx
+      4  components/features/Chat/ChatList.tsx
+      3  hooks/useGitHubOAuth.ts
+
+-- React.memo: 10
+      3  components/features/Chat/MessageRenderers.tsx
+      1  components/features/Chat/ChatList.tsx
+      1  components/features/Chat/InputArea.tsx
+      1  components/features/Chat/TurnItem.tsx
+      1  components/layout/LeftPanel.tsx
+      1  components/layout/RightMenu.tsx
+
+-- useEffect: 72
+      8  components/features/ImageGeneration/ImageRuleTemplateEditor.tsx
+      7  components/features/GameSystems/album/workspaces.tsx
+      6  App.tsx
+      5  components/features/Settings/ApiSettings.tsx
+      4  components/features/SaveLoad/SaveLoadModal.tsx
+      4  components/features/Settings/StorageManager.tsx
+
+-- useState: 429
+     57  components/features/Settings/StorageManager.tsx
+     34  components/features/GameSystems/AlbumPanel.tsx
+     24  components/features/NewGame/NewGameWizard.tsx
+     19  components/features/Settings/PromptModulesTab.tsx
+     18  App.tsx
+     18  components/features/SaveLoad/SaveLoadModal.tsx
+
+-- useRef: 34
+      6  components/features/Chat/InputArea.tsx
+      5  components/features/Chat/ChatList.tsx
+      3  components/features/GameSystems/album/libWorkspace.tsx
+      2  App.tsx
+      2  components/features/GameSystems/album/workspaces.tsx
+      2  components/features/GameSystems/PlotPanel.tsx
+
+-- createPortal: 5
+      2  components/features/GameSystems/album/workspaces.tsx
+      1  components/features/GameSystems/album/libWorkspace.tsx
+      1  components/features/SaveLoad/SaveLoadModal.tsx
+      1  components/layout/SystemDrawer.tsx
+
+-- index as key: 16
+      6  components/features/Chat/MessageRenderers.tsx
+      2  components/features/Settings/VariableManager.tsx
+      1  components/features/Chat/ChatList.tsx
+      1  components/features/Chat/InputArea.tsx
+      1  components/features/Chat/TurnItem.tsx
+      1  components/features/GameSystems/InventoryPanel.tsx
+
+-- JSON.parse: 64
+     11  services/savePackage.ts
+      7  services/ai/chatCompletionClient.ts
+      3  services/ai/imageGeneration.ts
+      3  services/ai/narrativeTurnParser.ts
+      3  tests/unit/teyvatSaveContract.test.ts
+      2  components/features/GameSystems/album/albumArchive.ts
+
+-- JSON.stringify: 159
+     12  tests/unit/narrativeTurnParser.test.ts
+      9  services/ai/chatCompletionClient.ts
+      9  vite.config.ts
+      8  services/githubCloudSave.ts
+      7  hooks/useGame/sendWorkflow.ts
+      7  services/ai/imageGeneration.ts
+
+-- structuredClone: 22
+      5  tests/unit/questService.test.ts
+      4  tests/unit/narrativeTurnParser.test.ts
+      3  tests/unit/legacySaveMigration.test.ts
+      2  tests/unit/canonDeviationService.test.ts
+      2  tests/unit/teyvatRuntimeReducer.test.ts
+      2  tests/unit/workflowRecoveryModel.test.ts
+
+-- localStorage: 11
+      6  hooks/useGitHubOAuth.ts
+      5  services/storage/appStorageAdapter.ts
+
+-- indexedDB: 2
+      1  services/dbService.ts
+      1  services/storage/cloudBackupTransferStore.ts
+
+-- setInterval: 1
+      1  components/features/GameSystems/AlbumPanel.tsx
+
+-- setTimeout: 44
+      2  App.tsx
+      2  services/exportService.ts
+      2  services/githubCloudSave.ts
+      2  services/githubRequest.ts
+      2  tests/unit/imageTaskQueue.test.ts
+      2  utils/imageGenerationRetry.ts
+
+-- addEventListener: 18
+      2  components/features/GameSystems/album/albumArchiveWorkerClient.ts
+      2  components/features/GameSystems/album/workspaces.tsx
+      2  hooks/useGame/sendWorkflow.ts
+      2  index.tsx
+      2  services/githubRequest.ts
+      2  tests/unit/imageTaskQueue.test.ts
+
+-- fetch(: 40
+     15  services/ai/imageGeneration.ts
+      7  services/ai/apiTools.ts
+      4  services/ai/qianfanProxyCore.ts
+      2  hooks/useGitHubOAuth.ts
+      1  components/features/GameSystems/album/albumArchive.ts
+      1  data/builtinPresets/index.ts
+
+=== 8. UNGUARDED PERSISTENCE CALLS ===
+
+=== 9. SECRET HANDLING ===
+
+-- apiKey literal-ish: 1
+      1  tests/unit/providerRouting.test.ts
+
+-- Authorization header: 18
+      5  services/ai/imageGeneration.ts
+      4  services/ai/qianfanProxyCore.ts
+      3  services/ai/chatCompletionClient.ts
+      1  services/ai/arkProxyCore.ts
+      1  services/ai/openAICompatibleModels.ts
+
+-- Bearer: 18
+      5  services/ai/imageGeneration.ts
+      4  services/ai/qianfanProxyCore.ts
+      3  services/ai/chatCompletionClient.ts
+      1  services/ai/arkProxyCore.ts
+      1  services/ai/openAICompatibleModels.ts
+
+-- sk- token: 0
+
+-- btoa/base64 secret: 5
+      1  components/features/GameSystems/album/albumContent.ts
+      1  models/memory.ts
+      1  services/ai/imageGeneration.ts
+      1  services/desktop/desktopAssetMirror.ts
+      1  services/githubCloudSave.ts
+
+-- crypto.subtle: 5
+      1  components/features/GameSystems/album/albumContent.ts
+      1  services/cloudBackupPackage.ts
+      1  services/desktop/desktopMigrationBackup.ts
+      1  services/desktop/desktopSaveBackup.ts
+      1  services/exportService.ts
+
+-- obfuscate: 0
+
+-- dangerouslySetInnerHTML: 0
+
+-- innerHTML: 0
+
+-- eval: 0
+
+-- new Function: 0
+
+=== 10. ERROR HANDLING ===
+empty catch blocks: 0
+catch blocks that only console.* : 28
+
+=== 11. ACCESSIBILITY ===
+
+-- onClick on div/span: 16
+      4  components/features/GameSystems/album/workspaces.tsx
+      3  components/features/Settings/PromptModulesTab.tsx
+      2  components/features/Worldbook/WorldbookManagerModal.tsx
+      1  components/features/Chat/InputArea.tsx
+      1  components/features/Chat/TurnItem.tsx
+
+-- button without type: 116
+     23  components/features/GameSystems/PlotPanel.tsx
+     16  components/features/Settings/ApiSettings.tsx
+     14  components/features/Settings/VariableManager.tsx
+      9  components/features/Worldbook/WorldbookManagerModal.tsx
+      5  components/features/Settings/ContextViewer.tsx
+
+-- img without alt: 0
+
+-- aria-* usage: 117
+     14  components/features/Courier/CourierModal.tsx
+      9  App.tsx
+      9  components/features/GameSystems/SkillPanel.tsx
+      8  components/features/NewGame/NewGameWizard.tsx
+      8  components/features/SaveLoad/SaveLoadModal.tsx
+
+-- role=: 24
+      4  App.tsx
+      3  components/features/Settings/PromptModulesTab.tsx
+      2  components/features/GameSystems/album/referenceWorkspace.tsx
+      2  components/features/GameSystems/album/workspaces.tsx
+      2  components/features/SaveLoad/SaveMigrationDialog.tsx
+
+-- tabIndex: 5
+      1  components/features/Chat/TurnItem.tsx
+      1  components/features/SaveLoad/SaveLoadModal.tsx
+      1  components/features/SaveLoad/SaveMigrationDialog.tsx
+      1  components/features/Worldbook/WorldbookManagerModal.tsx
+      1  components/ui/Modal.tsx
+
+-- htmlFor: 1
+      1  components/features/SaveLoad/SaveMigrationDialog.tsx
+
+-- onKeyDown: 9
+      1  components/features/Chat/CommandPalette.tsx
+      1  components/features/Chat/InputArea.tsx
+      1  components/features/Chat/TurnItem.tsx
+      1  components/features/Courier/CourierModal.tsx
+      1  components/features/SaveLoad/SaveMigrationDialog.tsx
+
+=== 12. LARGE / GENERATED FILES ===
+       456 KB  stories/assets/addon-library.png

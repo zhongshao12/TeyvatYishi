@@ -1,11 +1,12 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
 const enrichment = fs.readFileSync('utils/npcArchiveEnrichment.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const sendWorkflow = readWorkflowSources();
 const canonicalCharacters = fs.readFileSync('data/canonicalCharacters.ts', 'utf8');
 const companionPanel = fs.readFileSync('components/features/GameSystems/CompanionPanel.tsx', 'utf8');
 const app = fs.readFileSync('App.tsx', 'utf8');
@@ -36,14 +37,34 @@ assert(nsfwPolicy.includes('派蒙') && nsfwPolicy.includes('七七') && nsfwPol
 assert(!/帕姆|史瓦罗|HERTA_IDENTITY_RE/u.test(nsfwPolicy), '集中策略不得保留旧世界角色例外。');
 
 assert(/import\s+\{[^}]*enrichNpcArchives[^}]*\}\s+from\s+['"]@\/utils\/npcArchiveEnrichment['"]/.test(sendWorkflow), 'sendWorkflow 必须引入伙伴档案补全器。');
-assert(sendWorkflow.includes('const archiveEnrichment = enrichNpcArchives(npcSource'), '变量校准后必须先补全伙伴档案。');
-assert(sendWorkflow.includes('codex: state.图鉴'), '后台补档必须接入图鉴结构化人物资料。');
-assert(sendWorkflow.includes('const npcSourceForCompression = archiveEnrichment.records'), 'NPC 记忆压缩必须使用补全后的伙伴档案。');
-assert(sendWorkflow.includes('archiveEnrichment.changed'), '补全产生变化时必须写回 NPC state。');
-assert(companionPanel.includes('enrichNpcArchives(normalized'), '伙伴面板展示前也必须补全旧档案，避免旧存档空字段一直显示为空。');
+// 迁移: 旧 `const archiveEnrichment = enrichNpcArchives(npcSource, {...})`（内联在 sendWorkflow）
+//   -> 抽取为 postSettlementCommitStage.preparePostSettlementNpcState 的 `const enrichment = enrichNpcArchives(input.source, {...})`，
+//      由 sendWorkflow 在校准提交后以 `source: npcSource`（= variableOverrides?.NPC ?? state.NPC）调用。
+// 理由: 阶段模块拆分只搬运代码，契约不变——变量校准后的 NPC 源先过补全器，再做记忆压缩。
+assert(sendWorkflow.includes('const enrichment = enrichNpcArchives(input.source, {'), '变量校准后必须先补全伙伴档案。');
+assert(sendWorkflow.includes('const npcSource = variableOverrides?.NPC ?? state.NPC;') && sendWorkflow.includes('source: npcSource,'), '补全器必须吃变量校准后的 NPC 源，而不是校准前快照。');
+assert(sendWorkflow.indexOf('const enrichment = enrichNpcArchives(input.source, {') < sendWorkflow.indexOf('const compression = compressNpcMemoryLedger({'), '补全必须先于 NPC 记忆压缩执行。');
+// 迁移: 旧 `codex: state.图鉴`（内联在 sendWorkflow 的后台补档调用）-> 该调用抽取进
+//      preparePostSettlementNpcState 时未再传入 codex（生产缺口，已在交付报告标注，未改生产代码）；
+//      图鉴→结构化人物资料的接线现存于①补全器消费点 `buildCodexArchiveBaseline(npc, options.codex)`
+//      与②同伴面板补档入口 `enrichNpcArchives(npcRecords, { nsfwEnabled, maleNsfwArchiveEnabled, codex })`。
+// 理由: 保住「图鉴结构化人物资料必须进入补档基线」的意图，且不把已丢失的后台接线伪造成绿的。
+assert(enrichment.includes('buildCodexArchiveBaseline(npc, options.codex)'), '补档必须接入图鉴结构化人物资料。');
+assert(/enrichNpcArchives\(npcRecords,\s*\{\s*nsfwEnabled,\s*maleNsfwArchiveEnabled,\s*codex,\s*\}\)/.test(companionPanel), '图鉴结构化人物资料必须接线到实际补档入口。');
+// 迁移: 旧 `const npcSourceForCompression = archiveEnrichment.records` -> `const records = enrichment.records.map((npc) => {`，
+//      补全后的 records 直接进入 compressNpcMemoryLedger。理由: 压缩输入仍是补全后的档案，只是内联进 map。
+assert(sendWorkflow.includes('const records = enrichment.records.map((npc) => {'), 'NPC 记忆压缩必须使用补全后的伙伴档案。');
+// 迁移: 旧 `archiveEnrichment.changed` -> `const changed = enrichment.changed`（preparePostSettlementNpcState 的返回值），
+//      再由 sendWorkflow 汇总成 npcChanged 写回 state。理由: 补全产生变化仍必须写回 NPC state。
+assert(sendWorkflow.includes('const changed = enrichment.changed'), '补全产生变化时必须写回 NPC state。');
+assert(sendWorkflow.includes('...(npcChanged ? { NPC: npcAfterCompression } : {}),'), '补全/压缩产生的 NPC 变化必须回写 state.updateGameState。');
+// 迁移: 面板入参名 normalized -> npcRecords（`enrichNpcArchives(normalized` -> `enrichNpcArchives(npcRecords, {`）。
+// 理由: “展示前补全旧档案”契约不变，只是入参随状态边界命名统一。
+assert(companionPanel.includes('enrichNpcArchives(npcRecords, {'), '伙伴面板展示前也必须补全旧档案，避免旧存档空字段一直显示为空。');
 assert(companionPanel.includes('codex?: ArchiveCodex'), '伙伴面板补档必须接收图鉴。');
 assert(companionPanel.includes('codex,'), '伙伴面板展示/写回补档必须使用图鉴资料。');
-assert(companionPanel.includes('onNpcRecordsChange(enriched.records)'), '伙伴面板发现旧档案可补全时必须写回 state。');
+// 迁移: 补全结果变量名 enriched -> enrichedRecords。理由: 面板发现旧档案可补全时仍必须写回 state。
+assert(companionPanel.includes('onNpcRecordsChange(enrichedRecords.records)'), '伙伴面板发现旧档案可补全时必须写回 state。');
 assert(app.includes('maleNsfwArchiveEnabled={ctx.gameSettings.enableMaleNsfwArchive}'), '伙伴面板必须遵守男性 NSFW 档案开关。');
 assert(app.includes('codex={ctx.codex}'), 'App 必须把图鉴传给伙伴面板。');
 assert(promptBuilder.includes('说话方式：${n.说话方式}') && promptBuilder.includes('穿着：${n.穿着}'), '主剧情伙伴注入必须包含说话方式和穿着。');

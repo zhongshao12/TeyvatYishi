@@ -48,10 +48,6 @@ function error(index: number, code: TeyvatTurnErrorCode, root?: string, path?: s
   return { index, code, ...(root ? { root } : {}), ...(path !== undefined ? { path } : {}) };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 function nonEmptyText(value: unknown): value is string {
   return typeof value === 'string' && Boolean(value.trim());
 }
@@ -84,7 +80,10 @@ function validatePathSurface(root: string, path: string, index: number): TeyvatT
   if (path.includes('*') || path.includes('[]')) return error(index, 'WILDCARD_PATH', root, path);
   if (/\[[^\]]+\]/.test(path)) {
     const segments = [...path.matchAll(/\[([^\]]+)\]/g)];
-    if (segments.some((segment) => !segment[1].startsWith('id=') || !isTeyvatStableId(segment[1].slice(3)))) {
+    if (segments.some((segment) => {
+      const selector = segment[1] ?? '';
+      return !selector.startsWith('id=') || !isTeyvatStableId(selector.slice(3));
+    })) {
       return error(index, 'DYNAMIC_SELECTOR', root, path);
     }
   }
@@ -171,7 +170,9 @@ function applyTraveler(state: TeyvatGameState, command: TeyvatDomainCommand, ind
     if (invalidAction) return { ok: false, error: invalidAction };
     const targetIndex = state.旅行者.天赋.findIndex((item) => item.id === talentLevel[1]);
     if (targetIndex < 0) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
-    const next = nextNumber(state.旅行者.天赋[targetIndex].等级, command, 0, index);
+    const targetTalent = state.旅行者.天赋[targetIndex];
+    if (!targetTalent) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
+    const next = nextNumber(targetTalent.等级, command, 0, index);
     if (typeof next !== 'number' || !Number.isInteger(next) || next > TALENT_LEVEL_MAX) {
       return { ok: false, error: error(index, 'INVALID_NUMERIC_RESULT', command.root, command.path) };
     }
@@ -223,7 +224,8 @@ function applyNpc(state: TeyvatGameState, command: TeyvatDomainCommand, index: n
   }
   const selected = command.path.match(ID_SELECTOR_RE);
   if (!selected) return { ok: false, error: error(index, 'UNKNOWN_PATH', command.root, command.path) };
-  const [, id, field] = selected;
+  const id = selected[1] ?? '';
+  const field = selected[2] ?? '';
   if (!isTeyvatStableId(id)) return { ok: false, error: error(index, 'INVALID_VALUE', command.root, command.path) };
   if (field === 'affinity' && !finiteNumber(command.value)) {
     return { ok: false, error: error(index, 'INVALID_VALUE', command.root, command.path) };
@@ -231,6 +233,7 @@ function applyNpc(state: TeyvatGameState, command: TeyvatDomainCommand, index: n
   const targetIndex = state.NPC.findIndex((item) => item.id === id);
   if (targetIndex < 0) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
   const target = state.NPC[targetIndex];
+  if (!target) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
   let nextTarget = target;
   if (field === 'affinity') {
     const invalidAction = validateAction(command, ['set', 'add', 'sub'], index);
@@ -340,7 +343,9 @@ function applyInventory(state: TeyvatGameState, command: TeyvatDomainCommand, in
     if (invalidAction) return { ok: false, error: invalidAction };
     const targetIndex = state.背包.items.findIndex((item) => item.id === quantity[1]);
     if (targetIndex < 0) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
-    const next = nextNumber(state.背包.items[targetIndex].quantity, command, 0, index);
+    const targetItem = state.背包.items[targetIndex];
+    if (!targetItem) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
+    const next = nextNumber(targetItem.quantity, command, 0, index);
     if (typeof next !== 'number' || !Number.isInteger(next)) return { ok: false, error: typeof next === 'number' ? error(index, 'INVALID_VALUE', command.root, command.path) : next };
     const items = next === 0
       ? state.背包.items.filter((_, itemIndex) => itemIndex !== targetIndex)
@@ -415,12 +420,16 @@ function applyQuest(state: TeyvatGameState, command: TeyvatDomainCommand, index:
   }
   const objective = command.path.match(QUEST_OBJECTIVE_RE);
   if (objective) {
-    const [, questId, objectiveId] = objective;
+    const questId = objective[1] ?? '';
+    const objectiveId = objective[2] ?? '';
     const questIndex = state.任务.active.findIndex((entry) => entry.id === questId);
     if (questIndex < 0) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
-    const objectiveIndex = state.任务.active[questIndex].objectives.findIndex((entry) => entry.id === objectiveId);
+    const quest = state.任务.active[questIndex];
+    if (!quest) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
+    const objectiveIndex = quest.objectives.findIndex((entry) => entry.id === objectiveId);
     if (objectiveIndex < 0) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
-    const target = state.任务.active[questIndex].objectives[objectiveIndex];
+    const target = quest.objectives[objectiveIndex];
+    if (!target) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
     const invalidAction = validateAction(command, ['set', 'add'], index);
     if (invalidAction) return { ok: false, error: invalidAction };
     const next = nextNumber(target.currentCount, command, 0, index);
@@ -439,6 +448,7 @@ function applyQuest(state: TeyvatGameState, command: TeyvatDomainCommand, index:
       return { ok: false, error: error(index, 'INVALID_VALUE', command.root, command.path) };
     }
     const target = state.任务.active[questIndex];
+    if (!target) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
     const nextStatus = command.value as typeof target.status;
     const updated = {
       ...target,
@@ -481,6 +491,7 @@ function applyCourier(state: TeyvatGameState, command: TeyvatDomainCommand, inde
       return { ok: false, error: error(index, 'INVALID_VALUE', command.root, command.path) };
     }
     const contact = normalizeCourierSystem({ contacts: [command.value] }).contacts[0];
+    if (!contact) return { ok: false, error: error(index, 'INVALID_VALUE', command.root, command.path) };
     return { ok: true, state: { ...state, 手机: { ...state.手机, contacts: pushUnique(state.手机.contacts, contact, (entry) => entry.id) } } };
   }
   if (command.path === 'deliverySeeds') {
@@ -549,3 +560,4 @@ export function buildTeyvatCommandRegistryPrompt(): string {
     '禁止空路径、*、[]、动态 selector、__proto__/prototype/constructor 和整域替换。',
   ].join('\n');
 }
+import { isRecord } from '@/utils/valueGuards';

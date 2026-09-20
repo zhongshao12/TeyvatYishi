@@ -1,0 +1,3 @@
+components/features/Chat/TurnItem.tsx
+components/features/Chat/InputArea.tsx
+scripts/action-options-cleanup-regression.mjs

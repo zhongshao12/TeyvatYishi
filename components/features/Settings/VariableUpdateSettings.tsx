@@ -1,3 +1,6 @@
+import { CLIP_CARD, CLIP_MEDIUM, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
+import { useSavedFlash } from '@/hooks/useSavedFlash';
+import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
 ﻿import { useState } from 'react';
 import type { AI提供商, API配置项, API设置, 游戏设置, 变量API覆盖 } from '@/models/settings';
 import { fetchModels } from '@/services/ai/apiTools';
@@ -9,23 +12,10 @@ interface Props {
   apiSettings: API设置;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
-const providerOptions: { value: AI提供商; label: string }[] = [
-  { value: 'openai_compatible', label: 'OpenAI 兼容' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'baidu', label: '百度千帆' },
-  { value: 'opencode', label: 'OpenCode Zen' },
-  { value: 'mimo', label: '小米 MiMo' },
-  { value: 'ark', label: '火山方舟' },
-  { value: 'claude', label: 'Claude' },
-  { value: 'claude_compatible', label: 'Claude 兼容' },
-  { value: 'gemini', label: 'Gemini' },
-];
+
+
+const providerOptions = AI_PROVIDER_OPTIONS;
 
 export function VariableUpdateTab({
   gameSettings,
@@ -41,7 +31,7 @@ export function VariableUpdateTab({
   const [loadingModels, setLoadingModels] = useState(false);
   const [fetchMessage, setFetchMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
   const [saveMessage, setSaveMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const { savedFlash, showSavedFlash, clearSavedFlash } = useSavedFlash(1800);
 
   const patchOverride = (patch: Partial<变量API覆盖>) => {
     onGameSettingsChange({
@@ -104,11 +94,10 @@ export function VariableUpdateTab({
     setSaveMessage(null);
     try {
       await saveSetting('gameSettings', gameSettings);
-      setSavedFlash(true);
+      showSavedFlash();
       setSaveMessage({ kind: 'info', text: '变量更新设置已保存。' });
-      window.setTimeout(() => setSavedFlash(false), 1800);
     } catch (e) {
-      setSavedFlash(false);
+      clearSavedFlash();
       setSaveMessage({ kind: 'error', text: `保存失败：${(e as Error).message}` });
     }
   };
@@ -120,8 +109,8 @@ export function VariableUpdateTab({
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.78)',
           background: 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.15),
+          clipPath: CLIP_CARD,
         }}
       >
         <div className="font-serif tracking-wider text-[13px] mb-1" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))' }}>
@@ -144,8 +133,8 @@ export function VariableUpdateTab({
           style={{
             color: 'rgba(var(--tj-text-secondary), 0.7)',
             background: 'rgba(var(--tj-bg-secondary), 0.45)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-            clipPath: smallClip,
+            boxShadow: insetRing(0.12),
+            clipPath: CLIP_SMALL,
           }}
         >
           下方任一字段留空时，将自动回退到「主 API」的同名字段。
@@ -157,7 +146,7 @@ export function VariableUpdateTab({
             value={override.provider}
             onChange={(e) => patchOverride({ provider: e.target.value as AI提供商 })}
             className="teyvat-input w-full px-3 py-2 text-sm"
-            style={{ clipPath: smallClip }}
+            style={{ clipPath: CLIP_SMALL }}
           >
             {providerOptions.map((p) => (
               <option key={p.value} value={p.value}>
@@ -174,7 +163,7 @@ export function VariableUpdateTab({
               onChange={(e) => patchOverride({ baseUrl: e.target.value })}
               placeholder={mainConfig ? `留空则用主 API：${mainConfig.baseUrl}` : 'https://...'}
               className="teyvat-input w-full px-3 py-1.5 text-sm font-mono"
-              style={{ clipPath: smallClip }}
+              style={{ clipPath: CLIP_SMALL }}
             />
             {usingMain.baseUrl && mainConfig && (
               <FallbackHint text={`将复用主 API：${mainConfig.baseUrl}`} />
@@ -190,7 +179,7 @@ export function VariableUpdateTab({
               onChange={(e) => patchOverride({ apiKey: e.target.value })}
               placeholder={mainConfig?.apiKey ? '留空则用主 API 的 Key' : 'sk-...'}
               className="teyvat-input w-full px-3 py-1.5 text-sm font-mono"
-              style={{ clipPath: smallClip }}
+              style={{ clipPath: CLIP_SMALL }}
             />
             {usingMain.apiKey && mainConfig?.apiKey && (
               <FallbackHint text="将复用主 API 的 Key" />
@@ -206,7 +195,7 @@ export function VariableUpdateTab({
                 onChange={(e) => patchOverride({ model: e.target.value })}
                 placeholder={mainConfig?.model ? `留空则用主 API：${mainConfig.model}` : '模型 ID'}
                 className="teyvat-input flex-1 px-2.5 py-1.5 text-sm font-mono"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               />
               <button
                 onClick={handleFetchModels}
@@ -214,9 +203,9 @@ export function VariableUpdateTab({
                 className="px-3 py-1.5 text-xs font-serif tracking-wider transition-all disabled:opacity-50"
                 style={{
                   color: 'rgba(var(--tj-accent-primary), 0.85)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
+                  boxShadow: insetRing(0.35),
                   background: 'rgba(var(--tj-accent-primary), 0.05)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 {loadingModels ? '获取中…' : '获取列表'}
@@ -229,7 +218,7 @@ export function VariableUpdateTab({
                   if (e.target.value) patchOverride({ model: e.target.value });
                 }}
                 className="teyvat-input mt-1.5 w-full px-2.5 py-1.5 text-xs"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               >
                 <option value="">— 从列表选择（{modelOptions.length}） —</option>
                 {modelOptions.map((m) => (
@@ -264,7 +253,7 @@ export function VariableUpdateTab({
               value={override.retryCount ?? 2}
               onChange={(e) => patchOverride({ retryCount: Math.max(0, Number(e.target.value) || 0) })}
               className="teyvat-input w-full px-3 py-1.5 text-sm"
-              style={{ clipPath: smallClip }}
+              style={{ clipPath: CLIP_SMALL }}
             />
             <div className="mt-1.5 text-[11px]" style={{ color: 'rgba(160, 200, 160, 0.7)' }}>
               失败后会自动重试，重试耗尽才提示变量更新失败。
@@ -287,8 +276,8 @@ export function VariableUpdateTab({
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.7)',
           background: 'rgba(var(--tj-bg-secondary), 0.45)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.1)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.1),
+          clipPath: CLIP_CARD,
         }}
       >
         <div className="mb-1" style={{ color: 'rgba(var(--tj-accent-primary), 0.75)' }}>说明</div>
@@ -302,12 +291,12 @@ export function VariableUpdateTab({
           style={{
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
-              : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
+              : gradientAccent(0.96, 0.84),
             color: 'rgb(var(--tj-on-accent))',
             boxShadow: savedFlash
               ? 'inset 0 0 0 1px rgba(220, 255, 230, 0.5), 0 0 18px rgba(140, 220, 160, 0.35)'
               : 'inset 0 0 0 1px rgba(var(--tj-border), 0.72), 0 0 18px rgba(var(--tj-arcane-accent), 0.14)',
-            clipPath: cardClip,
+            clipPath: CLIP_CARD,
           }}
         >
           {savedFlash ? '✓ 已 保存' : '◆ 保存 配置'}
@@ -321,7 +310,7 @@ export function VariableUpdateTab({
               boxShadow: saveMessage.kind === 'error'
                 ? 'inset 0 0 0 1px rgba(220, 120, 120, 0.25)'
                 : 'inset 0 0 0 1px rgba(120, 200, 140, 0.25)',
-              clipPath: smallClip,
+              clipPath: CLIP_SMALL,
             }}
           >
             {saveMessage.text}
@@ -370,9 +359,9 @@ function ToggleRow({
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+        boxShadow: insetRing(0.15),
         clipPath:
-          'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+          CLIP_MEDIUM,
       }}
     >
       <div className="min-w-0 mr-3">
@@ -388,13 +377,13 @@ function ToggleRow({
         className="relative h-6 w-11 flex-shrink-0 transition-all"
         style={{
           background: checked
-            ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
+            ? gradientAccent(0.95, 0.86)
             : 'rgba(var(--tj-bg-secondary), 0.68)',
           boxShadow: checked
             ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+            : insetRing(0.2),
           clipPath:
-            'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+            CLIP_SMALL,
         }}
       >
         <div
@@ -403,7 +392,7 @@ function ToggleRow({
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
             clipPath:
-              'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+              CLIP_XS,
           }}
         />
       </button>

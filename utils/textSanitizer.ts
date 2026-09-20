@@ -1,5 +1,6 @@
 import type { NarrativeTurn } from '../models/teyvat/narrativeTurn';
 import type { 额外功能设置 } from '../models/settings';
+import { narrativeEvidenceMatches } from '../services/ai/narrativeTurnParser';
 
 export function stripInternalProtocolTags(text: string): string {
   if (!text) return text;
@@ -78,7 +79,9 @@ export function sanitizeParsedResponse(parsed: NarrativeTurn, settings?: 额外�
     factCandidates: parsed.factCandidates.flatMap((candidate) => {
       const fact = cleanText(candidate.fact);
       const evidence = cleanText(candidate.evidence);
-      return fact && evidence && body.some((block) => block.text.includes(evidence))
+      const groundedAfterSanitizing = evidence && body.some((block) => narrativeEvidenceMatches(block.text, evidence));
+      const groundedBeforeSanitizing = parsed.body.some((block) => narrativeEvidenceMatches(block.text, candidate.evidence));
+      return fact && evidence && (groundedAfterSanitizing || groundedBeforeSanitizing)
         ? [{ domain: candidate.domain, fact, evidence }]
         : [];
     }),

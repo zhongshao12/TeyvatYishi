@@ -91,10 +91,6 @@ export function createEmptyTeyvatWorld(): TeyvatWorld {
   });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 const stringList = (value: unknown): string[] => Array.isArray(value)
   ? value.filter((entry): entry is string => typeof entry === 'string')
   : [];
@@ -156,3 +152,4 @@ function normalizeRuntimeActor(value: unknown): RuntimeActor[] {
   if (!isRecord(value)) return [];
   return [{ id: String(value.id ?? ''), 姓名: String(value.姓名 ?? ''), 角色: String(value.角色 ?? ''), 性格: String(value.性格 ?? ''), 外貌: String(value.外貌 ?? ''), 与玩家关系: String(value.与玩家关系 ?? ''), 记忆: Array.isArray(value.记忆) ? value.记忆.map(String) : [] }];
 }
+import { isRecord } from '@/utils/valueGuards';

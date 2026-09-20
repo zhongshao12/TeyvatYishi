@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 function assert(condition, message) { if (!condition) throw new Error(message); }
 const questNarrative = fs.readFileSync('prompts/subsystems/questPrompt.ts', 'utf8');
 const questFactFormat = fs.readFileSync('prompts/subsystems/questFactFormat.ts', 'utf8');
@@ -8,7 +9,10 @@ const systemPromptBuilder = fs.readFileSync('hooks/useGame/systemPromptBuilder.t
 const builtinModules = fs.readFileSync('data/builtinPromptModules.ts', 'utf8');
 const parser = fs.readFileSync('services/ai/responseParser.ts', 'utf8');
 const narrativeModel = fs.readFileSync('models/teyvat/narrativeTurn.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+// 迁移: 主剧情工作流读取改走 readWorkflowSources()（WORKFLOW_FILES 登记文件的拼接视图）。
+// 理由: 这些断言保护的是行为，不是文件位置；阶段模块拆分后代码一搬走就不再假红。
+// 注: systemPromptBuilder 仍按单文件读取，保持「任务注入就在该模块内」的精度。
+const sendWorkflow = readWorkflowSources();
 assert(questNarrative.includes('NarrativeTurn') && questNarrative.includes('factCandidates'), 'quest narrative rules must keep updates inside NarrativeTurn fact candidates.');
 assert(questNarrative.includes('evidence') && questNarrative.includes('body.text'), 'quest candidates must require body evidence.');
 assert(questFactFormat.includes('接取:') && questFactFormat.includes('完成:'), 'quest fact format must define accept/complete facts.');

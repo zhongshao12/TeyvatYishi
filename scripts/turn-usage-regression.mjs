@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function read(path) {
   return fs.readFileSync(path, 'utf8');
@@ -12,10 +13,17 @@ function assert(condition, message) {
 }
 
 const chatModel = read('models/chat.ts');
-const client = read('services/ai/chatCompletionClient.ts');
+// 用量解析实现已抽到 services/ai/usageExtraction.ts；按「主剧情客户端的用量处理」整体读取，
+// 这样断言仍然表达原意（用量字段与别名都必须被解析），且不再绑死单个文件位置。
+const client = [
+  read('services/ai/chatCompletionClient.ts'),
+  read('services/ai/usageExtraction.ts'),
+].join('\n');
 const geminiEndpointPolicy = read('services/ai/geminiEndpointPolicy.ts');
 const textService = read('services/ai/text/index.ts');
-const sendWorkflow = read('hooks/useGame/sendWorkflow.ts');
+// 迁移: 用量落库代码已从 sendWorkflow.ts 拆到主剧情各阶段模块，改按登记表整体读取，
+// 断言仍表达原意（工作流消费诊断边界并持久化 token 用量），不再绑死单个文件位置。
+const sendWorkflow = readWorkflowSources();
 const turnDiagnostics = read('hooks/useGame/turnDiagnostics.ts');
 const turnItem = read('components/features/Chat/TurnItem.tsx');
 const settings = read('models/settings.ts');
@@ -64,7 +72,10 @@ assert(
 assert(client.includes('cacheDiagnostic: buildCacheDiagnostic'), 'usage parser must persist a concrete cache diagnostic reason.');
 assert(client.includes('explicitUncachedTokens ??') && client.includes('typeof normalizedInput === \'number\' && typeof cachedTokens === \'number\''), 'cache miss may only be derived from API token totals, not local estimates.');
 assert(client.includes('/deepseek/i.test(config.model)'), 'DeepSeek stream usage should be requested when the model name reveals DeepSeek under an OpenAI-compatible provider.');
-assert(client.includes('function isGeminiConfig') && client.includes('/gemini/i.test(config.model)'), 'Gemini model names must be able to request streaming usage under compatible providers.');
+// isGeminiConfig 已在死代码清理中移除（CODE_AUDIT.md:748 记录其「仅有定义、无调用」）。
+// 判据本身保留：「Gemini 模型名也能请求流式 usage」由 usageExtraction 的模型名分支承接。
+// ⚠️ 待确认：本行由「检查已删除的 helper」改为「检查实际生效的模型名分支」，属断言目标变更。
+assert(client.includes('/gemini/i.test(config.model)'), 'Gemini model names must be able to request streaming usage under compatible providers.');
 
 assert(textService.includes('usage?: ChatCompletionUsage'), 'text service result must return usage.');
 assert(textService.includes('Object.fromEntries(Object.entries(nextUsage).filter'), 'streaming usage callbacks must merge partial usage fields without wiping prior values.');

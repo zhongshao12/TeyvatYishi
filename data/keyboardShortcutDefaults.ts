@@ -29,10 +29,6 @@ export const KEYBOARD_SHORTCUT_LABELS: Record<快捷键动作, string> = {
   closeTop: '关闭顶层弹窗',
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 function normalizeBinding(value: unknown, fallback: 快捷键绑定): 快捷键绑定 {
   if (!isRecord(value) || typeof value.key !== 'string' || !value.key.trim()) return { ...fallback };
   return {
@@ -59,3 +55,4 @@ export function 格式化快捷键绑定(binding: 快捷键绑定): string {
   parts.push(binding.key === 'Escape' ? 'Esc' : binding.key.length === 1 ? binding.key.toUpperCase() : binding.key);
   return parts.join(' + ');
 }
+import { isRecord } from '@/utils/valueGuards';

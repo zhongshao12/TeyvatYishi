@@ -1,8 +1,6 @@
 {
   "pathPrefixes": [
     "compat/legacy-hsr/",
-    "public/zhiku-presets/legacy-hsr/",
-    "public/data/story-weaving-canon/legacy-hsr/",
     "data/builtinPresets/",
     "public/data/builtin-presets/"
   ],

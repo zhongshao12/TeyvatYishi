@@ -3,6 +3,8 @@ import type { PlayerChoice, StoryBlock } from '@/models/teyvat/narrativeTurn';
 import type { 变量命令批次, 变量命令结果 } from '@/models/variableCommand';
 
 export const DETAILED_CHAT_TURNS = 20;
+export const MAX_CHAT_MESSAGES = 1200;
+const MAX_RETAINED_OLD_BOOKMARKS = 100;
 /** 诊断窗口内保留完整请求上下文（systemPrompt / messages）的回合数；
  *  其余窗口回合的 debugContext 走瘦身：大字段替换为占位说明，小诊断字段保留。 */
 export const FULL_DEBUG_CHAT_TURNS = 2;
@@ -114,11 +116,12 @@ export function compactChatHistoryForLongSession(
   value: readonly 聊天消息[] | null | undefined,
 ): 聊天消息[] {
   if (!Array.isArray(value) || value.length === 0) return [];
-  const detailedAssistantIndices = collectRecentAssistantIndices(value, DETAILED_CHAT_TURNS);
-  const fullDebugIndices = collectRecentAssistantIndices(value, FULL_DEBUG_CHAT_TURNS);
-  const snapshotCarrierIndex = findLatestSnapshotCarrier(value);
+  const retained = retainBoundedChatHistory(value);
+  const detailedAssistantIndices = collectRecentAssistantIndices(retained, DETAILED_CHAT_TURNS);
+  const fullDebugIndices = collectRecentAssistantIndices(retained, FULL_DEBUG_CHAT_TURNS);
+  const snapshotCarrierIndex = findLatestSnapshotCarrier(retained);
 
-  return value.map((message, index) => {
+  return retained.map((message, index) => {
     let next = message;
     const keepSnapshot = index === snapshotCarrierIndex;
     if (message.preTurnSnapshot && !keepSnapshot) {
@@ -163,11 +166,22 @@ export function compactChatHistoryForLongSession(
   });
 }
 
+function retainBoundedChatHistory(messages: readonly 聊天消息[]): readonly 聊天消息[] {
+  if (messages.length <= MAX_CHAT_MESSAGES) return messages;
+  const originalCutoff = messages.length - MAX_CHAT_MESSAGES;
+  const oldBookmarks = messages
+    .slice(0, originalCutoff)
+    .filter((message) => Boolean(message.bookmark))
+    .slice(-MAX_RETAINED_OLD_BOOKMARKS);
+  const recent = messages.slice(-(MAX_CHAT_MESSAGES - oldBookmarks.length));
+  return [...oldBookmarks, ...recent];
+}
+
 function collectRecentAssistantIndices(messages: readonly 聊天消息[], count: number): Set<number> {
   const indices = new Set<number>();
   let remaining = count;
   for (let index = messages.length - 1; index >= 0 && remaining > 0; index -= 1) {
-    if (messages[index].role !== 'assistant') continue;
+    if (messages[index]?.role !== 'assistant') continue;
     indices.add(index);
     remaining -= 1;
   }
@@ -177,6 +191,7 @@ function collectRecentAssistantIndices(messages: readonly 聊天消息[], count:
 function findLatestSnapshotCarrier(messages: readonly 聊天消息[]): number {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
+    if (!message) continue;
     if (message.role !== 'assistant' && message.role !== 'user') continue;
     if (message.role === 'user') return message.preTurnSnapshot ? index : -1;
     return message.preTurnSnapshot ? index : -1;

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 const retrieval = fs.readFileSync('services/codexRetrieval.ts', 'utf8');
-const send = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const send = readWorkflowSources();
 const courier = fs.readFileSync('services/ai/courierService.ts', 'utf8');
 const steambird = fs.readFileSync('services/ai/steambirdModel.ts', 'utf8');
 const assert = (condition, message) => { if (!condition) throw new Error(message); };

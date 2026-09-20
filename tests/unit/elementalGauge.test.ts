@@ -40,8 +40,8 @@ describe('G1 元素附着与反应（极简版）', () => {
     const first = applyElementToField(createEmptyElementalField(), 'pyro', 1);
     const second = applyElementToField(first.field, 'hydro', 2);
     expect(second.events).toHaveLength(1);
-    expect(second.events[0].name).toBe('蒸发');
-    expect(second.events[0].turn).toBe(2);
+    expect(second.events[0]!.name).toBe('蒸发');
+    expect(second.events[0]!.turn).toBe(2);
     expect(second.field.auraElement).toBe('hydro');
   });
 
@@ -55,7 +55,7 @@ describe('G1 元素附着与反应（极简版）', () => {
   it('风元素对任意附着触发扩散', () => {
     const first = applyElementToField(createEmptyElementalField(), 'electro', 1);
     const second = applyElementToField(first.field, 'anemo', 2);
-    expect(second.events[0].name).toContain('扩散');
+    expect(second.events[0]!.name).toContain('扩散');
   });
 
   it('岩元素对任意附着触发结晶', () => {

@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_MEDIUM, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 ﻿import type { 游戏设置, VisualTextSettings } from '@/models/settings';
 import { 创建默认视觉文本设置, 归一化视觉文本设置 } from '@/models/settings';
 
@@ -6,8 +7,7 @@ interface Props {
   onChange: (settings: 游戏设置) => void;
 }
 
-const smallClip =
-  'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
+
 
 const RANGE_MIN = 13;
 const RANGE_MAX = 30;
@@ -35,8 +35,8 @@ export function VisualSettingsTab({ settings, onChange }: Props) {
         className="px-4 py-4"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.42)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
-          clipPath: smallClip,
+          boxShadow: insetRing(0.16),
+          clipPath: CLIP_MEDIUM,
         }}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -55,8 +55,8 @@ export function VisualSettingsTab({ settings, onChange }: Props) {
             style={{
               color: 'rgba(var(--tj-accent-primary), 0.92)',
               background: 'rgba(var(--tj-accent-primary), 0.06)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
-              clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+              boxShadow: insetRing(0.28),
+              clipPath: CLIP_SMALL,
             }}
           >
             恢复默认
@@ -90,7 +90,7 @@ export function VisualSettingsTab({ settings, onChange }: Props) {
         style={{
           background: 'rgba(var(--tj-bg-primary), 0.26)',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.34)',
-          clipPath: smallClip,
+          clipPath: CLIP_MEDIUM,
         }}
       >
         <div className="mb-3 font-serif text-xs tracking-[0.24em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.86), rgba(var(--tj-accent-secondary),0.82))' }}>
@@ -115,7 +115,7 @@ export function VisualSettingsTab({ settings, onChange }: Props) {
               color: 'rgba(var(--tj-chat-text), 0.96)',
               background: 'rgba(var(--tj-chat-bubble), var(--tj-chat-bubble-alpha, 0.78))',
               boxShadow: 'inset 0 0 0 1px rgba(140, 195, 230, 0.42), 0 4px 18px rgba(var(--tj-shadow), 0.24)',
-              clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+              clipPath: CLIP_CARD,
             }}
           >
             <p style={{ fontSize: `${visual.dialogueFontSize}px`, lineHeight: 1.8 }}>
@@ -129,7 +129,7 @@ export function VisualSettingsTab({ settings, onChange }: Props) {
                 color: 'rgba(var(--tj-chat-text), 0.98)',
                 background: 'rgba(var(--tj-chat-bubble), var(--tj-chat-bubble-alpha, 0.78))',
                 boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.46), 0 4px 18px rgba(var(--tj-shadow), 0.24)',
-                clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+                clipPath: CLIP_CARD,
                 fontWeight: 600,
               }}
             >
@@ -160,8 +160,8 @@ function FontSizeSlider({
       className="px-4 py-3"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.15),
+        clipPath: CLIP_MEDIUM,
       }}
     >
       <div className="mb-2 flex items-start justify-between gap-3">

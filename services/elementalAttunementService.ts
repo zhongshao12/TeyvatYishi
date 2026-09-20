@@ -39,10 +39,11 @@ export function unlockElement<T extends ElementalTravelerState>(
 ): T {
   assertElementId(element);
   const existingIndex = traveler.元素共鸣.findIndex((entry) => entry.element === element);
+  const existing = existingIndex >= 0 ? traveler.元素共鸣[existingIndex] : undefined;
   const nextAttunement = {
     element,
     source: options.source,
-    mastery: existingIndex >= 0 ? traveler.元素共鸣[existingIndex].mastery : 0,
+    mastery: existing?.mastery ?? 0,
     unlocked: true,
     unlockedAt: options.unlockedAt,
     notes: options.notes ?? '',
@@ -67,7 +68,9 @@ export function advanceElementalMastery<T extends ElementalTravelerState>(
   if (!Number.isFinite(delta)) throw new Error('INVALID_MASTERY_DELTA');
   const index = traveler.元素共鸣.findIndex((entry) => entry.element === element && entry.unlocked);
   if (index < 0) throw new Error('ELEMENT_NOT_UNLOCKED');
-  const mastery = Math.max(0, Math.min(100, traveler.元素共鸣[index].mastery + delta));
+  const existing = traveler.元素共鸣[index];
+  if (!existing) throw new Error('ELEMENT_NOT_UNLOCKED');
+  const mastery = Math.max(0, Math.min(100, existing.mastery + delta));
   return {
     ...traveler,
     元素共鸣: traveler.元素共鸣.map((entry, entryIndex) => (

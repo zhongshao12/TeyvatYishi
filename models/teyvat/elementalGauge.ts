@@ -59,7 +59,8 @@ export function detectAppliedElements(text: string): ElementId[] {
   const found: ElementId[] = [];
   const pattern = /([火水雷冰风岩草])元素/gu;
   for (const match of text.matchAll(pattern)) {
-    const element = ELEMENT_CHAR_MAP[match[1]];
+    const elementChar = match[1];
+    const element = elementChar ? ELEMENT_CHAR_MAP[elementChar] : undefined;
     if (element && !found.includes(element)) found.push(element);
   }
   return found;
@@ -86,10 +87,10 @@ export function detectTravelerAppliedElements(text: string, travelerNames: reado
     const match = line.match(SPEAKER_LINE_RE);
     let counts = false;
     if (match) {
-      let speaker = match[1].trim().replace(/[：:].*$/, '');
+      let speaker = (match[1] ?? '').trim().replace(/[：:].*$/, '');
       if (speaker === '角色') {
-        const nameMatch = match[2].match(/^([^：:]+)[：:]/);
-        if (nameMatch) speaker = nameMatch[1].trim();
+        const nameMatch = (match[2] ?? '').match(/^([^：:]+)[：:]/);
+        if (nameMatch?.[1]) speaker = nameMatch[1].trim();
       }
       if (speaker === '旁白' || speaker === '心声' || speaker === '角色') {
         counts = mentionsTraveler(line);
@@ -101,7 +102,8 @@ export function detectTravelerAppliedElements(text: string, travelerNames: reado
     }
     if (!counts) continue;
     for (const elementMatch of line.matchAll(/([火水雷冰风岩草])元素/gu)) {
-      const element = ELEMENT_CHAR_MAP[elementMatch[1]];
+      const elementChar = elementMatch[1];
+      const element = elementChar ? ELEMENT_CHAR_MAP[elementChar] : undefined;
       if (element && !found.includes(element)) found.push(element);
     }
   }

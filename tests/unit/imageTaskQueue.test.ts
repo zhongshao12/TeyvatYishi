@@ -46,10 +46,10 @@ describe('imageTaskQueue', () => {
       { id: 't2', status: 'running', startedAt: Date.now() - 1000 } as never,
       { id: 't3', status: 'success' } as never,
     ]);
-    expect(tasks[0].status).toBe('failed');
-    expect(tasks[0].error).toContain('中断');
-    expect(tasks[1].status).toBe('running');
-    expect(tasks[2].status).toBe('success');
+    expect(tasks[0]!.status).toBe('failed');
+    expect(tasks[0]!.error).toContain('中断');
+    expect(tasks[1]!.status).toBe('running');
+    expect(tasks[2]!.status).toBe('success');
   });
 
   it('supports cancelling a running task', async () => {
@@ -96,9 +96,9 @@ describe('imageTaskQueue', () => {
       ],
       new Set(['t2']),
     );
-    expect(tasks[0].status).toBe('failed');
-    expect(tasks[1].status).toBe('running');
-    expect(tasks[2].status).toBe('queued');
+    expect(tasks[0]!.status).toBe('failed');
+    expect(tasks[1]!.status).toBe('running');
+    expect(tasks[2]!.status).toBe('queued');
   });
 
 });

@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { CLIP_SECTION, insetRing } from '@/styles/clipPaths';
+import { memo, useMemo, useState } from 'react';
 import type { NPC记录 } from '@/models/npc';
 import type { 变量命令批次 } from '@/models/variableCommand';
 import { 构建关系图, 提取好感变化事件 } from '@/utils/relationshipGraph';
@@ -10,9 +11,9 @@ interface RelationshipGraphPanelProps {
   travelerName?: string;
 }
 
-const cardClip = 'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)';
 
-export function RelationshipGraphPanel({ npcRecords, variableBatches, onSelectNpc, travelerName }: RelationshipGraphPanelProps) {
+
+export const RelationshipGraphPanel = memo(function RelationshipGraphPanel({ npcRecords, variableBatches, onSelectNpc, travelerName }: RelationshipGraphPanelProps) {
   const { nodes, edges } = useMemo(() => 构建关系图(npcRecords), [npcRecords]);
   const affinityEvents = useMemo(() => 提取好感变化事件(variableBatches ?? []), [variableBatches]);
   const recentEvents = affinityEvents.slice(-8).reverse();
@@ -34,13 +35,13 @@ export function RelationshipGraphPanel({ npcRecords, variableBatches, onSelectNp
         </div>
         {pageCount > 1 && (
           <div className="flex items-center gap-2 text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.82)' }}>
-            <button type="button" onClick={() => setPage(Math.max(0, safePage - 1))} disabled={safePage === 0} className="px-2 py-1 disabled:opacity-35" style={{ boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.5)', clipPath: cardClip }}>上一页</button>
+            <button type="button" onClick={() => setPage(Math.max(0, safePage - 1))} disabled={safePage === 0} className="px-2 py-1 disabled:opacity-35" style={{ boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.5)', clipPath: CLIP_SECTION }}>上一页</button>
             <span>{safePage + 1} / {pageCount}</span>
-            <button type="button" onClick={() => setPage(Math.min(pageCount - 1, safePage + 1))} disabled={safePage >= pageCount - 1} className="px-2 py-1 disabled:opacity-35" style={{ boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.5)', clipPath: cardClip }}>下一页</button>
+            <button type="button" onClick={() => setPage(Math.min(pageCount - 1, safePage + 1))} disabled={safePage >= pageCount - 1} className="px-2 py-1 disabled:opacity-35" style={{ boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.5)', clipPath: CLIP_SECTION }}>下一页</button>
           </div>
         )}
       </div>
-      <div className="flex items-center justify-center px-4 py-3" style={{ background: "rgba(var(--tj-accent-primary),0.04)", boxShadow: "inset 0 0 0 1px rgba(var(--tj-accent-primary),0.15)", clipPath: cardClip }}>
+      <div className="flex items-center justify-center px-4 py-3" style={{ background: "rgba(var(--tj-accent-primary),0.04)", boxShadow: insetRing(0.15), clipPath: CLIP_SECTION }}>
         <svg width="300" height="280" viewBox="0 0 300 280" style={{ maxWidth: "100%" }}>
           {visibleNodes.map((node, index) => {
             const angle = (Math.PI * 2 * index) / Math.max(1, visibleNodes.length) - Math.PI / 2;
@@ -70,7 +71,7 @@ export function RelationshipGraphPanel({ npcRecords, variableBatches, onSelectNp
         </svg>
       </div>
       {nodes.length === 0 && <div className="px-4 py-3 text-center text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.68)' }}>尚未结识人物，关系图会在初次相遇后建立。</div>}
-      <div className="px-4 py-3" style={{ boxShadow: "inset 0 0 0 1px rgba(var(--tj-border),0.5)", clipPath: cardClip }}>
+      <div className="px-4 py-3" style={{ boxShadow: "inset 0 0 0 1px rgba(var(--tj-border),0.5)", clipPath: CLIP_SECTION }}>
         <div className="mb-2 font-serif text-xs tracking-[0.18em]" style={{ color: "rgba(var(--tj-accent-primary),0.85)" }}>最近好感变化</div>
         {recentEvents.length === 0 ? (
           <div className="text-[11px]" style={{ color: "rgba(var(--tj-text-secondary),0.6)" }}>暂无好感变化记录。</div>
@@ -83,4 +84,4 @@ export function RelationshipGraphPanel({ npcRecords, variableBatches, onSelectNp
       </div>
     </div>
   );
-}
+});

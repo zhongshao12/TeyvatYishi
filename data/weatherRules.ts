@@ -149,7 +149,7 @@ export function 构建天气Prompt片段(地点: string, 当前天气: string | 
 export function 解析天气标签(responseText: string): string | null {
   const match = responseText.match(/<天气>(.+?)<\/天气>/);
   if (!match) return null;
-  const raw = match[1].trim();
+  const raw = (match[1] ?? '').trim();
   // 中文名 → ID
   const found = 天气列表.find((w) => w.name === raw);
   return found ? found.id : null;

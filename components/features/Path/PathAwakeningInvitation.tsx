@@ -1,3 +1,4 @@
+import { insetRing } from '@/styles/clipPaths';
 import type { 世界状态 } from '@/models/world';
 import type { ElementId } from '@/models/teyvat/elements';
 import { ELEMENT_NAMES } from '@/styles/elementTokens';
@@ -14,7 +15,7 @@ export function PathAwakeningInvitation({ world, setWorld, onTrigger, disabled }
   if (!element) return null;
 
   return (
-    <div className="mx-3 mb-2 p-4" style={{ background: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.08), rgba(140,100,60,0.10))', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.45)' }}>
+    <div className="mx-3 mb-2 p-4" style={{ background: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.08), rgba(140,100,60,0.10))', boxShadow: insetRing(0.45) }}>
       <div className="mb-2 text-xs tracking-[0.4em]" style={{ color: 'rgba(var(--tj-accent-primary),0.7)' }}>元 素 回 响 之 邀</div>
       <div className="mb-1 font-serif text-base" style={{ color: 'rgba(var(--tj-text-primary),0.95)' }}>「{ELEMENT_NAMES[element]}」的回响正在靠近</div>
       <p className="mb-3 text-sm leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary),0.8)' }}>

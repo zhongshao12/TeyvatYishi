@@ -3,6 +3,8 @@ import { loadSetting, saveSetting } from '@/services/dbService';
 
 export const API_ERROR_REPORTS_KEY = 'apiErrorReports';
 const MAX_API_ERROR_REPORTS = 80;
+const REDACTED_QUERY_VALUE = '[REDACTED]';
+const SECRET_QUERY_PARAMETER = /([?&](?:key|api[_-]?key|apikey|access[_-]?token|token)=)[^&#]*/gi;
 
 export interface ApiErrorReport {
   id: string;
@@ -23,6 +25,19 @@ function maskApiKey(apiKey: string): string {
   const key = apiKey.trim();
   if (!key) return '';
   return key.length <= 8 ? '********' : `${'*'.repeat(Math.min(12, key.length - 4))}${key.slice(-4)}`;
+}
+
+export function sanitizeApiErrorReportUrl(value: string | undefined): string | undefined {
+  if (!value) return value;
+  return value.replace(
+    SECRET_QUERY_PARAMETER,
+    (_match, prefix: string) => `${prefix}${REDACTED_QUERY_VALUE}`,
+  );
+}
+
+function sanitizeStoredReport(report: ApiErrorReport): ApiErrorReport {
+  const requestUrl = sanitizeApiErrorReportUrl(report.requestUrl);
+  return requestUrl === report.requestUrl ? report : { ...report, requestUrl };
 }
 
 function trimText(value: unknown, maxLength = 4000): string {
@@ -50,12 +65,13 @@ export async function appendApiErrorReport(input: {
       baseUrl: input.config?.baseUrl || '',
       apiKeyHint: maskApiKey(input.config?.apiKey || ''),
       status: input.status,
-      requestUrl: input.requestUrl,
+      requestUrl: sanitizeApiErrorReportUrl(input.requestUrl),
       requestMode: input.requestMode ?? 'unknown',
       message: trimText(error?.message ?? input.error ?? input.responseText ?? '未知错误'),
       responseText: trimText(input.responseText ?? ''),
     };
-    const next = [report, ...(Array.isArray(current) ? current : [])].slice(0, MAX_API_ERROR_REPORTS);
+    const retained = Array.isArray(current) ? current.map(sanitizeStoredReport) : [];
+    const next = [report, ...retained].slice(0, MAX_API_ERROR_REPORTS);
     await saveSetting(API_ERROR_REPORTS_KEY, next);
   } catch (err) {
     console.warn('[apiErrorReport] failed to persist report', err);
@@ -64,7 +80,12 @@ export async function appendApiErrorReport(input: {
 
 export async function loadApiErrorReports(): Promise<ApiErrorReport[]> {
   const list = await loadSetting<ApiErrorReport[]>(API_ERROR_REPORTS_KEY);
-  return Array.isArray(list) ? list : [];
+  if (!Array.isArray(list)) return [];
+  const sanitized = list.map(sanitizeStoredReport);
+  if (sanitized.some((report, index) => report !== list[index])) {
+    await saveSetting(API_ERROR_REPORTS_KEY, sanitized);
+  }
+  return sanitized;
 }
 
 export async function clearApiErrorReports(): Promise<void> {

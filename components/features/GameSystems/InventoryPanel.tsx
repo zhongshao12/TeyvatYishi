@@ -1,3 +1,4 @@
+import { CLIP_ITEM, CLIP_SECTION, insetRing } from '@/styles/clipPaths';
 ﻿// 背包系统面板(v4)。
 // 左侧概览 + 分类切换，右侧方格网格 + 详情浮层。
 // 所有写入走 utils/inventoryActions 服务层，避免直接戳数组遗漏堆叠合并等副作用。
@@ -21,10 +22,8 @@ interface InventoryPanelProps {
 
 type 标签 = ItemCategory | '全部';
 
-const cardClip =
-  'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)';
-const smallClip =
-  'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)';
+
+
 const cellClip =
   'polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px)';
 
@@ -55,7 +54,7 @@ const panelStyle = {
     'radial-gradient(circle at 10% 0%, rgba(var(--tj-arcane-accent), 0.075), transparent 34%), linear-gradient(180deg, rgba(var(--tj-bubble), 0.96), rgba(var(--tj-surface-strong), 0.94))',
   boxShadow:
     'inset 0 0 0 1px rgba(var(--tj-border), 0.62), 0 14px 32px rgba(var(--tj-shadow), 0.1)',
-  clipPath: cardClip,
+  clipPath: CLIP_SECTION,
 };
 
 export function InventoryPanel({ inventory, onInventoryChange, turnCount }: InventoryPanelProps) {
@@ -194,7 +193,7 @@ export function InventoryPanel({ inventory, onInventoryChange, turnCount }: Inve
                     boxShadow: active
                       ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.58), inset 3px 0 0 linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))'
                       : 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.18)',
-                    clipPath: smallClip,
+                    clipPath: CLIP_ITEM,
                   }}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -248,8 +247,8 @@ export function InventoryPanel({ inventory, onInventoryChange, turnCount }: Inve
                 style={{
                   color: 'rgba(var(--tj-text-primary), 0.96)',
                   background: 'rgba(var(--tj-accent-primary), 0.06)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
-                  clipPath: smallClip,
+                  boxShadow: insetRing(0.3),
+                  clipPath: CLIP_ITEM,
                 }}
               >
                 {flash}
@@ -305,7 +304,7 @@ function ItemCell({
   selected: boolean;
   onClick: () => void;
 }) {
-  const qualityColor = ITEM_RARITY_COLORS[item.rarity];
+  const qualityColor = ITEM_RARITY_COLORS[item.rarity] ?? ITEM_RARITY_COLORS[1] ?? '#8b857b';
   const qualityStroke = qualityColor;
 
   return (
@@ -338,7 +337,7 @@ function ItemCell({
           color: 'rgba(var(--tj-arcane-accent-deep),0.9)',
           background: 'rgba(var(--tj-ui-panel-strong), 0.5)',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.42)',
-          clipPath: smallClip,
+          clipPath: CLIP_ITEM,
         }}
       >
         {CATEGORY_GLYPHS[item.category]}
@@ -369,7 +368,7 @@ function ItemCell({
           style={{
             color: 'rgb(var(--tj-text-primary))',
             background: 'rgba(var(--tj-bubble), 0.92)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+            boxShadow: insetRing(0.45),
             paddingTop: 2,
             paddingBottom: 2,
           }}
@@ -413,8 +412,8 @@ function ItemDetailOverlay({
         className="px-3 py-4 md:px-4 md:py-5"
         style={{
           background: 'linear-gradient(180deg, rgba(var(--tj-bubble), 0.96), rgba(var(--tj-surface-strong), 0.94))',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.2),
+          clipPath: CLIP_SECTION,
         }}
       >
         <SectionHeader title="物品详情" />
@@ -424,7 +423,7 @@ function ItemDetailOverlay({
   }
 
   const usable = USABLE_CATEGORIES.includes(item.category);
-  const qualityColor = ITEM_RARITY_COLORS[item.rarity];
+  const qualityColor = ITEM_RARITY_COLORS[item.rarity] ?? ITEM_RARITY_COLORS[1] ?? '#8b857b';
   const effectEntries = item.narrativeEffects ?? item.effects ?? [];
   const effects = item.useEffects ?? [];
 
@@ -435,7 +434,7 @@ function ItemDetailOverlay({
       style={{
         background: `radial-gradient(circle at 12% 0%, ${qualityColor.replace(/0\.\d+\)/, '0.13)')}, transparent 38%), linear-gradient(180deg, rgba(var(--tj-ui-panel-strong), 0.98), rgba(var(--tj-ui-panel), 0.96))`,
         boxShadow: `inset 0 0 0 1px ${qualityColor}, 0 14px 32px rgba(var(--tj-shadow), 0.08)`,
-        clipPath: cardClip,
+        clipPath: CLIP_SECTION,
       }}
     >
       <div className="flex items-start justify-between gap-3">
@@ -446,7 +445,7 @@ function ItemDetailOverlay({
               color: qualityColor,
               background: 'rgba(var(--tj-bg-primary), 0.56)',
               boxShadow: `inset 0 0 0 1px ${qualityColor}, 0 0 20px rgba(var(--tj-accent-primary), 0.08)`,
-              clipPath: smallClip,
+              clipPath: CLIP_ITEM,
             }}
           >
             {CATEGORY_GLYPHS[item.category]}
@@ -458,7 +457,7 @@ function ItemDetailOverlay({
               <MetaChip text={`×${item.quantity}`} color="rgba(245,235,210,0.92)" />
               <MetaChip text={ITEM_CATEGORY_LABELS[item.category]} color="rgba(var(--tj-arcane-accent), 0.9)" />
               {item.category === 'artifact' && item.artifactSlot && (
-                <MetaChip text={ARTIFACT_SLOT_LABELS[item.artifactSlot]} color={qualityColor} />
+                <MetaChip text={ARTIFACT_SLOT_LABELS[item.artifactSlot] ?? item.artifactSlot} color={qualityColor} />
               )}
             </div>
             <h3
@@ -476,7 +475,7 @@ function ItemDetailOverlay({
           style={{
             color: 'rgb(var(--tj-ui-title))',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.65)',
-            clipPath: smallClip,
+            clipPath: CLIP_ITEM,
           }}
           aria-label="关闭"
         >
@@ -544,8 +543,8 @@ function MetaChip({ text, color }: { text: string; color: string }) {
       style={{
         color,
         background: 'rgba(var(--tj-bubble), 0.78)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.18),
+        clipPath: CLIP_ITEM,
       }}
     >
       {text}
@@ -575,7 +574,7 @@ function ActionButton({
       style={{
         color: palette.color,
         boxShadow: `inset 0 0 0 1px ${palette.stroke}`,
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       {children}
@@ -605,7 +604,7 @@ function DetailBlock({ title, children }: { title: string; children: React.React
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-bubble), 0.78), rgba(var(--tj-surface-strong), 0.58))',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.48)',
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       <div className="mb-2 font-serif text-[12px] font-semibold tracking-[0.22em]" style={{ color: 'rgb(var(--tj-ui-title))' }}>
@@ -622,8 +621,8 @@ function MetricTile({ label, value }: { label: string; value: string }) {
       className="px-3 py-2"
       style={{
         background: 'rgba(var(--tj-accent-primary), 0.055)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.22)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.22),
+        clipPath: CLIP_ITEM,
       }}
     >
       <div className="font-serif text-[11px] leading-tight tracking-[0.12em] md:text-[12px] md:tracking-[0.16em]" style={{ color: 'rgba(var(--tj-text-secondary), 0.82)' }}>
@@ -660,8 +659,8 @@ function StatChip({ label, value }: { label: string; value: number }) {
       style={{
         color: 'rgb(var(--tj-ui-body))',
         background: 'rgba(var(--tj-accent-primary), 0.08)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.28),
+        clipPath: CLIP_ITEM,
       }}
     >
       <span style={{ color: 'rgba(var(--tj-text-secondary), 0.82)' }}>{label}</span>
@@ -678,7 +677,7 @@ function EffectChip({ text }: { text: string }) {
         color: 'rgb(var(--tj-ui-body))',
         background: 'rgba(var(--tj-arcane-accent), 0.08)',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.28)',
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       {text}
@@ -706,7 +705,7 @@ function EmptyNotice({ title, text }: { title: string; text: string }) {
       style={{
         background: 'rgba(var(--tj-text-secondary), 0.055)',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.2)',
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       <div className="font-serif text-[15px] font-semibold tracking-[0.18em]" style={{ color: 'rgb(var(--tj-ui-title))' }}>

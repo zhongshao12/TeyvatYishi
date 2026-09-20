@@ -1,11 +1,15 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
 const queueModel = fs.readFileSync('models/queueTask.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+// 正文生图工作流已抽到 hooks/useGame/narrativeImageWorkflow.ts；按「主剧情工作流」整体读取。
+// 迁移: 读取源由手工数组收敛为 scripts/lib/workflowSources.mjs 登记的工作流视图
+//       （sendWorkflow / narrativeImageWorkflow 均已登记），后续搬迁不必再改本脚本数组。
+const sendWorkflow = readWorkflowSources();
 const useGame = fs.readFileSync('hooks/useGame.ts', 'utf8');
 const app = fs.readFileSync('App.tsx', 'utf8');
 const drawer = fs.readFileSync('components/features/Variable/VariableDrawer.tsx', 'utf8');

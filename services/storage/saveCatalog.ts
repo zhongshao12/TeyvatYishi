@@ -81,6 +81,32 @@ export interface SaveCatalogSnapshot {
   catalogComplete: boolean;
 }
 
+/** Desktop files are primary, unless their index is demonstrably missing saves still present in IndexedDB. */
+export function selectPreferredSaveCatalogSnapshot(
+  desktop: SaveCatalogSnapshot,
+  indexed: SaveCatalogSnapshot,
+): SaveCatalogSnapshot {
+  if (indexed.totalStoredCount > desktop.totalStoredCount) return indexed;
+  if (desktop.totalStoredCount > 0) return desktop;
+  return indexed;
+}
+
+export function formatStorageOperationError(action: string, error: unknown): string {
+  const candidate = error && typeof error === 'object' ? error as { name?: unknown; message?: unknown } : null;
+  const name = typeof candidate?.name === 'string' ? candidate.name : '';
+  const message = error instanceof Error
+    ? error.message.trim()
+    : typeof candidate?.message === 'string'
+      ? candidate.message.trim()
+      : typeof error === 'string'
+        ? error.trim()
+        : '';
+  if (name === 'QuotaExceededError' || /quota|storage\s*(?:full|limit)|存储空间|配额/i.test(message)) {
+    return `${action}失败：存储空间不足。请删除不需要的存档或相册资源后重试。`;
+  }
+  return `${action}失败：${message || '发生未知存储错误'}`;
+}
+
 export function createCatalogRecordFromSummary(
   summary: SaveListItemSummary,
 ): VisibleSaveCatalogRecord | LegacyBackupCatalogRecord {

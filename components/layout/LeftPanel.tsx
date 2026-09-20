@@ -1,3 +1,4 @@
+import { CLIP_ITEM, CLIP_MEDIUM, CLIP_PANEL, CLIP_SMALL, CLIP_XS } from '@/styles/clipPaths';
 import { memo, useMemo, useState } from 'react';
 import type { 角色数据结构 } from '@/models/character';
 import type { 相册系统 } from '@/models/imageGeneration';
@@ -98,7 +99,7 @@ export const LeftPanel = memo(function LeftPanel({
                   'inset 0 0 0 1.5px rgba(var(--tj-border), 0.9), 0 10px 18px rgba(var(--tj-shadow), 0.1)',
                 color: 'rgb(var(--tj-accent-primary))',
                 clipPath:
-                  'polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)',
+                  CLIP_PANEL,
               }}
             >
               {avatarUrl ? (
@@ -160,7 +161,7 @@ export const LeftPanel = memo(function LeftPanel({
         </div>
 
         {/* 队伍 */}
-        <div className="mt-4 px-3 py-2.5" style={{ background: BOOKMARK_PANEL, boxShadow: `inset 0 0 0 1px ${BOOKMARK_BORDER}`, clipPath: 'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)' }}>
+        <div className="mt-4 px-3 py-2.5" style={{ background: BOOKMARK_PANEL, boxShadow: `inset 0 0 0 1px ${BOOKMARK_BORDER}`, clipPath: CLIP_ITEM }}>
           <div className="flex items-center justify-between">
             <span className="font-serif text-[10px] font-bold tracking-[0.3em]" style={{ color: BOOKMARK_TEXT }}>◆ 队伍</span>
             <span className="text-[10px] font-semibold" style={{ color: BOOKMARK_MUTED }}>{partyMembers.length + 1}/4</span>
@@ -211,7 +212,7 @@ export const LeftPanel = memo(function LeftPanel({
             background: BOOKMARK_PANEL,
             boxShadow: `inset 0 0 0 1px ${BOOKMARK_BORDER}`,
             clipPath:
-              'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+              CLIP_MEDIUM,
           }}
           title="打开手机"
         >
@@ -241,7 +242,7 @@ style={{
           background: BOOKMARK_PANEL,
           boxShadow: `inset 0 0 0 1px ${BOOKMARK_BORDER}`,
               clipPath:
-                'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+                CLIP_MEDIUM,
             }}
           >
             <div className="font-serif text-[10px] font-bold tracking-[0.28em]" style={{ color: 'var(--journal-antique-gold-soft)' }}>
@@ -275,7 +276,7 @@ function RecallSummaryWindow({ content, fullContent }: { content: string; fullCo
         background: BOOKMARK_PANEL,
         boxShadow: `inset 0 0 0 1px ${BOOKMARK_BORDER}`,
         clipPath:
-          'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+          CLIP_MEDIUM,
       }}
     >
       <div className="flex items-center justify-between gap-2">
@@ -295,7 +296,7 @@ function RecallSummaryWindow({ content, fullContent }: { content: string; fullCo
               color: BOOKMARK_TEXT,
               boxShadow: `inset 0 0 0 1px ${BOOKMARK_BORDER}`,
               background: 'rgba(213, 182, 110, 0.09)',
-              clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+              clipPath: CLIP_XS,
             }}
             title={full ? '显示完整旅途回忆' : '本回合暂无完整旅途回忆'}
           >
@@ -344,7 +345,7 @@ function InfoLine({ label, value }: { label: string; value: string }) {
         background: BOOKMARK_PANEL,
         boxShadow: `inset 0 0 0 1px ${BOOKMARK_BORDER}`,
         clipPath:
-          'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+          CLIP_SMALL,
       }}
     >
       <div className="font-serif text-[11px] font-bold tracking-[0.32em]" style={{ color: 'var(--journal-antique-gold-soft)' }}>

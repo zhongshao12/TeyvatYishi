@@ -243,6 +243,34 @@ describe('Teyvat save package contract', () => {
     expect(buildSaveNodeDeltaRecord(readFixture('legacy-hsr-save.json') as never, 1)).toBeNull();
   });
 
+  it('falls back to a checkpoint when the base chat is not a prefix', () => {
+    const base = {
+      ...createEmptyTeyvatGameState(),
+      id: 1,
+      type: 'auto',
+      timestamp: 1,
+      saveTree: { rootId: 'root-1', nodeId: 'node-base' },
+    } as ReturnType<typeof createEmptyTeyvatGameState> & Record<string, unknown>;
+    base.对话.entries = [{ id: 'message-base', role: 'assistant', content: '旧分支', timestamp: 1 }];
+    const current = {
+      ...createEmptyTeyvatGameState(),
+      id: 2,
+      type: 'auto',
+      timestamp: 2,
+      saveTree: { rootId: 'root-1', nodeId: 'node-branch', parentNodeId: 'node-base' },
+    } as ReturnType<typeof createEmptyTeyvatGameState> & Record<string, unknown>;
+    current.对话.entries = [{ id: 'message-branch', role: 'assistant', content: '新分支', timestamp: 2 }];
+
+    const record = buildSaveNodeDeltaRecord(current as never, 2, {
+      baseSave: base as never,
+      baseSaveId: 1,
+      storageMode: 'delta',
+    });
+
+    expect(record?.baseMode).toBe('checkpoint');
+    expect(record?.deltaPayload).toBeUndefined();
+  });
+
   it('round-trips a Teyvat save with an exact universe-versioned manifest', async () => {
     const teyvatSave = createEmptyTeyvatGameState();
     const blob = await buildSavePackage(teyvatSave);

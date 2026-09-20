@@ -1651,7 +1651,7 @@ export function StorySnapshotWorkspace(props: StorySnapshotWorkspaceProps) {
                 options={props.sourceOptions.map((option) => ({ id: option.id, title: option.title, desc: option.desc }))}
                 onChange={(id) => {
                   const option = props.sourceOptions.find((item) => item.id === id) ?? selectedOption;
-                  applySource(option);
+                  if (option) applySource(option);
                 }}
               />
               <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
@@ -1797,7 +1797,7 @@ export function CourierBackgroundWorkspace(props: SceneCreationWorkspaceProps) {
 }
 
 export function StorySnapshotSummaryCard({ summary, prompt, negativePrompt }: { summary: StorySnapshotSummary; prompt?: string; negativePrompt?: string }) {
-  const rows = [
+  const rows: Array<readonly [string, string]> = [
     ['标题', summary.title],
     ['人物', summary.characters.length ? summary.characters.join('、') : '未明确'],
     ['地点', summary.location],

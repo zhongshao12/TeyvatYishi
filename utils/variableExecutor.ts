@@ -475,6 +475,9 @@ function 应用背包数量扣减命令(
     };
   }
   const item = inventory.items[index];
+  if (!item) {
+    return { matched: true, ok: false, reason: `背包物品「${target.expected}」读取失败。` };
+  }
   if (target.count > item.quantity) {
     return { matched: true, ok: false, reason: `背包物品 ${item.name} 数量不足。` };
   }
@@ -611,10 +614,12 @@ function 确保NPC目标存在(records: NPC记录[], rest: string, cmd: 变量�
   if (cmd.action === 'push' && !rest) return null;
   const match = rest.match(/^\[([^\]]+)\]/);
   if (!match) return null;
-  const eq = match[1].indexOf('=');
+  const selector = match[1];
+  if (!selector) return null;
+  const eq = selector.indexOf('=');
   if (eq < 0) return null;
-  const selectorField = match[1].slice(0, eq).trim();
-  const selectorValue = match[1].slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+  const selectorField = selector.slice(0, eq).trim();
+  const selectorValue = selector.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
   if (!selectorValue) return null;
   // 严格匹配（id / 姓名 / 别名）
   const exists = records.some((item) =>
@@ -820,7 +825,7 @@ function 查找赋值等号(line: string): number {
 
 function 解析变量命令行(line: string): { action: 变量命令['action']; key: string; valueRaw?: string } | null {
   const head = line.match(/^(set|add|sub|push|delete)\s+/i);
-  const action = (head ? head[1].toLowerCase() : 'set') as 变量命令['action'];
+  const action = (head?.[1] ?? 'set').toLowerCase() as 变量命令['action'];
   const rest = (head ? line.slice(head[0].length) : line).trim();
   if (!rest) return null;
 
@@ -917,7 +922,9 @@ export function parseVariableCommands(rawText: string): { commands: 变量命令
   const blockMatch = rawText.match(/<变量更新>([\s\S]*?)<\/变量更新>/);
   if (!blockMatch) return { commands, parseErrors };
 
-  const lines = 拆分变量命令行(清理变量命令块(blockMatch[1]));
+  const commandBlock = blockMatch[1];
+  if (commandBlock === undefined) return { commands, parseErrors };
+  const lines = 拆分变量命令行(清理变量命令块(commandBlock));
 
   for (const line of lines) {
     // 形如：  push  背包.items = {"category":"food","name":"提瓦特煎蛋","rarity":1,"quantity":1}

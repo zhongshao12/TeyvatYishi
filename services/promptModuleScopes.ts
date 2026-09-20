@@ -22,7 +22,12 @@ const TARGET_ID_MATCHERS: Record<独立系统提示词目标, readonly ((id: str
   ],
   variable: [
     (id) => id.startsWith('builtin_variable_'),
+    (id) => id.startsWith('builtin_domain_command_'),
     (id) => id === 'builtin_companion_archive_worldbook',
+    (id) => id.startsWith('custom_variable_'),
+    (id) => id.startsWith('st_import_variable_'),
+    (id) => id.startsWith('custom_companionArchive_'),
+    (id) => id.startsWith('st_import_companion_archive_'),
   ],
   codex: [
     (id) => id.startsWith('builtin_codex_'),
@@ -39,7 +44,11 @@ const TARGET_ID_MATCHERS: Record<独立系统提示词目标, readonly ((id: str
     (id) => id.startsWith('custom_irminsul_archive_'),
     (id) => id.startsWith('st_import_irminsul_archive_'),
   ],
-  storyWeaving: [(id) => id.startsWith('builtin_story_weaving_')],
+  storyWeaving: [
+    (id) => id.startsWith('builtin_canon_'),
+    (id) => id.startsWith('custom_storyWeaving_'),
+    (id) => id.startsWith('st_import_story_weaving_'),
+  ],
 };
 
 interface 独立系统提示词过滤选项 {

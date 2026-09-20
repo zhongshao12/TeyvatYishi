@@ -127,7 +127,9 @@ const NOVELAI_MODEL_PROFILES: Record<string, NovelAIModelProfile> = {
 };
 
 export function resolveNovelAIModelProfile(model: string): NovelAIModelProfile {
-  return NOVELAI_MODEL_PROFILES[model] ?? NOVELAI_MODEL_PROFILES['nai-diffusion-3'];
+  const profile = NOVELAI_MODEL_PROFILES[model] ?? NOVELAI_MODEL_PROFILES['nai-diffusion-3'];
+  if (!profile) throw new Error('缺少 NovelAI 默认模型配置。');
+  return profile;
 }
 
 function joinPromptParts(...parts: Array<string | undefined>): string {
@@ -308,6 +310,7 @@ export function compileNovelAIPrompt(input: CompileNovelAIPromptInput): Compiled
     ? requestedPreset
     : profile.ucPresets.length - 1;
   const selectedPreset = profile.ucPresets[presetIndex];
+  if (!selectedPreset) throw new Error('NovelAI 负面提示词预设不能为空。');
   const positivePrompt = joinPromptParts(buildCharacterCountTag(context), basePromptBody, qualityTags);
   const officialUc = sanitizePrompt(joinPromptParts(
     profile.prependNsfwToPreset && selectedPreset.name !== 'None' && !/\bnsfw\b/i.test(positivePrompt)

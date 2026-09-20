@@ -1,0 +1,215 @@
+=== 1. SAME TOP-LEVEL FUNCTION NAME DEFINED IN MANY FILES ===
+function names defined in >1 file: 91
+  20x  isRecord   [compat/legacy-hsr/classify.ts, compat/legacy-hsr/migrate.ts, components/features/Settings/VariableManager.tsx, data/keyboardShortcutDefaults.ts, models/teyvat/character.ts]
+  10x  Field   [components/features/GameSystems/album/workspaces.tsx, components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/GameSettings.tsx, components/features/Settings/ImageGenerationSettingsTab.tsx]
+   9x  ToggleRow   [components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/ExtraFeaturesSettingsTab.tsx, components/features/Settings/GameSettings.tsx, components/features/Settings/ImageGenerationSettingsTab.tsx]
+   6x  readText   [functions/api/presence.ts, services/ai/arkProxyCore.ts, services/ai/opencodeProxyCore.ts, services/ai/openingArchive.ts, services/ai/pioneerProxyCore.ts]
+   4x  InfoLine   [components/features/GameSystems/album/workspaces.tsx, components/features/GameSystems/InventoryPanel.tsx, components/features/Settings/ImageGenerationSettingsTab.tsx, components/layout/LeftPanel.tsx]
+   4x  proxyHeaders   [services/ai/arkProxyCore.ts, services/ai/opencodeProxyCore.ts, services/ai/pioneerProxyCore.ts, services/ai/qianfanProxyCore.ts]
+   4x  uniqueText   [services/canonDeviationService.ts, services/npcRelationshipPlanning.ts, services/storyPlanningAnalysis.ts, services/storyProgressService.ts]
+   4x  assertNotAborted   [services/cloudBackupBuilder.ts, services/cloudBackupMerge.ts, services/githubCloudSave.ts, services/githubRequest.ts]
+   3x  Section   [components/features/Character/TravelerProfileModal.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx]
+   3x  TabButton   [components/features/GameSystems/CompanionPanel.tsx, components/features/SaveLoad/SaveLoadModal.tsx, components/features/Worldbook/WorldbookManagerModal.tsx]
+   3x  MemoryPanel   [components/features/GameSystems/CompanionPanel.tsx, components/features/GameSystems/MemoryPanel.tsx, components/features/GameSystems/SystemPanels.tsx]
+   3x  ActionButton   [components/features/GameSystems/InventoryPanel.tsx, components/features/GameSystems/MemoryPanel.tsx, components/features/Settings/StorageManager.tsx]
+   3x  SelectField   [components/features/ImageGeneration/ImageRuleTemplateEditor.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx]
+   3x  formatSize   [components/features/SaveLoad/SaveLoadModal.tsx, components/features/Settings/StorageManager.tsx, components/layout/DesktopHomeScreen.tsx]
+   3x  NumberField   [components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx, components/layout/AppPanels.tsx]
+   3x  readString   [hooks/useGame/tavernMessageChainBuilder.ts, services/ai/characterAnchorExtract.ts, services/ai/travelerTemplate.ts]
+   3x  normalizeClock   [hooks/useGame/worldEvolution.ts, models/world.ts, services/ai/openingArchive.ts]
+   3x  escapeRegExp   [services/ai/responseParser.ts, utils/playerSpeechGuard.ts, utils/worldbook.ts]
+   3x  yieldToMainThread   [services/cloudBackupBuilder.ts, services/cloudBackupMerge.ts, services/githubCloudSave.ts]
+   3x  normalizeSaveType   [services/cloudBackupMerge.ts, services/dbService.ts, services/storage/saveCatalog.ts]
+   3x  sha256Hex   [services/cloudBackupPackage.ts, services/desktop/desktopMigrationBackup.ts, services/desktop/desktopSaveBackup.ts]
+   3x  normalizeText   [services/codexRuntimeUnlock.ts, services/storage/saveCatalog.ts, services/storyProgressService.ts]
+   3x  isDataImage   [utils/saveAssetStorage.ts, utils/saveImageCompactor.ts, utils/saveRuntimeCompactor.ts]
+   2x  optionalText   [compat/legacy-hsr/migrate.ts, services/ai/narrativeTurnParser.ts]
+   2x  integer   [compat/legacy-hsr/migrate.ts, utils/teyvatCommandRegistry.ts]
+   2x  ToolButton   [components/features/Chat/TurnItem.tsx, components/layout/DesktopHomeScreen.tsx]
+   2x  crc32   [components/features/GameSystems/album/albumArchive.ts, services/savePackage.ts]
+   2x  findEndOfCentralDirectory   [components/features/GameSystems/album/albumArchive.ts, services/ai/imageGeneration.ts]
+   2x  concatBytes   [components/features/GameSystems/album/albumArchive.ts, services/savePackage.ts]
+   2x  extensionFromMime   [components/features/GameSystems/album/albumArchive.ts, components/features/GameSystems/album/albumArchive.worker.ts]
+   2x  isCharacterLibrarySlot   [components/features/GameSystems/album/albumArchive.ts, components/features/GameSystems/album/workspaces.tsx]
+   2x  slotLabel   [components/features/GameSystems/album/albumArchive.ts, components/features/GameSystems/album/workspaces.tsx]
+   2x  backendLabel   [components/features/GameSystems/album/referenceInjection.ts, components/features/Settings/ImageGenerationSettingsTab.tsx]
+   2x  Panel   [components/features/GameSystems/album/workspaces.tsx, components/features/Settings/ImageGenerationSettingsTab.tsx]
+   2x  Spinner   [components/features/GameSystems/album/workspaces.tsx, components/features/Variable/VariableDrawer.tsx]
+   2x  AlbumPanel   [components/features/GameSystems/AlbumPanel.tsx, components/features/GameSystems/SystemPanels.tsx]
+   2x  CompanionPanel   [components/features/GameSystems/CompanionPanel.tsx, components/features/GameSystems/SystemPanels.tsx]
+   2x  DetailBlock   [components/features/GameSystems/CompanionPanel.tsx, components/features/GameSystems/InventoryPanel.tsx]
+   2x  InventoryPanel   [components/features/GameSystems/InventoryPanel.tsx, components/features/GameSystems/SystemPanels.tsx]
+   2x  SectionHeader   [components/features/GameSystems/InventoryPanel.tsx, components/features/GameSystems/MemoryPanel.tsx]
+
+=== 2. DUPLICATED PROVIDER-OPTION / CONST BLOCKS ===
+  36x  smallClip   [components/features/Chat/ChatBookmarksPanel.tsx, components/features/Chat/CommandPalette.tsx, components/features/Chat/TokenMeter.tsx, components/features/CloudSave/GitHubCloudSaveModal.tsx, components/features/GameSystems/CompanionPanel.tsx, components/features/GameSystems/InventoryPanel.tsx]
+  30x  cardClip   [components/features/Character/TravelerProfileModal.tsx, components/features/Chat/ChatBookmarksPanel.tsx, components/features/Chat/CommandPalette.tsx, components/features/CloudSave/GitHubCloudSaveModal.tsx, components/features/GameSystems/CompanionPanel.tsx, components/features/GameSystems/InventoryPanel.tsx]
+  14x  meta   [stories/AdventurerJournalShell.stories.tsx, stories/Button.stories.ts, stories/ChatRenderers.stories.tsx, stories/CodexManagerModal.stories.tsx, stories/CourierModal.stories.tsx, stories/DesktopHomeScreen.stories.tsx]
+   9x  providerOptions   [components/features/Settings/ApiSettings.tsx, components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/ImageGenerationSettingsTab.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx]
+   6x  noop   [stories/AdventurerJournalShell.stories.tsx, stories/CodexManagerModal.stories.tsx, stories/CourierModal.stories.tsx, stories/DesktopHomeScreen.stories.tsx, stories/LandingPage.stories.tsx, stories/SystemPanels.stories.tsx]
+   5x  gold   [components/features/Codex/CodexManagerModal.tsx, components/features/Courier/CourierModal.tsx, components/features/GameSystems/MapPanel.tsx, components/features/GameSystems/PathPanel.tsx, components/features/GameSystems/SkillPanel.tsx]
+   5x  goldSoft   [components/features/Codex/CodexManagerModal.tsx, components/features/Courier/CourierModal.tsx, components/features/GameSystems/MapPanel.tsx, components/features/GameSystems/SkillPanel.tsx, components/features/NewGame/NewGameWizard.tsx]
+   5x  clipSmall   [components/features/Codex/CodexManagerModal.tsx, components/features/Courier/CourierModal.tsx, components/features/GameSystems/MapPanel.tsx, components/features/GameSystems/SkillPanel.tsx, components/features/NewGame/NewGameWizard.tsx]
+   4x  muted   [components/features/Codex/CodexManagerModal.tsx, components/features/Courier/CourierModal.tsx, components/features/GameSystems/MapPanel.tsx, components/features/GameSystems/SkillPanel.tsx]
+   3x  ink   [components/features/Codex/CodexManagerModal.tsx, components/features/Courier/CourierModal.tsx, components/features/GameSystems/SkillPanel.tsx]
+   3x  CATEGORY_LABELS   [components/features/Codex/CodexManagerModal.tsx, components/features/GameSystems/SkillPanel.tsx, components/features/NewGame/NewGameWizard.tsx]
+   3x  panelStyle   [components/features/GameSystems/CompanionPanel.tsx, components/features/GameSystems/InventoryPanel.tsx, components/features/GameSystems/MemoryPanel.tsx]
+   3x  TARGET_TYPES   [models/quest.ts, models/teyvat/runtimeSlices.ts, services/questService.ts]
+   3x  text   [models/teyvat/character.ts, models/teyvat/courier.ts, models/teyvat/runtimeSlices.ts]
+   3x  optionalText   [models/teyvat/character.ts, models/teyvat/courier.ts, models/teyvat/runtimeSlices.ts]
+   3x  textList   [models/teyvat/character.ts, models/teyvat/courier.ts, models/teyvat/runtimeSlices.ts]
+   3x  INDEX_PATH   [services/desktop/desktopAssetMirror.ts, services/desktop/desktopSaveDeltaMirror.ts, services/desktop/desktopSaveMirror.ts]
+   3x  listeners   [services/storage/saveCatalogRepair.ts, utils/streamingMessageStore.ts, utils/toastStore.ts]
+   3x  DATA_IMAGE_RE   [utils/albumObjectUrl.ts, utils/promptPayloadSanitizer.ts, utils/saveImageCompactor.ts]
+   2x  REGION_IDS   [compat/legacy-hsr/migrate.ts, models/teyvat/world.ts]
+   2x  SOUND_EFFECT_TAGS   [components/features/Chat/MessageRenderers.tsx, utils/playerSpeechGuard.ts]
+   2x  CATEGORY_ORDER   [components/features/GameSystems/SkillPanel.tsx, components/features/NewGame/NewGameWizard.tsx]
+   2x  INK   [components/features/NewGame/NewGameWizard.tsx, components/layout/DesktopHomeScreen.tsx]
+   2x  INK_MUTED   [components/features/NewGame/NewGameWizard.tsx, components/layout/DesktopHomeScreen.tsx]
+   2x  PAPER_BORDER   [components/features/NewGame/NewGameWizard.tsx, components/layout/DesktopHomeScreen.tsx]
+   2x  itemClip   [components/layout/MobileQuickMenu.tsx, components/layout/RightMenu.tsx]
+   2x  encoder   [models/memory.ts, services/savePackage.ts]
+   2x  decoder   [models/memory.ts, services/savePackage.ts]
+   2x  integer   [models/teyvat/courier.ts, models/teyvat/runtimeSlices.ts]
+   2x  DATA_URL_RE   [services/desktop/desktopAssetMirror.ts, utils/promptPayloadSanitizer.ts]
+
+=== 3. SETTINGS TABS ===
+    143  ApiErrorReportsTab.tsx
+   1501  ApiSettings.tsx
+    435  CodexSettingsTab.tsx
+    189  ContextViewer.tsx
+    424  CourierSystemSettingsTab.tsx
+    191  ExtraFeaturesSettingsTab.tsx
+    613  GameSettings.tsx
+   1292  ImageGenerationSettingsTab.tsx
+    718  IrminsulSettingsTab.tsx
+     50  KeyboardShortcutsTab.tsx
+    642  MemorySystemSettings.tsx
+     50  NotificationSettingsTab.tsx
+    177  NsfwSettingsTab.tsx
+   3466  PromptModulesTab.tsx
+    382  SettingsModal.tsx
+    404  SteambirdSystemSettingsTab.tsx
+   2552  StorageManager.tsx
+    315  StoryWeavingSettingsTab.tsx
+     17  TavernPresetsSettingsTab.tsx
+    116  ThemeSettings.tsx
+     54  TokenStatsPanel.tsx
+   1231  VariableManager.tsx
+    413  VariableUpdateSettings.tsx
+    196  VisualSettingsTab.tsx
+      1  WorldbookManagerModal.tsx
+
+  marker occurrence across Settings tabs:
+    smallClip        20 files -> ApiErrorReportsTab.tsx:4  ApiSettings.tsx:37  CodexSettingsTab.tsx:12  CourierSystemSettingsTab.tsx:14  ExtraFeaturesSettingsTab.tsx:7  GameSettings.tsx:8  ImageGenerationSettingsTab.tsx:60  IrminsulSettingsTab.tsx:14
+    providerOptions  9 files -> ApiSettings.tsx:12  CodexSettingsTab.tsx:2  CourierSystemSettingsTab.tsx:2  ImageGenerationSettingsTab.tsx:2  IrminsulSettingsTab.tsx:2  MemorySystemSettings.tsx:2  SteambirdSystemSettingsTab.tsx:2  StoryWeavingSettingsTab.tsx:2
+    savedFlash       12 files -> ApiSettings.tsx:4  CodexSettingsTab.tsx:4  CourierSystemSettingsTab.tsx:3  GameSettings.tsx:3  ImageGenerationSettingsTab.tsx:4  IrminsulSettingsTab.tsx:4  MemorySystemSettings.tsx:4  NsfwSettingsTab.tsx:3
+    handleSave       13 files -> ApiSettings.tsx:4  CodexSettingsTab.tsx:2  CourierSystemSettingsTab.tsx:2  ExtraFeaturesSettingsTab.tsx:2  GameSettings.tsx:2  ImageGenerationSettingsTab.tsx:2  IrminsulSettingsTab.tsx:2  MemorySystemSettings.tsx:2
+    saveMessage      8 files -> CodexSettingsTab.tsx:6  CourierSystemSettingsTab.tsx:6  GameSettings.tsx:4  IrminsulSettingsTab.tsx:6  MemorySystemSettings.tsx:6  NsfwSettingsTab.tsx:4  SteambirdSystemSettingsTab.tsx:6  VariableUpdateSettings.tsx:6
+    clipPath         23 files -> ApiErrorReportsTab.tsx:3  ApiSettings.tsx:45  CodexSettingsTab.tsx:16  ContextViewer.tsx:4  CourierSystemSettingsTab.tsx:19  ExtraFeaturesSettingsTab.tsx:7  GameSettings.tsx:10  ImageGenerationSettingsTab.tsx:63
+
+=== 4. EXACT DUPLICATED MULTILINE STRING LITERALS (clipPath polygons etc) ===
+distinct string literals (40-300 chars) repeated across files: 150
+  37x  "polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)"
+        in: components/features/Character/TravelerProfileModal.tsx, components/features/Chat/ChatBookmarksPanel.tsx, components/features/Chat/CommandPalette.tsx, components/features/Chat/TokenMeter.tsx, components/features/Chat/TurnItem.tsx, components/features/CloudSave/GitHubCloudSaveModal.tsx
+  31x  "polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)"
+        in: components/features/Chat/InputArea.tsx, components/features/Chat/MessageRenderers.tsx, components/features/Chat/TurnItem.tsx, components/features/CloudSave/GitHubCloudSaveModal.tsx, components/features/GameSystems/album/foundation.ts, components/features/GameSystems/PlotPanel.tsx
+  22x  "polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)"
+        in: App.tsx, components/features/Character/TravelerProfileModal.tsx, components/features/Chat/ChatList.tsx, components/features/Chat/InputArea.tsx, components/features/Chat/TurnItem.tsx, components/features/Settings/CourierSystemSettingsTab.tsx
+  17x  "polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)"
+        in: components/features/Chat/TurnItem.tsx, components/features/CloudSave/GitHubCloudSaveModal.tsx, components/features/GameSystems/album/referenceWorkspace.tsx, components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/ExtraFeaturesSettingsTab.tsx
+  15x  "inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)"
+        in: components/features/GameSystems/InventoryPanel.tsx, components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/ExtraFeaturesSettingsTab.tsx, components/features/Settings/GameSettings.tsx, components/features/Settings/ImageGenerationSettingsTab.tsx
+  14x  "linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondar..."
+        in: components/features/Character/TravelerProfileModal.tsx, components/features/CloudSave/GitHubCloudSaveModal.tsx, components/features/GameSystems/MemoryPanel.tsx, components/features/Settings/ApiSettings.tsx, components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx
+  14x  "inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)"
+        in: components/features/Chat/InputArea.tsx, components/features/Chat/MessageRenderers.tsx, components/features/CloudSave/GitHubCloudSaveModal.tsx, components/features/GameSystems/InventoryPanel.tsx, components/features/Settings/ApiSettings.tsx, components/features/Settings/CodexSettingsTab.tsx
+  14x  "inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)"
+        in: components/features/GameSystems/SystemPanels.tsx, components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/ExtraFeaturesSettingsTab.tsx, components/features/Settings/ImageGenerationSettingsTab.tsx, components/features/Settings/IrminsulSettingsTab.tsx
+  13x  "polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)"
+        in: components/features/Codex/CodexManagerModal.tsx, components/features/Courier/CourierModal.tsx, components/features/GameSystems/CompanionPanel.tsx, components/features/GameSystems/InventoryPanel.tsx, components/features/GameSystems/IrminsulPanel.tsx, components/features/GameSystems/MapPanel.tsx
+  12x  "linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary..."
+        in: components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/ExtraFeaturesSettingsTab.tsx, components/features/Settings/GameSettings.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx
+  11x  "polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)"
+        in: components/features/Chat/ChatBookmarksPanel.tsx, components/features/Chat/TurnItem.tsx, components/features/Codex/CodexManagerModal.tsx, components/features/Courier/CourierModal.tsx, components/features/GameSystems/CompanionPanel.tsx, components/features/GameSystems/InventoryPanel.tsx
+  11x  "linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary..."
+        in: components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/ExtraFeaturesSettingsTab.tsx, components/features/Settings/GameSettings.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx
+  11x  "inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary),..."
+        in: components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/ExtraFeaturesSettingsTab.tsx, components/features/Settings/GameSettings.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx
+  9x  "linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))"
+        in: components/features/Settings/ApiSettings.tsx, components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx
+  8x  "inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)"
+        in: components/features/Chat/InputArea.tsx, components/features/CloudSave/GitHubCloudSaveModal.tsx, components/features/GameSystems/InventoryPanel.tsx, components/features/Settings/ApiSettings.tsx, components/features/Settings/PromptModulesTab.tsx, components/features/Settings/VariableManager.tsx
+  8x  "inset 0 0 0 1px rgba(220, 255, 230, 0.5), 0 0 18px rgba(140, 220, 160, 0.35)"
+        in: components/features/Settings/ApiSettings.tsx, components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx, components/features/Settings/StoryWeavingSettingsTab.tsx
+  7x  "polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)"
+        in: components/features/Character/TravelerProfileModal.tsx, components/features/Chat/CommandPalette.tsx, components/features/Chat/MessageRenderers.tsx, components/layout/LeftPanel.tsx, components/layout/MobileQuickMenu.tsx, components/layout/RecoveryBanner.tsx
+  7x  "inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)"
+        in: components/features/Chat/InputArea.tsx, components/features/Settings/ApiSettings.tsx, components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/CourierSystemSettingsTab.tsx, components/features/Settings/SteambirdSystemSettingsTab.tsx, components/features/Settings/StoryWeavingSettingsTab.tsx
+  7x  "inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)"
+        in: components/features/CloudSave/GitHubCloudSaveModal.tsx, components/features/GameSystems/MemoryPanel.tsx, components/features/Settings/ApiSettings.tsx, components/features/Settings/CodexSettingsTab.tsx, components/features/Settings/ExtraFeaturesSettingsTab.tsx, components/features/Settings/NsfwSettingsTab.tsx
+  7x  "inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)"
+        in: components/features/GameSystems/InventoryPanel.tsx, components/features/Settings/ApiSettings.tsx, components/features/Settings/IrminsulSettingsTab.tsx, components/features/Settings/MemorySystemSettings.tsx, components/features/Variable/VariableDrawer.tsx, components/features/Worldbook/WorldbookManagerModal.tsx
+
+=== 5. LAYER COUPLING: component files importing service modules ===
+component files importing @/services: 34 / 89
+   13  components/features/Settings/StorageManager.tsx  -> dbService, desktop/desktopBridge, desktop/desktopDiagnostics, desktop/desktopReleaseInfo
+    7  components/features/GameSystems/album/workspaces.tsx  -> ai/imageGeneration, dbService, ai/narrativeImageParse, ai/storySnapshotPipeline
+    6  components/features/GameSystems/AlbumPanel.tsx  -> dbService, ai/imageGeneration, ai/narrativeImageParse, ai/storySnapshotPipeline
+    5  components/features/GameSystems/PlotPanel.tsx  -> storyWeaving, storyWeavingConflict, storyPlanningAnalysis, dbService
+    4  components/features/CloudSave/GitHubCloudSaveModal.tsx  -> dbService, cloudBackupBuilder, cloudBackupMerge, githubCloudSave
+    4  components/features/SaveLoad/SaveLoadModal.tsx  -> dbService, savePackage, teyvatSaveMigration, exportService
+    3  components/features/NewGame/NewGameWizard.tsx  -> elementalAttunementService, teyvatOpeningFactory, ai/travelerTemplate
+    3  components/features/Settings/ImageGenerationSettingsTab.tsx  -> dbService, ai/apiTools, ai/imageGeneration
+    3  components/layout/DesktopHomeScreen.tsx  -> dbService, desktop/desktopReleaseInfo, desktop/desktopBridge
+    2  components/features/GameSystems/CompanionPanel.tsx  -> npcRelationshipPlanning, ai/courierService
+    2  components/features/Settings/ApiSettings.tsx  -> ai/apiTools, dbService
+    2  components/features/Settings/CodexSettingsTab.tsx  -> ai/apiTools, dbService
+    2  components/features/Settings/CourierSystemSettingsTab.tsx  -> ai/apiTools, dbService
+    2  components/features/Settings/IrminsulSettingsTab.tsx  -> ai/apiTools, dbService
+    2  components/features/Settings/MemorySystemSettings.tsx  -> ai/apiTools, dbService
+    2  components/features/Settings/SteambirdSystemSettingsTab.tsx  -> ai/apiTools, dbService
+    2  components/features/Settings/StoryWeavingSettingsTab.tsx  -> ai/apiTools, dbService
+    2  components/features/Settings/VariableUpdateSettings.tsx  -> ai/apiTools, dbService
+    1  components/features/Chat/TurnItem.tsx  -> ai/rewriteService
+    1  components/features/Codex/CodexManagerModal.tsx  -> codexRetrieval
+
+=== 6. App.tsx SHAPE ===
+lines: 1530
+useState: 19
+useMemo: 18
+useCallback: 22
+useEffect: 7
+lazy imports: 22
+JSX props passed to <ChatList .../>:
+    <ChatList
+    messages={state.chatHistory}
+    loading={state.loading}
+    scrollRef={state.scrollRef}
+    npcRecords={state.NPC}
+    traveler={state.旅人}
+    album={state.相册}
+    showInnerVoice={state.gameSettings.enableInnerVoice}
+    visualTextSettings={state.gameSettings.visualTextSettings}
+    onRegenerateNarrativeImage={actions.handleRegenerateNarrativeImage}
+    narrativeImageManualEnabled={narrativeImageManualEnabled}
+    onEditBody={handleEditBody}
+    onToggleBookmark={handleToggleBookmark}
+    rewriteConfig={state.apiSettings.activeConfigId ? (state.apiSettings.configs.find((item) => item.id === state.apiSettings.activeConfigId) ?? state.apiSettings.configs[0] ?? null) : (state.apiSettings.configs[0] ?? null)}
+    />
+
+=== 7. BIG FILE INTERNAL SHAPE (function count & longest function) ===
+  hooks/useGame/sendWorkflow.ts
+     lines=3728  topLevelFns=58  longestFn=1838 lines  (export async function executeSendWorkflow()
+  services/ai/chatCompletionClient.ts
+     lines=2510  topLevelFns=82  longestFn=223 lines  (function extractUsage(raw: unknown, config: API配置项): ChatCompletionUsage | null )
+  services/dbService.ts
+     lines=1976  topLevelFns=122  longestFn=93 lines  (async function saveGameInternal(data: 存档数据, options: SaveGameInternalOptions = {)
+  components/features/Settings/PromptModulesTab.tsx
+     lines=3466  topLevelFns=42  longestFn=930 lines  (export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo)
+  components/features/Settings/StorageManager.tsx
+     lines=2552  topLevelFns=33  longestFn=998 lines  (export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {)
+  utils/variableFacts.ts
+     lines=1649  topLevelFns=57  longestFn=324 lines  (export function factsToVariableCommands()
+  App.tsx
+     lines=1530  topLevelFns=15  longestFn=1047 lines  (const getBookOpenViewSwitchDelay = () => prefersReducedMotion() ? BOOK_OPEN_REDU)

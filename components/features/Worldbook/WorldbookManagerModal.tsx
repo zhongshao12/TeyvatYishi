@@ -1,9 +1,11 @@
+import { CLIP_CARD, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 import { useEffect, useMemo, useState } from 'react';
 import type { 世界书, 世界书条目, 世界书条目类型, 世界书注入方式 } from '@/models/worldbook';
 import { 创建空世界书条目, 创建空世界书, ENTRY_TYPE_LABELS } from '@/models/worldbook';
 import { exportWorldbooks, explainEntry, importWorldbooks, normalizeWorldbooks } from '@/utils/worldbook';
 import { BUILTIN_BOOK_IDS } from '@/data/builtinWorldbookConfig';
 import { STORY_MODE_BOOK_IDS } from '@/data/storyModeWorldbooks';
+import { useModalAccessibility } from '@/components/ui/Modal';
 
 interface Props {
   worldbooks: 世界书[];
@@ -13,10 +15,8 @@ interface Props {
 
 type WorldbookTab = 'builtin' | 'user';
 
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
+
 const builtinIds: readonly string[] = BUILTIN_BOOK_IDS;
 const storyModeIds: readonly string[] = STORY_MODE_BOOK_IDS;
 const isBuiltinBook = (book: 世界书) => builtinIds.includes(book.id) || storyModeIds.includes(book.id);
@@ -31,6 +31,7 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const dialogRef = useModalAccessibility<HTMLDivElement>(onClose);
 
   useEffect(() => {
     setDraft(normalizeWorldbooks(worldbooks));
@@ -217,6 +218,11 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="世界书管理"
+        tabIndex={-1}
         className="journal-story-page flex h-[100dvh] w-full min-w-0 max-w-[1100px] animate-slide-up flex-col overflow-hidden md:h-[90vh] lg:max-w-[1280px]"
         style={{
           background: 'linear-gradient(180deg, var(--journal-parchment), color-mix(in srgb, var(--journal-parchment) 88%, var(--journal-leather) 12%))',
@@ -281,7 +287,7 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
                 type="button"
                 onClick={handleSweepLegacyEntries}
                 className="ml-auto px-2 py-1 text-[11px] tracking-[0.1em] transition-opacity hover:opacity-90"
-                style={{ color: 'rgb(var(--tj-danger))', boxShadow: 'inset 0 0 0 1px rgba(220, 120, 120, 0.35)', clipPath: smallClip }}
+                style={{ color: 'rgb(var(--tj-danger))', boxShadow: 'inset 0 0 0 1px rgba(220, 120, 120, 0.35)', clipPath: CLIP_SMALL }}
                 title="扫描全部世界书，删除含旧宇宙（星穹铁道）术语的条目或整本书"
               >
                 清除旧宇宙条目
@@ -358,7 +364,7 @@ function HeaderButton({ children, onClick, primary = false }: { children: React.
         color: primary ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.96), rgba(var(--tj-accent-secondary),0.92))' : 'rgba(var(--tj-text-secondary), 0.9)',
         boxShadow: `inset 0 0 0 1px ${primary ? 'rgba(var(--tj-accent-primary), 0.55)' : 'rgba(var(--tj-accent-primary), 0.3)'}`,
         background: primary ? 'linear-gradient(180deg, rgba(var(--tj-accent-primary), 0.12), rgba(var(--tj-accent-primary), 0.02))' : 'transparent',
-        clipPath: smallClip,
+        clipPath: CLIP_SMALL,
       }}
     >
       {children}
@@ -374,8 +380,8 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
       style={{
         color: active ? 'rgb(var(--tj-accent-primary))' : 'rgba(var(--tj-text-secondary), 0.75)',
         background: active ? 'linear-gradient(180deg, rgba(var(--tj-accent-primary), 0.18), rgba(var(--tj-accent-primary), 0.04))' : 'transparent',
-        boxShadow: active ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)' : 'none',
-        clipPath: smallClip,
+        boxShadow: active ? insetRing(0.45) : 'none',
+        clipPath: CLIP_SMALL,
       }}
     >
       {label}
@@ -535,7 +541,7 @@ function BookSection({
                     ? 'linear-gradient(90deg, rgba(var(--tj-accent-primary), 0.14), rgba(var(--tj-accent-primary), 0.02))'
                     : 'rgba(var(--tj-accent-primary), 0.018)',
                   boxShadow: active ? 'inset 2px 0 0 rgba(var(--tj-accent-primary), 0.9)' : 'inset 2px 0 0 rgba(var(--tj-accent-primary), 0.12)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <span
@@ -644,9 +650,9 @@ function PaneHeader({
                 className="ml-2 cursor-pointer px-3 py-1.5 text-xs font-serif tracking-[0.2em] transition-all duration-200 hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[rgba(var(--tj-accent-primary),0.6)]"
                 style={{
                   color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.96), rgba(var(--tj-accent-secondary),0.92))',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+                  boxShadow: insetRing(0.45),
                   background: 'linear-gradient(180deg, rgba(var(--tj-accent-primary), 0.11), rgba(var(--tj-accent-primary), 0.02))',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 ＋ 新建条目
@@ -657,7 +663,7 @@ function PaneHeader({
                 style={{
                   color: 'rgb(var(--tj-danger))',
                   boxShadow: 'inset 0 0 0 1px rgba(220, 120, 120, 0.35)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 删除书
@@ -786,8 +792,8 @@ function EntryEditor({
           style={{
             color: 'rgba(var(--tj-text-secondary), 0.78)',
             background: 'rgba(var(--tj-accent-primary), 0.045)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-            clipPath: cardClip,
+            boxShadow: insetRing(0.2),
+            clipPath: CLIP_CARD,
           }}
         >
           独立模型资料展示：真实请求不读取这里的 enabled 或编辑稿，而是由蒸汽鸟报、手机消息、变量、图鉴等服务层共享 prompt / worldbook 常量构建。实际发送内容请在“上下文”页核对。
@@ -804,7 +810,7 @@ function EntryEditor({
           }}
           placeholder="条目标题"
           className="teyvat-input w-full px-3 py-2 text-sm font-serif tracking-wider"
-          style={{ clipPath: smallClip, opacity: calibrationDisplay ? 0.74 : 1 }}
+          style={{ clipPath: CLIP_SMALL, opacity: calibrationDisplay ? 0.74 : 1 }}
         />
       </Field>
 
@@ -815,7 +821,7 @@ function EntryEditor({
             disabled={calibrationDisplay}
             onChange={(event) => onChange({ type: event.target.value as 世界书条目类型 })}
             className="teyvat-input w-full px-2.5 py-2 text-xs"
-            style={{ clipPath: smallClip, opacity: calibrationDisplay ? 0.74 : 1 }}
+            style={{ clipPath: CLIP_SMALL, opacity: calibrationDisplay ? 0.74 : 1 }}
           >
             {(Object.entries(ENTRY_TYPE_LABELS) as [世界书条目类型, string][]).map(([key, label]) => (
               <option key={key} value={key}>
@@ -830,7 +836,7 @@ function EntryEditor({
             disabled={calibrationDisplay}
             onChange={(event) => onChange({ injectMode: event.target.value as 世界书注入方式 })}
             className="teyvat-input w-full px-2.5 py-2 text-xs"
-            style={{ clipPath: smallClip, opacity: calibrationDisplay ? 0.74 : 1 }}
+            style={{ clipPath: CLIP_SMALL, opacity: calibrationDisplay ? 0.74 : 1 }}
           >
             <option value="always">始终注入</option>
             <option value="keyword_match">关键词匹配</option>
@@ -845,7 +851,7 @@ function EntryEditor({
             min={0}
             max={999}
             className="teyvat-input w-full px-2.5 py-2 text-xs"
-            style={{ clipPath: smallClip, opacity: calibrationDisplay ? 0.74 : 1 }}
+            style={{ clipPath: CLIP_SMALL, opacity: calibrationDisplay ? 0.74 : 1 }}
           />
         </Field>
       </div>
@@ -865,7 +871,7 @@ function EntryEditor({
             }
             placeholder="关键词，逗号分隔"
             className="teyvat-input w-full px-3 py-2 text-xs"
-            style={{ clipPath: smallClip, opacity: calibrationDisplay ? 0.74 : 1 }}
+            style={{ clipPath: CLIP_SMALL, opacity: calibrationDisplay ? 0.74 : 1 }}
           />
         </Field>
       )}
@@ -885,7 +891,7 @@ function EntryEditor({
             }
             placeholder="次要关键词，逗号分隔（可留空）"
             className="teyvat-input w-full px-3 py-2 text-xs"
-            style={{ clipPath: smallClip, opacity: calibrationDisplay ? 0.74 : 1 }}
+            style={{ clipPath: CLIP_SMALL, opacity: calibrationDisplay ? 0.74 : 1 }}
           />
         </Field>
       )}
@@ -899,8 +905,8 @@ function EntryEditor({
             style={{
               color: 'rgba(var(--tj-accent-primary), 0.85)',
               background: 'rgba(var(--tj-accent-primary), 0.04)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-              clipPath: cardClip,
+              boxShadow: insetRing(0.2),
+              clipPath: CLIP_CARD,
             }}
           >
             <span>◆ 高级触发控制（Phase 7.1 / 7.2 / 7.3）</span>
@@ -914,8 +920,8 @@ function EntryEditor({
               className="space-y-3 px-3 py-3"
               style={{
                 background: 'rgba(var(--tj-accent-primary), 0.025)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-                clipPath: cardClip,
+                boxShadow: insetRing(0.15),
+                clipPath: CLIP_CARD,
               }}
             >
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -924,7 +930,7 @@ function EntryEditor({
                     value={entry.caseSensitive ? '1' : '0'}
                     onChange={(event) => onChange({ caseSensitive: event.target.value === '1' })}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   >
                     <option value="0">否（默认）</option>
                     <option value="1">是</option>
@@ -935,7 +941,7 @@ function EntryEditor({
                     value={entry.matchWholeWords ? '1' : '0'}
                     onChange={(event) => onChange({ matchWholeWords: event.target.value === '1' })}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   >
                     <option value="0">否（默认，子串匹配）</option>
                     <option value="1">是（启用词边界，避免单字宽词误命中）</option>
@@ -946,7 +952,7 @@ function EntryEditor({
                     value={entry.useRegex ? '1' : '0'}
                     onChange={(event) => onChange({ useRegex: event.target.value === '1' })}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   >
                     <option value="0">否（默认）</option>
                     <option value="1">是（关键词视为正则表达式）</option>
@@ -963,7 +969,7 @@ function EntryEditor({
                     min={0}
                     max={100}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   />
                 </Field>
                 <Field label="延迟 (N 条消息后)">
@@ -973,7 +979,7 @@ function EntryEditor({
                     onChange={(event) => onChange({ delay: Math.max(0, Number(event.target.value) || 0) })}
                     min={0}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   />
                 </Field>
                 <Field label="冷却 (N 条消息)">
@@ -983,7 +989,7 @@ function EntryEditor({
                     onChange={(event) => onChange({ cooldown: Math.max(0, Number(event.target.value) || 0) })}
                     min={0}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   />
                 </Field>
                 <Field label="扫描深度 (最近 N 条)">
@@ -993,7 +999,7 @@ function EntryEditor({
                     onChange={(event) => onChange({ scanDepth: Math.max(0, Number(event.target.value) || 0) })}
                     min={0}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   />
                 </Field>
               </div>
@@ -1011,8 +1017,8 @@ function EntryEditor({
                   className="mb-3 px-3 py-2 text-[11px] font-serif tracking-[0.2em]"
                   style={{
                     color: 'rgba(var(--tj-accent-primary), 0.78)',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
-                    clipPath: smallClip,
+                    boxShadow: insetRing(0.18),
+                    clipPath: CLIP_SMALL,
                   }}
                 >
                   ◆ Phase 7.2 · 深度插入 / 分组 / 互斥
@@ -1025,7 +1031,7 @@ function EntryEditor({
                     value={entry.injectAtDepth ? '1' : '0'}
                     onChange={(event) => onChange({ injectAtDepth: event.target.value === '1' })}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   >
                     <option value="0">否（默认，拼 systemPrompt）</option>
                     <option value="1">是（In-Chat 按 depth 插入）</option>
@@ -1038,7 +1044,7 @@ function EntryEditor({
                     onChange={(event) => onChange({ depth: Math.max(0, Number(event.target.value) || 0) })}
                     min={0}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   />
                 </Field>
                 <Field label="分组 id">
@@ -1048,7 +1054,7 @@ function EntryEditor({
                     onChange={(event) => onChange({ group: event.target.value })}
                     placeholder="同组 id 触发 groupOverride 互斥"
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   />
                 </Field>
                 <Field label="组覆盖">
@@ -1056,7 +1062,7 @@ function EntryEditor({
                     value={entry.groupOverride ? '1' : '0'}
                     onChange={(event) => onChange({ groupOverride: event.target.value === '1' })}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   >
                     <option value="0">否（默认，同组全部注入）</option>
                     <option value="1">是（同组只取 groupWeight 最高）</option>
@@ -1068,7 +1074,7 @@ function EntryEditor({
                     value={entry.groupWeight ?? 0}
                     onChange={(event) => onChange({ groupWeight: Number(event.target.value) || 0 })}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   />
                 </Field>
                 <Field label="禁用其他条目 (id 列表)">
@@ -1085,7 +1091,7 @@ function EntryEditor({
                     }
                     placeholder="条目 id，逗号分隔"
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   />
                 </Field>
               </div>
@@ -1104,8 +1110,8 @@ function EntryEditor({
                   className="mb-3 px-3 py-2 text-[11px] font-serif tracking-[0.2em]"
                   style={{
                     color: 'rgba(var(--tj-accent-primary), 0.78)',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
-                    clipPath: smallClip,
+                    boxShadow: insetRing(0.18),
+                    clipPath: CLIP_SMALL,
                   }}
                 >
                   ◆ Phase 7.3 · 递归触发 / 逻辑门
@@ -1118,7 +1124,7 @@ function EntryEditor({
                     value={entry.logic ?? 'AND_ALL'}
                     onChange={(event) => onChange({ logic: event.target.value as 'AND_ANY' | 'AND_ALL' | 'NOT_ANY' | 'NOT_ALL' })}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   >
                     <option value="AND_ALL">AND_ALL · 主命中 + 所有次要命中（默认）</option>
                     <option value="AND_ANY">AND_ANY · 主命中 + 任一次要命中</option>
@@ -1131,7 +1137,7 @@ function EntryEditor({
                     value={entry.recurse ? '1' : '0'}
                     onChange={(event) => onChange({ recurse: event.target.value === '1' })}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   >
                     <option value="0">否（默认，不递归）</option>
                     <option value="1">是（触发后用本条目 content 扫描其他条目）</option>
@@ -1145,7 +1151,7 @@ function EntryEditor({
                     min={0}
                     max={5}
                     className="teyvat-input w-full px-2.5 py-2 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   />
                 </Field>
               </div>
@@ -1165,8 +1171,8 @@ function EntryEditor({
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.75)',
           background: 'rgba(var(--tj-accent-primary), 0.04)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.2),
+          clipPath: CLIP_CARD,
         }}
       >
         <span style={{ color: 'rgba(var(--tj-accent-primary), 0.75)' }}>◆ </span>
@@ -1184,7 +1190,7 @@ function EntryEditor({
           rows={12}
           placeholder="条目内容"
           className="teyvat-input w-full resize-y px-3 py-2.5 text-sm leading-relaxed md:min-h-[280px]"
-          style={{ clipPath: smallClip, opacity: calibrationDisplay ? 0.82 : 1 }}
+          style={{ clipPath: CLIP_SMALL, opacity: calibrationDisplay ? 0.82 : 1 }}
         />
       </Field>
 
@@ -1195,7 +1201,7 @@ function EntryEditor({
           style={{
             color: 'rgb(var(--tj-danger))',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger), 0.35)',
-            clipPath: smallClip,
+            clipPath: CLIP_SMALL,
           }}
         >
           删除此条目
@@ -1242,7 +1248,7 @@ function ToggleSwitch({
           : 'rgba(var(--tj-bg-primary), 0.85)',
         boxShadow: checked
           ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.8), 0 0 6px rgba(var(--tj-accent-primary), 0.35)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
+          : insetRing(0.28),
         borderRadius: 10,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.78 : 1,

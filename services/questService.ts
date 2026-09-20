@@ -82,7 +82,7 @@ function command(
 function rewardParts(raw: string): { type: 'item' | 'affinity' | 'memory'; content: string; quantity: number } {
   const parts = raw.split(/[:|]/).map((part) => part.trim());
   const tag = parts[0];
-  const content = (parts[1] || (tag !== '物品' && tag !== '好感' && tag !== '记忆' ? tag : '')).trim();
+  const content = (parts[1] || (tag !== '物品' && tag !== '好感' && tag !== '记忆' ? tag : '') || '').trim();
   const quantity = Math.max(1, Math.trunc(Number(parts[2]) || (tag === '好感' ? 5 : 1)));
   if (tag === '好感') return { type: 'affinity', content, quantity };
   if (tag === '记忆') return { type: 'memory', content, quantity: 1 };
@@ -309,6 +309,7 @@ export function 解析任务更新命令(raw: string): 任务更新命令[] {
     const match = trimmed.match(/^(接取|目标|进展|完成|放弃):\s*(.+)$/);
     if (!match) continue;
     const [ , kind, rest ] = match;
+    if (!rest) continue;
     const parts = rest.split('|').map((part) => part.trim());
     if (kind === '接取') commands.push({ kind: 'accept', 任务标题: parts[0] ?? '', 描述: parts[1] ?? '', 来源: parts[2] ?? '支线' });
     if (kind === '目标') commands.push({

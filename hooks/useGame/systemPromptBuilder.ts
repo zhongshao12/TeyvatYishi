@@ -393,6 +393,7 @@ function pickDedupedMemoryEntries(entries: string[], limit: number, seen: string
   const source = entries.map((item) => item.trim()).filter(Boolean);
   for (let i = source.length - 1; i >= 0 && picked.length < limit; i -= 1) {
     const entry = source[i];
+    if (!entry) continue;
     if (isSimilarMemoryEntry(entry, seen)) continue;
     picked.unshift(entry);
     const fp = normalizeMemoryFingerprint(entry);
@@ -1173,8 +1174,9 @@ function buildCourierSection(courier?: CourierSystem): string {
   if (!compressed.length && !pendingSeeds.length) return '';
 
   const lines: string[] = [];
-  lines.push('# 信使通讯摘要');
+  lines.push('# 手机通讯摘要（内部协议名：信使）');
   lines.push('');
+  lines.push('- 「手机」是提瓦特世界中的传讯法器界面；内部协议里的「信使通讯」就是玩家手机中的聊天。叙事可描写传讯法器或符合地区文化的传讯形式，但事实必须以这里的聊天记录为准。');
   lines.push('- 这里不是完整通讯原文，只是已经压缩落地的通讯事实与系统待投递数据。');
   lines.push('- 叙事只能让实际会话参与者承接对应事实、约定与关系变化；私聊只归私聊双方，群聊只归当时群成员，禁止让未参与的 NPC 莫名知情。');
   lines.push('- 不要代替玩家回复，也不要把通讯改写成正文大段复述。');
@@ -1239,7 +1241,9 @@ ${ELEMENT_NAMES[invitedElement]}元素已经发出回响邀请，等待玩家在
 
   const ready = traveler.元素共鸣.filter(canInviteElementalEcho);
   if (ready.length === 0) return '';
+  const inviteElement = ready[0];
+  if (!inviteElement) return '';
   return `# 元素回响·时机判定
 
-以下元素掌握度已达到回响阈值 ${ELEMENTAL_ECHO_INVITE_MASTERY}：${ready.map((item) => `${ELEMENT_NAMES[item.element]}（${item.element}）`).join('、')}。仅在安静且适合内省的剧情间隙，至多发出一条邀请。若发出邀请，在 body 中加入可见 system 块并在 factCandidates 中加入 {"domain":"system","fact":"elemental_echo_invite:${ready[0].element}","evidence":"<逐字摘自该 system 块的非空片段>"}。`;
+以下元素掌握度已达到回响阈值 ${ELEMENTAL_ECHO_INVITE_MASTERY}：${ready.map((item) => `${ELEMENT_NAMES[item.element]}（${item.element}）`).join('、')}。仅在安静且适合内省的剧情间隙，至多发出一条邀请。若发出邀请，在 body 中加入可见 system 块并在 factCandidates 中加入 {"domain":"system","fact":"elemental_echo_invite:${inviteElement.element}","evidence":"<逐字摘自该 system 块的非空片段>"}。`;
 }

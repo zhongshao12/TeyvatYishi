@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_SMALL, CLIP_XL, insetRing } from '@/styles/clipPaths';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -18,8 +19,10 @@ import {
   type SaveCatalogRepairState,
   type SaveListItemSummary,
 } from '@/services/dbService';
+import { formatStorageOperationError } from '@/services/storage/saveCatalog';
 import { clearActiveSaveTreeMetaIfMatches } from '@/hooks/useGame/saveLoadWorkflow';
-import { buildSaveTreeGroups, buildSaveTreeTimeline, type SaveTreeDisplayGroup } from '@/utils/saveTreeView';
+import { buildSaveTreeGroups, buildSaveTreeTimeline, filterSaveTreeDisplayGroup, type SaveTreeDisplayGroup } from '@/utils/saveTreeView';
+import { formatByteSize } from '@/utils/formatByteSize';
 import { classifyAndMigrateDbSaveRecord, migratePartialTeyvatSave, type MigrationIssue, type MigrationReport } from '@/compat/legacy-hsr/migrate';
 import { normalizeTeyvatGameState, type ParsedSavePackage, type TeyvatSaveData } from '@/models/teyvat';
 import { parseSavePackageByUniverse } from '@/services/savePackage';
@@ -31,6 +34,7 @@ import type { 角色数据结构 } from '@/models/character';
 import type { 世界书 } from '@/models/worldbook';
 import type { 相册系统 } from '@/models/imageGeneration';
 import type { 聊天消息 } from '@/models/chat';
+import { useModalAccessibility } from '@/components/ui/Modal';
 
 interface Props {
   onSave: () => Promise<number>;
@@ -51,11 +55,9 @@ type ImportPreview =
   | { kind: 'invalid'; errors: string[] };
 
 const shellClip =
-  'polygon(18px 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%, 0 18px)';
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+  CLIP_XL;
+
+
 
 export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, worldbooks, album }: Props) {
   const [saves, setSaves] = useState<SaveListItemSummary[]>([]);
@@ -77,7 +79,7 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
   const [selectedRootId, setSelectedRootId] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const previewFocusRestoreRef = useRef<HTMLElement | null>(null);
-  const modalContentRef = useRef<HTMLDivElement>(null);
+  const modalContentRef = useModalAccessibility<HTMLDivElement>(onClose);
   const isMigrationPreview = importPreview?.kind === 'partial-teyvat';
 
   const capturePreviewFocus = () => {
@@ -165,7 +167,7 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
       setTab('manual');
     } catch (err) {
       console.error('[save] failed', err);
-      alert('保存失败');
+      alert(formatStorageOperationError('保存', err));
     } finally {
       setSaving(false);
     }
@@ -181,7 +183,7 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
       setTab('manual');
     } catch (err) {
       console.error('[save-export-current] failed', err);
-      alert('导出失败');
+      alert(formatStorageOperationError('导出', err));
     } finally {
       setSaving(false);
     }
@@ -348,7 +350,7 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
   const allTreeGroups = useMemo(() => buildSaveTreeGroups(visibleSaves), [visibleSaves]);
   const visibleTreeGroups = useMemo(
     () => allTreeGroups
-      .map((group) => buildVisibleSaveTreeGroup(group, tab))
+      .map((group) => filterSaveTreeDisplayGroup(group, (save) => matchesSaveTab(save, tab)))
       .filter((group): group is SaveTreeDisplayGroup => Boolean(group)),
     [allTreeGroups, tab],
   );
@@ -370,7 +372,7 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
       return;
     }
     if (!selectedRootId || !visibleTreeGroups.some((group) => group.rootId === selectedRootId)) {
-      setSelectedRootId(visibleTreeGroups[0].rootId);
+      setSelectedRootId(visibleTreeGroups[0]?.rootId ?? null);
     }
   }, [selectedRootId, visibleTreeGroups]);
 
@@ -395,6 +397,9 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
     >
       <div
           ref={modalContentRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="存档管理"
           inert={isMigrationPreview}
           aria-hidden={isMigrationPreview}
           tabIndex={-1}
@@ -448,8 +453,8 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
             style={{
               color: 'rgba(var(--tj-text-primary),0.78)',
               background: 'rgba(var(--tj-accent-primary),0.07)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.18),
+              clipPath: CLIP_SMALL,
             }}
           >
             ×
@@ -486,13 +491,13 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
             <span className="text-[11px]" style={{ color: "rgba(var(--tj-text-secondary),0.7)" }}>单系统导出：</span>
             {chatHistory && chatHistory.length > 0 && (
               <>
-                <button type="button" onClick={() => 下载文本文件("剧情导出.md", 导出剧情Markdown(chatHistory), "text/markdown")} className="px-2.5 py-1 text-[11px]" style={{ color: "rgb(var(--tj-accent-primary))", boxShadow: "inset 0 0 0 1px rgba(var(--tj-accent-primary),0.3)", clipPath: smallClip }}>剧情 Markdown</button>
-                <button type="button" onClick={() => 下载文本文件("剧情导出.json", 导出剧情JSON(chatHistory))} className="px-2.5 py-1 text-[11px]" style={{ color: "rgb(var(--tj-accent-primary))", boxShadow: "inset 0 0 0 1px rgba(var(--tj-accent-primary),0.3)", clipPath: smallClip }}>剧情 JSON</button>
+                <button type="button" onClick={() => 下载文本文件("剧情导出.md", 导出剧情Markdown(chatHistory), "text/markdown")} className="px-2.5 py-1 text-[11px]" style={{ color: "rgb(var(--tj-accent-primary))", boxShadow: insetRing(0.3), clipPath: CLIP_SMALL }}>剧情 Markdown</button>
+                <button type="button" onClick={() => 下载文本文件("剧情导出.json", 导出剧情JSON(chatHistory))} className="px-2.5 py-1 text-[11px]" style={{ color: "rgb(var(--tj-accent-primary))", boxShadow: insetRing(0.3), clipPath: CLIP_SMALL }}>剧情 JSON</button>
               </>
             )}
-            {旅人 && <button type="button" onClick={() => 下载文本文件("角色档案.json", 导出角色档案(旅人))} className="px-2.5 py-1 text-[11px]" style={{ color: "rgb(var(--tj-accent-primary))", boxShadow: "inset 0 0 0 1px rgba(var(--tj-accent-primary),0.3)", clipPath: smallClip }}>角色档案</button>}
-            {worldbooks && <button type="button" onClick={() => 下载文本文件("世界书.json", 导出世界书(worldbooks))} className="px-2.5 py-1 text-[11px]" style={{ color: "rgb(var(--tj-accent-primary))", boxShadow: "inset 0 0 0 1px rgba(var(--tj-accent-primary),0.3)", clipPath: smallClip }}>世界书</button>}
-            {album && <button type="button" onClick={() => 下载文本文件("相册.json", 导出相册(album))} className="px-2.5 py-1 text-[11px]" style={{ color: "rgb(var(--tj-accent-primary))", boxShadow: "inset 0 0 0 1px rgba(var(--tj-accent-primary),0.3)", clipPath: smallClip }}>相册</button>}
+            {旅人 && <button type="button" onClick={() => 下载文本文件("角色档案.json", 导出角色档案(旅人))} className="px-2.5 py-1 text-[11px]" style={{ color: "rgb(var(--tj-accent-primary))", boxShadow: insetRing(0.3), clipPath: CLIP_SMALL }}>角色档案</button>}
+            {worldbooks && <button type="button" onClick={() => 下载文本文件("世界书.json", 导出世界书(worldbooks))} className="px-2.5 py-1 text-[11px]" style={{ color: "rgb(var(--tj-accent-primary))", boxShadow: insetRing(0.3), clipPath: CLIP_SMALL }}>世界书</button>}
+            {album && <button type="button" onClick={() => 下载文本文件("相册.json", 导出相册(album))} className="px-2.5 py-1 text-[11px]" style={{ color: "rgb(var(--tj-accent-primary))", boxShadow: insetRing(0.3), clipPath: CLIP_SMALL }}>相册</button>}
           </div>
         )}
 
@@ -550,7 +555,7 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
                 <MiniSaveTreeMap
                   nodeCount={saves.length}
                   branchCount={totalBranches}
-                  sizeText={formatSize(totalSizeBytes)}
+                  sizeText={formatByteSize(totalSizeBytes)}
                 />
               </div>
 
@@ -559,8 +564,8 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
                 style={{
                   color: 'rgba(var(--tj-text-primary),0.82)',
                   background: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.52), rgba(var(--tj-accent-secondary),0.48))',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)',
-                  clipPath: cardClip,
+                  boxShadow: insetRing(0.14),
+                  clipPath: CLIP_CARD,
                 }}
               >
                 <div className="mb-1.5 text-[11px] tracking-[0.22em]" style={{ color: 'rgba(var(--tj-accent-primary),0.86)' }}>
@@ -605,7 +610,7 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
                   style={{
                     background: 'linear-gradient(180deg, rgba(var(--tj-accent-primary),0.075), rgba(0,0,0,0.18))',
                     boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16), 0 0 24px rgba(0,0,0,0.18)',
-                    clipPath: cardClip,
+                    clipPath: CLIP_CARD,
                   }}
                 >
                   <div className="flex items-center justify-between gap-2 px-3 pt-2.5 pb-1.5">
@@ -633,8 +638,8 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
                                 : 'rgba(var(--tj-accent-primary),0.045)',
                               boxShadow: active
                                 ? 'inset 3px 0 0 rgba(var(--tj-accent-primary),1), inset 0 0 0 1px rgba(var(--tj-accent-primary),0.32)'
-                                : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)',
-                              clipPath: smallClip,
+                                : insetRing(0.12),
+                              clipPath: CLIP_SMALL,
                             }}
                           >
                             <div className="flex min-w-0 items-center justify-between gap-1">
@@ -683,8 +688,8 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
                   style={{
                     color: 'rgba(var(--tj-accent-primary),0.92)',
                     background: 'rgba(var(--tj-accent-primary),0.08)',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)',
-                    clipPath: smallClip,
+                    boxShadow: insetRing(0.18),
+                    clipPath: CLIP_SMALL,
                   }}
                 >
                   {repairState.phase === 'paused-for-write'
@@ -700,7 +705,7 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
                     color: 'rgba(var(--tj-danger),0.9)',
                     background: 'rgba(var(--tj-danger),0.08)',
                     boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger),0.2)',
-                    clipPath: smallClip,
+                    clipPath: CLIP_SMALL,
                   }}
                 >
                   {unreadableSummaryCount} 个节点详情读取失败，可使用“修复存档索引”重试
@@ -727,7 +732,7 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
                   style={{
                     background: 'rgba(var(--tj-danger), 0.28)',
                     boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger), 0.25)',
-                    clipPath: cardClip,
+                    clipPath: CLIP_CARD,
                   }}
                 >
                   <div className="text-sm tracking-[0.18em]" style={{ color: 'rgba(var(--tj-danger),0.92)' }}>
@@ -860,9 +865,9 @@ function SaveActionButton({
           : danger
             ? 'inset 0 0 0 1px rgba(var(--tj-danger),0.28)'
           : warn
-            ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.28)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)',
-        clipPath: smallClip,
+            ? insetRing(0.28)
+            : insetRing(0.18),
+        clipPath: CLIP_SMALL,
       }}
     >
       {children}
@@ -876,8 +881,8 @@ function SaveMetric({ value, label }: { value: number; label: string }) {
       className="px-3 py-3 font-serif"
       style={{
         background: 'rgba(var(--tj-accent-primary),0.055)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.13)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.13),
+        clipPath: CLIP_SMALL,
       }}
     >
       <b className="block text-[21px] leading-none tracking-[0.04em]" style={{ color: 'rgba(var(--tj-accent-primary),1)' }}>
@@ -904,8 +909,8 @@ function MiniSaveTreeMap({
       className="col-span-2 min-h-[170px] px-3 py-3 font-serif"
       style={{
         background: 'rgba(0,0,0,0.20)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)',
-        clipPath: cardClip,
+        boxShadow: insetRing(0.12),
+        clipPath: CLIP_CARD,
       }}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -980,7 +985,7 @@ function SaveTreeSelector({
       style={{
         background: 'linear-gradient(180deg, rgba(var(--tj-accent-primary),0.075), rgba(0,0,0,0.18))',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16), 0 0 24px rgba(0,0,0,0.18)',
-        clipPath: cardClip,
+        clipPath: CLIP_CARD,
       }}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -1012,8 +1017,8 @@ function SaveTreeSelector({
                     : 'rgba(var(--tj-accent-primary),0.045)',
                   boxShadow: active
                     ? 'inset 3px 0 0 rgba(var(--tj-accent-primary),1), inset 0 0 0 1px rgba(var(--tj-accent-primary),0.32)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)',
-                  clipPath: smallClip,
+                    : insetRing(0.12),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div className="flex min-w-0 items-center justify-between gap-2">
@@ -1059,8 +1064,8 @@ function TabButton({
         background: active ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary),1), rgba(var(--tj-accent-secondary),1))' : 'rgba(var(--tj-accent-primary),0.05)',
         boxShadow: active
           ? 'inset 0 0 0 1px rgba(var(--tj-surface-bg-start), 0.55), 0 0 24px rgba(var(--tj-accent-primary), 0.28)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.15)',
-        clipPath: smallClip,
+          : insetRing(0.15),
+        clipPath: CLIP_SMALL,
       }}
     >
       {label}
@@ -1097,8 +1102,8 @@ function LegacyBackupSection({
       className="mb-4 overflow-hidden"
       style={{
         background: 'rgba(var(--tj-accent-primary),0.045)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)',
-        clipPath: cardClip,
+        boxShadow: insetRing(0.16),
+        clipPath: CLIP_CARD,
       }}
     >
       <summary className="cursor-pointer px-4 py-3 font-serif text-[13px] tracking-[0.14em]" style={{ color: 'rgba(var(--tj-accent-secondary),0.92)' }}>
@@ -1163,8 +1168,8 @@ function SaveTreeGroup({
       className="min-w-0 overflow-hidden p-3"
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-panel-bg-start),0.52), rgba(var(--tj-panel-bg-end),0.56))',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)',
-        clipPath: cardClip,
+        boxShadow: insetRing(0.18),
+        clipPath: CLIP_CARD,
       }}
     >
       <div className="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3 font-serif">
@@ -1183,7 +1188,7 @@ function SaveTreeGroup({
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] tracking-wider" style={{ color: 'rgba(var(--tj-text-primary),0.58)' }}>
             <span>{group.nodeCount} 个节点</span>
             <span>{group.branchCount} 个分支</span>
-            <span>{formatSize(group.totalSizeBytes)}</span>
+            <span>{formatByteSize(group.totalSizeBytes)}</span>
             <span>第 {group.latestSave.turnCount} 回合</span>
           </div>
         </div>
@@ -1262,8 +1267,8 @@ function SaveRow({
           : 'rgba(var(--tj-panel-bg-start),0.74)',
         boxShadow: isLatest
           ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.46), inset 0 0 0 2px rgba(var(--tj-accent-primary),0.08), 0 0 28px rgba(var(--tj-accent-primary),0.10), 0 0 22px rgba(var(--tj-accent-primary),0.08)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)',
-        clipPath: cardClip,
+          : insetRing(0.18),
+        clipPath: CLIP_CARD,
       }}
     >
       <span
@@ -1316,7 +1321,7 @@ function SaveRow({
           <span style={{ color: 'rgba(var(--tj-text-primary),0.28)' }}>/</span>
           <span style={{ color: 'rgba(var(--tj-text-primary),0.56)' }}>{formatTime(item.timestamp)}</span>
           <span style={{ color: 'rgba(var(--tj-text-primary),0.28)' }}>/</span>
-          <span style={{ color: 'rgba(var(--tj-text-primary),0.56)' }}>{formatSize(item.sizeBytes)}</span>
+          <span style={{ color: 'rgba(var(--tj-text-primary),0.56)' }}>{formatByteSize(item.sizeBytes)}</span>
         </div>
         {item.lastSummary && (
           <div className={`font-serif leading-relaxed ${isLatest ? 'mt-2 line-clamp-3 text-[13px]' : 'mt-1 line-clamp-2 text-[12px]'}`} style={{ color: 'rgba(var(--tj-text-primary),0.62)' }}>
@@ -1337,7 +1342,7 @@ function SaveRow({
             background: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),1), rgba(var(--tj-accent-secondary),1))',
             color: 'rgba(var(--tj-surface-bg-start),1)',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-surface-bg-start), 0.55), 0 0 18px rgba(var(--tj-accent-primary), 0.20)',
-            clipPath: smallClip,
+            clipPath: CLIP_SMALL,
           }}
         >
           {loadingId === item.id ? '读取中' : '读取'}
@@ -1349,8 +1354,8 @@ function SaveRow({
           className="cursor-pointer px-2.5 py-2 text-xs font-serif tracking-wider transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           style={{
             color: 'rgba(var(--tj-accent-primary),0.92)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.28)',
-            clipPath: smallClip,
+            boxShadow: insetRing(0.28),
+            clipPath: CLIP_SMALL,
           }}
         >
           导出
@@ -1363,7 +1368,7 @@ function SaveRow({
           style={{
             color: 'rgba(var(--tj-danger),0.9)',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger),0.28)',
-            clipPath: smallClip,
+            clipPath: CLIP_SMALL,
           }}
         >
           {deletingId === item.id ? '删除中' : '删除'}
@@ -1380,8 +1385,8 @@ function SmallTag({ children, gold = false }: { children: ReactNode; gold?: bool
       style={{
         color: gold ? 'rgb(var(--tj-accent-primary))' : 'rgba(var(--tj-accent-primary),1)',
         background: gold ? 'rgba(var(--tj-accent-primary),0.08)' : 'rgba(var(--tj-accent-primary),0.08)',
-        boxShadow: gold ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)' : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)',
-        clipPath: smallClip,
+        boxShadow: gold ? insetRing(0.16) : insetRing(0.16),
+        clipPath: CLIP_SMALL,
       }}
     >
       {children}
@@ -1395,8 +1400,8 @@ function EmptyState({ text, detail }: { text: string; detail?: string }) {
       className="p-6 text-center font-serif"
       style={{
         background: 'rgba(var(--tj-panel-bg-start),0.46)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.15)',
-        clipPath: cardClip,
+        boxShadow: insetRing(0.15),
+        clipPath: CLIP_CARD,
       }}
     >
       <p className="text-sm tracking-[0.2em]" style={{ color: 'rgba(var(--tj-text-primary),0.86)' }}>
@@ -1425,40 +1430,11 @@ function typeColor(type: SaveListItemSummary['type']): string {
   return 'rgba(var(--tj-accent-primary),0.9)';
 }
 
-function formatSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
 function matchesSaveTab(save: SaveListItemSummary, tab: Tab): boolean {
   if (tab === 'all') return true;
   if (tab === 'manual') return save.type === 'manual';
   if (tab === 'auto') return save.type === 'auto';
   return save.type === 'imported';
-}
-
-function buildVisibleSaveTreeGroup(group: SaveTreeDisplayGroup, tab: Tab): SaveTreeDisplayGroup | null {
-  const nodes = group.nodes.filter((node) => matchesSaveTab(node.save, tab));
-  if (!nodes.length) return null;
-  const latestSave = [...nodes].sort((a, b) => b.save.timestamp - a.save.timestamp || b.save.id - a.save.id)[0].save;
-  const rootSave = nodes.find((node) => node.isRoot)?.save ?? nodes[nodes.length - 1].save;
-  const forkNodeIds = new Set<string>();
-  for (const node of nodes) {
-    const parentNodeId = node.save.saveTree?.parentNodeId;
-    if (parentNodeId && nodes.some((candidate) => candidate.save.saveTree?.nodeId === parentNodeId)) {
-      forkNodeIds.add(parentNodeId);
-    }
-  }
-  return {
-    ...group,
-    rootSave,
-    latestSave,
-    nodes,
-    nodeCount: nodes.length,
-    branchCount: Math.max(0, forkNodeIds.size ? group.branchCount : 0),
-    totalSizeBytes: nodes.reduce((sum, node) => sum + Math.max(0, node.save.sizeBytes || 0), 0),
-  };
 }
 
 async function previewImportFile(file: File): Promise<ImportPreview> {

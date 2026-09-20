@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import { pathToFileURL } from 'node:url';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 const root = process.cwd();
 const tempDir = path.join(root, '.tmp-story-weaving-regression');
@@ -160,6 +161,7 @@ for (const sourcePath of [
   'prompts/subsystems/canonOutputFormat.ts',
   'prompts/subsystems/domainCommandPrompt.ts',
   'prompts/subsystems/domainCommandOutputFormat.ts',
+  'utils/valueGuards.ts',
 ]) {
   transpileModule(sourcePath);
 }
@@ -177,7 +179,7 @@ writeStub('utils/promptPayloadSanitizer.mjs', 'export function stringifyPromptPa
 writeStub('utils/variableFacts.mjs', 'export function parseVariableFacts() { return []; }\n');
 writeStub('utils/variableRegistry.mjs', 'export function buildVariableRegistryPrompt() { return ""; }\n');
 writeStub('utils/teyvatCommandRegistry.mjs', 'export function buildTeyvatCommandRegistryPrompt() { return ""; }\n');
-writeStub('data/canonicalCharacters.mjs', 'export const CANONICAL_CHARACTERS = [];\nexport function matchCanonical() { return null; }\n');
+writeStub('data/canonicalCharacters.mjs', 'export const CANONICAL_CHARACTERS = [];\nexport function matchCanonical() { return null; }\nexport function matchCanonicalIdentity() { return null; }\n');
 writeStub('data/builtinAvatars.mjs', 'export function getDefaultBuiltinAvatar() { return undefined; }\n');
 writeStub('utils/npcMemorySanitizer.mjs', 'export function 清理NPC同行记忆摘要(value) { return typeof value === "string" ? value.trim() : ""; }\n');
 writeStub('compat/legacy-hsr/readOnly.mjs', [
@@ -514,7 +516,13 @@ assert(ambiguousPlanning.建议动作 === '等待正文证据', `泛收束词场
 assert(ambiguousPlanning.偏离风险 === '中', `缺少明确收束证据时偏离/错位风险应为中，得到 ${ambiguousPlanning.偏离风险}`);
 
 const storyProgressSourceForHighConfidence = fs.readFileSync(path.join(root, 'services/storyProgressService.ts'), 'utf8');
-const sendWorkflowSourceForStoryAlignment = fs.readFileSync(path.join(root, 'hooks/useGame/sendWorkflow.ts'), 'utf8');
+// 迁移: 读取源由单个 sendWorkflow.ts 收敛为 scripts/lib/workflowSources.mjs 登记的工作流视图。
+// 理由: M6 把「本回合是否执行剧情编织自动对齐」的判定抽成
+//       hooks/useGame/postSettlementCommitStage.ts 的 planPostSettlementStoryAlignment，
+//       sendWorkflow 改为调用该阶段函数；开局第 0 回合不得自动对齐的契约未变。
+//       sendWorkflow / postSettlementCommitStage 均已登记进 WORKFLOW_FILES，
+//       故交给统一登记表读取（按本脚本自身根目录传入 root），后续搬迁不必再改本脚本数组。
+const sendWorkflowSourceForStoryAlignment = readWorkflowSources(root);
 assert(
   storyProgressSourceForHighConfidence.includes('decideSegmentAlignment') &&
     storyProgressSourceForHighConfidence.includes('强证据跨两段纠偏') &&
@@ -525,9 +533,18 @@ assert(storyProgressSourceForHighConfidence.includes('findCrossSeriesCanonAlignm
 assert(storyProgressSourceForHighConfidence.includes('scoreCanonSeriesPresence'), '跨系列纠偏必须使用系列级地点/人物/派系评分。');
 assert(storyProgressSourceForHighConfidence.includes('跨系列纠偏：近期正文/地点强命中'), '跨系列纠偏必须在进度理由里留下可诊断说明。');
 assert(storyProgressSourceForHighConfidence.includes('currentLocation?: string'), '剧情编织纠偏必须允许当前地点参与判断。');
+// 迁移: 旧 sendWorkflow 内联三元 `const storyAlignment = isOpeningSystemTrigger
+//   ? { system: state.剧情编织, changed: false, progressed: false }
+//   : autoAlignCanonStoryProgress({...})` -> 新
+//   「sendWorkflow 调 planPostSettlementStoryAlignment({ openingSystemTurn: isOpeningSystemTrigger, ... })，
+//     阶段函数内 `input.openingSystemTurn ? { system: input.storyWeaving, changed: false, progressed: false } : autoAlignCanonStoryProgress({`」。
+//   理由: 三元搬进结算阶段模块，短路语义完全一致；断言改为校验
+//   「编排器确实把开局标记传进去」+「阶段函数仍在开局分支短路 autoAlignCanonStoryProgress」。
 assert(
-  sendWorkflowSourceForStoryAlignment.includes('const storyAlignment = isOpeningSystemTrigger') &&
-    sendWorkflowSourceForStoryAlignment.includes('? { system: state.剧情编织, changed: false, progressed: false }') &&
+  sendWorkflowSourceForStoryAlignment.includes('const storyPlan = planPostSettlementStoryAlignment({') &&
+    sendWorkflowSourceForStoryAlignment.includes('openingSystemTurn: isOpeningSystemTrigger,') &&
+    sendWorkflowSourceForStoryAlignment.includes('const alignment = input.openingSystemTurn') &&
+    sendWorkflowSourceForStoryAlignment.includes('? { system: input.storyWeaving, changed: false, progressed: false }') &&
     sendWorkflowSourceForStoryAlignment.includes(': autoAlignCanonStoryProgress({'),
   '开局第 0 回合不得执行剧情编织自动对齐，避免首回合被后台误切到贝洛伯格/支线轨道。',
 );

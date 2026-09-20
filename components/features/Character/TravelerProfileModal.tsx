@@ -1,3 +1,4 @@
+import { CLIP_MEDIUM, CLIP_PANEL, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 import type { 角色数据结构 } from '@/models/character';
 import type { 相册系统 } from '@/models/imageGeneration';
 import { Modal } from '@/components/ui/Modal';
@@ -12,8 +13,7 @@ interface Props {
   onTravelerChange?: (traveler: 角色数据结构) => void;
 }
 
-const cardClip =
-  'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
+
 
 export function TravelerProfileModal({ traveler, album, onClose, onTravelerChange }: Props) {
   const handleAvatarUpload = (file: File) => {
@@ -57,7 +57,7 @@ export function TravelerProfileModal({ traveler, album, onClose, onTravelerChang
                 'inset 0 0 0 1.5px rgba(var(--tj-accent-primary), 0.75), 0 0 22px rgba(var(--tj-accent-primary), 0.18)',
               color: 'rgb(var(--tj-accent-primary))',
               clipPath:
-                'polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)',
+                CLIP_PANEL,
             }}
           >
             {avatarUrl ? (
@@ -86,7 +86,7 @@ export function TravelerProfileModal({ traveler, album, onClose, onTravelerChang
                 color: 'var(--journal-ink)',
                 background: 'linear-gradient(180deg, var(--journal-parchment), color-mix(in srgb, var(--journal-parchment) 86%, var(--journal-leather) 14%))',
                 boxShadow: 'inset 0 0 0 1px rgba(53, 46, 39, 0.24)',
-                clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+                clipPath: CLIP_SMALL,
                 fontWeight: 600,
               }}
             >
@@ -173,8 +173,8 @@ export function TravelerProfileModal({ traveler, album, onClose, onTravelerChang
           style={{
             color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.96), rgba(var(--tj-accent-secondary),0.92))',
             background: 'linear-gradient(135deg, rgba(var(--tj-amber-soft),0.16), rgba(var(--tj-bubble),1))',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.32)',
-            clipPath: cardClip,
+            boxShadow: insetRing(0.32),
+            clipPath: CLIP_MEDIUM,
           }}
         >
           ✦ 档案为只读视图。如需修改字段，请前往「变量管理」中调整。
@@ -207,7 +207,7 @@ function InfoCell({ label, value }: { label: string; value: string }) {
         background: 'linear-gradient(135deg, rgb(var(--tj-bubble)), rgba(var(--tj-paper-deep),0.72))',
         boxShadow:
           'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.22), inset 2px 0 0 rgba(var(--tj-accent-primary), 0.55)',
-        clipPath: cardClip,
+        clipPath: CLIP_MEDIUM,
       }}
     >
       <span
@@ -235,7 +235,7 @@ function BlockCell({ label, value }: { label: string; value: string }) {
         background: 'linear-gradient(135deg, rgb(var(--tj-bubble)), rgba(var(--tj-paper-deep),0.72))',
         boxShadow:
           'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.22), inset 2px 0 0 rgba(var(--tj-accent-primary), 0.55)',
-        clipPath: cardClip,
+        clipPath: CLIP_MEDIUM,
       }}
     >
       <span
@@ -261,7 +261,7 @@ function TraitChip({ trait }: { trait: { 名称: string; 说明: string } }) {
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-arcane-accent),0.12), rgb(var(--tj-bubble)))',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.28), inset 2px 0 0 rgba(var(--tj-accent-primary),0.42)',
-        clipPath: cardClip,
+        clipPath: CLIP_MEDIUM,
       }}
       title={trait.说明}
     >

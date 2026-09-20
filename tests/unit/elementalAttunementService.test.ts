@@ -88,9 +88,9 @@ describe('elemental attunement service', () => {
     const capped = advanceElementalMastery(traveler, 'anemo', 120);
     const floored = advanceElementalMastery(capped, 'anemo', -250);
 
-    expect(capped.元素共鸣[0].mastery).toBe(100);
-    expect(floored.元素共鸣[0].mastery).toBe(0);
-    expect(traveler.元素共鸣[0].mastery).toBe(0);
+    expect(capped.元素共鸣[0]!.mastery).toBe(100);
+    expect(floored.元素共鸣[0]!.mastery).toBe(0);
+    expect(traveler.元素共鸣[0]!.mastery).toBe(0);
   });
 
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
@@ -102,8 +102,8 @@ describe('elemental attunement service', () => {
       });
 
       expect(() => advanceElementalMastery(traveler, 'anemo', delta)).toThrowError('INVALID_MASTERY_DELTA');
-      expect(traveler.元素共鸣[0].mastery).toBe(0);
-      expect(Number.isFinite(traveler.元素共鸣[0].mastery)).toBe(true);
+      expect(traveler.元素共鸣[0]!.mastery).toBe(0);
+      expect(Number.isFinite(traveler.元素共鸣[0]!.mastery)).toBe(true);
     },
   );
 
@@ -117,11 +117,11 @@ describe('elemental attunement service', () => {
     const result = applyTravelerSkillMastery(traveler, ['anemo', 'pyro', 'anemo'], 2);
 
     expect(result.gains).toEqual(['anemo']);
-    expect(result.traveler.元素共鸣[0].mastery).toBe(2);
+    expect(result.traveler.元素共鸣[0]!.mastery).toBe(2);
     // 未解锁的火不应被创建出共鸣条目。
     expect(result.traveler.元素共鸣).toHaveLength(1);
     // 原对象不可变。
-    expect(traveler.元素共鸣[0].mastery).toBe(0);
+    expect(traveler.元素共鸣[0]!.mastery).toBe(0);
   });
 
   it('rejects selecting a locked element as primary', () => {
@@ -144,9 +144,9 @@ describe('elemental attunement service', () => {
     expect(entered).toMatchObject({ 元素回响邀请: '', 进行中元素回响: 'hydro' });
     expect(world).toMatchObject({ 元素回响邀请: 'hydro', 进行中元素回响: '' });
     expect(completed.world).toMatchObject({ 元素回响邀请: '', 进行中元素回响: '' });
-    expect(completed.traveler.元素共鸣[0].mastery).toBe(35);
+    expect(completed.traveler.元素共鸣[0]!.mastery).toBe(35);
     expect(entered.进行中元素回响).toBe('hydro');
-    expect(traveler.元素共鸣[0].mastery).toBe(0);
+    expect(traveler.元素共鸣[0]!.mastery).toBe(0);
   });
 
   it('uses one threshold for a beneficial echo and does not re-invite at full mastery', () => {
@@ -158,14 +158,14 @@ describe('elemental attunement service', () => {
     const at75 = advanceElementalMastery(unlocked, 'hydro', ELEMENTAL_ECHO_INVITE_MASTERY);
     const full = advanceElementalMastery(unlocked, 'hydro', 100);
 
-    expect(canInviteElementalEcho(at74.元素共鸣[0])).toBe(false);
-    expect(canInviteElementalEcho(at75.元素共鸣[0])).toBe(true);
-    expect(canInviteElementalEcho(full.元素共鸣[0])).toBe(false);
+    expect(canInviteElementalEcho(at74.元素共鸣[0]!)).toBe(false);
+    expect(canInviteElementalEcho(at75.元素共鸣[0]!)).toBe(true);
+    expect(canInviteElementalEcho(full.元素共鸣[0]!)).toBe(false);
 
     const entered = enterElementalEcho({ ...createEmptyTeyvatWorld(), 元素回响邀请: 'hydro' });
     const completed = applyElementalEchoResult(at75, entered, 'hydro', ELEMENTAL_ECHO_MASTERY_GAIN);
-    expect(completed.traveler.元素共鸣[0].mastery).toBe(100);
-    expect(at75.元素共鸣[0].mastery).toBe(ELEMENTAL_ECHO_INVITE_MASTERY);
+    expect(completed.traveler.元素共鸣[0]!.mastery).toBe(100);
+    expect(at75.元素共鸣[0]!.mastery).toBe(ELEMENTAL_ECHO_INVITE_MASTERY);
   });
 
   it('rejects hidden HSR path values in the elemental echo lifecycle', () => {
@@ -259,11 +259,11 @@ describe('element validation boundaries', () => {
       chatHistory: [{ id: 'legacy', role: 'assistant', parsedResponse: { awakenPathId: 'nihility' } }],
     }, {});
 
-    expect(runtime.entries[0].structuredResponse).toBeUndefined();
+    expect(runtime.entries[0]!.structuredResponse).toBeUndefined();
     expect(migrated.status).toBe('migrated');
     if (migrated.status === 'migrated') {
       expect(migrated.state.世界).toMatchObject({ 元素回响邀请: '', 进行中元素回响: '' });
-      expect(migrated.state.对话.entries[0].structuredResponse).toBeUndefined();
+      expect(migrated.state.对话.entries[0]!.structuredResponse).toBeUndefined();
     }
   });
 
@@ -280,10 +280,10 @@ describe('element validation boundaries', () => {
     } as never];
 
     const legacy = mapTeyvatNpcsToLegacy(game);
-    legacy[0] = { ...legacy[0], 好感度: 20 };
+    legacy[0]! = { ...legacy[0]!, 好感度: 20 };
     const roundTripped = applyLegacyNpcRecords(game, legacy);
 
     expect(roundTripped.NPC[0]).toMatchObject({ 元素: 'pyro', 力量来源: 'vision', affinity: 20 });
-    expect(roundTripped.NPC[0].天赋[0]).toEqual({ id: 'aimed', 名称: '神射手', 类别: 'passive', 关联元素: 'pyro', 等级: 1, 说明: '精准射击' });
+    expect(roundTripped.NPC[0]!.天赋[0]).toEqual({ id: 'aimed', 名称: '神射手', 类别: 'passive', 关联元素: 'pyro', 等级: 1, 说明: '精准射击' });
   });
 });

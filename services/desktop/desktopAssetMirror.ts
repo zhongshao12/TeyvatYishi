@@ -60,8 +60,10 @@ export async function mirrorAssetRecordsToDesktop(records: SaveAssetRecord[]): P
   const adapter = createAppStorageAdapter();
   const index = await readAssetIndex();
   const byId = new Map(index.assets.map((asset) => [asset.id, asset]));
+  let changed = false;
   for (const record of records) {
     if (!record.id) continue;
+    if (matchesMirroredAssetRevision(byId.get(record.id), record)) continue;
     const payload = await resolveRecordBase64Payload(record);
     if (!payload) continue;
     const path = assetFilePath(record.id, payload.mimeType);
@@ -97,8 +99,9 @@ export async function mirrorAssetRecordsToDesktop(records: SaveAssetRecord[]): P
       size: estimateAssetSize(record, payload.base64Content),
       updatedAt: record.updatedAt || Date.now(),
     });
+    changed = true;
   }
-  await writeAssetIndex(Array.from(byId.values()));
+  if (changed) await writeAssetIndex(Array.from(byId.values()));
 }
 
 export async function replaceDesktopAssetMirror(records: SaveAssetRecord[]): Promise<void> {
@@ -368,7 +371,10 @@ function parseDataImage(value?: string): { mimeType: string; base64Content: stri
   if (!value) return null;
   const match = value.trim().match(DATA_URL_RE);
   if (!match) return null;
-  return { mimeType: match[1].toLowerCase(), base64Content: match[2] };
+  const mimeType = match[1];
+  const base64Content = match[2];
+  if (!mimeType || base64Content === undefined) return null;
+  return { mimeType: mimeType.toLowerCase(), base64Content };
 }
 
 async function resolveRecordBase64Payload(
@@ -402,4 +408,17 @@ function estimateAssetSize(record: SaveAssetRecord, base64Content?: string): num
   if (declaredSize > 0) return declaredSize;
   if (base64Content) return Math.max(1, Math.floor((base64Content.length * 3) / 4));
   return Math.max(String(record.dataUrl ?? '').length, String(record.originalUrl ?? '').length);
+}
+
+function matchesMirroredAssetRevision(
+  summary: DesktopAssetMirrorSummary | undefined,
+  record: SaveAssetRecord,
+): boolean {
+  if (!summary) return false;
+  const size = Number(record.size) || 0;
+  const updatedAt = Number(record.updatedAt) || 0;
+  return size > 0
+    && updatedAt > 0
+    && summary.size === size
+    && summary.updatedAt === updatedAt;
 }

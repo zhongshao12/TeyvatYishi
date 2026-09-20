@@ -45,6 +45,7 @@ const CHARACTER_ANCHOR_SYSTEM_PROMPT = `你是「旅行者纪事」的角色视�
 export async function extractCharacterAnchorWithAI(
   config: API配置项,
   input: CharacterAnchorExtractInput,
+  signal?: AbortSignal,
 ): Promise<NPC角色锚点档案> {
   if (!config.baseUrl.trim() || !config.apiKey.trim() || !config.model.trim()) {
     throw new Error('角色锚点提取模型未配置完整。');
@@ -68,10 +69,11 @@ export async function extractCharacterAnchorWithAI(
           ].filter(Boolean).join('\n'),
         },
       ],
+      signal,
       maxTokens: config.maxTokens ?? 1600,
       temperature: config.temperature ?? 0.35,
     }),
-    { retries: config.retryCount ?? 1, label: '角色视觉锚点提取' },
+    { retries: config.retryCount ?? 1, signal, label: '角色视觉锚点提取' },
   );
 
   const parsed = parseCharacterAnchorJson(raw);

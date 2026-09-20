@@ -368,6 +368,9 @@ export function readLegacyCodexChannelFlag(
   entry: Record<string, unknown>,
   formalKey: '可否信使使用' | '可否蒸汽鸟报使用',
 ): boolean | undefined {
+  // `可否信使使用` remains the durable protocol key. `可否手机使用` was emitted by
+  // an interim UI rename and is accepted only at this read boundary; new runtime
+  // copy calls the feature “手机” while persistence keeps the stable old key.
   const legacyKey = formalKey === '可否信使使用' ? '可否手机使用' : '可否新闻使用';
   const value = entry[formalKey] ?? entry[legacyKey];
   return typeof value === 'boolean' ? value : undefined;

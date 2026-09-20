@@ -27,6 +27,17 @@ assert(turn.includes('rewriteConfig?: API配置项'), 'TurnItem must accept rewr
 
 assert(chat.includes('rewriteConfig?: API配置项'), 'ChatList must accept rewrite config.');
 assert(chat.includes('rewriteConfig={rewriteConfig}'), 'ChatList must pass rewrite config down.');
-assert(app.includes('rewriteConfig={state.apiSettings.activeConfigId'), 'App must wire the active config with first-config fallback to ChatList.');
+// 迁移: 旧 App 内联 `rewriteConfig={state.apiSettings.activeConfigId...}`（在 App 里直接比对 activeConfigId 并回退首个配置）
+//   -> 新 App 用 `resolveActiveApiConfig(state.apiSettings, ...)` 统一解析，再把 `rewriteConfig ?? undefined` 传给 ChatList。
+//   理由: 执行路径与 UI 助手必须共用同一个「生效配置」解析器；activeConfigId 生效 + 回退到首个配置的逻辑收敛到
+//   services/ai/activeApiConfig.ts。断言意图不变，因此把该解析器的读取源一并纳入本脚本。
+const activeApiConfig = fs.readFileSync('services/ai/activeApiConfig.ts', 'utf8');
+assert(
+  app.includes('const rewriteConfig = useMemo(() => resolveActiveApiConfig(')
+  && app.includes('rewriteConfig={rewriteConfig ?? undefined}')
+  && activeApiConfig.includes('config.id === apiSettings.activeConfigId')
+  && activeApiConfig.includes('?? apiSettings.configs[0]'),
+  'App must wire the active config with first-config fallback to ChatList.',
+);
 
 console.log('rewrite service regression ok');

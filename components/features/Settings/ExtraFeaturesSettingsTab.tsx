@@ -1,3 +1,4 @@
+import { CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
 import type { 游戏设置 } from '@/models/settings';
 import { saveSetting } from '@/services/dbService';
 
@@ -6,8 +7,7 @@ interface Props {
   onChange: (settings: 游戏设置) => void;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
 
 export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
   const cleanup = settings.额外功能.污染词清理;
@@ -47,8 +47,8 @@ export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
         className="space-y-3 p-4"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.42)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
-          clipPath: smallClip,
+          boxShadow: insetRing(0.16),
+          clipPath: CLIP_SMALL,
         }}
       >
         <div>
@@ -83,7 +83,7 @@ export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
             }
             rows={6}
             className="teyvat-input w-full px-3 py-2 text-sm"
-            style={{ clipPath: smallClip }}
+            style={{ clipPath: CLIP_SMALL }}
             placeholder={'极其'}
           />
           <p className="mt-1 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.6)' }}>
@@ -96,8 +96,8 @@ export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
         className="space-y-3 p-4"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.42)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
-          clipPath: smallClip,
+          boxShadow: insetRing(0.16),
+          clipPath: CLIP_SMALL,
         }}
       >
         <div>
@@ -123,9 +123,9 @@ export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
         className="w-full py-3 font-serif text-sm font-bold tracking-[0.28em] transition-all hover:opacity-95"
         style={{
           color: 'rgb(var(--tj-on-accent))',
-          background: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
+          background: gradientAccent(0.96, 0.84),
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.72), 0 0 18px rgba(var(--tj-arcane-accent),0.14)',
-          clipPath: smallClip,
+          clipPath: CLIP_SMALL,
         }}
       >
         保存额外功能
@@ -150,8 +150,8 @@ function ToggleRow({
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.15),
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="mr-3 min-w-0">
@@ -168,12 +168,12 @@ function ToggleRow({
         className="relative h-6 w-11 flex-shrink-0 transition-all"
         style={{
           background: checked
-            ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
+            ? gradientAccent(0.95, 0.86)
             : 'rgba(var(--tj-bg-secondary), 0.68)',
           boxShadow: checked
             ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-          clipPath: smallClip,
+            : insetRing(0.2),
+          clipPath: CLIP_SMALL,
         }}
       >
         <div
@@ -181,7 +181,7 @@ function ToggleRow({
           style={{
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
-            clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+            clipPath: CLIP_XS,
           }}
         />
       </button>

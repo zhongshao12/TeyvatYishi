@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_SMALL, CLIP_XS, insetRing } from '@/styles/clipPaths';
 import { useEffect, useState } from 'react';
 import { useRef } from 'react';
 import { useGitHubOAuth } from '@/hooks/useGitHubOAuth';
@@ -16,16 +17,15 @@ import {
   type GitHubCloudBackupListing,
   type GitHubCloudSaveConfig,
 } from '@/services/githubCloudSave';
+import { useModalAccessibility } from '@/components/ui/Modal';
 
 interface Props {
   onSave: () => Promise<number>;
   onClose: () => void;
 }
 
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
+
 
 export function GitHubCloudSaveModal({ onSave, onClose }: Props) {
   void onSave;
@@ -232,6 +232,7 @@ export function GitHubCloudSaveModal({ onSave, onClose }: Props) {
         const legacyItems = listing.legacyManifest?.saves ?? [];
         return mergeLegacyCloudBackup(legacyItems, async (_item, index, mergeSignal) => {
           const cloudItem = legacyItems[index];
+          if (!cloudItem) throw new Error(`云端旧版存档清单缺少第 ${index + 1} 项。`);
           return downloadLegacySaveFromGitHub(config, cloudItem, {
             signal: mergeSignal,
             onProgress: updateProgress,
@@ -253,6 +254,7 @@ export function GitHubCloudSaveModal({ onSave, onClose }: Props) {
     handleCancel();
     onClose();
   };
+  const dialogRef = useModalAccessibility<HTMLDivElement>(handleClose);
 
   return (
     <div
@@ -262,6 +264,11 @@ export function GitHubCloudSaveModal({ onSave, onClose }: Props) {
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="GitHub 云存档"
+        tabIndex={-1}
         className="flex h-[100dvh] w-full max-w-[920px] flex-col overflow-hidden md:h-[82vh]"
         style={{
           background: 'linear-gradient(180deg, rgba(var(--tj-bg-secondary), 0.97), rgba(var(--tj-bg-primary), 0.98))',
@@ -290,8 +297,8 @@ export function GitHubCloudSaveModal({ onSave, onClose }: Props) {
               style={{
                 color: 'rgba(var(--tj-text-secondary), 0.82)',
                 background: 'rgba(var(--tj-bg-secondary), 0.42)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
-                clipPath: cardClip,
+                boxShadow: insetRing(0.16),
+                clipPath: CLIP_CARD,
               }}
             >
               绑定后会自动使用或创建私有仓库 <span className="font-mono">kaituoyishi-cloud-save</span>。上传会先在本机生成有界分卷，再以一次提交发布完整备份；下载只会合并新增内容，重复项自动跳过。
@@ -302,8 +309,8 @@ export function GitHubCloudSaveModal({ onSave, onClose }: Props) {
                 className="px-3 py-3"
                 style={{
                   background: 'rgba(var(--tj-bg-primary), 0.32)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
-                  clipPath: cardClip,
+                  boxShadow: insetRing(0.14),
+                  clipPath: CLIP_CARD,
                 }}
               >
                 {account ? (
@@ -359,6 +366,9 @@ export function GitHubCloudSaveModal({ onSave, onClose }: Props) {
               <div className="mt-2 max-w-[240px]">
                 <CloudButton label="使用 Token 绑定" tone="primary" disabled={cloudBusy} onClick={handleBindAccount} />
               </div>
+              <p className="mt-2 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
+                为保护账号安全，Token 只保留在本次运行内，不会写入 IndexedDB、存档包或桌面 JSON；重新启动后需再次授权。
+              </p>
             </details>
 
             <div className="grid gap-2 sm:grid-cols-3">
@@ -382,7 +392,7 @@ export function GitHubCloudSaveModal({ onSave, onClose }: Props) {
             )}
 
             {(cloudMessage || oauthError) && (
-              <div className="px-3 py-2 text-[12px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.82)', background: 'rgba(var(--tj-bg-primary), 0.32)', clipPath: smallClip }}>
+              <div className="px-3 py-2 text-[12px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.82)', background: 'rgba(var(--tj-bg-primary), 0.32)', clipPath: CLIP_SMALL }}>
                 {cloudMessage || oauthError}
               </div>
             )}
@@ -422,8 +432,8 @@ function CloudInput({
         style={{
           color: 'rgba(var(--tj-text-primary), 0.9)',
           background: 'rgba(var(--tj-bg-primary), 0.34)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
-          clipPath: smallClip,
+          boxShadow: insetRing(0.18),
+          clipPath: CLIP_SMALL,
         }}
       />
     </label>
@@ -454,8 +464,8 @@ function CloudButton({
           : 'rgba(var(--tj-bg-secondary), 0.55)',
         boxShadow: tone === 'primary'
           ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.52)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
-        clipPath: smallClip,
+          : insetRing(0.3),
+        clipPath: CLIP_SMALL,
       }}
     >
       {label}
@@ -478,8 +488,8 @@ function CloudProgress({
       className="px-3 py-3"
       style={{
         background: 'rgba(var(--tj-bg-primary), 0.32)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.18),
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="mb-2 flex items-center justify-between gap-3 text-[12px]" style={{ color: 'rgba(var(--tj-text-secondary), 0.82)' }}>
@@ -490,8 +500,8 @@ function CloudProgress({
         className="h-2 overflow-hidden"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.8)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24)',
-          clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+          boxShadow: insetRing(0.24),
+          clipPath: CLIP_XS,
         }}
       >
         <div
@@ -512,8 +522,8 @@ function CloudRecordSummary({ backup }: { backup: GitHubCloudBackupListing | nul
       className="grid gap-2 px-3 py-3 text-[12px] sm:grid-cols-[auto_1fr]"
       style={{
         background: 'rgba(var(--tj-bg-primary), 0.3)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.16),
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="font-serif tracking-[0.18em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.86), rgba(var(--tj-accent-secondary),0.82))' }}>

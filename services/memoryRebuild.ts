@@ -217,6 +217,7 @@ export function extractMemoryRebuildTurns(
   let fallbackTurn = 0;
   for (let index = 0; index < chatHistory.length; index += 1) {
     const message = chatHistory[index];
+    if (!message) continue;
     if (message.role === 'user') {
       const parsedTurn = parseTurn(message.gameTime);
       if (parsedTurn === null) {
@@ -542,6 +543,13 @@ export async function runMemoryRebuildTask(
     }
     const batchIndex = task.nextBatchIndex;
     const batch = task.batches[batchIndex];
+    if (!batch) {
+      task.status = 'blocked';
+      task.blockedReason = `记忆重建批次 ${batchIndex + 1} 不存在，任务数据可能已损坏。`;
+      task.progress.currentBatch = null;
+      emitProgress(task, options.onProgress);
+      return task;
+    }
     task.progress.currentBatch = batchIndex + 1;
     emitProgress(task, options.onProgress);
     const result = await processBatch(task, batch, batchIndex, options);

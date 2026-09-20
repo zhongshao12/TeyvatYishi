@@ -61,7 +61,7 @@ describe('长会话 debugContext 瘦身', () => {
     const compacted = compactChatHistoryForLongSession(makeHistory(30));
     const assistants = compacted.filter((message) => message.role === 'assistant');
     expect(assistants.filter((message) => message.debugContext).length).toBe(DETAILED_CHAT_TURNS);
-    expect(assistants[0].debugContext).toBeUndefined();
+    expect(assistants[0]!.debugContext).toBeUndefined();
   });
 
   it('短会话（不超过窗口）不做瘦身', () => {
@@ -70,5 +70,21 @@ describe('长会话 debugContext 瘦身', () => {
       expect(message.debugContext?.systemPrompt).toBe(SYSTEM_PROMPT);
       expect(message.debugContext?.recallFullContent).not.toContain('已瘦身');
     }
+  });
+
+  it('超长会话保持硬上限，同时保留少量旧书签和最新消息', () => {
+    const hardLimit = 1200;
+    const history = makeHistory(hardLimit / 2 + 50);
+    history[1]! = {
+      ...history[1]!,
+      bookmark: { title: '旧剧情锚点', createdAt: 1 },
+    };
+
+    const compacted = compactChatHistoryForLongSession(history);
+
+    expect(compacted).toHaveLength(hardLimit);
+    expect(compacted.some((message) => message.id === 'assistant-1')).toBe(true);
+    expect(compacted.some((message) => message.id === 'user-1')).toBe(false);
+    expect(compacted.at(-1)?.id).toBe(`assistant-${hardLimit / 2 + 50}`);
   });
 });

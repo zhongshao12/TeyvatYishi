@@ -16,31 +16,9 @@ import { buildTavernMessageChain } from './tavernMessageChainBuilder';
 import { buildImmediateStoryReview, buildLeanAssistantHistoryContent, getMainHistoryWindow } from './historyWindow';
 import { buildOpeningSystemPrompt, buildSystemPrompt } from './systemPromptBuilder';
 import { getCodexNpcNamesForTurn } from './npcPresence';
+import type { ContextSection, ContextSnapshot, ContextSnapshotKind } from './contextSnapshotTypes';
 
-export interface ContextSection {
-  id: string;
-  title: string;
-  category: string;
-  order: number;
-  content: string;
-  estimatedTokens: number;
-  upload?: boolean;
-  diagnostic?: boolean;
-}
-
-export type ContextSnapshotKind = 'main' | 'variable' | 'courier' | 'steambird' | 'irminsul' | 'codex';
-
-export interface ContextSnapshot {
-  kind: ContextSnapshotKind;
-  title: string;
-  sections: ContextSection[];
-  fullText: string;
-  estimatedTokens: number;
-  uploadEstimatedTokens: number;
-  diagnosticEstimatedTokens: number;
-  createdAt: number;
-  sourceInput: string;
-}
+export type { ContextSection, ContextSnapshot, ContextSnapshotKind } from './contextSnapshotTypes';
 
 function latestUserInput(history: 聊天消息[]): string {
   return [...history].reverse().find((message) => message.role === 'user' && message.content.trim())?.content.trim() ?? '';

@@ -7,7 +7,12 @@ function assert(condition, message) {
   }
 }
 
-const dbService = fs.readFileSync('services/dbService.ts', 'utf8');
+// IndexedDB 的库版本与表名常量已抽到 services/storage/gameDatabase.ts；
+// 这里按「存储层」整体读取，避免文件搬迁让断言失效（判据本身不变）。
+const dbService = [
+  fs.readFileSync('services/dbService.ts', 'utf8'),
+  fs.readFileSync('services/storage/gameDatabase.ts', 'utf8'),
+].join('\n');
 const assetStorage = fs.readFileSync('utils/saveAssetStorage.ts', 'utf8');
 const albumPanel = fs.readFileSync('components/features/GameSystems/AlbumPanel.tsx', 'utf8');
 const albumWorkspaces = fs.readFileSync('components/features/GameSystems/album/workspaces.tsx', 'utf8');
@@ -19,7 +24,7 @@ const companionPanel = fs.readFileSync('components/features/GameSystems/Companio
 const app = fs.readFileSync('App.tsx', 'utf8');
 const albumSurface = `${albumPanel}\n${albumWorkspaces}`;
 
-const dbVersionMatch = dbService.match(/const DB_VERSION = (\d+)/);
+const dbVersionMatch = dbService.match(/(?:GAME_)?DB_VERSION = (\d+)/);
 assert(dbVersionMatch && Number(dbVersionMatch[1]) >= 5, 'IndexedDB 版本必须继续升级，确保已打开过中间版本的玩家也能补建 saveAssets 与 saveNodeDeltas 表。');
 assert(dbService.includes("const SAVE_ASSETS_STORE = 'saveAssets'"), '必须定义独立图片资源表。');
 assert(dbService.includes('db.createObjectStore(SAVE_ASSETS_STORE'), '升级流程必须创建 saveAssets 表。');

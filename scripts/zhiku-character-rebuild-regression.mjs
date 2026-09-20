@@ -1,9 +1,10 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 const unlock = fs.readFileSync('services/codexRuntimeUnlock.ts', 'utf8');
 const enrichment = fs.readFileSync('utils/npcArchiveEnrichment.ts', 'utf8');
 const saveLoad = fs.readFileSync('hooks/useGame/saveLoadWorkflow.ts', 'utf8');
-const send = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const send = readWorkflowSources();
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 
 assert(unlock.includes('applyStoryArchiveCodexRuntimeUnlock') && unlock.includes('ArchiveCodex'), 'story archive unlock must update formal Codex entries.');

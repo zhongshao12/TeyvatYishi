@@ -1,0 +1,85 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it } from 'vitest';
+import { DesktopStorageStatus } from '../../components/features/Settings/storage/DesktopStorageStatus';
+
+describe('DesktopStorageStatus', () => {
+  it('renders the web storage state without presenting desktop actions as available', () => {
+    const noop = () => undefined;
+    const markup = renderToStaticMarkup(createElement(DesktopStorageStatus, {
+      platform: 'web',
+      info: null,
+      releaseInfo: null,
+      probe: null,
+      error: '',
+      checking: false,
+      update: null,
+      updateProgress: null,
+      updateError: '',
+      checkingUpdate: false,
+      installingUpdate: false,
+      desktopMirrorCount: 0,
+      desktopConfigCount: 0,
+      desktopAssetCount: 0,
+      desktopAssetSummary: null,
+      desktopSaveMirrorHealth: null,
+      desktopSaveDeltaMirrorHealth: null,
+      desktopAssetMirrorHealth: null,
+      desktopBackupCount: 0,
+      desktopMigrationBackupCount: 0,
+      unreadableDesktopMigrationBackupCount: 0,
+      latestDesktopBackup: null,
+      desktopMigrationBackupPreview: null,
+      desktopBackups: [],
+      selectedDesktopBackup: null,
+      restoringDesktopMirror: false,
+      restoringDesktopBackup: false,
+      deletingDesktopBackupPath: null,
+      exportingDesktopBackupPath: null,
+      cleaningDesktopAssets: false,
+      repairingDesktopIndexes: false,
+      desktopIndexRepairSummary: '',
+      backingUpDesktop: false,
+      backingUpDesktopMigration: false,
+      latestDesktopMigrationBackup: null,
+      exportingDiagnostic: false,
+      latestDiagnosticReport: null,
+      diagnosticReports: [],
+      exportingDiagnosticReportPath: null,
+      deletingDiagnosticReportPath: null,
+      onProbe: noop,
+      onOpenSaveDir: noop,
+      onOpenBackupDir: noop,
+      saveRootEdit: null,
+      backupRootEdit: null,
+      onChooseSaveRoot: noop,
+      onChooseBackupRoot: noop,
+      onResetSaveRoot: noop,
+      onResetBackupRoot: noop,
+      onApplyStorageRoots: noop,
+      onOpenLogDir: noop,
+      onOpenConfigDir: noop,
+      onOpenCodexDir: noop,
+      onOpenWorldbookDir: noop,
+      onOpenAssetDir: noop,
+      onCleanupDesktopAssets: noop,
+      onRepairDesktopIndexes: noop,
+      onBackupDesktopSaves: noop,
+      onBackupDesktopMigration: noop,
+      onWriteDiagnosticReport: noop,
+      onExportDiagnosticReport: noop,
+      onDeleteDiagnosticReport: noop,
+      onRestoreDesktopBackup: noop,
+      onDeleteDesktopBackup: noop,
+      onExportDesktopBackup: noop,
+      onSelectDesktopBackup: noop,
+      onCheckUpdate: noop,
+      onInstallUpdate: noop,
+      onRestoreDesktopMirror: noop,
+    }));
+
+    expect(markup).toContain('旅行者纪事 Web Edition');
+    expect(markup).toContain('Web 存储');
+    expect(markup).toContain('disabled=""');
+  });
+});

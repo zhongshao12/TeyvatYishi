@@ -32,7 +32,7 @@ describe('tokenUsageStats', () => {
       { id: 'm1', role: 'assistant', content: 'a', timestamp: 1, tokenUsage: usage('main_story', 100, 0) },
     ];
     const bySystem = 拆分聊天Token用量(messages);
-    expect(bySystem.main_story.totalTokens).toBe(100);
+    expect(bySystem.main_story!.totalTokens).toBe(100);
     expect(是否超预算({ inputTokens: 0, outputTokens: 0, totalTokens: 150 }, 100)).toBe(true);
     expect(是否超预算({ inputTokens: 0, outputTokens: 0, totalTokens: 50 }, 100)).toBe(false);
     expect(是否超预算({ inputTokens: 0, outputTokens: 0, totalTokens: 150 }, undefined)).toBe(false);

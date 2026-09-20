@@ -3,6 +3,7 @@ import type { 叙事插图 } from '@/models/chat';
 import type { NovelAITaskOverrides, StorySnapshotRenderContext } from '@/models/imageGeneration';
 import { fetchModels } from '@/services/ai/apiTools';
 import { compileNovelAIPrompt, resolveNovelAIModelProfile } from './novelaiPromptCompiler';
+import { findEndOfCentralDirectory } from '@/utils/zip';
 
 export interface ImageGenerationRequest {
   prompt: string;
@@ -317,10 +318,6 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
 async function readJsonResponse(response: Response, label: string): Promise<any> {
   const text = await response.text().catch(() => '');
   const trimmed = text.trim();
@@ -491,7 +488,8 @@ async function generateOpenAICompatibleImage(config: 文生图API配置, request
     ? `${request.prompt.trim()}\n\nNegative prompt: ${negative}`
     : request.prompt.trim();
   if (referenceImages.length > 0) {
-    return generateOpenAICompatibleReferenceImage(config, request, prompt, referenceImages[0]);
+    const referenceImage = referenceImages[0];
+    if (referenceImage) return generateOpenAICompatibleReferenceImage(config, request, prompt, referenceImage);
   }
 
   const url = joinUrl(config.baseUrl, readOpenAICompatibleImagePath(config));
@@ -724,6 +722,7 @@ async function generateNovelAIImage(config: 文生图API配置, request: ImageGe
     if (typeof b64 === 'string' && b64.trim()) {
       return { src: b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`, mimeType: 'image/png', model: config.model, backend: config.backend };
     }
+    throw new Error('NovelAI 图片接口返回 JSON，但未包含可用的图片数据。');
   }
   const blob = await response.blob();
   const image = await readNovelAIImageBlob(blob, contentType);
@@ -1089,13 +1088,6 @@ function findFirstZipImageEntry(bytes: Uint8Array): { filename: string; compress
   return null;
 }
 
-function findEndOfCentralDirectory(view: DataView): number {
-  for (let offset = view.byteLength - 22; offset >= 0; offset -= 1) {
-    if (view.getUint32(offset, true) === 0x06054b50) return offset;
-  }
-  return -1;
-}
-
 function getZipLocalDataOffset(view: DataView, localHeaderOffset: number): number {
   if (localHeaderOffset < 0 || localHeaderOffset + 30 > view.byteLength) return -1;
   if (view.getUint32(localHeaderOffset, true) !== 0x04034b50) return -1;
@@ -1142,3 +1134,4 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob);
   });
 }
+import { isRecord } from '@/utils/valueGuards';

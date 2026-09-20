@@ -4,12 +4,28 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const dbService = fs.readFileSync('services/dbService.ts', 'utf8');
-const savePackage = fs.readFileSync('services/savePackage.ts', 'utf8');
+// 迁移: 旧 `dbService = readFileSync('services/dbService.ts')`（存档包导入导出实现本体当时就在该文件里）
+//   -> 新 `dbService = dbService.ts + services/storage/saveImportExportService.ts`；
+// 理由: 实现已抽到 services/storage/saveImportExportService.ts，dbService.ts 只保留 re-export；
+// 断言保护的是「dbService 边界对外提供的存档包能力」，不是文件位置，所以按「dbService 边界」整体读取。
+const dbService = [
+  fs.readFileSync('services/dbService.ts', 'utf8'),
+  fs.readFileSync('services/storage/saveImportExportService.ts', 'utf8'),
+].join('\n');
+// 存档导入导出实现已抽到 services/storage/saveImportExportService.ts；按「存档包」整体读取。
+const savePackage = [
+  fs.readFileSync('services/savePackage.ts', 'utf8'),
+  fs.readFileSync('services/storage/saveImportExportService.ts', 'utf8'),
+].join('\n');
 const teyvatSaveContract = fs.readFileSync('models/teyvat/save.ts', 'utf8');
 const saveLoadWorkflow = fs.readFileSync('hooks/useGame/saveLoadWorkflow.ts', 'utf8');
 const saveModal = fs.readFileSync('components/features/SaveLoad/SaveLoadModal.tsx', 'utf8');
-const storageManager = fs.readFileSync('components/features/Settings/StorageManager.tsx', 'utf8');
+// StorageManager 的桌面存储状态与存档树视图已拆到 components/features/Settings/storage/；按「存储设置 UI」整体读取。
+const storageManager = [
+  fs.readFileSync('components/features/Settings/StorageManager.tsx', 'utf8'),
+  fs.readFileSync('components/features/Settings/storage/DesktopStorageStatus.tsx', 'utf8'),
+  fs.readFileSync('components/features/Settings/storage/StorageSaveTreeView.tsx', 'utf8'),
+].join('\n');
 
 assert(savePackage.includes("app: 'KaiTuoYiShi'"), '存档包 manifest 必须标记应用名。');
 assert(teyvatSaveContract.includes("universe: 'teyvat'"), 'Teyvat manifest 必须标记 universe。');

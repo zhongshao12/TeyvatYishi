@@ -136,4 +136,38 @@ await writeTask;
 await firstRepair;
 assert.deepEqual(repaired, [11, 12], '写操作完成后必须继续剩余恢复节点。');
 
+let releaseFirstMutation;
+let markFirstMutationStarted;
+const firstMutationStarted = new Promise((resolve) => {
+  markFirstMutationStarted = resolve;
+});
+const firstMutationGate = new Promise((resolve) => {
+  releaseFirstMutation = resolve;
+});
+const mutationOrder = [];
+const firstMutation = runWithSaveMutationPriority(async () => {
+  mutationOrder.push('first:start');
+  markFirstMutationStarted();
+  await firstMutationGate;
+  mutationOrder.push('first:end');
+});
+await firstMutationStarted;
+const secondMutation = runWithSaveMutationPriority(async () => {
+  mutationOrder.push('second:start');
+  mutationOrder.push('second:end');
+});
+await new Promise((resolve) => setTimeout(resolve, 20));
+assert.deepEqual(
+  mutationOrder,
+  ['first:start'],
+  '同一运行时内的第二个存档写操作必须等待第一个写操作结束。',
+);
+releaseFirstMutation();
+await Promise.all([firstMutation, secondMutation]);
+assert.deepEqual(
+  mutationOrder,
+  ['first:start', 'first:end', 'second:start', 'second:end'],
+  '存档写操作必须按进入顺序串行执行。',
+);
+
 console.log('[save-catalog-behavior-regression] ok');

@@ -21,7 +21,7 @@ import { getMissingPartyMembers } from '@/hooks/useGame/npcPresence';
 import { buildCanonicalTravelerPreset } from '@/data/canonicalTravelerPresets';
 import { parseSTPresetV2 } from '@/utils/stPresetParser';
 import { LUMINE_COMPANION_OPENING_TEXT } from '@/data/openingCompanionScenes';
-import { HIDDEN_ALLURE_SYSTEM_NOTE } from '@/data/storyModeWorldbooks';
+import { createStoryModeWorldbooks } from '@/data/storyModeWorldbooks';
 import { 构建关系图 } from '@/utils/relationshipGraph';
 import { buildNewGameOpeningPayload } from '@/components/features/NewGame/NewGameWizard';
 
@@ -57,8 +57,8 @@ describe('user reported workflow regressions', () => {
     const updated = updateCourierGroupConversation(system, 'group-1', {
       title: '风花节筹备组', memberIds: ['kaeya', 'lisa'],
     });
-    expect(updated.conversations[0].title).toBe('风花节筹备组');
-    expect(updated.conversations[0].participantIds).toEqual(['player', 'kaeya', 'lisa']);
+    expect(updated.conversations[0]!.title).toBe('风花节筹备组');
+    expect(updated.conversations[0]!.participantIds).toEqual(['player', 'kaeya', 'lisa']);
   });
 
   it('adds an archived companion to phone contacts once and links the NPC id', () => {
@@ -170,10 +170,17 @@ describe('user reported workflow regressions', () => {
   });
 
   it('contains group management and mandatory latest-message scrolling hooks in both chat surfaces', () => {
-    const courier = readFileSync(resolve(process.cwd(), 'components/features/Courier/CourierModal.tsx'), 'utf8');
-    const companion = readFileSync(resolve(process.cwd(), 'components/features/GameSystems/CompanionPanel.tsx'), 'utf8');
+    const courier = [
+      'components/features/Courier/CourierModal.tsx',
+      'components/features/Courier/CourierMessageTimeline.tsx',
+    ].map((path) => readFileSync(resolve(process.cwd(), path), 'utf8')).join('\n');
+    const companion = [
+      readFileSync(resolve(process.cwd(), 'components/features/GameSystems/CompanionPanel.tsx'), 'utf8'),
+      readFileSync(resolve(process.cwd(), 'components/features/GameSystems/companion/CompanionRosterSidebar.tsx'), 'utf8'),
+    ].join('\n');
     const chat = readFileSync(resolve(process.cwd(), 'components/features/Chat/ChatList.tsx'), 'utf8');
     expect(courier).toContain('aria-label="群聊设置"');
+    expect(courier).toContain('aria-label="解散群聊"');
     expect(courier).toContain('data-testid="phone-message-bottom"');
     expect(companion).toContain('aria-label="搜索同伴"');
     expect(companion).toContain('添加到手机联系人');
@@ -188,7 +195,7 @@ describe('user reported workflow regressions', () => {
     };
     for (const wrapped of [{ preset: nestedPreset }, { data: nestedPreset }, { settings: nestedPreset }, { data: { settings: { preset: nestedPreset } } }]) {
       const result = parseSTPresetV2(JSON.stringify(wrapped));
-      expect(result.preset?.prompts[0].content).toBe('只用这套酒馆文风。');
+      expect(result.preset?.prompts[0]!.content).toBe('只用这套酒馆文风。');
     }
   });
 
@@ -204,13 +211,15 @@ describe('user reported workflow regressions', () => {
     }
   });
 
-  it('ships the requested harem constitution note and Lumine companion opening scene', () => {
-    expect(HIDDEN_ALLURE_SYSTEM_NOTE).toContain('天相隐魅体 (Hidden Allure)');
-    expect(HIDDEN_ALLURE_SYSTEM_NOTE).toContain('性格绝对留存（核心原则）');
-    expect(HIDDEN_ALLURE_SYSTEM_NOTE).toContain('情感与行为的递进（拒绝一步到位）');
+  it('keeps the harem story mode while removing every Hidden Allure preset', () => {
+    const haremBook = createStoryModeWorldbooks().find((book) => book.id === 'builtin_story_harem');
+    const haremContent = haremBook?.entries.map((entry) => entry.content).join('\n') ?? '';
+    expect(haremContent).not.toContain('天相隐魅体');
+    expect(haremContent).not.toContain('Hidden Allure');
     expect(LUMINE_COMPANION_OPENING_TEXT).toContain('后脑勺传来阵阵撕裂般的剧痛');
     expect(LUMINE_COMPANION_OPENING_TEXT).toContain('旅行者——荧');
-    expect(LUMINE_COMPANION_OPENING_TEXT).toContain('天相隐魅体的微妙磁场');
+    expect(LUMINE_COMPANION_OPENING_TEXT).not.toContain('天相隐魅体');
+    expect(LUMINE_COMPANION_OPENING_TEXT).not.toContain('毫无道理的特殊好感');
     const opening = buildNewGameOpeningPayload({
       presetId: 'official_mondstadt_dragon',
       name: '自定义旅者',
@@ -222,6 +231,7 @@ describe('user reported workflow regressions', () => {
     expect(opening.world.开局档案?.玩家介入原文).toBe(LUMINE_COMPANION_OPENING_TEXT);
     expect(opening.world.原著主角).toBe('荧');
     expect(opening.world.剧情模式).toBe('harem');
+    expect(opening.traveler.能力.join('\n')).not.toContain('天相隐魅体');
   });
 
   it('renders explicit protagonist relationship labels and safe text layers in map and album', () => {
@@ -236,6 +246,6 @@ describe('user reported workflow regressions', () => {
     expect(phone).toContain('Enter 发送');
     expect(map).toContain('data-testid="map-card-content"');
     expect(album).toContain('data-testid="album-content-layer"');
-    expect(构建关系图([npc('amber', '安柏', { 好感度: 35, 关系: 'acquaintance' })]).nodes[0].relationLabel).toBe('熟识');
+    expect(构建关系图([npc('amber', '安柏', { 好感度: 35, 关系: 'acquaintance' })]).nodes[0]!.relationLabel).toBe('熟识');
   });
 });

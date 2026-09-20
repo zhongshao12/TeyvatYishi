@@ -1,6 +1,6 @@
 import { access, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import sharp from '../node_modules/.pnpm/sharp@0.34.5/node_modules/sharp/lib/index.js';
+import sharp from 'sharp';
 import { teyvatAvatarRoster } from './teyvat-avatar-roster.mjs';
 
 const outputPath = resolve(process.argv[2] ?? 'public/assets/teyvat-avatars/contact-sheet.webp');

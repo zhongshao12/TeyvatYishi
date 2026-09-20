@@ -215,10 +215,12 @@ function mergePerspectiveModules(
   if (stContent && result.length > 0) {
     const enabledIdx = result.findIndex((m) => m.enabled);
     if (enabledIdx >= 0) {
+      const enabledModule = result[enabledIdx];
+      if (!enabledModule) return result;
       result[enabledIdx] = {
-        ...result[enabledIdx],
-        content: `${result[enabledIdx].content}\n\n---\n以下是预设的额外视角要求：\n${stContent}`,
-        title: `${result[enabledIdx].title}（含预设融合）`,
+        ...enabledModule,
+        content: `${enabledModule.content}\n\n---\n以下是预设的额外视角要求：\n${stContent}`,
+        title: `${enabledModule.title}（含预设融合）`,
         updatedAt: Date.now(),
       };
     }

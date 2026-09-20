@@ -1,7 +1,5 @@
 import type { SaveUniverse, 存档数据, 存档类型 } from '@/models/settings';
 import { normalizeTeyvatGameState, type TeyvatSaveData } from '@/models/teyvat';
-import { classifySaveUniverse, migratePartialTeyvatSave } from '@/compat/legacy-hsr/migrate';
-import { buildSavePackage, buildSaveTreePackage, parseSavePackageByUniverse, parseSaveTreePackage } from './savePackage';
 import {
   extractSaveAssetRecords,
   materializeSaveAssetRecords,
@@ -13,6 +11,7 @@ import {
 import {
   buildDeltaOnlyStoredSave,
   buildSaveNodeDeltaRecord,
+  canStoreSaveAsDelta,
   isDeltaOnlyStoredSave,
   restoreSaveFromDelta,
   type SaveNodeDeltaRecord,
@@ -37,11 +36,6 @@ import {
   removeSaveNodeDeltasBySaveIdFromDesktopMirror,
   replaceDesktopSaveDeltaMirror,
 } from '@/services/desktop/desktopSaveDeltaMirror';
-import {
-  loadSettingFromDesktopMirror,
-  mirrorSettingToDesktop,
-  removeSettingFromDesktopMirror,
-} from '@/services/desktop/desktopSettingsMirror';
 import {
   cleanupUnreferencedDesktopAssets as cleanupDesktopAssetMirror,
   loadDesktopAssetRecords,
@@ -69,6 +63,7 @@ import {
   createHiddenDeltaBaseCatalogRecord,
   createUnreadableSaveCatalogRecord,
   normalizeSaveCatalogRecord,
+  selectPreferredSaveCatalogSnapshot,
   type SaveCatalogRecord,
   type SaveCatalogSnapshot,
   type SaveListItemSummary,
@@ -83,18 +78,22 @@ import {
   type SaveCatalogRepairState,
 } from '@/services/storage/saveCatalogRepair';
 import { selectSaveNodeRotationCandidates } from '@/services/storage/saveRetention';
+import {
+  openGameDatabase as openDB,
+  SAVES_STORE,
+  SAVE_ASSETS_STORE,
+  SAVE_NODE_DELTAS_STORE,
+  SAVE_SUMMARIES_STORE,
+  SETTINGS_STORE,
+} from '@/services/storage/gameDatabase';
+import { normalizeSaveType } from '@/services/storage/saveRecordFormat';
 
 export type { SaveCatalogSnapshot, SaveListItemSummary } from '@/services/storage/saveCatalog';
 export type { SaveCatalogRepairResult, SaveCatalogRepairScope, SaveCatalogRepairState } from '@/services/storage/saveCatalogRepair';
 export { getSaveCatalogRepairState, subscribeSaveCatalogRepair };
+export { deleteSetting, loadSetting, saveSetting, saveSettings } from '@/services/storage/indexedSettingsStore';
+export { exportSaveJson, exportSavePackage, exportSaveTreePackage, importSaveFile, importSaveFileAsMany, importSaveJson } from '@/services/storage/saveImportExportService';
 
-const DB_NAME = 'TimeJourneyDB';
-const DB_VERSION = 5;
-const SAVES_STORE = 'saves';
-const SAVE_SUMMARIES_STORE = 'saveSummaries';
-const SAVE_ASSETS_STORE = 'saveAssets';
-const SAVE_NODE_DELTAS_STORE = 'saveNodeDeltas';
-const SETTINGS_STORE = 'settings';
 const MAX_DELTA_NODES_PER_CHECKPOINT = 6;
 const SAVE_CATALOG_REPAIR_LEASE_KEY = 'internal.saveCatalogRepairLease.v2';
 const SAVE_CATALOG_REPAIR_LEASE_MS = 60_000;
@@ -110,10 +109,6 @@ type StoredSaveMeta = 存档数据 & {
   };
 };
 
-type SaveWithTree = 存档数据 & {
-  saveTree?: import('@/utils/saveTree').存档树元信息;
-};
-
 export type CloudMergeStagedRecord =
   | { kind: 'node'; createdAt: number; save: 存档数据 }
   | { kind: 'raw-node'; createdAt: number; save: 存档数据 }
@@ -124,57 +119,12 @@ export interface CloudMergeCommitResult {
   assetIds: string[];
 }
 
-let dbPromise: Promise<IDBDatabase> | null = null;
-
-function openDB(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (db: IDBDatabase) => {
-      if (settled) return;
-      settled = true;
-      globalThis.clearTimeout(timeoutId);
-      db.onversionchange = () => {
-        db.close();
-        dbPromise = null;
-      };
-      resolve(db);
-    };
-    const fail = (error: unknown) => {
-      if (settled) return;
-      settled = true;
-      globalThis.clearTimeout(timeoutId);
-      dbPromise = null;
-      reject(error);
-    };
-    const timeoutId = globalThis.setTimeout(() => {
-      fail(new Error('存档数据库打开超时。请关闭其他旅行者纪事页面或刷新后重试。'));
-    }, 8000);
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(SAVES_STORE)) {
-        db.createObjectStore(SAVES_STORE, { keyPath: 'id', autoIncrement: true });
-      }
-      if (!db.objectStoreNames.contains(SAVE_SUMMARIES_STORE)) {
-        db.createObjectStore(SAVE_SUMMARIES_STORE, { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains(SAVE_ASSETS_STORE)) {
-        db.createObjectStore(SAVE_ASSETS_STORE, { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains(SAVE_NODE_DELTAS_STORE)) {
-        db.createObjectStore(SAVE_NODE_DELTAS_STORE, { keyPath: 'nodeId' });
-      }
-      if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
-        db.createObjectStore(SETTINGS_STORE, { keyPath: 'key' });
-      }
-    };
-    request.onsuccess = () => finish(request.result);
-    request.onerror = () => fail(request.error);
-    request.onblocked = () => fail(new Error('存档数据库升级被其他页面占用。请关闭其他旅行者纪事页面或刷新后重试。'));
-  });
-  return dbPromise;
+export interface CloudMergeStagingCleanupSummary {
+  removedRecords: number;
+  retainedRecords: number;
 }
+
+export const CLOUD_MERGE_STAGING_STALE_MS = 24 * 60 * 60 * 1000;
 
 // ── Save operations ──
 
@@ -184,7 +134,7 @@ export async function saveGame(data: 存档数据 | TeyvatSaveData): Promise<num
   }
   const technical = data as TeyvatSaveData & { id?: number; type?: 存档类型; timestamp?: number; saveTree?: import('@/utils/saveTree').存档树元信息 };
   const record = {
-    ...normalizeTeyvatGameState(data),
+    ...data,
     id: Number(technical.id) || 0,
     type: technical.type ?? 'auto',
     timestamp: Number(technical.timestamp) || Date.now(),
@@ -233,6 +183,10 @@ async function saveGameInternal(data: 存档数据, options: SaveGameInternalOpt
   const assetRecords = materializeSaveAssetRecords(extractSaveAssetRecords(data));
   const storedData = stripSaveAssetPayloadForStorage(data);
   const deltaBase = await findAutoDeltaBase(db, storedData);
+  const requestedDeltaOptions = deltaBase
+    ? { baseSave: deltaBase.baseSave, baseSaveId: deltaBase.baseSaveId, storageMode: 'delta' as const }
+    : undefined;
+  const useDeltaStorage = Boolean(deltaBase && canStoreSaveAsDelta(storedData, deltaBase.baseSave));
   const desktopSaveId = options.requireIndexedDbAtomicCommit ? 0 : await reserveDesktopSaveIdSafely(db);
   const desktopPrimarySave = desktopSaveId
     ? ({ ...data, id: desktopSaveId } as 存档数据)
@@ -244,9 +198,7 @@ async function saveGameInternal(data: 存档数据, options: SaveGameInternalOpt
     ? buildSaveNodeDeltaRecord(
       desktopPrimaryStoredSave,
       desktopSaveId,
-      deltaBase
-        ? { baseSave: deltaBase.baseSave, baseSaveId: deltaBase.baseSaveId, storageMode: 'delta' }
-        : undefined,
+      requestedDeltaOptions,
     )
     : null;
   const desktopPrimaryWritten = desktopPrimarySave
@@ -263,7 +215,7 @@ async function saveGameInternal(data: 存档数据, options: SaveGameInternalOpt
     // Web keeps IndexedDB autoIncrement. Desktop reserves ids in saves/sequence.json first
     // so later file-primary save writes do not depend on browser-generated ids.
     for (const record of assetRecords) assetStore.put(record);
-    const initialStoredData = deltaBase
+    const initialStoredData = deltaBase && useDeltaStorage
       ? buildDeltaOnlyStoredSave(storedData, deltaBase.baseSaveId)
       : storedData;
     const { id: _ignoredId, ...rest } = initialStoredData;
@@ -276,16 +228,14 @@ async function saveGameInternal(data: 存档数据, options: SaveGameInternalOpt
       const id = request.result as number;
       savedId = id;
       const savedForDelta = { ...storedData, id } as 存档数据;
-      if (deltaBase) {
-        store.put(buildDeltaOnlyStoredSave(savedForDelta, deltaBase.baseSaveId));
-      }
       const delta = buildSaveNodeDeltaRecord(
         savedForDelta,
         id,
-        deltaBase
-          ? { baseSave: deltaBase.baseSave, baseSaveId: deltaBase.baseSaveId, storageMode: 'delta' }
-          : undefined,
+        requestedDeltaOptions,
       );
+      if (deltaBase && delta?.baseMode === 'delta') {
+        store.put(buildDeltaOnlyStoredSave(savedForDelta, deltaBase.baseSaveId));
+      }
       if (delta) {
         savedDelta = delta;
         deltaStore.put(delta);
@@ -362,13 +312,21 @@ export async function getSaveList(): Promise<SaveListItemSummary[]> {
 export async function getSaveCatalogSnapshot(): Promise<SaveCatalogSnapshot> {
   const desktopList = await loadDesktopSaveMirrorListFirstSafely();
   if (desktopList.length > 0) {
-    return buildSaveCatalogSnapshot(
+    const desktopSnapshot = buildSaveCatalogSnapshot(
       desktopList.map((summary) => createCatalogRecordFromSummary({
         ...summary,
         ...resolveCatalogUniverseVersionForWrite(summary),
       })),
       desktopList.map((summary) => summary.id),
     );
+    try {
+      const db = await openDB();
+      const indexedSnapshot = await readIndexedSaveCatalogSnapshot(db);
+      return selectPreferredSaveCatalogSnapshot(desktopSnapshot, indexedSnapshot);
+    } catch (error) {
+      console.warn('[save-catalog] IndexedDB comparison failed; using desktop catalog', error);
+      return desktopSnapshot;
+    }
   }
   const db = await openDB();
   const indexedSnapshot = await readIndexedSaveCatalogSnapshot(db);
@@ -616,6 +574,44 @@ export async function clearCloudMergeStaging(transferId: string): Promise<void> 
   });
 }
 
+/**
+ * Remove abandoned cloud-merge records left by a crashed/closed restore.
+ * Fresh records are retained so another open tab cannot lose an active merge.
+ */
+export async function cleanupStaleCloudMergeStaging(
+  now = Date.now(),
+  staleMs = CLOUD_MERGE_STAGING_STALE_MS,
+): Promise<CloudMergeStagingCleanupSummary> {
+  const db = await openDB();
+  const prefix = 'internal.cloudMerge.';
+  const summary: CloudMergeStagingCleanupSummary = { removedRecords: 0, retainedRecords: 0 };
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(SETTINGS_STORE, 'readwrite');
+    const request = tx.objectStore(SETTINGS_STORE).openCursor(cloudMergeStageRange(prefix));
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      const staged = (cursor.value as { value?: { createdAt?: unknown } } | undefined)?.value;
+      const createdAt = Number(staged?.createdAt);
+      const expired = !Number.isFinite(createdAt)
+        || createdAt <= 0
+        || now - createdAt > Math.max(1, staleMs);
+      if (expired) {
+        cursor.delete();
+        summary.removedRecords += 1;
+      } else {
+        summary.retainedRecords += 1;
+      }
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error('清理失效云备份暂存记录失败。'));
+    tx.onabort = () => reject(tx.error ?? new Error('清理失效云备份暂存记录已中止。'));
+  });
+  return summary;
+}
+
 export async function commitCloudMergeStaging(transferId: string): Promise<CloudMergeCommitResult> {
   await backupCurrentSavesToDesktop('before-restore');
   return runWithSaveMutationPriority(async () => {
@@ -748,6 +744,7 @@ async function replaceAllSavesInternal(
     deltaStore.clear();
     for (let index = 0; index < nextSaves.length; index += 1) {
       const save = nextSaves[index];
+      if (!save) continue;
       const normalizedId = Number.isFinite(save.id) && save.id > 0 ? save.id : index + 1;
       const normalizedSave = { ...save, id: normalizedId };
       const assetRecords = materializeSaveAssetRecords(extractSaveAssetRecords(normalizedSave));
@@ -1316,99 +1313,7 @@ async function replaceDesktopAssetMirrorSafely(records: SaveAssetRecord[]): Prom
   }
 }
 
-// ── Settings operations ──
-
-export async function saveSetting(key: string, value: unknown): Promise<void> {
-  if (isDesktopRuntime()) {
-    await mirrorSettingToDesktop(key, value);
-    await cacheIndexedSettingSafely(key, value);
-    return;
-  }
-  await writeIndexedSetting(key, value);
-}
-
-export async function loadSetting<T>(key: string): Promise<T | null> {
-  const desktopValue = await loadDesktopSettingFirstSafely<T>(key);
-  if (desktopValue !== null) return desktopValue;
-  const db = await openDB();
-  const indexedValue = await new Promise<T | null>((resolve, reject) => {
-    const tx = db.transaction(SETTINGS_STORE, 'readonly');
-    const store = tx.objectStore(SETTINGS_STORE);
-    const request = store.get(key);
-    request.onsuccess = () => {
-      const result = request.result;
-      resolve(result ? (result.value as T) : null);
-    };
-    request.onerror = () => reject(request.error);
-  });
-  if (indexedValue !== null) return indexedValue;
-  return loadDesktopSettingFallbackSafely<T>(key);
-}
-
-export async function deleteSetting(key: string): Promise<void> {
-  if (isDesktopRuntime()) {
-    await removeSettingFromDesktopMirror(key);
-    await deleteIndexedSettingSafely(key);
-    return;
-  }
-  await deleteIndexedSetting(key);
-}
-
-async function writeIndexedSetting(key: string, value: unknown): Promise<void> {
-  const db = await openDB();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(SETTINGS_STORE, 'readwrite');
-    const store = tx.objectStore(SETTINGS_STORE);
-    store.put({ key, value });
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function cacheIndexedSettingSafely(key: string, value: unknown): Promise<void> {
-  try {
-    await writeIndexedSetting(key, value);
-  } catch (error) {
-    console.warn('[desktop-settings-mirror] IndexedDB setting cache write failed', error);
-  }
-}
-
-async function loadDesktopSettingFirstSafely<T>(key: string): Promise<T | null> {
-  try {
-    return await loadSettingFromDesktopMirror<T>(key);
-  } catch (error) {
-    console.warn('[desktop-settings-mirror] setting priority load failed', error);
-    return null;
-  }
-}
-
-async function loadDesktopSettingFallbackSafely<T>(key: string): Promise<T | null> {
-  try {
-    return await loadSettingFromDesktopMirror<T>(key);
-  } catch (error) {
-    console.warn('[desktop-settings-mirror] setting mirror load failed', error);
-    return null;
-  }
-}
-
-async function deleteIndexedSetting(key: string): Promise<void> {
-  const db = await openDB();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(SETTINGS_STORE, 'readwrite');
-    const store = tx.objectStore(SETTINGS_STORE);
-    store.delete(key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function deleteIndexedSettingSafely(key: string): Promise<void> {
-  try {
-    await deleteIndexedSetting(key);
-  } catch (error) {
-    console.warn('[desktop-settings-mirror] IndexedDB setting cache delete failed', error);
-  }
-}
+// Settings persistence lives in services/storage/indexedSettingsStore.ts.
 
 // ── Per-tree save-node rotation ──
 
@@ -1451,171 +1356,7 @@ function markSaveAsHiddenDeltaBase(
   };
 }
 
-// ── Export / Import ──
-
-type StoredTeyvatSave = TeyvatSaveData & {
-  id?: number;
-  type?: 存档类型;
-  timestamp?: number;
-  saveTree?: import('@/utils/saveTree').存档树元信息;
-};
-
-function normalizeStoredTeyvatSave(value: unknown): StoredTeyvatSave {
-  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  const normalized = normalizeTeyvatGameState(raw);
-  return {
-    ...normalized,
-    ...(Number.isFinite(Number(raw.id)) ? { id: Number(raw.id) } : {}),
-    ...(typeof raw.type === 'string' ? { type: normalizeSaveType(raw.type) } : {}),
-    ...(Number.isFinite(Number(raw.timestamp)) ? { timestamp: Number(raw.timestamp) } : {}),
-    ...(raw.saveTree && typeof raw.saveTree === 'object'
-      ? { saveTree: raw.saveTree as import('@/utils/saveTree').存档树元信息 }
-      : {}),
-  };
-}
-
-function requireTeyvatStoredSave(value: unknown): StoredTeyvatSave {
-  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  if (raw.universe !== 'teyvat' || raw.schemaVersion !== 2) throw new Error('LEGACY_HSR_SAVE_READ_ONLY');
-  return normalizeStoredTeyvatSave(raw);
-}
-
-function migrateImportCandidate(value: unknown, label: string): 存档数据 {
-  const classification = classifySaveUniverse(value);
-  if (classification === 'teyvat') return normalizeStoredTeyvatSave(value) as unknown as 存档数据;
-  if (classification === 'legacy-hsr') throw new Error('LEGACY_HSR_SAVE_READ_ONLY');
-  if (classification === 'partial-teyvat') {
-    const migration = migratePartialTeyvatSave(value, {});
-    if (migration.status === 'migrated') {
-      return normalizeStoredTeyvatSave({ ...(value as Record<string, unknown>), ...migration.state }) as unknown as 存档数据;
-    }
-    if (migration.status === 'needs-input') throw new Error(`${label}迁移需要在游戏存档页确认字段映射`);
-  }
-  throw new Error(`无效的${label}`);
-}
-
-export async function exportSaveJson(save: 存档数据): Promise<void> {
-  const formal = requireTeyvatStoredSave(save);
-  const json = JSON.stringify(normalizeTeyvatGameState(formal), null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const travelerName = sanitizeFilename(formal.旅行者.姓名 || 'traveler');
-  const turnCount = formal.turnCount;
-  const stamp = new Date(formal.timestamp || Date.now())
-    .toISOString()
-    .replace(/[:.]/g, '-');
-  a.download = `KaiTuoYiShi-${travelerName}-turn-${turnCount}-${stamp}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-export async function exportSavePackage(save: 存档数据): Promise<void> {
-  const formal = requireTeyvatStoredSave(save);
-  const blob = await buildSavePackage(formal);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const travelerName = sanitizeFilename(formal.旅行者.姓名 || 'traveler');
-  const turnCount = formal.turnCount;
-  const stamp = new Date(formal.timestamp || Date.now())
-    .toISOString()
-    .replace(/[:.]/g, '-');
-  a.download = `KaiTuoYiShi-${travelerName}-turn-${turnCount}-${stamp}.zip`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-export async function exportSaveTreePackage(saves: 存档数据[]): Promise<void> {
-  const formalSaves = saves.map(requireTeyvatStoredSave);
-  const blob = await buildSaveTreePackage(formalSaves);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const latest = [...formalSaves].sort((left, right) => (Number((right as StoredTeyvatSave).timestamp) || 0) - (Number((left as StoredTeyvatSave).timestamp) || 0))[0];
-  const travelerName = sanitizeFilename(latest?.旅行者.姓名 || 'traveler');
-  const turnCount = latest?.turnCount ?? 0;
-  const stamp = new Date((latest as StoredTeyvatSave | undefined)?.timestamp || Date.now())
-    .toISOString()
-    .replace(/[:.]/g, '-');
-  a.href = url;
-  a.download = `KaiTuoYiShi-${travelerName}-tree-${saves.length}-nodes-turn-${turnCount}-${stamp}.zip`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-export function importSaveJson(json: string): 存档数据 {
-  return migrateImportCandidate(JSON.parse(json), '存档文件');
-}
-
-export async function importSaveFile(file: File): Promise<存档数据> {
-  const name = file.name.toLowerCase();
-  if (name.endsWith('.json') || file.type === 'application/json') {
-    return importSaveJson(await file.text());
-  }
-  if (name.endsWith('.ktysave') || name.endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed') {
-    const parsed = await parseSavePackageByUniverse(await file.arrayBuffer());
-    if (parsed.kind === 'teyvat') return parsed.save as unknown as 存档数据;
-    if (parsed.kind === 'partial-teyvat') return migrateImportCandidate(parsed.raw, '存档包');
-    if (parsed.kind === 'legacy-hsr') throw new Error('LEGACY_HSR_SAVE_READ_ONLY');
-    throw new Error(parsed.errors.join('；') || '无效的存档包');
-  }
-  throw new Error('不支持的存档格式，请选择 .zip、.ktysave 或旧版 .json');
-}
-
-export async function importSaveFileAsMany(file: File): Promise<存档数据[]> {
-  const name = file.name.toLowerCase();
-  if (name.endsWith('.json') || file.type === 'application/json') {
-    return [importSaveJson(await file.text())];
-  }
-  if (name.endsWith('.ktysave') || name.endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed') {
-    const saves = (await parseSaveTreePackage(await file.arrayBuffer())).map((save) => migrateImportCandidate(save, '存档包'));
-    const remapped = remapImportedSaveTree(saves);
-    return remapped;
-  }
-  throw new Error('不支持的存档格式，请选择 .zip、.ktysave 或旧版 .json');
-}
-
-function remapImportedSaveTree(saves: 存档数据[]): 存档数据[] {
-  if (saves.length <= 1) return saves;
-  const rootId = createImportId('save_root_import');
-  const nodeIdMap = new Map<string, string>();
-  for (const save of saves) {
-    const tree = (save as SaveWithTree).saveTree;
-    if (tree?.nodeId) {
-      nodeIdMap.set(tree.nodeId, createImportId('save_node_import'));
-    }
-  }
-  return saves.map((save, index) => {
-    const tree = (save as SaveWithTree).saveTree;
-    if (!tree?.nodeId) {
-      return {
-        ...save,
-        saveTree: {
-          rootId,
-          nodeId: createImportId('save_node_import'),
-          branchName: '导入节点',
-          createdAt: save.timestamp || Date.now() + index,
-        },
-      } as 存档数据;
-    }
-    return {
-      ...save,
-      saveTree: {
-        ...tree,
-        rootId,
-        nodeId: nodeIdMap.get(tree.nodeId) ?? createImportId('save_node_import'),
-        parentNodeId: tree.parentNodeId ? nodeIdMap.get(tree.parentNodeId) : undefined,
-        branchName: tree.branchName ?? '导入节点',
-        createdAt: tree.createdAt || save.timestamp || Date.now() + index,
-      },
-    } as 存档数据;
-  });
-}
-
-function createImportId(prefix: string): string {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-}
+// Save import/export lives in services/storage/saveImportExportService.ts.
 
 function stripCloudBackupRestoreRuntime<T extends 存档数据>(save: T): T {
   const source = save as T & { saveRuntime?: Record<string, unknown> };
@@ -1642,10 +1383,6 @@ function cloudMergeStageKey(transferId: string, recordKey: string): string {
 
 function cloudMergeStageRange(prefix: string): IDBKeyRange {
   return IDBKeyRange.bound(prefix, `${prefix}\uffff`, false, false);
-}
-
-function normalizeSaveType(type: unknown): 存档类型 {
-  return type === 'auto' || type === 'backup' || type === 'imported' ? type : 'manual';
 }
 
 function sortSaveSummaries(list: SaveListItemSummary[]): SaveListItemSummary[] {
@@ -1964,12 +1701,4 @@ function estimateSaveSize(save: 存档数据): number {
       String(task.retryHint ?? '').length;
   }, 0);
   return Math.max(1024, chatBytes * 2 + albumBytes + queueBytes * 2 + 48_000);
-}
-
-function sanitizeFilename(name: string): string {
-  return name
-    .trim()
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, '_')
-    .slice(0, 48) || 'traveler';
 }

@@ -41,7 +41,9 @@ export async function exportAlbumInWorker(
       onProgress?.({ stage: 'hashing', completed: index, total: album.assets.length });
       // Resolve binary on the main thread (Blob cache) so the worker can pack ZIP
       // without needing multi-MB dataUrls in React album state.
-      const exportAsset = await materializeAssetForWorkerExport(album.assets[index]);
+      const asset = album.assets[index];
+      if (!asset) continue;
+      const exportAsset = await materializeAssetForWorkerExport(asset);
       await requestWorker(worker, { type: 'export:asset', asset: exportAsset });
     }
     onProgress?.({ stage: 'building', completed: album.assets.length, total: album.assets.length });
@@ -76,7 +78,9 @@ export async function importAlbumInWorker(params: {
       : [];
     for (let index = 0; index < missingHashes.length; index += 1) {
       params.onProgress?.({ stage: 'hashing', completed: index, total: missingHashes.length });
-      const hashAsset = await materializeAssetForWorkerExport(missingHashes[index]);
+      const asset = missingHashes[index];
+      if (!asset) continue;
+      const hashAsset = await materializeAssetForWorkerExport(asset);
       await requestWorker(worker, { type: 'import:hash-asset', asset: hashAsset });
     }
 

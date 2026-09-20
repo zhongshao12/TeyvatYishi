@@ -1,6 +1,7 @@
 import type { 世界状态, 时段定义 } from '@/models/world';
 import { 推进旅行日期 } from '@/models/world';
 import { timePeriodPresets } from '@/data/timePeriodPresets';
+import { parseGameClock } from '@/utils/gameClock';
 
 export function switchTimePeriod(
   state: 世界状态,
@@ -68,19 +69,8 @@ function addMinutes(time: string, delta: number): string {
 function normalizeClock(value: string): string {
   const raw = value?.trim();
   if (!raw) return '';
-  const embedded = raw.match(/(\d{1,2}:\d{2})/);
-  if (embedded) {
-    const [hours, minutes] = embedded[1].split(':').map((part) => Number(part));
-    if (Number.isFinite(hours) && Number.isFinite(minutes)) {
-      return `${Math.max(0, Math.min(23, hours)).toString().padStart(2, '0')}:${Math.max(0, Math.min(59, minutes)).toString().padStart(2, '0')}`;
-    }
-  }
-  if (/^\d{1,2}:\d{2}$/.test(raw)) {
-    const [hours, minutes] = raw.split(':').map((part) => Number(part));
-    if (Number.isFinite(hours) && Number.isFinite(minutes)) {
-      return `${Math.max(0, Math.min(23, hours)).toString().padStart(2, '0')}:${Math.max(0, Math.min(59, minutes)).toString().padStart(2, '0')}`;
-    }
-  }
+  const parsed = parseGameClock(raw);
+  if (parsed) return parsed;
   return getDefaultTimeByPeriod(raw);
 }
 

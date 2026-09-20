@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -7,7 +8,10 @@ function assert(condition, message) {
 const settings = fs.readFileSync('models/settings.ts', 'utf8');
 const settingsModal = fs.readFileSync('components/features/Settings/SettingsModal.tsx', 'utf8');
 const extraTab = fs.readFileSync('components/features/Settings/ExtraFeaturesSettingsTab.tsx', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+// 迁移: 主剧情工作流读取改走 readWorkflowSources()（WORKFLOW_FILES 登记文件的拼接视图）。
+// 理由: 这些断言保护的是行为，不是文件位置；阶段模块拆分后代码一搬走就不再假红。
+// 注: hooks/useGameState.ts 与 hooks/useGame/saveLoadWorkflow.ts 不在登记表内，保持各自的显式读取。
+const sendWorkflow = readWorkflowSources();
 const useGameState = fs.readFileSync('hooks/useGameState.ts', 'utf8');
 const saveLoadWorkflow = fs.readFileSync('hooks/useGame/saveLoadWorkflow.ts', 'utf8');
 const sanitizer = fs.readFileSync('utils/textSanitizer.ts', 'utf8');

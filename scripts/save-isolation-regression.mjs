@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 const appSource = fs.readFileSync('App.tsx', 'utf8');
 const saveLoadSource = fs.readFileSync('hooks/useGame/saveLoadWorkflow.ts', 'utf8');
@@ -6,7 +7,7 @@ const codexPresetSource = fs.readFileSync('data/codexPreset.ts', 'utf8');
 const savePackageSource = fs.readFileSync('services/savePackage.ts', 'utf8');
 const dbServiceSource = fs.readFileSync('services/dbService.ts', 'utf8');
 const useGameSource = fs.readFileSync('hooks/useGame.ts', 'utf8');
-const sendWorkflowSource = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const sendWorkflowSource = readWorkflowSources();
 const allSources = [
   appSource,
   saveLoadSource,
@@ -38,7 +39,20 @@ assert(dbServiceSource.includes('...data'), '数据库信封必须由当前 Teyv
 
 assert(!allSources.includes('phoneSystemState'), '手机运行时数据不得写入或读取全局 phoneSystemState，避免多存档聊天/通讯录互串。');
 assert(!saveLoadSource.includes('mergePhoneSystems'), '读档不得把目标存档手机与外部手机状态合并。');
-assert(appSource.includes('onCourierChange={(手机) => state.updateGameState'), '手机 UI 修改只能进入当前正式运行态。');
+// 迁移: 旧 `onCourierChange={(手机) => state.updateGameState(...)}` -> 新 `onCourierChange={state.set手机}` /
+//   `onCourierChange: (update) => state.set手机(update)`；
+// 理由: 手机变更回调收敛为 useGameState 暴露的领域 setter，而 useGameState 的 set手机 内部依旧是
+//   `updateGameState((current) => ({ ...current, 手机: applyStateAction(current.手机, action) }))` 写入 Teyvat 根。
+// 意图不变——手机 UI 修改仍只进入当前正式运行态，不写全局 sidecar、不落到存档之外的状态。
+const courierSetterWritesRuntimeRoot = useGameStateSource.includes(
+  'updateGameState((current) => ({ ...current, 手机: applyStateAction(current.手机, action) }))',
+);
+assert(
+  appSource.includes('onCourierChange={state.set手机}')
+    && appSource.includes('onCourierChange: (update) => state.set手机(update)')
+    && courierSetterWritesRuntimeRoot,
+  '手机 UI 修改只能进入当前正式运行态。',
+);
 
 assert(!saveLoadSource.includes('state.setApiSettings(save.apiSettings)'), '读档不得用存档里的 apiSettings 覆盖本机 API 设置。');
 assert(!saveLoadSource.includes('state.setCurrentTheme(save.theme)'), '读档不得用存档主题覆盖本机主题偏好。');

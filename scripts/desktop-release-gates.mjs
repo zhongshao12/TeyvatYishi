@@ -38,10 +38,8 @@ const latest = readJson(latestPath);
 const releaseManifest = readJson(releaseManifestPath);
 const windowsPlatform = latest.platforms?.['windows-x86_64-nsis'] || latest.platforms?.['windows-x86_64'];
 const generatedAt = new Date().toISOString();
-const localArtifactsChecked = previousContent.includes('- [x] 已运行 `npm.cmd run desktop:verify-release`')
-  || process.env.DESKTOP_RELEASE_GATES_LOCAL_READY === '1';
-const readinessChecked = previousContent.includes('- [x] 已运行 `npm.cmd run desktop:readiness`')
-  || process.env.DESKTOP_RELEASE_GATES_READINESS_READY === '1';
+const localArtifactsChecked = previousContent.includes('- [x] 已运行 `npm.cmd run desktop:verify-release`');
+const readinessChecked = previousContent.includes('- [x] 已运行 `npm.cmd run desktop:readiness`');
 const localArtifactState = inspectLocalArtifacts({
   version,
   installerName,

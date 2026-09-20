@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { build } from 'esbuild';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 async function importBundled(entryPoint) {
   const result = await build({
@@ -154,7 +155,7 @@ assert.equal(repeated[0].同行记忆.length, first[0].同行记忆.length, '同
 const stateSource = fs.readFileSync('models/teyvat/state.ts', 'utf8');
 const settingsSource = fs.readFileSync('models/settings.ts', 'utf8');
 const uiSource = fs.readFileSync('components/features/Courier/CourierModal.tsx', 'utf8');
-const workflowSource = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const workflowSource = readWorkflowSources();
 assert.match(stateSource, /手机: CourierSystem/);
 assert.doesNotMatch(stateSource, /信使: CourierSystem/);
 assert.match(settingsSource, /手机系统: 手机系统设置/);

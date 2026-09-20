@@ -1,3 +1,4 @@
+import { CLIP_ITEM, CLIP_SECTION, insetRing } from '@/styles/clipPaths';
 ﻿// 记忆系统面板（v2）。
 // 左侧切换 即时 / 短期 / 中期 / 长期，右侧显示条目与整理动作。
 
@@ -22,17 +23,15 @@ interface MemoryPanelProps {
 
 type MemoryLayer = 'immediate' | 'short' | 'middle' | 'long' | 'failed';
 
-const cardClip =
-  'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)';
-const smallClip =
-  'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)';
+
+
 
 const panelStyle = {
   background:
     'radial-gradient(circle at 10% 0%, rgba(var(--tj-arcane-accent), 0.075), transparent 34%), linear-gradient(180deg, rgba(var(--tj-bubble), 0.96), rgba(var(--tj-surface-strong), 0.94))',
   boxShadow:
     'inset 0 0 0 1px rgba(var(--tj-border), 0.62), 0 14px 32px rgba(var(--tj-shadow), 0.1)',
-  clipPath: cardClip,
+  clipPath: CLIP_SECTION,
 };
 
 const layerMeta: Record<MemoryLayer, { label: string; subtitle: string; accent: string }> = {
@@ -179,7 +178,7 @@ export function MemoryPanel({
                     boxShadow: active
                       ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.58), inset 3px 0 0 linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))'
                       : 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.18)',
-                    clipPath: smallClip,
+                    clipPath: CLIP_ITEM,
                   }}
                 >
                   <div className="flex items-center justify-between gap-3">
@@ -293,8 +292,8 @@ function MetricTile({ label, value }: { label: string; value: string }) {
       className="px-3 py-2"
       style={{
         background: 'rgba(var(--tj-accent-primary), 0.055)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.22)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.22),
+        clipPath: CLIP_ITEM,
       }}
     >
       <div className="font-serif text-[12px] tracking-[0.16em]" style={{ color: 'rgba(var(--tj-text-secondary), 0.82)' }}>
@@ -314,7 +313,7 @@ function MemoryRow({ index, text }: { index: number; text: string }) {
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-bubble),0.84), rgba(var(--tj-surface-strong),0.56))',
         boxShadow: 'inset 2px 0 0 rgba(var(--tj-accent-primary), 0.6), inset 0 0 0 1px rgba(var(--tj-border), 0.48)',
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       <div className="font-serif text-[11px] tracking-[0.16em]" style={{ color: 'rgba(var(--tj-text-secondary), 0.72)' }}>
@@ -333,8 +332,8 @@ function HintCard({ title, value, text }: { title: string; value: string; text: 
       className="px-3 py-3"
       style={{
         background: 'rgba(var(--tj-accent-primary), 0.05)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.16),
+        clipPath: CLIP_ITEM,
       }}
     >
       <div className="font-serif text-[12px] tracking-[0.18em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.92), rgba(var(--tj-accent-secondary),0.88))' }}>
@@ -357,7 +356,7 @@ function EmptyNotice({ title, text }: { title: string; text: string }) {
       style={{
         background: 'rgba(var(--tj-text-secondary), 0.055)',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.2)',
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       <div className="font-serif text-[15px] font-semibold tracking-[0.18em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))' }}>
@@ -393,7 +392,7 @@ function FailedDraftList({
           color: 'rgba(var(--tj-text-secondary), 0.84)',
           background: 'rgba(var(--tj-danger), 0.06)',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger), 0.2)',
-          clipPath: smallClip,
+          clipPath: CLIP_ITEM,
         }}
       >
         这里保留的是每次总结失败时真正送入模型的完整批次材料。例如第 1—15 回合失败，草稿就会保存这 15 回合的原始内容；重试不会重新读取后来变化的正文。
@@ -430,7 +429,7 @@ function FailedDraftRow({
           ? 'linear-gradient(135deg, rgba(var(--tj-danger),0.12), rgba(var(--tj-surface-strong),0.56))'
           : 'rgba(var(--tj-text-secondary), 0.045)',
         boxShadow: `inset 2px 0 0 ${pending ? 'rgba(var(--tj-danger), 0.82)' : 'rgba(var(--tj-text-secondary), 0.36)'}, inset 0 0 0 1px rgba(var(--tj-border), 0.48)`,
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -495,8 +494,8 @@ function ActionButton({
       className="font-serif text-[12px] tracking-[0.18em] px-3 py-1.5 transition-all hover:bg-[rgba(var(--tj-accent-primary),0.08)] disabled:cursor-not-allowed disabled:opacity-45"
       style={{
         color: 'rgb(var(--tj-text-primary))',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.4)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.4),
+        clipPath: CLIP_ITEM,
       }}
     >
       {children}

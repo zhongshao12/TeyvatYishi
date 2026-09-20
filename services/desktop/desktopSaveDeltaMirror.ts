@@ -149,7 +149,7 @@ export async function inspectDesktopSaveDeltaMirrorHealth(): Promise<DesktopSave
   for (const fileName of fileNames) {
     const match = fileName.match(DELTA_RECORD_RE);
     if (!match) continue;
-    const nodeId = decodeDeltaFileName(match[1]);
+    const nodeId = decodeDeltaFileName(match[1] ?? '');
     if (!nodeId) continue;
     fileNodeIds.add(nodeId);
     try {
@@ -219,7 +219,7 @@ async function rebuildDeltaIndexFromFiles(
   for (const fileName of fileNames) {
     const match = fileName.match(DELTA_RECORD_RE);
     if (!match) continue;
-    const nodeId = decodeDeltaFileName(match[1]);
+    const nodeId = decodeDeltaFileName(match[1] ?? '');
     if (!nodeId) continue;
     try {
       const record = await adapter.readJson<DesktopSaveDeltaMirrorRecord>(deltaPath(nodeId));

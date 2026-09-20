@@ -16,6 +16,7 @@ export function addInventoryItem(inventory: TeyvatInventory, input: unknown): Te
   }
 
   const existing = inventory.items[existingIndex];
+  if (!existing) throw new Error('UNKNOWN_INVENTORY_ITEM');
   if (existing.stackable === false || item.stackable === false) throw new Error('DUPLICATE_INVENTORY_ITEM');
 
   return {
@@ -38,6 +39,7 @@ export function consumeInventoryItem(
   if (existingIndex < 0) throw new Error('UNKNOWN_INVENTORY_ITEM');
 
   const existing = inventory.items[existingIndex];
+  if (!existing) throw new Error('UNKNOWN_INVENTORY_ITEM');
   if (quantity > existing.quantity) throw new Error('INSUFFICIENT_ITEM_QUANTITY');
 
   if (quantity === existing.quantity) {

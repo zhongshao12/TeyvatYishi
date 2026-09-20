@@ -8,7 +8,7 @@ import {
   putCloudBackupTransferPart,
   updateCloudBackupTransfer,
 } from '@/services/storage/cloudBackupTransferStore';
-import { githubRequest, readGitHubError, type GitHubRetryNotice } from '@/services/githubRequest';
+import { githubRequest, readGitHubError, readGitHubResponseBytes, type GitHubRetryNotice } from '@/services/githubRequest';
 import { parseSavePackage } from '@/services/savePackage';
 
 const GITHUB_API = 'https://api.github.com';
@@ -76,6 +76,19 @@ export interface GitHubCloudTransferOptions {
 export interface DownloadedCloudBackupV2 {
   transferId: string;
   pointer: CloudBackupPointerV2;
+}
+
+export class GitHubCloudWriteConflictError extends Error {
+  readonly code = 'GITHUB_CLOUD_POINTER_CONFLICT';
+
+  constructor() {
+    super('云端备份已被另一台设备更新。为避免覆盖，请先重新检查并合并云端存档后再上传。');
+    this.name = 'GitHubCloudWriteConflictError';
+  }
+}
+
+export function assertCloudPointerRevision(expected: string | null, current: string | null): void {
+  if (expected !== current) throw new GitHubCloudWriteConflictError();
 }
 
 interface GitHubContentResponse {
@@ -224,6 +237,7 @@ export async function uploadCompleteBackupToGitHub(
   assertNotAborted(options.signal);
   await updateCloudBackupTransfer(transferId, { phase: 'uploading', pointer });
 
+  const expectedPointerRevision = await readCloudPointerRevision(config, options.signal);
   // 旧指针或旧 manifest 即使损坏，也不能阻止玩家用一次新的完整备份修复云端。
   const oldPointer = await readCloudBackupPointer(config, options.signal).catch(() => null);
   const oldManifest = await readManifest(config, options.signal).catch(() => null);
@@ -232,6 +246,7 @@ export async function uploadCompleteBackupToGitHub(
     for (let index = 0; index < pointer.parts.length; index += 1) {
       assertNotAborted(options.signal);
       const meta = pointer.parts[index];
+      if (!meta) throw new Error(`云端备份清单缺少分卷 ${index + 1}。`);
       options.onProgress?.({
         phase: 'uploading-part',
         current: index,
@@ -288,7 +303,7 @@ export async function uploadCompleteBackupToGitHub(
         sha: null,
       })),
     ];
-    await publishAtomicCloudCommit(config, treeEntries, pointer, options);
+    await publishAtomicCloudCommit(config, treeEntries, pointer, expectedPointerRevision, options);
     await updateCloudBackupTransfer(transferId, { phase: 'completed', pointer });
     await deleteCloudBackupTransfer(transferId);
     options.onProgress?.({
@@ -317,6 +332,7 @@ export async function downloadCompleteBackupFromGitHub(
     for (let index = 0; index < pointer.parts.length; index += 1) {
       assertNotAborted(options.signal);
       const part = pointer.parts[index];
+      if (!part) throw new Error(`云端备份清单缺少分卷 ${index + 1}。`);
       options.onProgress?.({
         phase: 'downloading-part',
         current: index,
@@ -500,12 +516,15 @@ async function publishAtomicCloudCommit(
   config: GitHubCloudSaveConfig,
   treeEntries: GitTreeEntry[],
   pointer: CloudBackupPointerV2,
+  expectedPointerRevision: string | null,
   options: GitHubCloudTransferOptions,
 ): Promise<void> {
   let lastConflict: Error | null = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     assertNotAborted(options.signal);
     const head = await getBranchHead(config, options);
+    const currentPointerRevision = await readCloudPointerRevision(config, options.signal, head);
+    assertCloudPointerRevision(expectedPointerRevision, currentPointerRevision);
     const baseCommit = await getGitCommit(config, head, options);
     if (!baseCommit.tree?.sha) throw new Error('GitHub 当前分支提交没有可用的基础 tree。');
     const treeSha = await createGitTree(config, baseCommit.tree.sha, treeEntries, options);
@@ -655,8 +674,9 @@ async function getContent(
   config: GitHubCloudSaveConfig,
   path: string,
   signal?: AbortSignal,
+  ref?: string,
 ): Promise<GitHubContentResponse | null> {
-  const response = await githubRequest(contentUrl(config, path), {
+  const response = await githubRequest(contentUrl(config, path, ref), {
     headers: githubHeaders(config),
     phase: '读取 GitHub 文件',
     signal,
@@ -666,6 +686,15 @@ async function getContent(
   const data = await response.json();
   if (Array.isArray(data)) throw new Error('云存档路径指向了目录，不是文件。');
   return data as GitHubContentResponse;
+}
+
+async function readCloudPointerRevision(
+  config: GitHubCloudSaveConfig,
+  signal?: AbortSignal,
+  ref?: string,
+): Promise<string | null> {
+  const content = await getContent(config, backupPointerPath(config), signal, ref);
+  return content?.sha || null;
 }
 
 async function putContent(
@@ -708,7 +737,11 @@ async function readOptionalFileBytes(
   });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(await readGitHubError(response, `${request?.phase ?? '读取 GitHub 云存档文件'}失败`));
-  return new Uint8Array(await response.arrayBuffer());
+  return readGitHubResponseBytes(response, {
+    signal,
+    timeoutMs: request?.timeoutMs,
+    phase: request?.phase ?? '读取 GitHub 云存档文件',
+  });
 }
 
 async function readFileBytes(
@@ -805,8 +838,8 @@ function repoApi(config: GitHubCloudSaveConfig): string {
   return `${GITHUB_API}/repos/${encodeURIComponent(config.owner.trim())}/${encodeURIComponent(config.repo.trim())}`;
 }
 
-function contentUrl(config: GitHubCloudSaveConfig, path: string): string {
-  return `${repoApi(config)}/contents/${encodePath(path)}?ref=${encodeURIComponent(config.branch.trim())}`;
+function contentUrl(config: GitHubCloudSaveConfig, path: string, ref = config.branch.trim()): string {
+  return `${repoApi(config)}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`;
 }
 
 function backupPointerPath(config: GitHubCloudSaveConfig): string {
@@ -847,13 +880,6 @@ function formatWait(waitMs: number): string {
   return waitMs >= 1_000 ? `${Math.ceil(waitMs / 1_000)} 秒` : '片刻';
 }
 
-function assertNotAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw signal.reason ?? new DOMException('云备份操作已取消。', 'AbortError');
-}
-
-function yieldToMainThread(): Promise<void> {
-  return new Promise((resolve) => globalThis.setTimeout(resolve, 0));
-}
 
 function delayWithSignal(milliseconds: number, signal?: AbortSignal): Promise<void> {
   assertNotAborted(signal);
@@ -869,3 +895,4 @@ function delayWithSignal(milliseconds: number, signal?: AbortSignal): Promise<vo
     signal?.addEventListener('abort', abort, { once: true });
   });
 }
+import { assertNotAborted, yieldToMainThread } from '@/utils/asyncControl';

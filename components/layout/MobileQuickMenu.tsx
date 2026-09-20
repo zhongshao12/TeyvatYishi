@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_LARGE, CLIP_PANEL, insetRing } from '@/styles/clipPaths';
 ﻿import { useMemo, useState } from 'react';
 import { GAME_MENU_ITEMS, type GameSystemId } from '@/data/gameMenu';
 import { JournalSystemTabs } from '@/components/layout/JournalSystemTabs';
@@ -22,8 +23,7 @@ type MenuItem = {
   badge?: number;
 };
 
-const itemClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
+
 
 export function MobileQuickMenu({
   onCharacter,
@@ -76,7 +76,7 @@ export function MobileQuickMenu({
           style={{
             background: 'linear-gradient(180deg, rgba(var(--tj-surface), 0.94), rgba(var(--tj-bg-primary), 0.96))',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24), 0 16px 36px rgba(var(--tj-shadow), 0.3)',
-            clipPath: 'polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)',
+            clipPath: CLIP_PANEL,
           }}
         >
           <div className="flex items-center justify-between border-b border-[rgba(var(--tj-accent-primary),0.16)] px-3 py-2">
@@ -100,7 +100,7 @@ export function MobileQuickMenu({
         style={{
           background: 'linear-gradient(180deg, rgba(var(--tj-surface), 0.92), rgba(var(--tj-bg-primary), 0.95))',
           boxShadow: 'inset 0 1px 0 rgba(var(--tj-accent-primary), 0.28), inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24), 0 -10px 28px rgba(var(--tj-shadow), 0.32)',
-          clipPath: 'polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px)',
+          clipPath: CLIP_LARGE,
         }}
       >
         {primaryItems.map((item) => (
@@ -131,8 +131,8 @@ function DockButton({ item, active = false, onClick }: { item: MenuItem; active?
           : 'linear-gradient(180deg, rgba(var(--tj-bg-secondary), 0.58), rgba(var(--tj-bg-primary), 0.36))',
         boxShadow: active
           ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.62), 0 0 16px rgba(var(--tj-accent-primary), 0.16)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
-        clipPath: itemClip,
+          : insetRing(0.28),
+        clipPath: CLIP_CARD,
       }}
       aria-label={item.label}
       title={item.label}
@@ -158,8 +158,8 @@ function MenuTile({ item, onClick }: { item: MenuItem; onClick: () => void }) {
         style={{
           color: 'var(--journal-antique-gold)',
           background: 'rgba(var(--tj-bg-secondary), 0.5)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24)',
-          clipPath: itemClip,
+          boxShadow: insetRing(0.24),
+          clipPath: CLIP_CARD,
         }}
       >
         {item.glyph}

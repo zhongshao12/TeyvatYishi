@@ -1,3 +1,5 @@
+import { CLIP_CARD, CLIP_SMALL, gradientAccent, insetRing } from '@/styles/clipPaths';
+import { useSavedFlash } from '@/hooks/useSavedFlash';
 ﻿import { useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { VariableSetters } from '@/utils/variableExecutor';
@@ -19,10 +21,8 @@ interface Props {
   editingLocked?: boolean;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
+
+
 
 type SystemKey = 'traveler' | 'world' | 'memory' | 'irminsul' | 'courier' | 'npc' | 'steambird' | 'codex' | 'storyWeaving';
 type EditMode = 'fields' | 'json';
@@ -39,7 +39,7 @@ interface SystemMeta {
   hiddenFields?: string[];
 }
 
-const SYSTEMS: SystemMeta[] = [
+const SYSTEMS: [SystemMeta, ...SystemMeta[]] = [
   {
     key: 'traveler',
     label: '旅人',
@@ -66,10 +66,6 @@ function deepClone<T>(value: T): T {
 
 function toJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function omitHiddenFields(value: unknown, fields?: string[]): unknown {
@@ -142,8 +138,8 @@ function ArrayItemList({ items, search, onSearch, activeIndex, onSelect, accent 
       className="flex max-h-[34dvh] flex-col overflow-hidden md:max-h-none"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.42)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
-        clipPath: cardClip,
+        boxShadow: insetRing(0.14),
+        clipPath: CLIP_CARD,
       }}
     >
       <div className="border-b px-3 py-2" style={{ borderColor: 'rgba(var(--tj-accent-primary),0.12)' }}>
@@ -155,7 +151,7 @@ function ArrayItemList({ items, search, onSearch, activeIndex, onSelect, accent 
           onChange={(e) => onSearch(e.target.value)}
           placeholder="搜索…"
           className="teyvat-input w-full px-2 py-1.5 text-[13px]"
-          style={{ clipPath: smallClip }}
+          style={{ clipPath: CLIP_SMALL }}
           spellCheck={false}
         />
       </div>
@@ -178,8 +174,8 @@ function ArrayItemList({ items, search, onSearch, activeIndex, onSelect, accent 
                     : 'rgba(var(--tj-bg-secondary), 0.34)',
                   boxShadow: active
                     ? `inset 3px 0 0 ${accent}, inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.56)`
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-                  clipPath: smallClip,
+                    : insetRing(0.12),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div className="flex items-center gap-2">
@@ -296,7 +292,7 @@ export function VariableManagerTab(props: Props) {
   const [draft, setDraft] = useState<unknown>(null);
   const [jsonDraft, setJsonDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const { savedFlash, showSavedFlash, clearSavedFlash } = useSavedFlash(1400);
   // 数组型系统（伙伴/周报）的二级导航状态。
   const [activeArrayIndex, setActiveArrayIndex] = useState(0);
   const [arraySearch, setArraySearch] = useState('');
@@ -327,7 +323,7 @@ export function VariableManagerTab(props: Props) {
     setDraft(nextDraft);
     setJsonDraft((current) => current === null ? null : toJson(nextDraft));
     setError(null);
-    setSavedFlash(false);
+    clearSavedFlash();
   }, [activeKey, visibleValue]);
 
   const updateDraft = (next: unknown) => {
@@ -345,8 +341,7 @@ export function VariableManagerTab(props: Props) {
       setDraft(deepClone(parsed));
       setJsonDraft(mode === 'json' ? toJson(parsed) : null);
       setError(null);
-      setSavedFlash(true);
-      window.setTimeout(() => setSavedFlash(false), 1400);
+      showSavedFlash();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'JSON 解析失败');
     }
@@ -397,8 +392,8 @@ export function VariableManagerTab(props: Props) {
         className="max-h-[34dvh] space-y-2 overflow-y-auto p-3 md:max-h-none"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.42)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.14),
+          clipPath: CLIP_CARD,
         }}
       >
         <div className="px-1 pb-1">
@@ -432,8 +427,8 @@ export function VariableManagerTab(props: Props) {
                   : 'rgba(var(--tj-bg-secondary), 0.34)',
                 boxShadow: active
                   ? `inset 3px 0 0 ${system.accent}, inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.56), 0 0 18px rgba(var(--tj-arcane-accent), 0.10)`
-                  : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-                clipPath: smallClip,
+                  : insetRing(0.12),
+                clipPath: CLIP_SMALL,
               }}
             >
               <div className="flex items-center justify-between gap-2">
@@ -469,7 +464,7 @@ export function VariableManagerTab(props: Props) {
           style={{
             background: 'linear-gradient(135deg, rgba(var(--tj-arcane-accent), 0.10), rgba(var(--tj-bg-secondary), 0.42) 58%, rgba(var(--tj-bg-secondary), 0.68))',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.18)',
-            clipPath: cardClip,
+            clipPath: CLIP_CARD,
           }}
         >
           <div className="flex flex-wrap items-center gap-3">
@@ -494,7 +489,7 @@ export function VariableManagerTab(props: Props) {
                   style={{
                     color: activeSystem.policy === 'writable' ? 'rgba(var(--tj-ui-success),0.95)' : 'rgba(var(--tj-ui-muted),0.86)',
                     boxShadow: `inset 0 0 0 1px ${activeSystem.policy === 'writable' ? 'rgba(180,235,190,0.35)' : 'rgba(var(--tj-arcane-accent),0.24)'}`,
-                    clipPath: smallClip,
+                    clipPath: CLIP_SMALL,
                   }}
                 >
                   {policyLabel(activeSystem.policy)}
@@ -515,10 +510,10 @@ export function VariableManagerTab(props: Props) {
               onClick={() => switchMode('fields')}
               className="px-4 py-1.5 text-sm font-serif tracking-wider"
               style={{
-                background: mode === 'fields' ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))' : 'transparent',
+                background: mode === 'fields' ? gradientAccent(0.95, 0.86) : 'transparent',
                 color: mode === 'fields' ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.85)',
-                boxShadow: mode === 'fields' ? 'none' : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24)',
-                clipPath: smallClip,
+                boxShadow: mode === 'fields' ? 'none' : insetRing(0.24),
+                clipPath: CLIP_SMALL,
               }}
             >
               逐条修改
@@ -527,10 +522,10 @@ export function VariableManagerTab(props: Props) {
               onClick={() => switchMode('json')}
               className="px-4 py-1.5 text-sm font-serif tracking-wider"
               style={{
-                background: mode === 'json' ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))' : 'transparent',
+                background: mode === 'json' ? gradientAccent(0.95, 0.86) : 'transparent',
                 color: mode === 'json' ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.85)',
-                boxShadow: mode === 'json' ? 'none' : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24)',
-                clipPath: smallClip,
+                boxShadow: mode === 'json' ? 'none' : insetRing(0.24),
+                clipPath: CLIP_SMALL,
               }}
             >
               整体 JSON
@@ -543,7 +538,7 @@ export function VariableManagerTab(props: Props) {
                 onClick={resetDraft}
                 disabled={props.editingLocked}
                 className="px-3 py-1.5 text-sm font-serif tracking-wider"
-                style={{ color: 'rgba(var(--tj-text-secondary), 0.85)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)', clipPath: smallClip }}
+                style={{ color: 'rgba(var(--tj-text-secondary), 0.85)', boxShadow: insetRing(0.3), clipPath: CLIP_SMALL }}
               >
                 重置草稿
               </button>
@@ -557,7 +552,7 @@ export function VariableManagerTab(props: Props) {
                     color: 'rgba(var(--tj-text-primary), 0.9)',
                     background: 'rgba(var(--tj-bg-primary), 0.38)',
                     boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.14)',
-                    clipPath: smallClip,
+                    clipPath: CLIP_SMALL,
                   }}
                 >
                   {item}
@@ -573,12 +568,12 @@ export function VariableManagerTab(props: Props) {
             style={{
               background: savedFlash
                 ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
-                : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
+                : gradientAccent(0.96, 0.84),
               color: 'rgb(var(--tj-on-accent))',
               boxShadow: savedFlash
                 ? 'inset 0 0 0 1px rgba(220, 255, 230, 0.5), 0 0 18px rgba(140, 220, 160, 0.35)'
                 : 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 18px rgba(var(--tj-accent-primary), 0.22)',
-              clipPath: cardClip,
+              clipPath: CLIP_CARD,
             }}
           >
             {savedFlash ? '✓ 已 保 存' : '◆ 保 存 修 改'}
@@ -590,8 +585,8 @@ export function VariableManagerTab(props: Props) {
               style={{
                 color: 'rgba(var(--tj-accent-primary),0.92)',
                 background: 'rgba(var(--tj-accent-primary),0.06)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.2)',
-                clipPath: smallClip,
+                boxShadow: insetRing(0.2),
+                clipPath: CLIP_SMALL,
               }}
             >
               本回合结算中，完成后可修改。当前仍可浏览变量内容。
@@ -605,7 +600,7 @@ export function VariableManagerTab(props: Props) {
                 color: 'rgba(220, 120, 120, 0.9)',
                 background: 'rgba(220, 120, 120, 0.06)',
                 boxShadow: 'inset 0 0 0 1px rgba(220, 120, 120, 0.25)',
-                clipPath: smallClip,
+                clipPath: CLIP_SMALL,
               }}
             >
               ✕ {error}
@@ -622,8 +617,8 @@ export function VariableManagerTab(props: Props) {
           className="p-4"
           style={{
             background: 'rgba(var(--tj-bg-secondary),0.45)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)',
-            clipPath: cardClip,
+            boxShadow: insetRing(0.14),
+            clipPath: CLIP_CARD,
           }}
         >
           {mode === 'fields' ? (
@@ -654,7 +649,7 @@ export function VariableManagerTab(props: Props) {
               }}
               rows={24}
               className="teyvat-input w-full resize-none px-3 py-2 font-mono text-[13px]"
-              style={{ clipPath: smallClip, lineHeight: 1.5 }}
+              style={{ clipPath: CLIP_SMALL, lineHeight: 1.5 }}
               spellCheck={false}
             />
           )}
@@ -756,7 +751,7 @@ function TreeNode({
             onChange({ ...value, [key]: '' });
           }}
           className="px-1.5 py-0.5 text-[10px]"
-          style={{ color: 'rgba(165,230,170,0.94)', boxShadow: 'inset 0 0 0 1px rgba(165,230,170,0.25)', clipPath: smallClip }}
+          style={{ color: 'rgba(165,230,170,0.94)', boxShadow: 'inset 0 0 0 1px rgba(165,230,170,0.25)', clipPath: CLIP_SMALL }}
         >
           新增
         </button>
@@ -768,7 +763,7 @@ function TreeNode({
               if (window.confirm(`确认删除 ${label} ?`)) onDelete();
             }}
             className="px-1.5 py-0.5 text-[10px]"
-            style={{ color: 'rgba(255,135,135,0.9)', boxShadow: 'inset 0 0 0 1px rgba(255,135,135,0.25)', clipPath: smallClip }}
+            style={{ color: 'rgba(255,135,135,0.9)', boxShadow: 'inset 0 0 0 1px rgba(255,135,135,0.25)', clipPath: CLIP_SMALL }}
           >
             删除
           </button>
@@ -817,8 +812,8 @@ function TreeNode({
             className="ml-4 mt-2 px-3 py-1 text-xs"
             style={{
               color: 'rgba(var(--tj-accent-primary),0.92)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.24)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.24),
+              clipPath: CLIP_SMALL,
             }}
           >
             继续显示（{Math.min(ARRAY_RENDER_BATCH_SIZE, value.length - visibleArrayItems)} / {value.length - visibleArrayItems}）
@@ -862,7 +857,7 @@ function LeafRow({
         <button
           onClick={() => onChange('')}
           className="px-2 py-1 text-[13px]"
-          style={{ color: 'rgba(var(--tj-text-secondary),0.72)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)', clipPath: smallClip }}
+          style={{ color: 'rgba(var(--tj-text-secondary),0.72)', boxShadow: insetRing(0.18), clipPath: CLIP_SMALL }}
         >
           null
         </button>
@@ -874,7 +869,7 @@ function LeafRow({
             background: value ? 'rgba(165,230,170,0.16)' : 'rgba(135,135,135,0.14)',
             color: value ? 'rgba(165,230,170,0.95)' : 'rgba(210,200,172,0.78)',
             boxShadow: `inset 0 0 0 1px ${value ? 'rgba(165,230,170,0.32)' : 'rgba(var(--tj-accent-primary),0.16)'}`,
-            clipPath: smallClip,
+            clipPath: CLIP_SMALL,
           }}
         >
           {String(value)}
@@ -885,7 +880,7 @@ function LeafRow({
           value={Number.isFinite(value as number) ? (value as number) : 0}
           onChange={(event) => onChange(event.target.value === '' ? 0 : Number(event.target.value))}
           className="teyvat-input w-full min-w-0 flex-1 px-2 py-1 font-mono text-[13px]"
-          style={{ clipPath: smallClip }}
+          style={{ clipPath: CLIP_SMALL }}
         />
       ) : typeof value === 'string' && (value.length > 58 || value.includes('\n')) ? (
         <textarea
@@ -893,7 +888,7 @@ function LeafRow({
           onChange={(event) => onChange(event.target.value)}
           rows={Math.min(7, Math.max(2, Math.ceil(value.length / 58)))}
           className="teyvat-input w-full min-w-0 flex-1 resize-none px-2 py-1 font-mono text-[13px]"
-          style={{ clipPath: smallClip }}
+          style={{ clipPath: CLIP_SMALL }}
           spellCheck={false}
         />
       ) : (
@@ -901,7 +896,7 @@ function LeafRow({
           value={typeof value === 'string' ? value : ''}
           onChange={(event) => onChange(event.target.value)}
           className="teyvat-input w-full min-w-0 flex-1 px-2 py-1 font-mono text-[13px]"
-          style={{ clipPath: smallClip }}
+          style={{ clipPath: CLIP_SMALL }}
           spellCheck={false}
         />
       )}
@@ -912,7 +907,7 @@ function LeafRow({
             if (window.confirm(`确认删除 ${label} ?`)) onDelete();
           }}
           className="mt-0.5 flex-shrink-0 px-1.5 py-0.5 text-[11px]"
-          style={{ color: 'rgba(255,135,135,0.86)', boxShadow: 'inset 0 0 0 1px rgba(255,135,135,0.22)', clipPath: smallClip }}
+          style={{ color: 'rgba(255,135,135,0.86)', boxShadow: 'inset 0 0 0 1px rgba(255,135,135,0.22)', clipPath: CLIP_SMALL }}
         >
           删除
         </button>
@@ -964,7 +959,7 @@ function NsfwArchiveEditor({ value, onChange }: { value: Record<string, unknown>
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-ui-nsfw), 0.08), rgba(var(--tj-ui-panel), 0.5))',
         boxShadow: 'inset 0 0 0 1px rgba(214, 142, 174, 0.24)',
-        clipPath: cardClip,
+        clipPath: CLIP_CARD,
       }}
     >
       <button
@@ -980,7 +975,7 @@ function NsfwArchiveEditor({ value, onChange }: { value: Record<string, unknown>
             background: enabled ? 'rgba(214, 142, 174, 0.22)' : 'rgba(120, 110, 100, 0.16)',
             color: enabled ? nsfwAccent : 'rgba(var(--tj-text-secondary),0.7)',
             boxShadow: `inset 0 0 0 1px ${enabled ? 'rgba(214, 142, 174, 0.4)' : 'rgba(var(--tj-accent-primary),0.16)'}`,
-            clipPath: smallClip,
+            clipPath: CLIP_SMALL,
           }}
         >
           {enabled ? '已启用' : '预留'}
@@ -1063,7 +1058,7 @@ function NsfwSelectField({ label, value, options, onChange }: {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="teyvat-input w-full px-2 py-1.5 text-[12px]"
-        style={{ clipPath: smallClip }}
+        style={{ clipPath: CLIP_SMALL }}
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1090,7 +1085,7 @@ function NsfwTextField({ label, value, onChange, area }: {
           onChange={(e) => onChange(e.target.value)}
           rows={Math.min(5, Math.max(2, Math.ceil(value.length / 48)))}
           className="teyvat-input w-full resize-none px-2 py-1.5 text-[12px]"
-          style={{ clipPath: smallClip }}
+          style={{ clipPath: CLIP_SMALL }}
           spellCheck={false}
         />
       ) : (
@@ -1098,7 +1093,7 @@ function NsfwTextField({ label, value, onChange, area }: {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="teyvat-input w-full px-2 py-1.5 text-[12px]"
-          style={{ clipPath: smallClip }}
+          style={{ clipPath: CLIP_SMALL }}
           spellCheck={false}
         />
       )}
@@ -1138,7 +1133,7 @@ function NsfwTagEditor({ label, items, onChange, multiline }: {
                 }}
                 rows={Math.min(3, Math.max(1, Math.ceil(item.length / 40)))}
                 className="teyvat-input min-w-0 flex-1 resize-none px-2 py-1 text-[11px]"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
                 spellCheck={false}
               />
             ) : (
@@ -1150,14 +1145,14 @@ function NsfwTagEditor({ label, items, onChange, multiline }: {
                   onChange(next);
                 }}
                 className="teyvat-input min-w-0 flex-1 px-2 py-1 text-[11px]"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
                 spellCheck={false}
               />
             )}
             <button
               onClick={() => onChange(items.filter((_, i) => i !== idx))}
               className="flex-shrink-0 px-1.5 py-1 text-[10px]"
-              style={{ color: 'rgba(255,135,135,0.86)', boxShadow: 'inset 0 0 0 1px rgba(255,135,135,0.22)', clipPath: smallClip }}
+              style={{ color: 'rgba(255,135,135,0.86)', boxShadow: 'inset 0 0 0 1px rgba(255,135,135,0.22)', clipPath: CLIP_SMALL }}
             >
               ✕
             </button>
@@ -1171,13 +1166,13 @@ function NsfwTagEditor({ label, items, onChange, multiline }: {
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
           placeholder={`添加${label}…`}
           className="teyvat-input min-w-0 flex-1 px-2 py-1 text-[11px]"
-          style={{ clipPath: smallClip }}
+          style={{ clipPath: CLIP_SMALL }}
           spellCheck={false}
         />
         <button
           onClick={add}
           className="flex-shrink-0 px-2 py-1 text-[10px]"
-          style={{ color: 'rgba(165,230,170,0.94)', boxShadow: 'inset 0 0 0 1px rgba(165,230,170,0.25)', clipPath: smallClip }}
+          style={{ color: 'rgba(165,230,170,0.94)', boxShadow: 'inset 0 0 0 1px rgba(165,230,170,0.25)', clipPath: CLIP_SMALL }}
         >
           ＋
         </button>
@@ -1218,7 +1213,7 @@ function NsfwBodyArchiveSection({ title, fields, body, onChange }: {
                 rows={Math.min(4, Math.max(2, Math.ceil((text.length || 1) / 36)))}
                 placeholder="暂无"
                 className="teyvat-input w-full resize-none px-2 py-1 text-[11px]"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
                 spellCheck={false}
               />
             </div>
@@ -1228,3 +1223,4 @@ function NsfwBodyArchiveSection({ title, fields, body, onChange }: {
     </div>
   );
 }
+import { isRecord } from '@/utils/valueGuards';

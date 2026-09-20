@@ -1,3 +1,5 @@
+import { CLIP_MEDIUM, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
+import { useSavedFlash } from '@/hooks/useSavedFlash';
 import { useState } from 'react';
 import type { 游戏设置 } from '@/models/settings';
 import type { 提示词模块 } from '@/models/prompts';
@@ -13,8 +15,7 @@ interface Props {
   onWorldStateChange: (s: 世界状态) => void;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
 
 // 把 builtin module 的 enabled 同步成 v。若数组里还没有这条 builtin（异常存档），直接跳过。
 function setModuleEnabled(modules: 提示词模块[], id: string, v: boolean): 提示词模块[] {
@@ -87,7 +88,7 @@ const WRITING_STYLE_OPTIONS: { id: WritingStyleId | 'none'; label: string; desc:
 export function GameSettingsTab({ settings, onChange, worldState, onWorldStateChange }: Props) {
   const activeWritingStyle = getActiveWritingStyle(settings.promptModules);
   const [saveMessage, setSaveMessage] = useState('');
-  const [savedFlash, setSavedFlash] = useState(false);
+  const { savedFlash, showSavedFlash, clearSavedFlash } = useSavedFlash(1600);
 
   const handleSave = async () => {
     try {
@@ -96,8 +97,7 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         saveSetting('worldState', worldState),
       ]);
       setSaveMessage('游戏设定已保存。');
-      setSavedFlash(true);
-      window.setTimeout(() => setSavedFlash(false), 1600);
+      showSavedFlash();
     } catch (err) {
       setSaveMessage(`保存失败：${err instanceof Error ? err.message : String(err)}`);
     }
@@ -152,9 +152,9 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                     ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.18), rgba(var(--tj-accent-primary), 0.04))'
                     : 'rgba(var(--tj-bg-secondary), 0.45)',
                   boxShadow: active
-                    ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.55)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
-                  clipPath: smallClip,
+                    ? insetRing(0.55)
+                    : insetRing(0.18),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div
@@ -201,13 +201,13 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                 className="flex-1 px-3 py-1.5 text-xs font-serif tracking-wider transition-all hover:opacity-90"
                 style={{
                   background: active
-                    ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
+                    ? gradientAccent(0.95, 0.86)
                     : 'transparent',
                   color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.85)',
                   boxShadow: active
                     ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.25)',
-                  clipPath: smallClip,
+                    : insetRing(0.25),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 {opt.label}
@@ -240,13 +240,13 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                 className="px-2 py-1.5 text-xs font-serif tracking-wider transition-all hover:opacity-90"
                 style={{
                   background: active
-                    ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
+                    ? gradientAccent(0.95, 0.86)
                     : 'transparent',
                   color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.85)',
                   boxShadow: active
                     ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.25)',
-                  clipPath: smallClip,
+                    : insetRing(0.25),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 {opt.label}
@@ -274,9 +274,9 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                     ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.18), rgba(var(--tj-accent-primary), 0.04))'
                     : 'rgba(var(--tj-bg-secondary), 0.45)',
                   boxShadow: active
-                    ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.55)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
-                  clipPath: smallClip,
+                    ? insetRing(0.55)
+                    : insetRing(0.18),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div
@@ -317,13 +317,13 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                 className="px-3 py-2 text-left transition-all hover:opacity-90"
                 style={{
                   background: active
-                    ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
+                    ? gradientAccent(0.95, 0.86)
                     : 'rgba(var(--tj-bg-secondary), 0.45)',
                   color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-primary), 0.9)',
                   boxShadow: active
                     ? '0 0 16px rgba(var(--tj-accent-primary), 0.18)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
-                  clipPath: smallClip,
+                    : insetRing(0.14),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div className="text-xs font-serif font-bold tracking-wider">{opt.label}</div>
@@ -466,13 +466,13 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                 className="px-3 py-2 text-left transition-all hover:opacity-90"
                 style={{
                   background: active
-                    ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
+                    ? gradientAccent(0.95, 0.86)
                     : 'rgba(var(--tj-bg-secondary), 0.45)',
                   color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-primary), 0.9)',
                   boxShadow: active
                     ? '0 0 16px rgba(var(--tj-accent-primary), 0.18)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
-                  clipPath: smallClip,
+                    : insetRing(0.14),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div className="text-xs font-serif font-bold tracking-wider">{opt.label}</div>
@@ -525,9 +525,9 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
             color: 'rgb(var(--tj-on-accent))',
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(165, 230, 170, 0.96), rgba(105, 190, 130, 0.92))'
-              : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
+              : gradientAccent(0.96, 0.84),
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.72), 0 0 18px rgba(var(--tj-arcane-accent),0.14)',
-            clipPath: smallClip,
+            clipPath: CLIP_SMALL,
           }}
         >
           {savedFlash ? '✓ 已 保 存' : '◆ 保存游戏设定'}
@@ -569,7 +569,7 @@ function ToggleRow({
         background: 'rgba(var(--tj-bg-secondary), 0.42)',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-arcane-accent), 0.14)',
         clipPath:
-          'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+          CLIP_MEDIUM,
       }}
     >
       <div className="min-w-0 mr-3">
@@ -588,13 +588,13 @@ function ToggleRow({
         className="relative h-6 w-11 flex-shrink-0 transition-all"
         style={{
           background: checked
-          ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
+          ? gradientAccent(0.95, 0.86)
             : 'rgba(var(--tj-bg-secondary), 0.68)',
           boxShadow: checked
             ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+            : insetRing(0.2),
           clipPath:
-            'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+            CLIP_SMALL,
         }}
       >
         <div
@@ -603,7 +603,7 @@ function ToggleRow({
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
             clipPath:
-              'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+              CLIP_XS,
           }}
         />
       </button>

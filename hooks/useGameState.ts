@@ -79,6 +79,7 @@ import {
   normalizeNarrativeRuntime,
   normalizeArchiveCodex,
   normalizeCourierSystem,
+  reconcileCourierContactsWithNpcs,
   normalizeIrminsulMemory,
   normalizeSteambirdNews,
   normalizeTechnicalJsonValue,
@@ -226,7 +227,7 @@ function applyStateAction<T>(current: T, action: React.SetStateAction<T>): T {
   return typeof action === 'function' ? (action as (value: T) => T)(current) : action;
 }
 
-function toLegacyTraveler(game: TeyvatGameState): 角色数据结构 {
+export function toLegacyTraveler(game: TeyvatGameState): 角色数据结构 {
   const base = 创建空角色();
   return {
     ...base,
@@ -277,7 +278,7 @@ function toLegacyNarrativeMode(value: string): 世界状态['剧情模式'] {
   return value === 'harem' || value === 'romance_alt' || value === 'deep_single' ? value : value === 'normal' ? 'normal' : undefined;
 }
 
-function toLegacyWorld(game: TeyvatGameState): 世界状态 {
+export function toLegacyWorld(game: TeyvatGameState): 世界状态 {
   const opening = game.世界.开局设定;
   return 归一化世界状态({
     当前时段: game.世界.当前时段 ?? undefined,
@@ -548,8 +549,9 @@ export function mapTeyvatNpcsToLegacy(game: TeyvatGameState): NPC记录[] {
 }
 
 export function applyLegacyNpcRecords(game: TeyvatGameState, records: NPC记录[]): TeyvatGameState {
-  return { ...game, NPC: normalizeTeyvatNpcRecords(records.map((npc) => {
-    const existing = game.NPC.find((item) => item.id === npc.id);
+  const existingById = new Map(game.NPC.map((npc) => [npc.id, npc]));
+  const NPC = normalizeTeyvatNpcRecords(records.map((npc) => {
+    const existing = existingById.get(npc.id);
     return {
     id: npc.id, 姓名: npc.姓名, 地区: existing?.地区 ?? '', 身份: existing?.身份 ?? npc.介绍 ?? '',
     ...(existing?.元素 ? { 元素: existing.元素 } : {}),
@@ -583,7 +585,8 @@ export function applyLegacyNpcRecords(game: TeyvatGameState, records: NPC记录[
       experiences: [...(npc.NSFW档案.经历 ?? [])], longTermFacts: [...(npc.NSFW档案.长期事实 ?? [])], tags: [...(npc.NSFW档案.标签 ?? [])],
       partImages: { femaleChest: npc.NSFW档案.部位图片?.女性胸部, femaleGenital: npc.NSFW档案.部位图片?.女性私处, maleGenital: npc.NSFW档案.部位图片?.男性器, rear: npc.NSFW档案.部位图片?.后庭, bodyReference: npc.NSFW档案.部位图片?.体态参考 }, notes: npc.NSFW档案.备注,
     } : null,
-  }})) };
+  }}));
+  return { ...game, NPC, 手机: reconcileCourierContactsWithNpcs(game.手机, NPC) };
 }
 
 function applyLegacySteambird(game: TeyvatGameState, news: 旧报刊条目[]): TeyvatGameState {
@@ -767,7 +770,7 @@ export function toLegacyStoryWeaving(story: TeyvatGameState['叙事']['storyWeav
   });
 }
 
-function fromLegacyVariableBatches(batches: 变量命令批次[]): TeyvatGameState['叙事']['variableBatches'] {
+export function fromLegacyVariableBatches(batches: 变量命令批次[]): TeyvatGameState['叙事']['variableBatches'] {
   return normalizeNarrativeRuntime({ variableBatches: batches.map((batch) => ({
     id: batch.id, turn: batch.turn, timestamp: batch.timestamp, source: batch.source, modelName: batch.modelName,
     results: batch.results.map((result) => ({ command: { action: result.command.action, key: result.command.key, value: normalizeTechnicalJsonValue(result.command.value) }, ok: result.ok, kind: result.kind, reason: result.reason })),
@@ -775,7 +778,7 @@ function fromLegacyVariableBatches(batches: 变量命令批次[]): TeyvatGameSta
   })) }).variableBatches;
 }
 
-function toLegacyVariableBatches(batches: TeyvatGameState['叙事']['variableBatches']): 变量命令批次[] {
+export function toLegacyVariableBatches(batches: TeyvatGameState['叙事']['variableBatches']): 变量命令批次[] {
   return batches.map((batch) => ({ id: batch.id, turn: batch.turn, timestamp: batch.timestamp, source: batch.source, modelName: batch.modelName,
     results: batch.results.map((result) => ({ command: { action: result.command.action, key: result.command.key, value: technicalJsonToLegacy(result.command.value) }, ok: result.ok, kind: result.kind, reason: result.reason })),
     report: batch.report, rawText: batch.rawText, retentionSummary: batch.retentionSummary ? { ...batch.retentionSummary } : undefined }));
@@ -892,24 +895,59 @@ export interface UseGameStateReturn {
   scrollRef: React.RefObject<HTMLDivElement | null>;
 }
 
+export interface LegacyGameView {
+  旅人: 角色数据结构;
+  世界: 世界状态;
+  chatHistory: 聊天消息[];
+  记忆: 记忆系统;
+  NPC: NPC记录[];
+  相册: 相册系统;
+  剧情: 剧情节点[];
+  剧情编织: 剧情编织系统;
+  variableBatches: 变量命令批次[];
+  queueTasks: 队列任务记录[];
+  任务: 任务系统;
+}
+
+/**
+ * Cache legacy projections per canonical slice. Phone/unread/queue updates are
+ * frequent; rebuilding chat checkpoints, album metadata and every NPC for an
+ * unrelated slice made those tiny updates block the UI.
+ */
+export function createLegacyGameViewSelector(): (game: TeyvatGameState) => LegacyGameView {
+  let previousGame: TeyvatGameState | undefined;
+  let previousView: LegacyGameView | undefined;
+  return (game) => {
+    if (game === previousGame && previousView) return previousView;
+    const next: LegacyGameView = {
+      旅人: previousGame?.旅行者 === game.旅行者 && previousView ? previousView.旅人 : toLegacyTraveler(game),
+      世界: previousGame?.世界 === game.世界 && previousView ? previousView.世界 : toLegacyWorld(game),
+      chatHistory: previousGame?.对话 === game.对话 && previousView ? previousView.chatHistory : toLegacyChat(game),
+      记忆: previousGame?.记忆 === game.记忆 && previousView ? previousView.记忆 : toLegacyMemory(game),
+      NPC: previousGame?.NPC === game.NPC && previousView ? previousView.NPC : mapTeyvatNpcsToLegacy(game),
+      相册: previousGame?.相册 === game.相册 && previousView ? previousView.相册 : toLegacyAlbum(game),
+      剧情: previousGame?.叙事.plotNodes === game.叙事.plotNodes && previousView ? previousView.剧情 : toLegacyPlot(game.叙事.plotNodes),
+      剧情编织: previousGame?.叙事.storyWeaving === game.叙事.storyWeaving && previousView ? previousView.剧情编织 : toLegacyStoryWeaving(game.叙事.storyWeaving),
+      variableBatches: previousGame?.叙事.variableBatches === game.叙事.variableBatches && previousView ? previousView.variableBatches : toLegacyVariableBatches(game.叙事.variableBatches),
+      queueTasks: previousGame?.后台队列 === game.后台队列 && previousView ? previousView.queueTasks : toLegacyQueue(game),
+      任务: previousGame?.任务 === game.任务 && previousView ? previousView.任务 : toLegacyQuest(game),
+    };
+    previousGame = game;
+    if (previousView && Object.keys(next).every((key) => next[key as keyof LegacyGameView] === previousView?.[key as keyof LegacyGameView])) {
+      return previousView;
+    }
+    previousView = next;
+    return next;
+  };
+}
+
 export function useGameState(): UseGameStateReturn {
   const [view, setView] = useState<ViewState>('home');
   const { game, replaceGameState, updateGameState, buildTeyvatSavePayload } = useTeyvatRuntime();
   // Legacy 适配层转换必须按 game 引用缓存：否则任何一次 setState（哪怕只是 loading）
   // 都会在渲染期重建这些对象，导致传给子组件的 props 引用全变、React.memo 全部失效。
-  const legacyView = useMemo(() => ({
-    旅人: toLegacyTraveler(game),
-    世界: toLegacyWorld(game),
-    chatHistory: toLegacyChat(game),
-    记忆: toLegacyMemory(game),
-    NPC: mapTeyvatNpcsToLegacy(game),
-    相册: toLegacyAlbum(game),
-    剧情: toLegacyPlot(game.叙事.plotNodes),
-    剧情编织: toLegacyStoryWeaving(game.叙事.storyWeaving),
-    variableBatches: toLegacyVariableBatches(game.叙事.variableBatches),
-    queueTasks: toLegacyQueue(game),
-    任务: toLegacyQuest(game),
-  }), [game]);
+  const selectLegacyGameView = useMemo(createLegacyGameViewSelector, []);
+  const legacyView = selectLegacyGameView(game);
   const { 旅人, 世界, chatHistory, 记忆, NPC, 相册, 剧情, 剧情编织, variableBatches, queueTasks, 任务 } = legacyView;
   // 直接切片是 game 内部引用，随 game 更新天然保持稳定，无需 memo。
   const 背包 = game.背包;

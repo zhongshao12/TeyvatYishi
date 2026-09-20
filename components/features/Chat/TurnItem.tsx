@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_MEDIUM, CLIP_SECTION, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
 import { memo, useState } from 'react';
 import type { 聊天消息 } from '@/models/chat';
 import type { NPC记录 } from '@/models/npc';
@@ -112,7 +113,7 @@ export function UserTurnBubble({ content, traveler, album, fontSize = 14 }: { co
               background: 'rgba(var(--tj-chat-bubble), calc(var(--tj-chat-bubble-alpha, 0.78) * 0.85))',
               color: 'rgba(var(--tj-chat-text), 0.98)',
               borderLeft: '2px solid rgba(var(--tj-accent-secondary), 0.55)',
-              clipPath: 'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)',
+              clipPath: CLIP_SECTION,
               boxShadow:
                 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.3), 0 4px 18px rgba(var(--tj-shadow), 0.35), inset 0 0 20px rgba(var(--tj-shadow), 0.22)',
               fontSize: `${fontSize}px`,
@@ -124,7 +125,7 @@ export function UserTurnBubble({ content, traveler, album, fontSize = 14 }: { co
           {avatarUrl ? (
             <img src={avatarUrl} alt={`${name} 头像`} className="mt-2 ml-auto block h-9 w-9 rounded-full object-cover" style={{ boxShadow: '0 0 0 1px rgba(var(--tj-accent-primary), 0.45)' }} />
           ) : (
-            <span className="ml-auto mt-2 flex h-9 w-9 items-center justify-center rounded-full font-serif text-sm" style={{ color: 'rgb(var(--tj-accent-primary))', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.4)' }}>
+            <span className="ml-auto mt-2 flex h-9 w-9 items-center justify-center rounded-full font-serif text-sm" style={{ color: 'rgb(var(--tj-accent-primary))', boxShadow: insetRing(0.4) }}>
               {name.charAt(0) || '旅'}
             </span>
           )}
@@ -245,7 +246,7 @@ function AiTurnCard({ message, parsed, isStreaming, deferOffscreen = false, onEd
             background: 'rgba(var(--tj-btn-primary-start), 0.04)',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.28)',
             clipPath:
-              'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+              CLIP_CARD,
           }}
         >
           {openTool === 'edit' && (
@@ -267,7 +268,7 @@ function AiTurnCard({ message, parsed, isStreaming, deferOffscreen = false, onEd
                   value={rewriteMode}
                   onChange={(event) => setRewriteMode(event.target.value as 改写模式)}
                   className="teyvat-input px-2 py-1 text-[11px]"
-                  style={{ clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)' }}
+                  style={{ clipPath: CLIP_SMALL }}
                 >
                   {改写模式选项.map((mode) => (
                     <option key={mode.id} value={mode.id}>{mode.name} · {mode.description}</option>
@@ -438,6 +439,12 @@ function formatDebugContext(message: 聊天消息): string {
           : '',
       ].filter(Boolean).join('\n')
     : '';
+  const narrativeNormalization = [
+    '【正文归一化诊断】',
+    debug.narrativeNormalizationWarnings?.length
+      ? debug.narrativeNormalizationWarnings.map((warning) => `- ${warning}`).join('\n')
+      : '（没有未知正文块或被证据校验拦下的事实。）',
+  ].join('\n');
   const npcLedger = debug.npcLedgerInjection
     ? [
         '【NPC账本注入诊断】',
@@ -481,7 +488,7 @@ function formatDebugContext(message: 聊天消息): string {
       msg.content || '（空）',
     ].join('\n')),
   ].join('\n\n---\n\n');
-  return [deepSeekDiagnostics, cachePrefixDiagnostics, irminsulRaw, codexRaw, npcLedger, npcLedgerUpdate, recall, system, messages]
+  return [deepSeekDiagnostics, narrativeNormalization, cachePrefixDiagnostics, irminsulRaw, codexRaw, npcLedger, npcLedgerUpdate, recall, system, messages]
     .filter(Boolean)
     .join('\n\n====================\n\n');
 }
@@ -497,12 +504,12 @@ function AwakeningQuestionsBlock({ raw }: { raw: string }) {
   for (const line of lines) {
     const elementMatch = line.match(/^元素\s*[:：]\s*(.+)$/);
     if (elementMatch) {
-      elementName = elementMatch[1].trim();
+      elementName = elementMatch[1]?.trim() ?? '';
       continue;
     }
     const mQ = line.match(/^题\s*([123一二三])\s*[:：]\s*(.+)$/);
     if (mQ) {
-      items.push({ label: `第 ${mQ[1]} 问`, text: mQ[2].trim() });
+      items.push({ label: `第 ${mQ[1] ?? ''} 问`, text: mQ[2]?.trim() ?? '' });
     }
   }
   if (items.length === 0) return null;
@@ -514,7 +521,7 @@ function AwakeningQuestionsBlock({ raw }: { raw: string }) {
         background: 'rgba(var(--tj-panel-bg-end),0.55)',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-end),0.28)',
         clipPath:
-          'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+          CLIP_CARD,
       }}
     >
       <div
@@ -574,7 +581,7 @@ function AwakeningJudgementBadge({ judgement }: { judgement: string }) {
           background: bg,
           boxShadow: `inset 0 0 0 1px ${stroke}, 0 0 20px ${glow}`,
           clipPath:
-            'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)',
+            CLIP_SECTION,
         }}
       >
         ◇ {label} ◇
@@ -617,7 +624,7 @@ function AwakeningOracleBlock({
         boxShadow:
           'inset 0 0 0 1px rgba(var(--tj-btn-primary-end),0.22), inset 0 0 32px rgba(var(--tj-accent-primary-deep),0.08)',
         clipPath:
-          'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+          CLIP_MEDIUM,
       }}
     >
       <div
@@ -680,7 +687,7 @@ function ToolButton({
           ? 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.55)'
           : 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.22)',
         clipPath:
-          'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+          CLIP_SMALL,
       }}
       title={label}
     >
@@ -702,7 +709,7 @@ function TurnBadge({ value }: { value: string }) {
           'linear-gradient(180deg, rgba(var(--tj-btn-primary-start), 0.18), rgba(var(--tj-btn-primary-end), 0.08))',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.55)',
         clipPath:
-          'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+          CLIP_SMALL,
       }}
     >
       第 {value} 回合
@@ -784,7 +791,7 @@ function UsagePanel({ message, onClose }: { message: 聊天消息; onClose: () =
             color: 'rgba(var(--tj-text-secondary),0.8)',
             background: 'rgba(var(--tj-bg-primary),0.24)',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.34)',
-            clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+            clipPath: CLIP_SMALL,
           }}
           title="关闭响应详情"
         >
@@ -928,7 +935,7 @@ function UsageSection({ title, highlighted = false, children }: { title: string;
         boxShadow: highlighted
           ? 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start),0.34)'
           : 'inset 0 0 0 1px rgba(var(--tj-border),0.28)',
-        clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+        clipPath: CLIP_MEDIUM,
       }}
     >
       <div className="mb-2 font-serif text-[10px] uppercase tracking-[0.28em]" style={{ color: 'rgba(var(--tj-btn-primary-start),0.78)' }}>
@@ -1005,7 +1012,7 @@ function EditBodyPanel({
         className="teyvat-input w-full resize-y px-3 py-2 text-sm"
         style={{
           clipPath:
-            'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+            CLIP_MEDIUM,
         }}
       />
       <div className="mt-2 flex justify-end gap-2">
@@ -1018,7 +1025,7 @@ function EditBodyPanel({
             background: 'rgba(var(--tj-btn-primary-start), 0.04)',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.25)',
             clipPath:
-              'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+              CLIP_SMALL,
           }}
         >
           取消
@@ -1029,10 +1036,10 @@ function EditBodyPanel({
           className="px-4 py-1.5 font-serif text-xs tracking-[0.25em] transition-all hover:opacity-90"
           style={{
             color: 'rgb(var(--tj-on-accent))',
-            background: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.95))',
+            background: gradientAccent(0.95, 0.95),
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5)',
             clipPath:
-              'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+              CLIP_SMALL,
           }}
         >
           保存
@@ -1106,7 +1113,7 @@ function NarrativeImageCard({
               color: 'rgba(var(--tj-btn-primary-start),0.95)',
               background: 'rgba(var(--tj-btn-primary-start),0.06)',
               boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start),0.28)',
-              clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+              clipPath: CLIP_XS,
             }}
           >
             重新生成
@@ -1151,7 +1158,7 @@ function NarrativeImageCard({
               color: 'rgba(var(--tj-btn-primary-start),0.95)',
               background: 'rgba(var(--tj-btn-primary-start),0.06)',
               boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start),0.24)',
-              clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+              clipPath: CLIP_XS,
             }}
           >
             重新生成
@@ -1198,7 +1205,7 @@ function NarrativeImageManualCard({
       style={{
         background: 'rgba(var(--tj-btn-primary-start), 0.04)',
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.18)',
-        clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+        clipPath: CLIP_MEDIUM,
       }}
     >
       <button
@@ -1225,7 +1232,7 @@ function NarrativeImageManualCard({
               color: 'rgb(var(--tj-on-accent))',
               background: 'linear-gradient(135deg, rgb(var(--tj-accent-primary)) 0%, rgba(var(--tj-accent-mid),0.96) 48%, rgb(var(--tj-accent-secondary)) 100%)',
               boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.42)',
-              clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+              clipPath: CLIP_SMALL,
             }}
           >
             <div className="font-serif text-xs tracking-[0.18em]">生成故事快照</div>

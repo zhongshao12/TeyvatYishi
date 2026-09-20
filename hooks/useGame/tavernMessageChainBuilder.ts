@@ -243,7 +243,7 @@ export function getSTPresetOrder(preset: STPreset, characterId: number | null): 
   if (defaultOrder) return defaultOrder;
   
   // 最后回退到第一项
-  return preset.prompt_order[0];
+  return preset.prompt_order[0] ?? null;
 }
 
 function matchesCotPlaceholder(content: string): boolean {
@@ -439,6 +439,7 @@ function buildTavernHistoryContent(msg: 聊天消息): string {
 function getLastMessageContent(history: 聊天消息[], role?: STMessageRole): string {
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const msg = history[i];
+    if (!msg) continue;
     if (role && msg.role !== role) continue;
     const content = typeof msg.content === 'string' ? msg.content.trim() : '';
     if (content) return content;

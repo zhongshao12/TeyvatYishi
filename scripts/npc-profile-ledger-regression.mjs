@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -15,7 +16,7 @@ const promptModel = fs.readFileSync('models/prompts.ts', 'utf8');
 const variableRegistry = fs.readFileSync('utils/variableRegistry.ts', 'utf8');
 const systemPromptBuilder = fs.readFileSync('hooks/useGame/systemPromptBuilder.ts', 'utf8');
 const memoryUtils = fs.readFileSync('hooks/useGame/memoryUtils.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const sendWorkflow = readWorkflowSources();
 const chatModel = fs.readFileSync('models/chat.ts', 'utf8');
 const turnItem = fs.readFileSync('components/features/Chat/TurnItem.tsx', 'utf8');
 const contextSnapshot = fs.readFileSync('hooks/useGame/contextSnapshot.ts', 'utf8');
@@ -129,12 +130,26 @@ assert(sendWorkflow.includes('const npcLedgerSelection = !isOpeningSystemTrigger
 assert(sendWorkflow.includes('npcLedgerInjection: buildNpcLedgerDebug(npcLedgerSelection)'), 'AI 回复落库必须保存 NPC 账本注入诊断。');
 assert(sendWorkflow.includes('formatNpcLedgerPreview(npcLedgerSelection)'), '请求上下文预览摘要必须包含 NPC 账本诊断。');
 assert(sendWorkflow.includes('compressNpcMemoryLedger({'), '主剧情 NPC 记忆压缩必须使用账本压缩工具。');
-assert(sendWorkflow.includes('总结记忆: ledgerCompression.summaries'), '主剧情 NPC 压缩必须写入独立总结记忆。');
-assert(!sendWorkflow.includes('compressNpcMemories('), '主剧情不应再把 compressNpcMemories 结果直接写回同行记忆。');
+// 迁移: 旧 `总结记忆: ledgerCompression.summaries`（sendWorkflow 内联的账本压缩结果变量 ledgerCompression）
+//   -> `总结记忆: compression.summaries`（postSettlementCommitStage.preparePostSettlementNpcState 内
+//      `const compression = compressNpcMemoryLedger({...})` 的结果写回 NPC 独立总结记忆字段）。
+// 理由: 意图不变——主剧情 NPC 压缩必须写入独立总结记忆结构，而不是把压缩文本塞回同行记忆。
+assert(sendWorkflow.includes('总结记忆: compression.summaries'), '主剧情 NPC 压缩必须写入独立总结记忆。');
+// 迁移: 旧负断言 `!sendWorkflow.includes('compressNpcMemories(')` 现在会被 hooks/useGame/memoryUtils.ts 里的
+//   `export function compressNpcMemories(...)` 定义本身命中（假红）。主剧情已改用 compressNpcMemoryLedger + 独立总结记忆。
+// 理由: 意图不变——主剧情不得再「调用」legacy compressNpcMemories 把压缩结果写回同行记忆；
+//       断言改为只统计调用点（排除 function 定义），不再把定义当成调用。
+const legacyCompressNpcMemoryCalls = [...sendWorkflow.matchAll(/compressNpcMemories\(/g)]
+  .filter((match) => !/function\s+$/.test(sendWorkflow.slice(Math.max(0, match.index - 16), match.index)));
+assert(legacyCompressNpcMemoryCalls.length === 0, '主剧情不应再把 compressNpcMemories 结果直接写回同行记忆。');
 assert(sendWorkflow.includes('function buildNpcLedgerUpdateDebug'), '主流程必须构建 NPC 账本更新诊断。');
 assert(sendWorkflow.includes('const npcNameById = new Map<string, string>()'), 'NPC 账本更新诊断必须把内部 NPC id 映射回中文姓名。');
 assert(sendWorkflow.includes('npcNameById.get(commandName) ?? commandName'), 'NPC 账本更新诊断命令侧必须优先显示中文姓名。');
-assert(sendWorkflow.includes('attachNpcLedgerUpdateDebug(finalHistory, aiMsg.id, npcLedgerUpdateDebug)'), '主流程必须把 NPC 账本更新诊断回写到当前 assistant 消息。');
+// 迁移: 旧 `attachNpcLedgerUpdateDebug(finalHistory, aiMsg.id, npcLedgerUpdateDebug)`（内联诊断变量 npcLedgerUpdateDebug）
+//   -> `finalHistory = attachNpcLedgerUpdateDebug(finalHistory, aiMsg.id, preparedNpcs.debug);`
+//      （账本更新诊断统一由 postSettlementCommitStage.preparePostSettlementNpcState 产出，经 preparedNpcs.debug 传入）。
+// 理由: 意图不变——主流程仍必须把 NPC 账本更新诊断回写到当前 assistant 消息。
+assert(sendWorkflow.includes('finalHistory = attachNpcLedgerUpdateDebug(finalHistory, aiMsg.id, preparedNpcs.debug);'), '主流程必须把 NPC 账本更新诊断回写到当前 assistant 消息。');
 assert(sendWorkflow.includes('summaryTriggered: ['), 'NPC 总结记忆压缩触发必须进入更新诊断。');
 assert(sendWorkflow.includes('chatHistory: finalHistory'), '自动存档必须使用带 NPC 账本更新诊断的 finalHistory。');
 assert(sendWorkflow.includes("key !== 'batch' && key !== 'npcLedgerUpdate'"), 'NPC 账本更新诊断不能被误判为变量命令已落地。');

@@ -9,7 +9,7 @@ export function createConnectionTestChallenge(): string {
   }
   const values = new Uint32Array(1);
   globalThis.crypto.getRandomValues(values);
-  return `${CONNECTION_TEST_PREFIX}${values[0].toString(16).toUpperCase().padStart(8, '0')}`;
+  return `${CONNECTION_TEST_PREFIX}${(values[0] ?? 0).toString(16).toUpperCase().padStart(8, '0')}`;
 }
 
 export function normalizeConnectionTestResponse(response: unknown): string {

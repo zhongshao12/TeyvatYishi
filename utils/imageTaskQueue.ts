@@ -115,7 +115,7 @@ export function createImageTaskQueue(options: ImageQueueOptions) {
       const index = queue.findIndex((run) => run.id === taskId);
       if (index >= 0) {
         const removed = queue.splice(index, 1)[0];
-        removed.resolve({ status: 'failed', error: '任务已取消。' });
+        removed?.resolve({ status: 'failed', error: '任务已取消。' });
       }
     },
     /** 运行时调整并发数（对新入队任务生效）。 */

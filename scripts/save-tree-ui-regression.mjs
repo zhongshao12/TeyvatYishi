@@ -9,7 +9,12 @@ function assert(condition, message) {
 
 const treeView = fs.readFileSync('utils/saveTreeView.ts', 'utf8');
 const saveModal = fs.readFileSync('components/features/SaveLoad/SaveLoadModal.tsx', 'utf8');
-const storageManager = fs.readFileSync('components/features/Settings/StorageManager.tsx', 'utf8');
+// StorageManager 的桌面存储状态与存档树视图已拆到 components/features/Settings/storage/；按「存储设置 UI」整体读取。
+const storageManager = [
+  fs.readFileSync('components/features/Settings/StorageManager.tsx', 'utf8'),
+  fs.readFileSync('components/features/Settings/storage/DesktopStorageStatus.tsx', 'utf8'),
+  fs.readFileSync('components/features/Settings/storage/StorageSaveTreeView.tsx', 'utf8'),
+].join('\n');
 
 assert(treeView.includes('buildSaveTreeGroups'), '必须提供存档树分组工具。');
 assert(treeView.includes('buildLegacyRootIdMap') && treeView.includes('buildLegacyNodeIdMap'), '旧存档必须按旅人与时间顺序合并成兼容路线。');
@@ -19,7 +24,10 @@ assert(treeView.includes('depth') && treeView.includes('isLatest'), '树节点�
 assert(treeView.includes('nodes.sort((a, b) => b.save.timestamp - a.save.timestamp || b.save.id - a.save.id)'), '存档树节点展示必须最新在上。');
 
 assert(saveModal.includes('const visibleSaves = useMemo(') && saveModal.includes('const allTreeGroups = useMemo(() => buildSaveTreeGroups(visibleSaves), [visibleSaves])'), '读档弹窗必须先用当前展示存档列表建立树，并过滤删除中的节点。');
-assert(saveModal.includes('buildVisibleSaveTreeGroup(group, tab)'), '读档弹窗必须筛选树内可见节点，不能用筛选节点重建树。');
+// 迁移: 旧 `buildVisibleSaveTreeGroup(group, tab)` -> 新 `filterSaveTreeDisplayGroup(group, (save) => matchesSaveTab(save, tab))`；
+// 理由: 可见性筛选抽成 utils/saveTreeView 的通用 filterSaveTreeDisplayGroup，弹窗改为对完整 allTreeGroups 逐棵筛掉不可见节点。
+// 意图不变——树仍由完整 visibleSaves 构建，只对可见性做筛选，不得用筛选后的节点重建树。
+assert(saveModal.includes('.map((group) => filterSaveTreeDisplayGroup(group, (save) => matchesSaveTab(save, tab)))'), '读档弹窗必须筛选树内可见节点，不能用筛选节点重建树。');
 assert(saveModal.includes("if (tab === 'all') return true"), '读档弹窗的全部视图必须显示全部主树存档。');
 assert(!saveModal.includes('const allVisibleSaves = useMemo(() => visibleSaves.filter((s) => s.type !== \'auto\'), [visibleSaves])'), '读档弹窗全部计数不得排除自动存档。');
 assert(saveModal.includes('selectedRootId') && saveModal.includes('SaveTreeSelector') && saveModal.includes('selectedTree'), '读档弹窗必须支持先选择一棵存档树再查看路线。');
@@ -44,7 +52,9 @@ assert(saveModal.includes('linear-gradient(135deg, rgba(var(--tj-accent-primary)
 assert(saveModal.includes('linear-gradient(90deg, rgba(var(--tj-accent-primary),0.36), rgba(var(--tj-accent-primary),0.05))'), '读档弹窗必须使用时间线树状节点视觉。');
 
 assert(storageManager.includes('const visibleSaves = useMemo(') && storageManager.includes('const allTreeGroups = useMemo(() => buildSaveTreeGroups(visibleSaves), [visibleSaves])'), '设置存储管理必须先用当前展示存档列表建立树，并过滤删除中的节点。');
-assert(storageManager.includes('buildVisibleSaveTreeGroup(group, filter)'), '设置存储管理必须筛选树内可见节点，不能用筛选节点重建树。');
+// 迁移: 旧 `buildVisibleSaveTreeGroup(group, filter)` -> 新 `filterSaveTreeDisplayGroup(group, (save) => matchesSaveFilter(save, filter))`；
+// 理由: 同上，设置页存储管理改为对完整 allTreeGroups 逐棵筛选可见节点。意图不变——先建树、只筛可见性，不得用筛选节点重建树。
+assert(storageManager.includes('.map((group) => filterSaveTreeDisplayGroup(group, (save) => matchesSaveFilter(save, filter)))'), '设置存储管理必须筛选树内可见节点，不能用筛选节点重建树。');
 assert(storageManager.includes("if (filter === 'all') return true"), '设置存储管理的全部视图必须显示全部主树存档。');
 assert(!storageManager.includes('const allVisibleSaves = useMemo(() => visibleSaves.filter((s) => s.type !== \'auto\'), [visibleSaves])'), '设置存储管理全部计数不得排除自动存档。');
 assert(storageManager.includes('selectedRootId') && storageManager.includes('StorageTreeSelector') && storageManager.includes('selectedTree'), '设置存储管理必须支持先选择一棵存档树再查看路线。');

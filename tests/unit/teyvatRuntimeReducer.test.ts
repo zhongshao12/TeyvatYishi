@@ -5,7 +5,7 @@ import { updateTeyvatState } from '../../hooks/useTeyvatRuntime';
 import * as saveLoadWorkflow from '../../hooks/useGame/saveLoadWorkflow';
 
 describe('updateTeyvatState', () => {
-  it('returns a normalized next root without mutating the current root', () => {
+  it('returns the next root without mutating the current root', () => {
     const initial = createEmptyTeyvatGameState();
 
     const next = updateTeyvatState(initial, (current) => ({
@@ -17,6 +17,26 @@ describe('updateTeyvatState', () => {
     expect(initial.世界.当前地点).not.toBe('蒙德城');
     expect(next.universe).toBe('teyvat');
     expect(next.schemaVersion).toBe(2);
+  });
+
+  it('preserves the root identity when an updater makes no change', () => {
+    const initial = createEmptyTeyvatGameState();
+    expect(updateTeyvatState(initial, (current) => current)).toBe(initial);
+  });
+
+  it('preserves every untouched slice identity on a focused update', () => {
+    const initial = createEmptyTeyvatGameState();
+    const next = updateTeyvatState(initial, (current) => ({
+      ...current,
+      世界: { ...current.世界, 当前地点: '蒙德城' },
+    }));
+
+    expect(next).not.toBe(initial);
+    expect(next.世界).not.toBe(initial.世界);
+    expect(next.对话).toBe(initial.对话);
+    expect(next.NPC).toBe(initial.NPC);
+    expect(next.手机).toBe(initial.手机);
+    expect(next.相册).toBe(initial.相册);
   });
 
   it('creates the neutral runtime slices required by the current game loop', () => {
@@ -185,7 +205,7 @@ describe('updateTeyvatState', () => {
       variableBatches: [expect.objectContaining({ id: 'batch-1' })],
     });
     const story = result.state.叙事.storyWeaving;
-    expect(story?.series[0].segments[0]).toMatchObject({
+    expect(story?.series[0]!.segments[0]).toMatchObject({
       canonConstraints: [{ content: '温迪隐藏身份', visibility: { knownBy: ['温迪'], unknownBy: ['旅行者'], readerOnly: false } }],
       characterProfiles: [{ name: '温迪', importance: 'core' }],
       keyEvents: [{ name: '相遇' }],
@@ -195,9 +215,9 @@ describe('updateTeyvatState', () => {
     expect(story?.progress).toMatchObject({
       seriesId: 'mondstadt', segmentId: 'prologue', status: 'progressing', gate: 'strong', evidence: ['已抵达蒙德'],
     });
-    expect(story?.series[0].segments[0]).not.toHaveProperty('hiddenSegmentAlias');
-    expect(story?.series[0].segments[0].canonConstraints[0]).not.toHaveProperty('hiddenConstraintAlias');
-    expect(story?.series[0].segments[0].canonConstraints[0].visibility).not.toHaveProperty('hiddenVisibilityAlias');
+    expect(story?.series[0]!.segments[0]).not.toHaveProperty('hiddenSegmentAlias');
+    expect(story?.series[0]!.segments[0]!.canonConstraints[0]).not.toHaveProperty('hiddenConstraintAlias');
+    expect(story?.series[0]!.segments[0]!.canonConstraints[0]!.visibility).not.toHaveProperty('hiddenVisibilityAlias');
     expect(story?.progress).not.toHaveProperty('hiddenStoryProgressAlias');
     expect(result.state).not.toHaveProperty('旅人');
     expect(result.state).toHaveProperty('手机');
@@ -310,12 +330,12 @@ describe('updateTeyvatState', () => {
     });
 
     expect(normalized.NPC[0]).not.toHaveProperty('hiddenNpcAlias');
-    expect(normalized.NPC[0].sharedMemories[0]).not.toHaveProperty('hiddenSharedAlias');
-    expect(normalized.NPC[0].relationshipLedger.summaries[0]).not.toHaveProperty('hiddenSummaryAlias');
-    expect(normalized.NPC[0].visualArchive).not.toHaveProperty('hiddenVisualAlias');
-    expect(normalized.NPC[0].元素).toBeUndefined();
-    expect(normalized.NPC[0].天赋).toEqual([{ id: 'talent-1', 名称: '爆弹玩偶', 类别: 'normal_attack', 关联元素: '', 等级: 3, 说明: '投掷兔兔伯爵' }]);
-    expect(normalized.NPC[0].天赋[0]).not.toHaveProperty('hiddenTalentAlias');
+    expect(normalized.NPC[0]!.sharedMemories[0]).not.toHaveProperty('hiddenSharedAlias');
+    expect(normalized.NPC[0]!.relationshipLedger.summaries[0]).not.toHaveProperty('hiddenSummaryAlias');
+    expect(normalized.NPC[0]!.visualArchive).not.toHaveProperty('hiddenVisualAlias');
+    expect(normalized.NPC[0]!.元素).toBeUndefined();
+    expect(normalized.NPC[0]!.天赋).toEqual([{ id: 'talent-1', 名称: '爆弹玩偶', 类别: 'normal_attack', 关联元素: '', 等级: 3, 说明: '投掷兔兔伯爵' }]);
+    expect(normalized.NPC[0]!.天赋[0]).not.toHaveProperty('hiddenTalentAlias');
     expect(normalized.世界.已访问地区).toEqual(['mondstadt']);
     expect(normalized.世界.世界事件).toEqual(['风魔龙危机']);
     expect(normalized.世界.已访问时段).toEqual(['蒙德序章']);
@@ -324,33 +344,33 @@ describe('updateTeyvatState', () => {
     expect(normalized.世界.已访问时段).not.toBe(visitedPeriods);
     expect(normalized.手机.contacts[0]).not.toHaveProperty('hiddenContactAlias');
     expect(normalized.手机.conversations[0]).not.toHaveProperty('hiddenConversationAlias');
-    expect(normalized.手机.conversations[0].messages[0]).not.toHaveProperty('hiddenMessageAlias');
+    expect(normalized.手机.conversations[0]!.messages[0]).not.toHaveProperty('hiddenMessageAlias');
     expect(normalized.手机.deliverySeeds[0]).not.toHaveProperty('hiddenSeedAlias');
     expect(normalized.对话.entries[0]).not.toHaveProperty('hiddenConversationEntryAlias');
-    expect(normalized.对话.entries[0].structuredResponse).toEqual({
+    expect(normalized.对话.entries[0]!.structuredResponse).toEqual({
       body: [{ kind: 'narration', text: '你好' }],
       choices: [],
       factCandidates: [],
       continuation: { summary: '', unresolved: [] },
     });
-    expect(normalized.对话.entries[0].structuredResponse).not.toHaveProperty('hiddenResponseAlias');
-    expect(normalized.对话.entries[0].preTurnState).not.toHaveProperty('hiddenSnapshotAlias');
-    expect(normalized.对话.entries[0].tokenUsage).not.toHaveProperty('hiddenTokenAlias');
-    expect(normalized.对话.entries[0].debugMetadata).not.toHaveProperty('hiddenDebugAlias');
-    expect(normalized.对话.entries[0].narrativeImages?.[0]).not.toHaveProperty('hiddenImageAlias');
+    expect(normalized.对话.entries[0]!.structuredResponse).not.toHaveProperty('hiddenResponseAlias');
+    expect(normalized.对话.entries[0]!.preTurnState).not.toHaveProperty('hiddenSnapshotAlias');
+    expect(normalized.对话.entries[0]!.tokenUsage).not.toHaveProperty('hiddenTokenAlias');
+    expect(normalized.对话.entries[0]!.debugMetadata).not.toHaveProperty('hiddenDebugAlias');
+    expect(normalized.对话.entries[0]!.narrativeImages?.[0]).not.toHaveProperty('hiddenImageAlias');
     expect(normalized.记忆.recoveryLog[0]).not.toHaveProperty('hiddenRecoveryAlias');
     expect(normalized.记忆.failedDrafts[0]).not.toHaveProperty('hiddenDraftAlias');
     expect(normalized.相册.assets[0]).not.toHaveProperty('hiddenAssetAlias');
     expect(normalized.相册.entries[0]).not.toHaveProperty('hiddenAlbumEntryAlias');
     expect(normalized.相册.generationTasks[0]).not.toHaveProperty('hiddenGenerationAlias');
     expect(normalized.任务.active[0]).not.toHaveProperty('hiddenQuestAlias');
-    expect(normalized.任务.active[0].objectives[0]).not.toHaveProperty('hiddenObjectiveAlias');
+    expect(normalized.任务.active[0]!.objectives[0]).not.toHaveProperty('hiddenObjectiveAlias');
     expect(normalized.后台队列.tasks[0]).not.toHaveProperty('hiddenQueueTaskAlias');
     expect(normalized.叙事.plotNodes[0]).not.toHaveProperty('hiddenPlotAlias');
     expect(normalized.叙事.storyWeaving?.series[0]).not.toHaveProperty('hiddenSeriesAlias');
     expect(normalized.叙事.variableBatches[0]).not.toHaveProperty('hiddenBatchAlias');
-    expect(normalized.叙事.variableBatches[0].results[0]).not.toHaveProperty('hiddenResultAlias');
-    expect(normalized.叙事.variableBatches[0].results[0].command).not.toHaveProperty('hiddenCommandAlias');
+    expect(normalized.叙事.variableBatches[0]!.results[0]).not.toHaveProperty('hiddenResultAlias');
+    expect(normalized.叙事.variableBatches[0]!.results[0]!.command).not.toHaveProperty('hiddenCommandAlias');
   });
 });
 
@@ -461,7 +481,7 @@ describe('executeTeyvatSaveLoadTransaction', () => {
     });
 
     expect(replacements).toHaveLength(1);
-    expect(replacements[0].叙事.storyWeaving?.activeSeriesId).toBe('story_canon_teyvat_liyue_chapter1');
+    expect(replacements[0]!.叙事.storyWeaving?.activeSeriesId).toBe('story_canon_teyvat_liyue_chapter1');
     expect(raw).toEqual(before);
   });
 
@@ -526,7 +546,7 @@ describe('executeTeyvatSaveLoadTransaction', () => {
     });
 
     expect(replacements).toHaveLength(1);
-    const committed = replacements[0].叙事.storyWeaving;
+    const committed = replacements[0]!.叙事.storyWeaving;
     const blockedSeries = committed?.series.find((candidate) => candidate.id === 'story_canon_teyvat_liyue_chapter1');
     expect(committed?.activeSeriesId).not.toBe('story_canon_teyvat_liyue_chapter1');
     expect(blockedSeries?.active).toBe(false);

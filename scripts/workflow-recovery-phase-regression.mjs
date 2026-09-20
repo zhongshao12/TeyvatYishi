@@ -1,8 +1,9 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
 
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const sendWorkflow = readWorkflowSources();
 const recoveryModel = fs.readFileSync('utils/workflowRecoveryModel.ts', 'utf8');
 const legacyReadOnly = fs.readFileSync('compat/legacy-hsr/readOnly.ts', 'utf8');
 const recoveryResume = fs.readFileSync('hooks/useGame/recoveryResume.ts', 'utf8');
@@ -28,9 +29,15 @@ assert(!recoveryResume.includes("taskId: 'steambird'"), 'formal recovery targets
 assert(app.includes('resumeCommittedSettlementWorkflow(state, recoveryJournal)'), 'App recovery entry must resume from the durable committed root.');
 assert(recoveryResume.includes("phase: 'autosave_committed'"), 'committed recovery must persist autosave_committed only after resumed tail success.');
 
-const resumeStart = sendWorkflow.indexOf('async function runPostSettlementWorkflow');
-const resumeEnd = sendWorkflow.indexOf('export async function resumePostSettlementWorkflow', resumeStart);
-const resumeBody = sendWorkflow.slice(resumeStart, resumeEnd);
+// 迁移: 旧切片在 readWorkflowSources() 拼接文本里找 'async function runPostSettlementWorkflow' ..
+//   'export async function resumePostSettlementWorkflow'；实现已整体搬到 hooks/useGame/postSettlementRecoveryWorkflow.ts
+//   并改名为 runPostSettlementRecoveryWorkflow（sendWorkflow.ts 只保留懒加载入口 resumePostSettlementWorkflow）。
+// 理由: 切片来源与起止标记更新到真实位置，意图不变——post-settlement 恢复实现必须存在（切片非空），
+//   且只能消费持久化 committed 根、不得重放命令事务。
+const postSettlementRecovery = fs.readFileSync('hooks/useGame/postSettlementRecoveryWorkflow.ts', 'utf8');
+const resumeStart = postSettlementRecovery.indexOf('export async function runPostSettlementRecoveryWorkflow');
+const resumeEnd = postSettlementRecovery.length;
+const resumeBody = postSettlementRecovery.slice(resumeStart, resumeEnd);
 assert(resumeStart >= 0 && resumeEnd > resumeStart, 'post-settlement recovery implementation must exist.');
 assert(resumeBody.includes('runSteambirdGenerationStep') && resumeBody.includes('processScheduledCourierSeeds') && resumeBody.includes('buildIrminsulArchiveEntry'), 'recovery tail must continue Steambird, Courier, and Irminsul work.');
 assert(resumeBody.includes('generateNarrativeImagesForMessage') && resumeBody.includes("buildSavePayload(state, 'auto'"), 'recovery tail must continue image work and autosave.');

@@ -8,7 +8,12 @@ function assert(condition, message) {
 }
 
 const delta = fs.readFileSync('utils/saveDeltaStorage.ts', 'utf8');
-const dbService = fs.readFileSync('services/dbService.ts', 'utf8');
+// IndexedDB 的库版本与表名常量已抽到 services/storage/gameDatabase.ts；
+// 这里按「存储层」整体读取，避免文件搬迁让断言失效（判据本身不变）。
+const dbService = [
+  fs.readFileSync('services/dbService.ts', 'utf8'),
+  fs.readFileSync('services/storage/gameDatabase.ts', 'utf8'),
+].join('\n');
 const savePackage = fs.readFileSync('services/savePackage.ts', 'utf8');
 
 assert(delta.includes('export interface SaveNodeDeltaRecord'), '必须定义存档树节点增量记录。');
@@ -16,6 +21,7 @@ assert(delta.includes("export type SaveNodeBaseMode = 'checkpoint' | 'delta'"), 
 assert(delta.includes('export function buildDeltaOnlyStoredSave'), '必须支持构造 delta-only 存储占位存档。');
 assert(delta.includes('export function isDeltaOnlyStoredSave'), '必须提供 delta-only 存档识别函数。');
 assert(delta.includes('export function restoreSaveFromDelta'), '必须提供从基底与差量恢复完整存档的函数。');
+assert(delta.includes('export function canStoreSaveAsDelta'), '必须在写占位存档前验证聊天历史仍是基底前缀。');
 assert(delta.includes('deltaPayload?: SaveNodeDeltaPayload'), '增量记录必须能携带真实 delta payload。');
 assert(delta.includes("baseMode: SaveNodeBaseMode"), '节点记录必须记录当前节点的基底模式。');
 assert(delta.includes('chatFromIndex') && delta.includes('chatTail'), '增量记录必须包含聊天尾部索引。');
@@ -30,7 +36,7 @@ assert(!delta.includes('JSON.stringify(a)') && !delta.includes('JSON.stringify(b
 assert(dbService.includes("const SAVE_NODE_DELTAS_STORE = 'saveNodeDeltas'"), '必须定义 saveNodeDeltas 表。');
 assert(dbService.includes('db.createObjectStore(SAVE_NODE_DELTAS_STORE'), 'DB 升级必须创建 saveNodeDeltas 表。');
 assert(dbService.includes('findAutoDeltaBase(db, storedData)'), '保存前必须尝试寻找自动存档 delta 基底。');
-assert(dbService.includes('const initialStoredData = deltaBase') && dbService.includes('buildDeltaOnlyStoredSave(storedData, deltaBase.baseSaveId)'), '命中 delta 基底时首次 add 必须直接写轻量占位。');
+assert(dbService.includes('const initialStoredData = deltaBase && useDeltaStorage') && dbService.includes('buildDeltaOnlyStoredSave(storedData, deltaBase.baseSaveId)'), '只有聊天历史可追加时首次 add 才能写轻量占位。');
 assert(!dbService.includes('loadAllDeltaRecords') && !dbService.includes('SAVE_NODE_DELTAS_STORE).getAll'), 'delta 维护不得一次性加载所有 payload。');
 assert(dbService.includes('scanIndexedDeltaRecords') && dbService.includes('openCursor()'), 'delta 计数和引用检查必须逐条游标扫描。');
 assert(dbService.includes("if (save.type !== 'auto') return null"), '只有自动存档可以走 delta-only，手动/备份必须保持完整检查点。');
@@ -42,7 +48,7 @@ assert(dbService.includes('return loadDesktopSaveMirrorSaveFallbackSafely(id)'),
 assert(dbService.includes('resolveDeltaBaseSaveId(db, parentSave)'), '父节点是 delta-only 时必须追溯到最近 checkpoint 基底。');
 assert(dbService.includes('countDeltasUsingBase(db, baseSaveId)'), '必须统计当前 checkpoint 已挂载的 delta 节点数量。');
 assert(dbService.includes('deltaCount >= MAX_DELTA_NODES_PER_CHECKPOINT'), '达到上限后必须回退为完整 checkpoint。');
-assert(dbService.includes('store.put(buildDeltaOnlyStoredSave(savedForDelta, deltaBase.baseSaveId))'), '自动存档命中基底时必须将 saves 表正文替换为 delta-only 占位。');
+assert(dbService.includes("delta?.baseMode === 'delta'") && dbService.includes('store.put(buildDeltaOnlyStoredSave(savedForDelta, deltaBase.baseSaveId))'), '自动存档只有生成真实 delta 时才能将 saves 表正文替换为 delta-only 占位。');
 assert(dbService.includes("storageMode: 'delta'"), '写入 delta-only 时必须把节点记录标记为 delta 模式。');
 assert(dbService.includes('restoreDeltaSaveIfNeeded(db, save)'), '读档必须先恢复 delta-only 存档。');
 assert(dbService.includes('const rawBase = await loadDeltaBaseCandidateSave(db, baseSaveId)'), 'delta-only 恢复读取基底时必须经过可回落到桌面镜像的帮助函数。');

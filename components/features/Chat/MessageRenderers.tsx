@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_PANEL, insetRing } from '@/styles/clipPaths';
 import { memo, useState, useMemo } from 'react';
 import type { NPC记录 } from '@/models/npc';
 import { 读取NPC头像 } from '@/models/npc';
@@ -21,7 +22,7 @@ export function ThinkingBlock({ content, defaultOpen = false }: ThinkingBlockPro
     <div
       className="mb-3"
       style={{
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+        boxShadow: insetRing(0.18),
         background: 'rgba(var(--tj-accent-primary), 0.04)',
       }}
     >
@@ -166,7 +167,7 @@ function parseBodyLines(body: string, traveler?: 角色数据结构, userInput?:
     if (!trimmed) return { kind: 'blank' };
     let m = trimmed.match(NARR_RE);
     if (m) {
-      const text = m[1].trim();
+      const text = m[1]?.trim() ?? '';
       if (isSoundEffectText(text)) {
         return { kind: 'narration', text };
       }
@@ -177,13 +178,13 @@ function parseBodyLines(body: string, traveler?: 角色数据结构, userInput?:
       return { kind: 'narration', text };
     }
     m = trimmed.match(DIAG_RE);
-    if (m) return splitDialogueAndTrailingNarration(m[1].trim(), m[2].trim(), traveler);
+    if (m) return splitDialogueAndTrailingNarration(m[1]?.trim() ?? '', m[2]?.trim() ?? '', traveler);
     m = trimmed.match(INNER_RE);
-    if (m) return { kind: 'inner', text: m[1].trim() };
+    if (m) return { kind: 'inner', text: m[1]?.trim() ?? '' };
     m = trimmed.match(NAMED_DIAG_RE);
-    if (m && !['旁白', '心声', '角色'].includes(m[1].trim())) {
-      const name = m[1].trim();
-      const text = m[2].trim();
+    if (m && !['旁白', '心声', '角色'].includes(m[1]?.trim() ?? '')) {
+      const name = m[1]?.trim() ?? '';
+      const text = m[2]?.trim() ?? '';
       if (isSoundEffectSpeakerName(name)) {
         return { kind: 'narration', text: combineSoundEffectNarration(name, text) };
       }
@@ -220,7 +221,8 @@ function isSoundEffectText(text: string): boolean {
 function isNormalizedSoundEffect(clean: string): boolean {
   if (!clean || clean.length > 18) return false;
   if (SOUND_EFFECT_TAGS.has(clean)) return true;
-  if (clean.length <= 8 && [...clean].every((char) => char === clean[0]) && SOUND_EFFECT_TAGS.has(clean[0])) return true;
+  const first = clean[0];
+  if (first && clean.length <= 8 && [...clean].every((char) => char === first) && SOUND_EFFECT_TAGS.has(first)) return true;
   return /^(轰隆隆|轰隆|隆隆|轰|隆|砰|咚|咔哒|咔|吼|嗷|嘶|呜|滴滴|滴|嗡|滋|哐当|哐|啪|唰|咻){1,5}$/.test(clean);
 }
 
@@ -252,7 +254,7 @@ export function resolveTravelerAvatar(traveler: 角色数据结构 | undefined, 
 function extractFullQuotedSpeech(text: string): string | null {
   const match = text.match(/^[“"「](.+?)[”"」]([。！？!?])?$/);
   if (!match) return null;
-  const inner = match[1].trim();
+  const inner = match[1]?.trim() ?? '';
   if (inner.length < 4) return null;
   if (!/[我你您吗呢吧呀啊？！!?。]/.test(inner)) return null;
   return inner;
@@ -276,14 +278,14 @@ function splitDialogueAndTrailingNarration(
     return [{ kind: 'dialogue', name, text }];
   }
 
-  const quoted = extractFullQuotedSpeech(quoteMatch[1].trim());
+  const quoted = extractFullQuotedSpeech(quoteMatch[1]?.trim() ?? '');
   if (!quoted) {
     return [{ kind: 'dialogue', name, text }];
   }
 
   return [
     { kind: 'dialogue', name, text: quoted },
-    { kind: 'narration', text: quoteMatch[2].trim() },
+    { kind: 'narration', text: quoteMatch[2]?.trim() ?? '' },
   ];
 }
 
@@ -304,7 +306,7 @@ function nameToColor(name: string): string {
   for (let i = 0; i < name.length; i++) {
     hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
   }
-  return CHAR_COLORS[hash % CHAR_COLORS.length];
+  return CHAR_COLORS[hash % CHAR_COLORS.length] ?? CHAR_COLORS[0]!;
 }
 
 // 把 rgb(r, g, b) 转成带 alpha 的 rgba，用于光晕/阴影。
@@ -440,7 +442,7 @@ export const DialogueBubble = memo(function DialogueBubble({ name, text, color, 
         style={{
           background: boxBg,
           boxShadow: `inset 0 0 0 1px ${frameStroke}, inset 0 0 26px rgba(var(--tj-shadow), 0.28)`,
-          clipPath: 'polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)',
+          clipPath: CLIP_PANEL,
         }}
       >
         {/* 立绘槽位 */}
@@ -451,7 +453,7 @@ export const DialogueBubble = memo(function DialogueBubble({ name, text, color, 
               ? 'rgba(var(--tj-surface-strong), 0.85)'
               : `linear-gradient(150deg, ${withAlpha(color, 0.2)}, rgba(var(--tj-shadow), 0.3))`,
             boxShadow: `inset 0 0 0 1px ${withAlpha(color, 0.5)}`,
-            clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+            clipPath: CLIP_CARD,
           }}
         >
           {avatarUrl ? (
@@ -606,7 +608,7 @@ export function extractStreamingNarrativeBody(raw: string): string {
   const blocks: string[] = [];
   let cursor = bodyStart[0].length;
   while (cursor < raw.length) {
-    while (cursor < raw.length && /[\s,]/.test(raw[cursor])) cursor += 1;
+    while (cursor < raw.length && /[\s,]/.test(raw[cursor] ?? '')) cursor += 1;
     if (raw[cursor] === ']' || raw[cursor] === undefined) break;
     if (raw[cursor] !== '{') break;
 
@@ -665,7 +667,7 @@ function PathfindingIndicator() {
         boxShadow:
           'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.4), 0 0 22px rgba(var(--tj-accent-primary), 0.08)',
         clipPath:
-          'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+          CLIP_CARD,
       }}
     >
       <span

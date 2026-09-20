@@ -394,7 +394,7 @@ export const 默认文生图模型规则集列表: 文生图模型规则集[] = 
   },
 ];
 
-export const 默认NAI规则预设列表: 文生图NAI规则预设[] = [{
+export const 默认NAI规则预设列表: [文生图NAI规则预设, ...文生图NAI规则预设[]] = [{
   id: 'nai_rule_official_baseline',
   名称: 'NAI 官方基线',
   模型族: 'all',
@@ -421,7 +421,7 @@ export const 默认故事快照解析语义规则 = [
   '英文提示词采用 anime illustration, sci-fi fantasy, cinematic lighting, clean rendering, detailed environment, atmospheric depth；避免写实照片、3D 渲染、现代摄影棚和无关角色。',
 ].join('\n');
 
-export const 默认故事快照解析规则预设列表: 故事快照解析规则预设[] = [{
+export const 默认故事快照解析规则预设列表: [故事快照解析规则预设, ...故事快照解析规则预设[]] = [{
   id: 'story_snapshot_semantic_baseline',
   名称: '故事快照系统基线',
   语义规则: 默认故事快照解析语义规则,

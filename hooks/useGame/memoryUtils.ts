@@ -418,7 +418,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
       .filter((index) => index >= 0)
       .slice(0, size);
     return indexes.length >= size
-      ? { raw: indexes.map((index) => items[index]), indexes }
+      ? { raw: indexes.map((index) => items[index]).filter((item): item is string => item !== undefined), indexes }
       : null;
   };
 

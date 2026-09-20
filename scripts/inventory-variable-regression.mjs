@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowFile, readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
 
@@ -6,7 +7,7 @@ const registry = fs.readFileSync('utils/teyvatCommandRegistry.ts', 'utf8');
 const transaction = fs.readFileSync('services/teyvatTurnTransaction.ts', 'utf8');
 const facts = fs.readFileSync('utils/variableFacts.ts', 'utf8');
 const items = fs.readFileSync('models/teyvat/items.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const sendWorkflow = readWorkflowSources();
 const variableModel = fs.readFileSync('services/ai/variableModel.ts', 'utf8');
 const variableWorldbook = fs.readFileSync('data/variableWorldbook.ts', 'utf8');
 const domainRules = fs.readFileSync('prompts/subsystems/domainCommandPrompt.ts', 'utf8');
@@ -22,16 +23,46 @@ assert(registry.includes("root === '旅行者'") && registry.includes("path.star
 
 assert(transaction.includes('reduceTeyvatTurn') && transaction.includes('commitTeyvatTurn'), '背包必须经过正式根 transaction。');
 assert(transaction.includes('if (errors.length) return { status: \'rejected\', nextState: initial'), '混合失败批次必须返回原始根状态。');
-assert(transaction.includes('replaceGameState(reduced.nextState)'), 'accepted transaction 必须只调用根 replace callback。');
+// 迁移: 旧 `replaceGameState(reduced.nextState)`（accepted 分支直呼根 replace callback）
+//   -> `replaceGameState(nextState);`（services/teyvatTurnTransaction.ts 的 commitPreflightedTeyvatTurn，
+//      入参先 `normalizeTeyvatGameState(preflight.nextState)` 再交给根 callback）。
+// 理由: 意图不变且更严——accepted 事务只准调用根 replace callback 一次；rejected 分支（errors.length 时
+//       直接返回原始 initial）不经过任何 callback。因此断言“根 callback 调用点恰好一处 + 传的是根状态”。
+const replaceGameStateCalls = [...transaction.matchAll(/replaceGameState\(/g)];
+assert(replaceGameStateCalls.length === 1 && transaction.includes('replaceGameState(nextState);'), 'accepted transaction 必须只调用根 replace callback。');
 assert(facts.includes("root: '背包', path: 'items'"), 'item facts 必须输出正式 root/path 命令。');
 assert(facts.includes('category: fact.category') && facts.includes('quantity: fact.quantity') && facts.includes('rarity: fact.rarity'), 'item facts 必须输出正式 category/quantity/rarity 字段。');
 assert(facts.includes('是非背包信息物品') && facts.includes('不是可放入背包的实体物品'), '事实层必须继续过滤纯信息物品。');
 
-const calibrationStart = sendWorkflow.indexOf('async function runVariableCalibrationStep');
-const calibration = sendWorkflow.slice(calibrationStart);
+// 迁移: 旧切片 `sendWorkflow.slice(indexOf('async function runVariableCalibrationStep'))` 假设「校准入口之后就是结算实现本体」
+//   （当时 sendWorkflow 是单文件）。重构后结算实现搬到 hooks/useGame/variableSettlementWorkflow.ts，而
+//   WORKFLOW_FILES 仍在其后继续拼接 turnSnapshot/memoryUtils/postSettlementCommitStage 等无关模块，
+//   尾部切片会把它们误当结算代码——例如 turnSnapshot.ts 的旧存档恢复 `state.set背包(` 就会让下面的负断言假红。
+//   -> 切片改为显式取「校准入口（sendWorkflow.ts 尾部）」+「正式结算实现模块」两段。
+// 理由: live 结算链路范围不变（入口 + 实现），负断言既不空转也不误伤无关模块。
+const calibrationEntry = readWorkflowFile('hooks/useGame/sendWorkflow.ts');
+const calibrationStart = calibrationEntry.indexOf('async function runVariableCalibrationStep');
+assert(calibrationStart !== -1, 'live settlement entry point must be present.');
+const calibration = [
+  calibrationEntry.slice(calibrationStart),
+  readWorkflowFile('hooks/useGame/variableSettlementWorkflow.ts'),
+].join('\n');
 assert(calibration.includes('factsToTeyvatDomainCommands'), 'live variable settlement must use the formal fact translator.');
-assert(calibration.includes('commitTeyvatTurn(stateSnapshot, pendingCommands, (nextState) =>'), 'live settlement must commit one formal root transaction.');
-assert(calibration.includes('state.replaceGameState(committedGame)'), 'accepted live settlement must perform one root replacement.');
+// 迁移: 旧 `commitTeyvatTurn(stateSnapshot, pendingCommands, (nextState) => ...`（内联箭头根 callback）
+//   -> `commitTeyvatTurn(stateSnapshot, pendingCommands, commitGameState, evidenceContext)`（具名 callback + 证据上下文）。
+// 理由: 意图不变——live 结算仍必须走一次正式根 transaction。
+assert(calibration.includes('commitTeyvatTurn(stateSnapshot, pendingCommands, commitGameState, evidenceContext)'), 'live settlement must commit one formal root transaction.');
+// 迁移: 旧 `state.replaceGameState(committedGame)`（结算内直接调用根替换）
+//   -> 根替换下沉为 commitGame 参数：入口传 `commitGame: (next) => state.updateGameState(() => next),`，
+//      结算模块只在 accepted 之后 `params.commitGame(committedGame);` 调一次。
+// 理由: 意图不变且更严——accepted live 结算只准有一个根替换调用点。
+const commitGameCalls = [...calibration.matchAll(/params\.commitGame\(/g)];
+assert(
+  calibration.includes('commitGame: (next) => state.updateGameState(() => next),')
+  && calibration.includes('params.commitGame(committedGame);')
+  && commitGameCalls.length === 1,
+  'accepted live settlement must perform one root replacement.',
+);
 assert(!calibration.includes('commitVariableState') && !calibration.includes('reduceVariableCommands'), 'live settlement must not call the legacy executor.');
 assert(!calibration.includes('state.set背包('), 'live synchronous settlement must not commit inventory through a slice setter.');
 assert(sendWorkflow.includes('背包: state.背包'), 'pre-turn snapshot must carry the formal inventory root.');

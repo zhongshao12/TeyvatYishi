@@ -107,7 +107,7 @@ export function extractSaveAssetRecords(save: 存档数据): SaveAssetRecord[] {
       width: asset.width,
       height: asset.height,
       size: asset.size ?? estimateBlobSize(resolved.blob, resolved.dataUrl),
-      updatedAt: Date.now(),
+      updatedAt: asset.createdAt,
     });
   }
   return Array.from(records.values());

@@ -212,7 +212,9 @@ export function normalizeStorySnapshotRenderContext(input: unknown): StorySnapsh
   ];
   let targetIndex = 0;
   while (storySnapshotContextBytes(normalized) > STORY_SNAPSHOT_CONTEXT_LIMITS.serializedBytes) {
-    const changed = shrinkTargets[targetIndex % shrinkTargets.length]();
+    const shrinkTarget = shrinkTargets[targetIndex % shrinkTargets.length];
+    if (!shrinkTarget) break;
+    const changed = shrinkTarget();
     targetIndex += 1;
     if (!changed && targetIndex >= shrinkTargets.length * 2) break;
   }

@@ -27,10 +27,12 @@ function transpileModule(sourcePath) {
       skipLibCheck: true,
     },
   }).outputText
-    .replace(/@\/(models|compat)\//g, (_match, folder) => {
-      let relative = path.posix.relative(sourceDir, folder);
-      if (!relative.startsWith('.')) relative = `./${relative}`;
-      return `${relative}/`;
+    .replace(/(['"])@\/([^'"]+)\1/g, (_match, quote, spec) => {
+      const dir = path.posix.dirname(spec);
+      let relative = path.posix.relative(sourceDir, dir === '.' ? '' : dir);
+      if (relative === '') relative = '.';
+      else if (!relative.startsWith('.')) relative = `./${relative}`;
+      return `${quote}${relative}/${path.posix.basename(spec)}${quote}`;
     })
     .replace(/from\s+['"]((?:\.\/|\.\.\/)[^'"]+)['"]/g, (match, specifier) =>
       specifier.endsWith('.mjs') ? match : `from '${specifier}.mjs'`);
@@ -43,6 +45,7 @@ cleanTempDir();
 transpileModule('models/teyvat/narrativeTurn.ts');
 transpileModule('services/ai/narrativeTurnParser.ts');
 transpileModule('services/ai/responseParser.ts');
+transpileModule('utils/valueGuards.ts');
 const compatStubPath = path.join(tempDir, 'compat/legacy-hsr/readOnly.mjs');
 fs.mkdirSync(path.dirname(compatStubPath), { recursive: true });
 fs.writeFileSync(compatStubPath, 'export function getLegacyElementalEchoTagAliases() { return { invite: [], questions: [], judgement: [] }; }\n', 'utf8');

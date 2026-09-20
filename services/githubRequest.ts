@@ -15,6 +15,12 @@ export interface GitHubRequestOptions extends RequestInit {
   onRetry?: (notice: GitHubRetryNotice) => void;
 }
 
+export interface GitHubResponseReadOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  phase?: string;
+}
+
 export class GitHubRequestError extends Error {
   readonly status?: number;
   readonly retryable: boolean;
@@ -96,6 +102,75 @@ export async function githubRequest(
   }
 
   throw new GitHubRequestError(`${phase}失败。`);
+}
+
+export async function readGitHubResponseBytes(
+  response: Response,
+  options: GitHubResponseReadOptions = {},
+): Promise<Uint8Array> {
+  const { signal, timeoutMs = DEFAULT_TIMEOUT_MS, phase = '读取 GitHub 响应体' } = options;
+  assertNotAborted(signal);
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    assertNotAborted(signal);
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  let rejectInterrupted: (reason: unknown) => void = () => {};
+  let cancelPromise: Promise<unknown> = Promise.resolve();
+  let interrupted = false;
+  let interruptReason: unknown;
+  const interruptedRead = new Promise<never>((_resolve, reject) => {
+    rejectInterrupted = reject;
+  });
+  const interrupt = (reason: unknown) => {
+    if (interrupted) return;
+    interrupted = true;
+    interruptReason = reason;
+    try {
+      cancelPromise = reader.cancel(reason).catch(() => undefined);
+    } catch {
+      cancelPromise = Promise.resolve();
+    }
+    rejectInterrupted(reason);
+  };
+  const abort = () => interrupt(signal?.reason ?? new DOMException('操作已取消。', 'AbortError'));
+  signal?.addEventListener('abort', abort, { once: true });
+  const timeoutId = globalThis.setTimeout(
+    () => interrupt(new DOMException(`${phase}超时。`, 'TimeoutError')),
+    Math.max(1, timeoutMs),
+  );
+
+  try {
+    while (true) {
+      const { done, value } = await Promise.race([reader.read(), interruptedRead]);
+      if (interrupted) throw interruptReason;
+      if (done) break;
+      if (!value?.byteLength) continue;
+      chunks.push(value);
+      totalBytes += value.byteLength;
+    }
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', abort);
+    await cancelPromise;
+    try {
+      reader.releaseLock();
+    } catch {
+      // The stream implementation may retain a pending read while cancellation settles.
+    }
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 export async function readGitHubError(response: Response, fallback: string): Promise<string> {
@@ -180,10 +255,6 @@ function forwardAbort(signal: AbortSignal | null | undefined, controller: AbortC
   return () => signal.removeEventListener('abort', abort);
 }
 
-function assertNotAborted(signal?: AbortSignal | null): void {
-  if (signal?.aborted) throw signal.reason ?? new DOMException('操作已取消。', 'AbortError');
-}
-
 function abortableDelay(delayMs: number, signal?: AbortSignal | null): Promise<void> {
   assertNotAborted(signal);
   return new Promise((resolve, reject) => {
@@ -198,3 +269,4 @@ function abortableDelay(delayMs: number, signal?: AbortSignal | null): Promise<v
     signal?.addEventListener('abort', abort, { once: true });
   });
 }
+import { assertNotAborted } from '@/utils/asyncControl';

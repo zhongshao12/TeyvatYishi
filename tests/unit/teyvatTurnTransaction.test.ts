@@ -3,7 +3,9 @@ import { createEmptyTeyvatGameState } from '../../models/teyvat';
 import type { TeyvatDomainCommand } from '../../models/teyvat/domainCommand';
 import { factsToTeyvatDomainCommands } from '../../utils/variableFacts';
 import {
+  commitPreflightedTeyvatTurn,
   commitTeyvatTurn,
+  preflightTeyvatTurn,
   reduceTeyvatTurn,
   runCommittedTurnEffects,
 } from '../../services/teyvatTurnTransaction';
@@ -114,10 +116,10 @@ describe('reduceTeyvatTurn', () => {
     expect(result.status).toBe('accepted');
     expect(result.nextState.旅行者.capabilities).toEqual(['风之翼驾驶']);
     expect(result.nextState.世界.旅程天数).toBe(2);
-    expect(result.nextState.NPC[0].affinity).toBe(3);
-    expect(result.nextState.背包.items[0].id).toBe('item_food_egg');
-    expect(result.nextState.任务.active[0].id).toBe('quest_scout');
-    expect(result.nextState.手机.contacts[0].id).toBe('contact_amber');
+    expect(result.nextState.NPC[0]!.affinity).toBe(3);
+    expect(result.nextState.背包.items[0]!.id).toBe('item_food_egg');
+    expect(result.nextState.任务.active[0]!.id).toBe('quest_scout');
+    expect(result.nextState.手机.contacts[0]!.id).toBe('contact_amber');
     expect(result.nextState.原著轨道.currentAnchor).toBe('teyvat_prologue_mondstadt_act1');
   });
 
@@ -165,8 +167,8 @@ describe('reduceTeyvatTurn', () => {
       command({ action: 'add', root: '背包', path: 'items[id=材料_晶核].quantity', value: 3, evidence: '安柏递来一份煎蛋' }),
     ], { factCandidates: facts });
     expect(result.status).toBe('accepted');
-    expect(result.nextState.NPC[0].affinity).toBe(2);
-    expect(result.nextState.背包.items[0].quantity).toBe(4);
+    expect(result.nextState.NPC[0]!.affinity).toBe(2);
+    expect(result.nextState.背包.items[0]!.quantity).toBe(4);
   });
 
   it('strictly rebuilds nested quest and NPC payloads and drops unknown keys', () => {
@@ -192,9 +194,9 @@ describe('reduceTeyvatTurn', () => {
     ], { factCandidates: facts });
     expect(result.status).toBe('accepted');
     expect(result.nextState.任务.active[0]).not.toHaveProperty('injected');
-    expect(result.nextState.任务.active[0].objectives[0]).not.toHaveProperty('injected');
-    expect(result.nextState.NPC[0].sharedMemories[0]).not.toHaveProperty('injected');
-    expect(result.nextState.NPC[0].matureArchive).not.toHaveProperty('injected');
+    expect(result.nextState.任务.active[0]!.objectives[0]).not.toHaveProperty('injected');
+    expect(result.nextState.NPC[0]!.sharedMemories[0]).not.toHaveProperty('injected');
+    expect(result.nextState.NPC[0]!.matureArchive).not.toHaveProperty('injected');
   });
 
   it('rejects malformed nested quest, shared-memory, and mature-archive shapes atomically', () => {
@@ -254,15 +256,41 @@ describe('reduceTeyvatTurn', () => {
     const first = reduceTeyvatTurn(initial, firstCommands, { factCandidates: facts });
     expect(first.status).toBe('accepted');
     expect(first.nextState.背包.items).toHaveLength(1);
-    expect(first.nextState.背包.items[0].quantity).toBe(5);
-    const secondCommands = factsToTeyvatDomainCommands([itemFacts[1]], first.nextState, 2).commands;
+    expect(first.nextState.背包.items[0]!.quantity).toBe(5);
+    const secondCommands = factsToTeyvatDomainCommands([itemFacts[1]!], first.nextState, 2).commands;
     const second = reduceTeyvatTurn(first.nextState, secondCommands, { factCandidates: facts });
     expect(second.status).toBe('accepted');
-    expect(second.nextState.背包.items[0].quantity).toBe(8);
+    expect(second.nextState.背包.items[0]!.quantity).toBe(8);
   });
 });
 
 describe('commitTeyvatTurn', () => {
+  it('commits an accepted preflight without rebuilding or applying its raw commands again', () => {
+    const initial = createEmptyTeyvatGameState();
+    const raw = command();
+    let valueReads = 0;
+    Object.defineProperty(raw, 'value', {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        valueReads += 1;
+        return '蒙德城';
+      },
+    });
+    const preflight = preflightTeyvatTurn(initial, [raw], { factCandidates: facts });
+    expect(preflight.status).toBe('accepted');
+    if (preflight.status !== 'accepted') return;
+    const readsAfterPreflight = valueReads;
+    const replace = vi.fn();
+
+    const result = commitPreflightedTeyvatTurn(initial, preflight, replace);
+
+    expect(result.status).toBe('committed');
+    expect(result.nextState.世界.当前地点).toBe('蒙德城');
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(valueReads).toBe(readsAfterPreflight);
+  });
+
   it('replaces exactly once when accepted and zero times when rejected', () => {
     const acceptedReplace = vi.fn();
     const accepted = commitTeyvatTurn(createEmptyTeyvatGameState(), [command()], acceptedReplace, { factCandidates: facts });
@@ -359,14 +387,14 @@ describe('skill_used talent growth', () => {
       command({ action: 'add', root: '旅行者', path: '天赋[id=talent_gust].等级', value: 1, evidence: '正文写明旅行者挥出风涡剑' }),
     ], { factCandidates: skillFact });
     expect(result.status).toBe('accepted');
-    expect(result.nextState.旅行者.天赋[0].等级).toBe(4);
-    expect(initial.旅行者.天赋[0].等级).toBe(3);
+    expect(result.nextState.旅行者.天赋[0]!.等级).toBe(4);
+    expect(initial.旅行者.天赋[0]!.等级).toBe(3);
 
     const bumped = reduceTeyvatTurn(stateWithTalent(19), [
       command({ action: 'add', root: '旅行者', path: '天赋[id=talent_gust].等级', value: 1, evidence: '正文写明旅行者挥出风涡剑' }),
     ], { factCandidates: skillFact });
     expect(bumped.status).toBe('accepted');
-    expect(bumped.nextState.旅行者.天赋[0].等级).toBe(20);
+    expect(bumped.nextState.旅行者.天赋[0]!.等级).toBe(20);
 
     const over = reduceTeyvatTurn(stateWithTalent(20), [
       command({ action: 'add', root: '旅行者', path: '天赋[id=talent_gust].等级', value: 1, evidence: '正文写明旅行者挥出风涡剑' }),

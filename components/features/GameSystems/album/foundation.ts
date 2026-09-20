@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { NovelAITaskOverrides, StorySnapshotRenderContext, 图片槽位, 图片生成任务来源, 图片目标类型 } from '@/models/imageGeneration';
 import type { 文生图API配置 } from '@/models/settings';
+import { CLIP_CARD, CLIP_SMALL } from '@/styles/clipPaths';
 
 export type WorkTab = 'manual' | 'gallery' | 'anchor' | 'scene' | 'sceneImage' | 'phone' | 'reference' | 'rules' | 'queue' | 'settings';
 export type GenerateTarget = 'traveler_avatar' | 'traveler_portrait' | 'npc_avatar' | 'npc_portrait' | 'scene' | 'phone_wallpaper' | 'nsfw_reference';
@@ -28,8 +29,8 @@ export type SceneImageSummary = {
 };
 export type StorySnapshotSourceOption = { id: StorySnapshotSource; title: string; desc: string; text: string };
 
-export const cardClip = 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
-export const smallClip = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+export const cardClip = CLIP_CARD;
+export const smallClip = CLIP_SMALL;
 export const albumGridLayer = 'linear-gradient(90deg, rgba(var(--tj-btn-primary-start),0.062) 1px, transparent 1px), linear-gradient(180deg, rgba(var(--tj-arcane-accent),0.048) 1px, transparent 1px)';
 export const albumGridSize = '26px 26px, 26px 26px, auto, auto';
 export const heroSurface = `${albumGridLayer}, radial-gradient(circle at 14% 0%, rgba(var(--tj-arcane-accent), 0.14), transparent 34%), linear-gradient(180deg, rgba(var(--tj-surface),0.78), rgba(var(--tj-bg-primary),0.94))`;
@@ -65,7 +66,7 @@ export const tabs: { id: WorkTab; label: string; desc: string; group: 'create' |
   { id: 'settings', label: '设置', desc: '接口与正文插图', group: 'manage' },
 ];
 
-export const generateTargets: Array<{
+export type GenerateTargetConfig = {
   id: GenerateTarget;
   label: string;
   desc: string;
@@ -74,7 +75,10 @@ export const generateTargets: Array<{
   tokenizerMode: 'avatar' | 'portrait' | 'scene';
   nsfw?: boolean;
   sceneApi?: boolean;
-}> = [
+};
+
+/** Non-empty by contract: AlbumPanel always has a safe fallback target. */
+export const generateTargets: [GenerateTargetConfig, ...GenerateTargetConfig[]] = [
   { id: 'traveler_avatar', label: '旅人头像', desc: '用于旅人档案、正文头像或手机头像。', targetType: 'traveler', slot: 'avatar_profile', tokenizerMode: 'avatar' },
   { id: 'traveler_portrait', label: '旅人立绘', desc: '用于旅人档案大图和后续角色预览。', targetType: 'traveler', slot: 'portrait', tokenizerMode: 'portrait' },
   { id: 'npc_avatar', label: '伙伴头像', desc: '用于伙伴档案、正文头像或手机头像。', targetType: 'npc', slot: 'avatar_profile', tokenizerMode: 'avatar' },
@@ -107,7 +111,9 @@ export type GenerateOverride = {
 
 export type NavGroupId = 'generate' | 'library' | 'tasks' | 'settings';
 
-export const navGroups: { id: NavGroupId; label: string; members: WorkTab[] }[] = [
+type NavGroup = { id: NavGroupId; label: string; members: [WorkTab, ...WorkTab[]] };
+
+export const navGroups: [NavGroup, ...NavGroup[]] = [
   { id: 'generate', label: '生成', members: ['manual', 'scene', 'sceneImage', 'phone', 'anchor'] },
   { id: 'library', label: '图库', members: ['gallery'] },
   { id: 'tasks', label: '任务', members: ['queue'] },

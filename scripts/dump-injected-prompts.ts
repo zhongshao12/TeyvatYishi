@@ -25,13 +25,14 @@ const scopeOrder = ['main', 'opening', 'elementalEcho', 'battle', 'all', 'calibr
 const scopeKey = (m: { scope?: string[] }) => {
   const s = m.scope && m.scope.length ? m.scope : ['all'];
   for (const k of scopeOrder) if (s.includes(k)) return k;
-  return s[0];
+  return s[0] ?? 'all';
 };
 const byScope = new Map<string, typeof modules>();
 for (const m of modules) {
   const k = scopeKey(m);
-  if (!byScope.has(k)) byScope.set(k, []);
-  byScope.get(k)!.push(m);
+  const bucket = byScope.get(k) ?? [];
+  bucket.push(m);
+  byScope.set(k, bucket);
 }
 
 push('## 第一部分：内置提示词模块');

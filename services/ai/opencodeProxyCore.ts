@@ -1,3 +1,6 @@
+import { normalizeOpenCodeBaseUrl } from './openCodeEndpointPolicy';
+import { handleUpstreamProxyRequest, readProxyText as readText } from './upstreamProxy';
+
 type OpenCodeProxyBody = {
   baseUrl?: string;
   apiKey?: string;
@@ -7,25 +10,6 @@ type OpenCodeProxyBody = {
   model?: string;
   stream?: boolean;
 };
-
-function readText(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function normalizeOpenCodeBaseUrl(baseUrl: string): string {
-  let base = baseUrl.trim().replace(/\/+$/, '');
-  base = base.split('?')[0] ?? base;
-  base = base
-    .replace(/\/zen\/go\/v1/i, '/zen/v1')
-    .replace(/\/chat\/completions$/i, '')
-    .replace(/\/messages$/i, '')
-    .replace(/\/responses$/i, '')
-    .replace(/\/models\/[^/]+(?::(?:stream)?generateContent)?$/i, '')
-    .replace(/\/models$/i, '');
-  if (/^https:\/\/opencode\.ai$/i.test(base)) return `${base}/zen/v1`;
-  if (/^https:\/\/opencode\.ai\/zen$/i.test(base)) return `${base}/v1`;
-  return base;
-}
 
 function assertOpenCodeBaseUrl(baseUrl: string): string {
   const base = normalizeOpenCodeBaseUrl(baseUrl);
@@ -50,16 +34,6 @@ function buildOpenCodeUpstreamUrl(payload: OpenCodeProxyBody): string {
   return `${base}/chat/completions`;
 }
 
-function proxyHeaders(upstream?: Response): Headers {
-  const headers = new Headers();
-  headers.set('access-control-allow-origin', '*');
-  headers.set('access-control-allow-methods', 'GET,POST,OPTIONS');
-  headers.set('access-control-allow-headers', 'content-type');
-  headers.set('cache-control', 'no-store');
-  headers.set('content-type', upstream?.headers.get('content-type') || 'application/json; charset=utf-8');
-  return headers;
-}
-
 function openCodeUpstreamHeaders(payload: OpenCodeProxyBody): HeadersInit {
   const apiKey = readText(payload.apiKey);
   const headers: Record<string, string> = {
@@ -77,43 +51,9 @@ function openCodeUpstreamHeaders(payload: OpenCodeProxyBody): HeadersInit {
 }
 
 export async function handleOpenCodeProxyRequest(request: Request): Promise<Response> {
-  let payload: OpenCodeProxyBody;
-  try {
-    payload = await request.json() as OpenCodeProxyBody;
-  } catch {
-    return new Response(JSON.stringify({ error: '请求体不是有效 JSON。' }), {
-      status: 400,
-      headers: proxyHeaders(),
-    });
-  }
-
-  const baseUrl = readText(payload.baseUrl);
-  const apiKey = readText(payload.apiKey);
-  if (!baseUrl || !apiKey) {
-    return new Response(JSON.stringify({ error: '缺少 OpenCode Zen Base URL 或 API Key。' }), {
-      status: 400,
-      headers: proxyHeaders(),
-    });
-  }
-
-  try {
-    const upstreamUrl = buildOpenCodeUpstreamUrl(payload);
-    const upstream = await fetch(upstreamUrl, {
-      method: payload.kind === 'models' ? 'GET' : 'POST',
-      headers: openCodeUpstreamHeaders(payload),
-      body: payload.kind === 'models' ? undefined : JSON.stringify(payload.body ?? {}),
-    });
-    return new Response(upstream.body, {
-      status: upstream.status,
-      statusText: upstream.statusText,
-      headers: proxyHeaders(upstream),
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({
-      error: error instanceof Error ? error.message : String(error),
-    }), {
-      status: 502,
-      headers: proxyHeaders(),
-    });
-  }
+  return handleUpstreamProxyRequest<OpenCodeProxyBody>(request, {
+    missingCredentialsMessage: '缺少 OpenCode Zen Base URL 或 API Key。',
+    buildUrl: buildOpenCodeUpstreamUrl,
+    buildHeaders: openCodeUpstreamHeaders,
+  });
 }

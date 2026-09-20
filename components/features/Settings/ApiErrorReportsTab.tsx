@@ -1,3 +1,4 @@
+import { CLIP_SMALL } from '@/styles/clipPaths';
 import { useEffect, useMemo, useState } from 'react';
 import {
   clearApiErrorReports,
@@ -5,8 +6,7 @@ import {
   type ApiErrorReport,
 } from '@/services/ai/apiErrorReportService';
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
 
 function formatTime(iso: string): string {
   const date = new Date(iso);
@@ -95,7 +95,7 @@ export function ApiErrorReportsTab() {
       {message && <div className="text-xs" style={{ color: 'rgba(160, 200, 160, 0.85)' }}>{message}</div>}
 
       {reports.length === 0 ? (
-        <div className="p-4 text-sm" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.55)', clipPath: smallClip }}>
+        <div className="p-4 text-sm" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.55)', clipPath: CLIP_SMALL }}>
           暂无 API 错误报告。
         </div>
       ) : (
@@ -110,7 +110,7 @@ export function ApiErrorReportsTab() {
                   color: 'rgba(var(--tj-text-primary), 0.88)',
                   background: report.id === selected?.id ? 'rgba(var(--tj-accent-primary), 0.12)' : 'rgba(var(--tj-bg-secondary), 0.42)',
                   boxShadow: `inset 0 0 0 1px ${report.id === selected?.id ? 'rgba(var(--tj-accent-primary), 0.45)' : 'rgba(var(--tj-border), 0.38)'}`,
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div className="truncate font-serif tracking-[0.12em]">{report.source}</div>
@@ -130,7 +130,7 @@ export function ApiErrorReportsTab() {
               color: 'rgba(var(--tj-text-primary), 0.86)',
               background: 'rgba(var(--tj-bg-secondary), 0.46)',
               boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.42)',
-              clipPath: smallClip,
+              clipPath: CLIP_SMALL,
             }}
           >
             {selected ? formatReport(selected) : ''}

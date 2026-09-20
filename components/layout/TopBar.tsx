@@ -1,8 +1,10 @@
+import { CLIP_CARD, CLIP_MEDIUM, CLIP_SECTION, insetRing } from '@/styles/clipPaths';
 import { memo, useState } from 'react';
 import type { 世界状态 } from '@/models/world';
 import type { 主题预设, API设置 } from '@/models/settings';
 import type { SteambirdNews } from '@/models/teyvat';
 import { 天气Emoji映射, 天气名映射 } from '@/data/weatherRules';
+import { parseGameClock } from '@/utils/gameClock';
 
 interface TopBarProps {
   worldState: 世界状态;
@@ -15,10 +17,10 @@ interface TopBarProps {
 }
 
 const clip10 =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
+  CLIP_CARD;
 
 const clip12 =
-  'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)';
+  CLIP_SECTION;
 
 export const TopBar = memo(function TopBar({ worldState, onHome, steambird }: TopBarProps) {
   const [mobileCollapsed, setMobileCollapsed] = useState(false);
@@ -109,8 +111,8 @@ export const TopBar = memo(function TopBar({ worldState, onHome, steambird }: To
                   style={{
                     color: 'rgba(var(--tj-accent-primary), 0.92)',
                     background: 'rgba(var(--tj-accent-primary), 0.08)',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
-                    clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+                    boxShadow: insetRing(0.28),
+                    clipPath: CLIP_MEDIUM,
                   }}
                 >
                   返回首页
@@ -174,8 +176,8 @@ export const TopBar = memo(function TopBar({ worldState, onHome, steambird }: To
             className="flex items-baseline gap-2 px-3 py-1"
             style={{
               background: 'rgba(var(--tj-bg-primary), 0.9)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
-              clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+              boxShadow: insetRing(0.28),
+              clipPath: CLIP_MEDIUM,
             }}
             title="冒险天数"
           >
@@ -244,19 +246,8 @@ function Divider() {
 function formatClock(value?: string | null): string {
   const raw = value?.trim();
   if (!raw) return '';
-  const embedded = raw.match(/(\d{1,2}:\d{2})/);
-  if (embedded) {
-    const [hours, minutes] = embedded[1].split(':').map((part) => Number(part));
-    if (Number.isFinite(hours) && Number.isFinite(minutes)) {
-      return `${Math.max(0, Math.min(23, hours)).toString().padStart(2, '0')}:${Math.max(0, Math.min(59, minutes)).toString().padStart(2, '0')}`;
-    }
-  }
-  if (/^\d{1,2}:\d{2}$/.test(raw)) {
-    const [hours, minutes] = raw.split(':').map((part) => Number(part));
-    if (Number.isFinite(hours) && Number.isFinite(minutes)) {
-      return `${Math.max(0, Math.min(23, hours)).toString().padStart(2, '0')}:${Math.max(0, Math.min(59, minutes)).toString().padStart(2, '0')}`;
-    }
-  }
+  const parsed = parseGameClock(raw);
+  if (parsed) return parsed;
   const legacyMap: Record<string, string> = {
     清晨: '06:40',
     上午: '09:40',

@@ -1,17 +1,18 @@
-import { useMemo, useState } from 'react';
-import type { ContextSnapshot, ContextSnapshotKind } from '@/hooks/useGame/contextSnapshot';
+import { CLIP_CARD, insetRing } from '@/styles/clipPaths';
+import { useEffect, useMemo, useState } from 'react';
+import type { ContextSnapshot, ContextSnapshotKind } from '@/hooks/useGame/contextSnapshotTypes';
 import { formatTokenCount } from '@/utils/tokenEstimate';
 import { 分析提示词构成 } from '@/utils/contextComposition';
 
 interface Props {
-  getSnapshot: (kind?: ContextSnapshotKind) => ContextSnapshot;
+  getSnapshot: (kind?: ContextSnapshotKind) => Promise<ContextSnapshot>;
+  refreshKey: number;
   onRefresh: () => void;
 }
 
 type ViewMode = 'all' | 'single';
 
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
+
 
 const SNAPSHOT_TABS: Array<{ key: ContextSnapshotKind; label: string }> = [
   { key: 'main', label: '主剧情' },
@@ -22,20 +23,43 @@ const SNAPSHOT_TABS: Array<{ key: ContextSnapshotKind; label: string }> = [
   { key: 'codex', label: '图鉴召回' },
 ];
 
-export function ContextViewerTab({ getSnapshot, onRefresh }: Props) {
+export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) {
   const [snapshotKind, setSnapshotKind] = useState<ContextSnapshotKind>('main');
-  const snapshot = getSnapshot(snapshotKind);
+  const [snapshot, setSnapshot] = useState<ContextSnapshot | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [mode, setMode] = useState<ViewMode>('all');
-  const [selectedId, setSelectedId] = useState(snapshot.sections[0]?.id ?? '');
+  const [selectedId, setSelectedId] = useState('');
   const [copyHint, setCopyHint] = useState('');
 
-  const composition = useMemo(() => 分析提示词构成(snapshot.fullText ?? ''), [snapshot.fullText]);
+  useEffect(() => {
+    let active = true;
+    setLoadError('');
+    void getSnapshot(snapshotKind)
+      .then((next) => {
+        if (!active) return;
+        setSnapshot(next);
+        setSelectedId((current) => (
+          next.sections.some((section) => section.id === current)
+            ? current
+            : next.sections[0]?.id ?? ''
+        ));
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setLoadError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      active = false;
+    };
+  }, [getSnapshot, refreshKey, snapshotKind]);
+
+  const composition = useMemo(() => 分析提示词构成(snapshot?.fullText ?? ''), [snapshot?.fullText]);
   const selected = useMemo(
-    () => snapshot.sections.find((section) => section.id === selectedId) ?? snapshot.sections[0],
-    [selectedId, snapshot.sections],
+    () => snapshot?.sections.find((section) => section.id === selectedId) ?? snapshot?.sections[0],
+    [selectedId, snapshot?.sections],
   );
-  const content = mode === 'all' ? snapshot.fullText : selected?.content ?? '';
-  const shownTokens = mode === 'all' ? snapshot.estimatedTokens : selected?.estimatedTokens ?? 0;
+  const content = mode === 'all' ? snapshot?.fullText ?? '' : selected?.content ?? '';
+  const shownTokens = mode === 'all' ? snapshot?.estimatedTokens ?? 0 : selected?.estimatedTokens ?? 0;
 
   const copyText = async (text: string, label: string) => {
     await navigator.clipboard.writeText(text);
@@ -43,9 +67,17 @@ export function ContextViewerTab({ getSnapshot, onRefresh }: Props) {
     window.setTimeout(() => setCopyHint(''), 1600);
   };
 
+  if (!snapshot) {
+    return (
+      <div className="flex min-h-[620px] items-center justify-center text-sm text-[rgb(var(--tj-text-secondary))]">
+        {loadError ? `上下文加载失败：${loadError}` : '正在按需加载上下文分析器…'}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-[620px] flex-col gap-4">
-      <div className="px-3 py-3" style={{ background: "rgba(var(--tj-accent-primary),0.045)", boxShadow: "inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)", clipPath: cardClip }}>
+      <div className="px-3 py-3" style={{ background: "rgba(var(--tj-accent-primary),0.045)", boxShadow: insetRing(0.16), clipPath: CLIP_CARD }}>
         <div className="mb-2 flex items-center justify-between gap-2 text-[11px]" style={{ color: "rgba(var(--tj-text-secondary),0.75)" }}>
           <span>上下文构成</span>
           <span>共 ${composition.totalChars.toLocaleString()} 字符 · 约 ${formatTokenCount(composition.totalTokens)} token</span>
@@ -95,7 +127,7 @@ export function ContextViewerTab({ getSnapshot, onRefresh }: Props) {
               onClick={() => {
                 setSnapshotKind(tab.key);
                 setMode('all');
-                setSelectedId(getSnapshot(tab.key).sections[0]?.id ?? '');
+                setSelectedId('');
               }}
             >
               {tab.label}
@@ -108,7 +140,7 @@ export function ContextViewerTab({ getSnapshot, onRefresh }: Props) {
 
       <div
         className="px-4 py-3 text-xs leading-6 text-[rgb(var(--tj-text-secondary))]/80"
-        style={{ border: '1px solid rgba(var(--tj-accent-primary),0.22)', background: 'rgba(0,0,0,0.22)', clipPath: cardClip }}
+        style={{ border: '1px solid rgba(var(--tj-accent-primary),0.22)', background: 'rgba(0,0,0,0.22)', clipPath: CLIP_CARD }}
       >
         <span className="text-[rgb(var(--tj-accent-primary))]">说明：</span>
         当前为本地预览计数，不会调用 API。真实上传 Tokens 只统计会进入请求的区块；诊断参考不会发送给模型。真实计费以模型服务商为准。
@@ -119,7 +151,7 @@ export function ContextViewerTab({ getSnapshot, onRefresh }: Props) {
       <div className="grid min-h-0 flex-1 grid-cols-[360px_minmax(0,1fr)] gap-4">
         <div
           className="flex min-h-0 flex-col overflow-hidden"
-          style={{ border: '1px solid rgba(var(--tj-accent-primary),0.2)', background: 'rgba(0,0,0,0.28)', clipPath: cardClip }}
+          style={{ border: '1px solid rgba(var(--tj-accent-primary),0.2)', background: 'rgba(0,0,0,0.28)', clipPath: CLIP_CARD }}
         >
           <div className="flex items-center justify-between border-b border-[rgb(var(--tj-accent-primary))]/15 px-4 py-3 text-xs text-[rgb(var(--tj-text-secondary))]/75">
             <span>上下文顺序</span>
@@ -161,7 +193,7 @@ export function ContextViewerTab({ getSnapshot, onRefresh }: Props) {
 
         <div
           className="flex min-h-0 flex-col overflow-hidden"
-          style={{ border: '1px solid rgba(var(--tj-accent-primary),0.2)', background: 'rgba(0,0,0,0.28)', clipPath: cardClip }}
+          style={{ border: '1px solid rgba(var(--tj-accent-primary),0.2)', background: 'rgba(0,0,0,0.28)', clipPath: CLIP_CARD }}
         >
           <div className="flex items-center justify-between border-b border-[rgb(var(--tj-accent-primary))]/15 px-4 py-3 text-xs text-[rgb(var(--tj-text-secondary))]/75">
             <span>{mode === 'all' ? '全部上下文内容' : selected?.title ?? '单项内容'}</span>

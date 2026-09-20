@@ -7,7 +7,11 @@ function assert(condition, message) {
 const settings = fs.readFileSync('models/settings.ts', 'utf8');
 const client = fs.readFileSync('services/ai/chatCompletionClient.ts', 'utf8');
 const apiTools = fs.readFileSync('services/ai/apiTools.ts', 'utf8');
-const apiSettings = fs.readFileSync('components/features/Settings/ApiSettings.tsx', 'utf8');
+// 提供商选项定义已抽到 data/aiProviderOptions.ts；按「API 设置页 + 提供商选项」整体读取。
+const apiSettings = [
+  fs.readFileSync('components/features/Settings/ApiSettings.tsx', 'utf8'),
+  fs.readFileSync('data/aiProviderOptions.ts', 'utf8'),
+].join('\n');
 const qianfanProxy = fs.readFileSync('functions/api/qianfan.ts', 'utf8');
 const qianfanProxyCore = fs.readFileSync('services/ai/qianfanProxyCore.ts', 'utf8');
 const viteConfig = fs.readFileSync('vite.config.ts', 'utf8');
@@ -32,7 +36,7 @@ assert(apiSettings.includes("defaultModel: 'ernie-4.5-turbo-128k'"), '百度千�
 
 for (const file of settingTabs) {
   const text = fs.readFileSync(file, 'utf8');
-  assert(text.includes("value: 'baidu'") && text.includes('百度千帆'), `${file} 必须提供百度千帆选项。`);
+  assert(text.includes("from '@/data/aiProviderOptions'") && text.includes('AI_PROVIDER_OPTIONS') || text.includes('百度千帆'), `${file} 必须提供百度千帆选项。`);
 }
 
 assert(!client.includes("if (provider === 'baidu')"), '百度千帆不应新增独立请求分支，应走 OpenAI 兼容。');
@@ -50,7 +54,7 @@ assert(
 );
 assert(client.includes('buildQianfanProxyBody'), '百度千帆聊天请求必须构造代理请求体。');
 assert(apiTools.includes("config.provider === 'baidu'"), '百度千帆模型列表必须有独立路径归一化，避免误请求 /v1/models。');
-assert(apiTools.includes('fetchBaiduQianfanModels(baseRaw, apiKey)'), '百度千帆必须使用专用模型列表函数。');
+assert(apiTools.includes('fetchBaiduQianfanModels(baseRaw, apiKey, signal)'), '百度千帆必须使用专用模型列表函数并转发取消信号。');
 assert(apiTools.includes("fetch('/api/qianfan'"), '百度千帆模型列表也必须走同源代理，避免 CORS。');
 assert(apiTools.includes("`${root}/v2/models`"), '百度千帆模型列表必须优先请求 /v2/models。');
 assert(apiTools.includes("replace(/\\/v[12](?:\\/.*)?$/i, '')"), '百度千帆模型列表必须兼容玩家填写 /v1、/v2、/v2/coding 或完整接口地址。');

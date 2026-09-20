@@ -95,6 +95,7 @@ export async function mergeDownloadedCloudBackup(
     for (let partPosition = 0; partPosition < pointer.parts.length; partPosition += 1) {
       assertNotAborted(options.signal);
       const part = pointer.parts[partPosition];
+      if (!part) throw new Error(`云备份分卷清单第 ${partPosition + 1} 项无效。`);
       options.onProgress?.({
         phase: 'unpacking-part',
         current: partPosition,
@@ -108,6 +109,7 @@ export async function mergeDownloadedCloudBackup(
 
       for (const [contentHash, aliases] of assetsByHash) {
         const primary = aliases[0];
+        if (!primary) throw new Error(`云备份资源 ${contentHash} 缺少主记录。`);
         if (primary.partIndex !== part.index || processedAssets.has(contentHash)) continue;
         const assetBytes = entries.get(primary.entryPath);
         if (!assetBytes) throw new Error(`云备份分卷缺少资源条目：${primary.entryPath}`);
@@ -239,6 +241,7 @@ async function buildLocalMergeIndex(
   for (let index = 0; index < summaries.length; index += 1) {
     assertNotAborted(options.signal);
     const summary = summaries[index];
+    if (!summary) throw new Error(`本地存档目录第 ${index + 1} 项无效。`);
     options.onProgress?.({
       phase: 'analyzing-local',
       current: index,
@@ -438,6 +441,7 @@ function assertCloudBackupNodeVersions(
   if (!nodes.length) throw new Error('云备份节点清单为空。');
   const versions = nodes.map((node) => normalizeCloudVersion(node.universe, node.schemaVersion));
   const first = versions[0];
+  if (!first) throw new Error('云备份节点清单为空。');
   if (versions.some((version) => version.universe !== first.universe)) {
     throw new Error('云备份包含跨宇宙节点，已在暂存写入前拒绝。');
   }
@@ -453,6 +457,7 @@ function assertCatalogSummaryVersions(
 ): { universe: SaveUniverse; schemaVersion: number } {
   const versions = summaries.map((summary) => normalizeCloudVersion(summary.universe, summary.schemaVersion));
   const first = versions[0];
+  if (!first) throw new Error('本地存档目录为空。');
   if (versions.some((version) => version.universe !== first.universe)) {
     throw new Error('本地存档目录包含跨宇宙节点，不能执行云合并。');
   }
@@ -541,10 +546,4 @@ function nodeStageKey(index: number): string {
   return `node.${String(index).padStart(8, '0')}`;
 }
 
-function assertNotAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw signal.reason ?? new DOMException('云备份合并已取消。', 'AbortError');
-}
-
-function yieldToMainThread(): Promise<void> {
-  return new Promise((resolve) => globalThis.setTimeout(resolve, 0));
-}
+import { assertNotAborted, yieldToMainThread } from '@/utils/asyncControl';

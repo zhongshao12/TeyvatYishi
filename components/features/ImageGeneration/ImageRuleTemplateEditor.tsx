@@ -1,3 +1,4 @@
+import { CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { NovelAIContentMode } from '@/models/imageGeneration';
 import type { NovelAI模型族, PNG画风预设来源, 故事快照解析规则预设, 文生图NAI规则预设, 文生图PNG画风预设, 文生图画师串预设, 文生图模型规则集, 文生图规则模板, 文生图规则模板类型, 文生图规则中心设置, 文生图详细画风预设, 文生图质量增强预设, 画师串预设适用范围 } from '@/models/settings';
@@ -8,11 +9,14 @@ interface Props {
   onChange: (patch: Partial<文生图规则中心设置>) => void;
 }
 
-const smallClip = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
 
 type VisibleRuleSection = Exclude<文生图规则模板类型, 'scene_judge'>;
 
-const ruleSections: { id: VisibleRuleSection; label: string; desc: string }[] = [
+const ruleSections: [
+  { id: VisibleRuleSection; label: string; desc: string },
+  ...{ id: VisibleRuleSection; label: string; desc: string }[],
+] = [
   { id: 'npc', label: '角色生成规则', desc: '旅人头像、旅人立绘、伙伴头像、伙伴立绘和 NSFW 参考图都会读取这里。' },
   { id: 'scene', label: '场景生成规则', desc: '场景图、故事快照和手机背景都会读取这里；有角色锚点时只注入在场人物。' },
 ];
@@ -489,8 +493,8 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
         className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
         style={{
           background: 'rgba(0,0,0,0.18)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)',
-          clipPath: smallClip,
+          boxShadow: insetRing(0.12),
+          clipPath: CLIP_SMALL,
           padding: 8,
         }}
       >
@@ -507,8 +511,8 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
                 : 'rgba(var(--tj-accent-primary),0.045)',
               boxShadow: activeRuleTab === tab.id
                 ? 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.45), 0 0 16px rgba(var(--tj-accent-primary),0.10)'
-                : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)',
-              clipPath: smallClip,
+                : insetRing(0.14),
+              clipPath: CLIP_SMALL,
             }}
           >
             <div className="font-serif text-sm font-bold tracking-[0.16em]">{tab.label}</div>
@@ -569,7 +573,7 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
                     disabled={selectedNovelAI.isBuiltin}
                     onChange={(e) => updateNovelAIRule(selectedNovelAI.id, (preset) => ({ ...preset, 模型族: e.target.value as NovelAI模型族, updatedAt: Date.now() }))}
                     className="teyvat-input w-full min-w-0 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-55"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   >
                     <option value="all">全部模型</option>
                     <option value="v3">V3</option>
@@ -777,7 +781,7 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
               {selectedArtist ? (
                 <>
                   <TextInput label="画师串名称" value={selectedArtist.名称} onChange={(value) => updateArtist(selectedArtist.id, (preset) => ({ ...preset, 名称: value, updatedAt: Date.now() }))} />
-                  <select value={selectedArtist.适用范围} onChange={(e) => updateArtist(selectedArtist.id, (preset) => ({ ...preset, 适用范围: e.target.value as 画师串预设适用范围, updatedAt: Date.now() }))} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+                  <select value={selectedArtist.适用范围} onChange={(e) => updateArtist(selectedArtist.id, (preset) => ({ ...preset, 适用范围: e.target.value as 画师串预设适用范围, updatedAt: Date.now() }))} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                     <option value="npc">NPC</option>
                     <option value="scene">场景</option>
                     <option value="all">通用</option>
@@ -812,7 +816,7 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
               {selectedDetailStyle ? (
                 <>
                   <TextInput label="详细画风名称" value={selectedDetailStyle.名称} onChange={(value) => updateDetailStyle(selectedDetailStyle.id, (preset) => ({ ...preset, 名称: value, updatedAt: Date.now() }))} />
-                  <select value={selectedDetailStyle.适用范围} onChange={(e) => updateDetailStyle(selectedDetailStyle.id, (preset) => ({ ...preset, 适用范围: e.target.value as 画师串预设适用范围, updatedAt: Date.now() }))} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+                  <select value={selectedDetailStyle.适用范围} onChange={(e) => updateDetailStyle(selectedDetailStyle.id, (preset) => ({ ...preset, 适用范围: e.target.value as 画师串预设适用范围, updatedAt: Date.now() }))} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                     <option value="npc">NPC</option>
                     <option value="scene">场景</option>
                     <option value="all">通用</option>
@@ -881,7 +885,7 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
               {selectedPng ? (
                 <>
                   <TextInput label="PNG画风名称" value={selectedPng.名称} onChange={(value) => updatePng(selectedPng.id, (preset) => ({ ...preset, 名称: value, updatedAt: Date.now() }))} />
-                  <select value={selectedPng.来源} onChange={(e) => updatePng(selectedPng.id, (preset) => ({ ...preset, 来源: e.target.value as PNG画风预设来源, updatedAt: Date.now() }))} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+                  <select value={selectedPng.来源} onChange={(e) => updatePng(selectedPng.id, (preset) => ({ ...preset, 来源: e.target.value as PNG画风预设来源, updatedAt: Date.now() }))} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                     <option value="unknown">unknown</option>
                     <option value="novelai">NovelAI</option>
                     <option value="sd_webui">SD WebUI</option>
@@ -903,8 +907,8 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
         className="space-y-4 p-4"
         style={{
           background: 'rgba(0,0,0,0.24)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)',
-          clipPath: smallClip,
+          boxShadow: insetRing(0.14),
+          clipPath: CLIP_SMALL,
         }}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -930,8 +934,8 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
                     : 'rgba(var(--tj-accent-primary),0.055)',
                   boxShadow: activeSection === item.id
                     ? 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.45)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)',
-                  clipPath: smallClip,
+                    : insetRing(0.18),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 {item.label}
@@ -944,8 +948,8 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
           className="space-y-4 p-4"
           style={{
             background: 'rgba(0,0,0,0.28)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.10)',
-            clipPath: smallClip,
+            boxShadow: insetRing(0.10),
+            clipPath: CLIP_SMALL,
           }}
         >
           <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-3" style={{ borderColor: 'rgba(var(--tj-accent-primary),0.10)' }}>
@@ -1025,8 +1029,8 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
                 style={{
                   color: 'rgba(var(--tj-accent-primary),0.42)',
                   background: 'rgba(0,0,0,0.18)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)',
-                  clipPath: smallClip,
+                  boxShadow: insetRing(0.12),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 暂无{section.label}。
@@ -1047,7 +1051,7 @@ function SelectField({ label, value, onChange, presets }: { label: string; value
   return (
     <label className="block space-y-2">
       <span className="block text-[11px] font-serif tracking-[0.18em]" style={{ color: 'rgba(var(--tj-accent-primary),0.66)' }}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
         <option value="">不启用</option>
         {options.map((preset) => <option key={preset.id} value={preset.id}>{preset.名称}</option>)}
       </select>
@@ -1069,7 +1073,7 @@ function PresetSelectField({
   return (
     <label className="block min-w-0 space-y-2">
       <span className="block text-[11px] font-serif tracking-[0.18em]" style={{ color: 'rgba(var(--tj-accent-primary),0.66)' }}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full min-w-0 px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
         {presets.map((preset) => (
           <option key={preset.id} value={preset.id}>{preset.isBuiltin ? '◆ ' : ''}{preset.名称}</option>
         ))}
@@ -1097,7 +1101,7 @@ function NovelAIContentModeField({
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as NovelAIContentMode)}
         className="teyvat-input w-full min-w-0 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-        style={{ clipPath: smallClip }}
+        style={{ clipPath: CLIP_SMALL }}
       >
         {novelAIContentModes.map((mode) => <option key={mode.id} value={mode.id}>{mode.label}</option>)}
       </select>
@@ -1112,8 +1116,8 @@ function BuiltinPresetState({ isBuiltin }: { isBuiltin: boolean }) {
       style={{
         color: isBuiltin ? 'rgba(var(--tj-accent-primary),0.82)' : 'rgba(var(--tj-text-secondary),0.62)',
         background: isBuiltin ? 'rgba(var(--tj-accent-primary),0.07)' : 'rgba(255,255,255,0.035)',
-        boxShadow: isBuiltin ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.20)' : 'inset 0 0 0 1px rgba(var(--tj-text-secondary),0.10)',
-        clipPath: smallClip,
+        boxShadow: isBuiltin ? insetRing(0.20) : 'inset 0 0 0 1px rgba(var(--tj-text-secondary),0.10)',
+        clipPath: CLIP_SMALL,
       }}
     >
       {isBuiltin ? '◆ 系统内置 · 只读 · 复制后可编辑' : '自定义预设 · 可编辑'}
@@ -1125,7 +1129,7 @@ function ModelSelectField({ label, value, onChange, presets, emptyLabel }: { lab
   return (
     <label className="block space-y-2">
       <span className="block text-[11px] font-serif tracking-[0.18em]" style={{ color: 'rgba(var(--tj-accent-primary),0.66)' }}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
         <option value="">{emptyLabel}</option>
         {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.名称}</option>)}
       </select>
@@ -1137,7 +1141,7 @@ function ArtistSelectField({ label, value, onChange, presets }: { label: string;
   return (
     <label className="block space-y-2">
       <span className="block text-[11px] font-serif tracking-[0.18em]" style={{ color: 'rgba(var(--tj-accent-primary),0.66)' }}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
         <option value="">不启用</option>
         {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.名称}</option>)}
       </select>
@@ -1149,7 +1153,7 @@ function DetailStyleSelectField({ label, value, onChange, presets }: { label: st
   return (
     <label className="block space-y-2">
       <span className="block text-[11px] font-serif tracking-[0.18em]" style={{ color: 'rgba(var(--tj-accent-primary),0.66)' }}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
         <option value="">不启用</option>
         {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.名称}</option>)}
       </select>
@@ -1161,7 +1165,7 @@ function PngSelectField({ label, value, onChange, presets }: { label: string; va
   return (
     <label className="block space-y-2">
       <span className="block text-[11px] font-serif tracking-[0.18em]" style={{ color: 'rgba(var(--tj-accent-primary),0.66)' }}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
         <option value="">不启用</option>
         {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.名称}</option>)}
       </select>
@@ -1173,7 +1177,7 @@ function QualitySelectField({ label, value, onChange, presets }: { label: string
   return (
     <label className="block space-y-2">
       <span className="block text-[11px] font-serif tracking-[0.18em]" style={{ color: 'rgba(var(--tj-accent-primary),0.66)' }}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
         <option value="">不启用</option>
         {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.名称}</option>)}
       </select>
@@ -1187,8 +1191,8 @@ function StylePaneTitle({ title, desc }: { title: string; desc: string }) {
       className="space-y-1 p-3"
       style={{
         background: 'rgba(var(--tj-accent-primary),0.045)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.12),
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="font-serif text-xs font-bold tracking-[0.16em]" style={{ color: 'rgba(var(--tj-accent-primary),0.88)' }}>{title}</div>
@@ -1229,8 +1233,8 @@ function StylePaneTitleWithState({
       className="flex flex-wrap items-center justify-between gap-3 p-3"
       style={{
         background: 'rgba(var(--tj-accent-primary),0.045)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.12),
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="min-w-0 flex-1 space-y-1">
@@ -1243,8 +1247,8 @@ function StylePaneTitleWithState({
           style={{
             color: active ? 'rgba(var(--tj-accent-primary),0.94)' : 'rgba(var(--tj-text-secondary),0.45)',
             background: active ? 'rgba(var(--tj-accent-primary),0.075)' : 'rgba(255,255,255,0.035)',
-            boxShadow: active ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.22)' : 'inset 0 0 0 1px rgba(var(--tj-text-secondary),0.10)',
-            clipPath: smallClip,
+            boxShadow: active ? insetRing(0.22) : 'inset 0 0 0 1px rgba(var(--tj-text-secondary),0.10)',
+            clipPath: CLIP_SMALL,
           }}
           title={activeName || '未启用'}
         >
@@ -1263,7 +1267,7 @@ function TextInput({ label, value, onChange, disabled = false }: { label: string
   return (
     <label className="block space-y-2">
       <span className="block text-[11px] font-serif tracking-[0.18em]" style={{ color: 'rgba(var(--tj-accent-primary),0.66)' }}>{label}</span>
-      <input value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" style={{ clipPath: smallClip }} />
+      <input value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className="teyvat-input w-full px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" style={{ clipPath: CLIP_SMALL }} />
     </label>
   );
 }
@@ -1278,7 +1282,7 @@ function TemplateTextarea({ label, value, onChange, rows, disabled = false }: { 
         onChange={(e) => onChange(e.target.value)}
         rows={rows}
         className="teyvat-input w-full resize-y px-3 py-2 font-mono text-xs leading-relaxed disabled:cursor-not-allowed disabled:opacity-50"
-        style={{ clipPath: smallClip }}
+        style={{ clipPath: CLIP_SMALL }}
       />
     </label>
   );
@@ -1294,8 +1298,8 @@ function TemplateButton({ children, onClick, disabled = false, danger = false }:
       style={{
         color: danger ? 'rgba(255,190,190,0.9)' : 'rgba(var(--tj-accent-primary),0.88)',
         background: danger ? 'rgba(170,60,70,0.10)' : 'rgba(var(--tj-accent-primary),0.055)',
-        boxShadow: danger ? 'inset 0 0 0 1px rgba(255,130,140,0.22)' : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.20)',
-        clipPath: smallClip,
+        boxShadow: danger ? 'inset 0 0 0 1px rgba(255,130,140,0.22)' : insetRing(0.20),
+        clipPath: CLIP_SMALL,
       }}
     >
       {children}
@@ -1316,8 +1320,8 @@ function LayerSwitchButton({ children, active, onClick }: { children: ReactNode;
           : 'rgba(var(--tj-accent-primary),0.045)',
         boxShadow: active
           ? 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.38), 0 0 14px rgba(var(--tj-accent-secondary),0.18)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)',
-        clipPath: smallClip,
+          : insetRing(0.16),
+        clipPath: CLIP_SMALL,
       }}
     >
       {children}
@@ -1331,8 +1335,8 @@ function TemplateCard({ eyebrow, title, desc, actions, children }: { eyebrow: st
       className="space-y-4 p-4"
       style={{
         background: 'rgba(0,0,0,0.24)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.14),
+        clipPath: CLIP_SMALL,
       }}
     >
       <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-3" style={{ borderColor: 'rgba(var(--tj-accent-primary),0.10)' }}>
@@ -1355,8 +1359,8 @@ function EmptyBox({ children }: { children: ReactNode }) {
       style={{
         color: 'rgba(var(--tj-accent-primary),0.42)',
         background: 'rgba(0,0,0,0.18)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.12)',
-        clipPath: smallClip,
+        boxShadow: insetRing(0.12),
+        clipPath: CLIP_SMALL,
       }}
     >
       {children}

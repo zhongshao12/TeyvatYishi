@@ -1,8 +1,9 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 function assert(condition, message) { if (!condition) throw new Error(message); }
 const questModel = fs.readFileSync('models/quest.ts', 'utf8');
 const questService = fs.readFileSync('services/questService.ts', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+const sendWorkflow = readWorkflowSources();
 const questWorkflow = fs.readFileSync('hooks/useGame/questWorkflow.ts', 'utf8');
 const panel = fs.readFileSync('components/features/GameSystems/QuestPanel.tsx', 'utf8');
 const gameMenu = fs.readFileSync('data/gameMenu.ts', 'utf8');

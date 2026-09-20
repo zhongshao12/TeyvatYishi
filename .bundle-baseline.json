@@ -1,58 +1,58 @@
 {
-  "indexBytes": 194447,
-  "maxChunkBytes": 3024301,
-  "maxChunkName": "assets/chunk-st-presets-DMlFZxWT.js",
-  "totalJsBytes": 5463614,
-  "gzipTotalBytes": 1636818,
+  "indexBytes": 186182,
+  "maxChunkBytes": 1141796,
+  "maxChunkName": "assets/app-core-Cg3i_MlH.js",
+  "totalJsBytes": 2557422,
+  "gzipTotalBytes": 775500,
   "top": [
     {
-      "name": "assets/chunk-st-presets-DMlFZxWT.js",
-      "size": 3024301
+      "name": "assets/app-core-Cg3i_MlH.js",
+      "size": 1141796
     },
     {
-      "name": "assets/chunk-app-D_6hFimO.js",
-      "size": 1126379
+      "name": "assets/SettingsModal-DsXnYYQm.js",
+      "size": 315538
     },
     {
-      "name": "assets/SettingsModal-BEYRiou8.js",
-      "size": 332580
-    },
-    {
-      "name": "assets/AlbumPanel-Dqj1aHJn.js",
-      "size": 242539
-    },
-    {
-      "name": "assets/index-CKAhbV6P.js",
-      "size": 194447
+      "name": "assets/AlbumPanel-C0gzP5Gf.js",
+      "size": 240709
     },
     {
       "name": "assets/vendor-react-BaUUsD2U.js",
       "size": 193850
     },
     {
-      "name": "assets/PlotPanel-C3XIH74M.js",
-      "size": 51266
+      "name": "assets/index-B5xzfvZB.js",
+      "size": 186182
     },
     {
-      "name": "assets/SaveLoadModal-CxFgLClO.js",
-      "size": 47544
+      "name": "assets/app-content-BRWviVWB.js",
+      "size": 110087
+    },
+    {
+      "name": "assets/PlotPanel-B85ZFwd1.js",
+      "size": 50837
+    },
+    {
+      "name": "assets/SaveLoadModal-CFeQpGo3.js",
+      "size": 46344
     },
     {
       "name": "assets/vendor-dnd-680N1SAh.js",
       "size": 43470
     },
     {
-      "name": "assets/CompanionPanel-y_v_BAbt.js",
-      "size": 32929
+      "name": "assets/CompanionPanel-wG2Ju3f5.js",
+      "size": 36532
     },
     {
-      "name": "assets/WorldbookManagerModal-DdtNQaVA.js",
-      "size": 32699
+      "name": "assets/WorldbookManagerModal-6S4jy9fL.js",
+      "size": 33583
     },
     {
-      "name": "assets/ReleaseAnnouncementsModal-BTDtNIbK.js",
-      "size": 27660
+      "name": "assets/NewGameWizard-CmSHg_oC.js",
+      "size": 18366
     }
   ],
-  "at": "2026-09-02T05:00:49.746Z"
+  "at": "2026-09-14T01:27:45.615Z"
 }

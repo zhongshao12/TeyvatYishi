@@ -123,6 +123,7 @@ try {
     ], calls);
 
     let doneCount = 0;
+    let resetCount = 0;
     let visible = '';
     const text = await client.chatCompletion({
       provider: 'openai_compatible',
@@ -133,12 +134,14 @@ try {
       messages: [{ role: 'user', content: '继续' }],
     }, {
       onDelta: (delta) => { visible += delta; },
+      onReset: () => { visible = ''; resetCount += 1; },
       onDone: () => { doneCount += 1; },
       onError: (error) => { throw error; },
     });
 
     assert.equal(text, '流式正文');
     assert.equal(visible, '流式正文');
+    assert.equal(resetCount, 2, 'each internal recovery retry must reset the prior stream attempt');
     assert.equal(doneCount, 1);
     assert.equal(calls.length, 4);
   }

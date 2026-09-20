@@ -1,3 +1,6 @@
+import { CLIP_CARD, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
+import { useSavedFlash } from '@/hooks/useSavedFlash';
+import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
 import { useEffect, useMemo, useState } from 'react';
 import type { API设置, API配置项, AI提供商, 游戏设置 } from '@/models/settings';
 import {
@@ -58,27 +61,17 @@ interface API方案槽位 {
 
 const API_PROFILE_SLOTS_KEY = 'apiProfileSlots';
 
-const providerOptions: { value: AI提供商; label: string; defaultBaseUrl: string; defaultModel: string }[] = [
-  { value: 'openai_compatible', label: 'OpenAI 兼容', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { value: 'openai', label: 'OpenAI', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { value: 'deepseek', label: 'DeepSeek', defaultBaseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
-  { value: 'baidu', label: '百度千帆', defaultBaseUrl: 'https://qianfan.baidubce.com/v2', defaultModel: 'ernie-4.5-turbo-128k' },
-  { value: 'opencode', label: 'OpenCode Zen', defaultBaseUrl: 'https://opencode.ai/zen/v1', defaultModel: 'deepseek-v4-flash' },
-  { value: 'mimo', label: '小米 MiMo', defaultBaseUrl: 'https://api.xiaomimimo.com/v1', defaultModel: 'mimo-v2.5-pro' },
-  { value: 'ark', label: '火山方舟', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3', defaultModel: 'doubao-seed-1-6' },
-  { value: 'claude', label: 'Claude', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
-  { value: 'claude_compatible', label: 'Claude 兼容', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
-  { value: 'gemini', label: 'Gemini', defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta', defaultModel: 'gemini-2.5-pro' },
-];
+const providerOptions = AI_PROVIDER_OPTIONS;
 
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
+
 
 type ApiSubview = 'overview' | 'variable' | 'memory' | 'irminsul' | 'steambird' | 'codex' | 'story' | 'courier';
 
-const apiSubViews: { key: ApiSubview; label: string; hint: string }[] = [
+const apiSubViews: [
+  { key: ApiSubview; label: string; hint: string },
+  ...{ key: ApiSubview; label: string; hint: string }[],
+] = [
   { key: 'overview', label: '总接口设置', hint: '主 API、方案、API 包' },
   { key: 'variable', label: '变量', hint: '变量独立接口' },
   { key: 'memory', label: '记忆', hint: '记忆检索与精炼' },
@@ -141,8 +134,8 @@ function ApiSubviewButton({
         color: active ? 'rgb(var(--tj-text-primary))' : 'rgba(var(--tj-text-secondary), 0.86)',
         boxShadow: active
           ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.56), 0 0 18px rgba(var(--tj-accent-primary), 0.10)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
-        clipPath: smallClip,
+          : insetRing(0.12),
+        clipPath: CLIP_SMALL,
       }}
     >
       <div
@@ -324,7 +317,7 @@ export function ApiSettingsTab({ settings, onChange, gameSettings, onGameSetting
         style={{
           background: 'linear-gradient(180deg, rgba(var(--tj-bg-secondary), 0.54), rgba(var(--tj-bg-secondary), 0.34))',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18), 0 8px 18px rgba(var(--tj-shadow), 0.06)',
-          clipPath: cardClip,
+          clipPath: CLIP_CARD,
         }}
       >
         <div className="font-serif text-xs tracking-[0.28em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))' }}>
@@ -337,7 +330,7 @@ export function ApiSettingsTab({ settings, onChange, gameSettings, onGameSetting
           value={activeSubview}
           onChange={(e) => setActiveSubview(e.target.value as ApiSubview)}
           className="teyvat-input w-full px-3 py-2 text-sm"
-          style={{ clipPath: smallClip }}
+          style={{ clipPath: CLIP_SMALL }}
         >
           {apiSubViews.map((item) => (
             <option key={item.key} value={item.key}>
@@ -353,7 +346,7 @@ export function ApiSettingsTab({ settings, onChange, gameSettings, onGameSetting
           style={{
             background: 'linear-gradient(180deg, rgba(var(--tj-bg-secondary), 0.44), rgba(var(--tj-bg-primary), 0.18))',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14), 0 10px 22px rgba(var(--tj-shadow), 0.05)',
-            clipPath: cardClip,
+            clipPath: CLIP_CARD,
           }}
         >
           <div className="px-4 py-4">
@@ -382,8 +375,8 @@ export function ApiSettingsTab({ settings, onChange, gameSettings, onGameSetting
             className="hidden items-center justify-between px-4 py-3 lg:flex"
             style={{
               background: 'linear-gradient(180deg, rgba(var(--tj-bg-secondary), 0.42), rgba(var(--tj-bg-secondary), 0.22))',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.1)',
-              clipPath: cardClip,
+              boxShadow: insetRing(0.1),
+              clipPath: CLIP_CARD,
             }}
             >
             <div>
@@ -418,7 +411,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
   const [message, setMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const { savedFlash, showSavedFlash, clearSavedFlash } = useSavedFlash(1800);
   const [profileSlots, setProfileSlots] = useState<API方案槽位[]>([]);
   const [auxProfilesByConfig, setAuxProfilesByConfig] = useState<Record<string, AuxApiProfileState>>({});
   const [auxForm, setAuxForm] = useState<AuxApiProfileState>(() => createDefaultAuxApiProfileState());
@@ -481,7 +474,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
       });
       setSelectedId(created.id);
     } else if (!selectedId || !settings.configs.find((c) => c.id === selectedId)) {
-      setSelectedId(settings.activeConfigId ?? settings.configs[0].id);
+      setSelectedId(settings.activeConfigId ?? settings.configs[0]?.id ?? null);
     }
   }, [settings.configs, settings.activeConfigId, selectedId, onChange]);
 
@@ -548,8 +541,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
     onChange(updated);
     try {
       await saveSetting('apiSettings', updated);
-      setSavedFlash(true);
-      window.setTimeout(() => setSavedFlash(false), 1800);
+      showSavedFlash();
     } catch (e) {
       setMessage({ kind: 'error', text: `保存失败：${(e as Error).message}` });
     }
@@ -777,7 +769,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
     <div className="teyvat-settings-pane flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto pr-1">
       <div
         className="flex min-w-0 flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:px-4"
-        style={{ clipPath: cardClip }}
+        style={{ clipPath: CLIP_CARD }}
       >
         <div className="min-w-0 flex-1">
           <div className="font-serif text-xs tracking-[0.24em]" style={{ color: 'rgba(var(--tj-accent-primary), 0.85)' }}>
@@ -793,8 +785,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
             className="px-2.5 py-1.5 text-xs font-serif tracking-wider transition-all hover:opacity-90"
             style={{
               color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.35),
+              clipPath: CLIP_SMALL,
             }}
           >
             导出安全包
@@ -804,8 +796,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
             className="px-2.5 py-1.5 text-xs font-serif tracking-wider transition-all hover:opacity-90"
             style={{
               color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.28),
+              clipPath: CLIP_SMALL,
             }}
           >
             导出私人包
@@ -816,8 +808,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
             style={{
               background: 'rgba(var(--tj-accent-primary), 0.08)',
               color: 'rgba(var(--tj-text-primary), 0.92)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.3),
+              clipPath: CLIP_SMALL,
             }}
           >
             导入配置包
@@ -829,8 +821,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
         className="flex min-w-0 flex-col gap-3 px-3 py-3 sm:px-4"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.38)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.14),
+          clipPath: CLIP_CARD,
         }}
       >
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -848,8 +840,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
             style={{
               background: 'rgba(var(--tj-accent-primary), 0.08)',
               color: 'rgba(var(--tj-accent-primary), 0.92)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
-              clipPath: smallClip,
+              boxShadow: insetRing(0.35),
+              clipPath: CLIP_SMALL,
             }}
           >
             保存当前方案
@@ -868,8 +860,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                 className="flex min-w-0 items-center gap-2 px-3 py-2"
                 style={{
                   background: 'rgba(var(--tj-bg-secondary), 0.48)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
-                  clipPath: smallClip,
+                  boxShadow: insetRing(0.16),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div className="min-w-0 flex-1">
@@ -885,8 +877,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                   className="px-2.5 py-1 text-xs font-serif tracking-wider transition-all hover:opacity-90"
                   style={{
                     color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.32)',
-                    clipPath: smallClip,
+                    boxShadow: insetRing(0.32),
+                    clipPath: CLIP_SMALL,
                   }}
                 >
                   读取
@@ -897,7 +889,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                   style={{
                     color: 'rgba(220, 120, 120, 0.88)',
                     boxShadow: 'inset 0 0 0 1px rgba(220, 120, 120, 0.28)',
-                    clipPath: smallClip,
+                    clipPath: CLIP_SMALL,
                   }}
                 >
                   删除
@@ -910,7 +902,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
 
       <div
         className="px-3 py-3 text-xs leading-relaxed sm:px-4"
-        style={{ color: 'rgba(var(--tj-text-secondary), 0.78)', clipPath: cardClip }}
+        style={{ color: 'rgba(var(--tj-text-secondary), 0.78)', clipPath: CLIP_CARD }}
       >
         <div className="font-serif tracking-[0.22em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))' }}>
           ◆ API 配置提示
@@ -927,8 +919,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
         className="flex min-w-0 flex-col items-stretch gap-3 px-3 py-3 sm:flex-row sm:items-center sm:px-4 sm:py-2.5"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.55)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.22)',
-          clipPath: cardClip,
+          boxShadow: insetRing(0.22),
+          clipPath: CLIP_CARD,
         }}
       >
         <span
@@ -948,7 +940,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
           value={newProvider}
           onChange={(e) => setNewProvider(e.target.value as AI提供商)}
           className="teyvat-input min-w-0 px-2.5 py-1.5 text-sm"
-          style={{ clipPath: smallClip }}
+          style={{ clipPath: CLIP_SMALL }}
         >
           {providerOptions.map((p) => (
             <option key={p.value} value={p.value}>
@@ -963,7 +955,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
             background: 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.95), rgba(var(--tj-accent-primary), 0.92))',
             color: 'rgb(var(--tj-on-accent))',
             boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5)',
-            clipPath: smallClip,
+            clipPath: CLIP_SMALL,
           }}
         >
           ＋ 创建配置
@@ -1001,9 +993,9 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                     ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.14), rgba(var(--tj-accent-secondary), 0.04))'
                     : 'rgba(var(--tj-bg-secondary), 0.5)',
                   boxShadow: selected
-                    ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.55)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
-                  clipPath: smallClip,
+                    ? insetRing(0.55)
+                    : insetRing(0.18),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div className="flex items-center gap-1.5">
@@ -1067,7 +1059,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                       background: 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.96), rgba(var(--tj-accent-primary), 0.84))',
                       color: 'rgb(var(--tj-on-accent))',
                       boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5)',
-                      clipPath: smallClip,
+                      clipPath: CLIP_SMALL,
                     }}
                   >
                     启用此配置
@@ -1079,7 +1071,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                   style={{
                     color: 'rgba(220, 120, 120, 0.9)',
                     boxShadow: 'inset 0 0 0 1px rgba(220, 120, 120, 0.35)',
-                    clipPath: smallClip,
+                    clipPath: CLIP_SMALL,
                   }}
                 >
                   删除
@@ -1093,7 +1085,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                 value={selectedConfig.name}
                 onChange={(e) => updateConfig({ name: e.target.value })}
                 className="teyvat-input w-full px-2.5 py-1.5 text-sm"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               />
             </FieldRow>
 
@@ -1102,7 +1094,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                 value={selectedConfig.provider}
                 onChange={(e) => updateConfig({ provider: e.target.value as AI提供商 })}
                 className="teyvat-input w-full px-2.5 py-1.5 text-sm"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               >
                 {providerOptions.map((p) => (
                   <option key={p.value} value={p.value}>
@@ -1118,7 +1110,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                 onChange={(e) => updateConfig({ baseUrl: e.target.value })}
                 placeholder={selectedConfig.provider === 'baidu' ? 'https://qianfan.baidubce.com/v2 或 /v2/coding' : 'https://api.example.com/v1'}
                 className="teyvat-input w-full px-2.5 py-1.5 text-sm"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               />
               {selectedConfig.provider === 'baidu' && (
                 <div className="mt-1 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.62)' }}>
@@ -1139,7 +1131,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                 type="password"
                 placeholder="sk-..."
                 className="teyvat-input w-full px-2.5 py-1.5 text-sm"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               />
             </FieldRow>
 
@@ -1152,7 +1144,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                     onChange={(e) => updateConfig({ model: e.target.value })}
                     placeholder="模型 ID"
                     className="teyvat-input min-w-0 flex-1 px-2.5 py-1.5 text-sm"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   />
                   <button
                     onClick={handleFetchModels}
@@ -1160,9 +1152,9 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                     className="px-3 py-2 text-xs font-serif tracking-wider transition-all disabled:opacity-50 sm:py-1.5"
                     style={{
                       color: 'rgba(var(--tj-accent-primary), 0.85)',
-                      boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
+                      boxShadow: insetRing(0.35),
                       background: 'rgba(var(--tj-accent-primary), 0.05)',
-                      clipPath: smallClip,
+                      clipPath: CLIP_SMALL,
                     }}
                   >
                     {loadingModels ? '获取中…' : '获取列表'}
@@ -1175,7 +1167,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                       if (e.target.value) updateConfig({ model: e.target.value });
                     }}
                     className="teyvat-input w-full px-2.5 py-1.5 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   >
                     <option value="">— 从列表选择（{modelOptions.length}） —</option>
                     {modelOptions.map((m) => (
@@ -1192,8 +1184,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
               className="space-y-2 p-3 text-xs"
               style={{
                 background: 'rgba(var(--tj-bg-secondary), 0.42)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
-                clipPath: smallClip,
+                boxShadow: insetRing(0.16),
+                clipPath: CLIP_SMALL,
               }}
             >
               <div className="font-serif tracking-[0.22em]" style={{ color: 'rgba(var(--tj-accent-primary), 0.86)' }}>
@@ -1207,8 +1199,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                 style={{
                   color: 'rgba(var(--tj-text-primary), 0.92)',
                   background: 'rgba(var(--tj-accent-primary), 0.05)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
-                  clipPath: smallClip,
+                  boxShadow: insetRing(0.18),
+                  clipPath: CLIP_SMALL,
                   padding: '0.45rem 0.6rem',
                 }}
               >
@@ -1228,7 +1220,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                     });
                   }}
                   className="teyvat-input min-w-0 px-2.5 py-1.5 text-sm"
-                  style={{ clipPath: smallClip }}
+                  style={{ clipPath: CLIP_SMALL }}
                 >
                   {providerOptions.map((p) => (
                     <option key={p.value} value={p.value}>
@@ -1241,7 +1233,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                   onChange={(e) => void persistAuxForm({ ...auxForm, baseUrl: e.target.value })}
                   placeholder="其他 API Base URL"
                   className="teyvat-input min-w-0 px-2.5 py-1.5 text-sm"
-                  style={{ clipPath: smallClip }}
+                  style={{ clipPath: CLIP_SMALL }}
                 />
               </div>
               <input
@@ -1250,7 +1242,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                 placeholder="其他 API Key"
                 type="password"
                 className="teyvat-input w-full px-2.5 py-1.5 text-sm"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               />
               <div className="flex flex-col gap-1.5 sm:flex-row">
                 <input
@@ -1258,7 +1250,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                   onChange={(e) => void persistAuxForm({ ...auxForm, model: e.target.value })}
                   placeholder="例如 gemini-2.5-flash"
                   className="teyvat-input min-w-0 flex-1 px-2.5 py-1.5 text-sm"
-                  style={{ clipPath: smallClip }}
+                  style={{ clipPath: CLIP_SMALL }}
                 />
                 <button
                   onClick={() => void handleFetchAuxModels()}
@@ -1266,8 +1258,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                   className="px-3 py-1.5 text-xs font-serif tracking-wider transition-all hover:opacity-90 disabled:opacity-50"
                   style={{
                     color: 'rgba(var(--tj-accent-primary), 0.86)',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.32)',
-                    clipPath: smallClip,
+                    boxShadow: insetRing(0.32),
+                    clipPath: CLIP_SMALL,
                   }}
                 >
                   {loadingAuxModels ? '获取中…' : '获取列表'}
@@ -1278,8 +1270,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                   style={{
                     background: 'rgba(var(--tj-accent-primary), 0.08)',
                     color: 'rgba(var(--tj-accent-primary), 0.92)',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
-                    clipPath: smallClip,
+                    boxShadow: insetRing(0.35),
+                    clipPath: CLIP_SMALL,
                   }}
                 >
                   一键套用到其他 API
@@ -1292,7 +1284,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                       if (e.target.value) void persistAuxForm({ ...auxForm, model: e.target.value });
                     }}
                     className="teyvat-input w-full px-2.5 py-1.5 text-xs"
-                    style={{ clipPath: smallClip }}
+                    style={{ clipPath: CLIP_SMALL }}
                   >
                   <option value="">— 从列表选择（{auxModelOptions.length}） —</option>
                   {auxModelOptions.map((model) => (
@@ -1332,8 +1324,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                           color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.85)',
                           boxShadow: active
                             ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5)'
-                            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
-                          clipPath: smallClip,
+                            : insetRing(0.3),
+                          clipPath: CLIP_SMALL,
                         }}
                       >
                         {tier.label}
@@ -1351,7 +1343,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                   }}
                   placeholder="自定义数值（如 8192）"
                   className="teyvat-input w-full px-2.5 py-1.5 text-sm"
-                  style={{ clipPath: smallClip }}
+                  style={{ clipPath: CLIP_SMALL }}
                 />
               </div>
             </FieldRow>
@@ -1369,7 +1361,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                 }}
                 placeholder="0.8"
                 className="teyvat-input w-full px-2.5 py-1.5 text-sm"
-                style={{ clipPath: smallClip }}
+                style={{ clipPath: CLIP_SMALL }}
               />
             </FieldRow>
 
@@ -1379,8 +1371,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                 className="p-3 text-xs"
                 style={{
                   background: 'rgba(var(--tj-accent-primary), 0.04)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.25)',
-                  clipPath: smallClip,
+                  boxShadow: insetRing(0.25),
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div
@@ -1415,9 +1407,9 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                 className="px-3 py-1.5 text-sm font-serif tracking-wider transition-all disabled:opacity-50"
                 style={{
                   color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+                  boxShadow: insetRing(0.45),
                   background: 'rgba(var(--tj-accent-primary), 0.06)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 {testing ? '测试中…' : '测试连接'}
@@ -1440,7 +1432,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                   boxShadow: testResult.ok
                     ? 'inset 0 0 0 1px rgba(120, 200, 140, 0.35)'
                     : 'inset 0 0 0 1px rgba(220, 120, 120, 0.35)',
-                  clipPath: smallClip,
+                  clipPath: CLIP_SMALL,
                 }}
               >
                 <div
@@ -1471,7 +1463,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                   boxShadow: savedFlash
                     ? 'inset 0 0 0 1px rgba(220, 255, 230, 0.5), 0 0 18px rgba(140, 220, 160, 0.35)'
                     : 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 18px rgba(var(--tj-accent-primary), 0.22)',
-                  clipPath: cardClip,
+                  clipPath: CLIP_CARD,
                 }}
               >
                 {savedFlash ? '✓ 已 保 存' : '◆ 保 存 配 置'}

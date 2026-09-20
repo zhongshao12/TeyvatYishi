@@ -15,6 +15,7 @@ export const 改写模式选项: 改写模式定义[] = [
 
 export function buildRewritePrompt(body: string, mode: 改写模式): string {
   const modeDef = 改写模式选项.find((m) => m.id === mode) ?? 改写模式选项[0];
+  if (!modeDef) return body;
   return [
     '你正在协助玩家润色一段已生成的剧情正文。',
     '改写要求：',

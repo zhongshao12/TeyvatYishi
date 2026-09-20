@@ -122,28 +122,31 @@ fn set_desktop_storage_roots(
     let current_roots = load_storage_roots(&app_data_dir)?;
     let next_save_dir = normalize_storage_root_input(save_dir.as_deref(), "saves")?;
     let next_backup_dir = normalize_storage_root_input(backup_dir.as_deref(), "backups")?;
+    let mut migrations = Vec::new();
 
     if current_roots.save_dir.as_deref() != next_save_dir.as_deref() {
         let from = resolve_storage_root_from_option(&app_data_dir, current_roots.save_dir.as_deref(), "saves")?;
         let to = resolve_storage_root_from_option(&app_data_dir, next_save_dir.as_deref(), "saves")?;
-        migrate_storage_root(&from, &to)?;
+        migrations.push((from, to));
     }
     if current_roots.backup_dir.as_deref() != next_backup_dir.as_deref() {
         let from = resolve_storage_root_from_option(&app_data_dir, current_roots.backup_dir.as_deref(), "backups")?;
         let to = resolve_storage_root_from_option(&app_data_dir, next_backup_dir.as_deref(), "backups")?;
-        migrate_storage_root(&from, &to)?;
+        migrations.push((from, to));
     }
 
-    write_storage_roots(
-        &app_data_dir,
-        DesktopStorageRoots {
+    migrate_storage_roots_transactionally(&migrations, || {
+        write_storage_roots(
+            &app_data_dir,
+            DesktopStorageRoots {
             kind: STORAGE_ROOTS_KIND.to_string(),
             version: 1,
             updated_at: current_timestamp_ms()?,
             save_dir: next_save_dir,
             backup_dir: next_backup_dir,
-        },
-    )?;
+            },
+        )
+    })?;
 
     desktop_app_info(app)
 }
@@ -364,7 +367,7 @@ fn write_storage_roots(app_data_dir: &Path, roots: DesktopStorageRoots) -> Resul
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| format!("创建桌面存储配置目录失败: {err}"))?;
     }
-    fs::write(&path, payload).map_err(|err| format!("写入桌面存储配置失败: {err}"))
+    write_text_atomically(&path, &payload).map_err(|err| format!("写入桌面存储配置失败: {err}"))
 }
 
 fn current_timestamp_ms() -> Result<u128, String> {
@@ -374,9 +377,79 @@ fn current_timestamp_ms() -> Result<u128, String> {
         .as_millis())
 }
 
-fn migrate_storage_root(from: &Path, to: &Path) -> Result<(), String> {
+struct PreparedStorageMigration {
+    from: PathBuf,
+    copied: Vec<PathBuf>,
+    cleanup_source: bool,
+}
+
+fn migrate_storage_roots_transactionally<F>(
+    migrations: &[(PathBuf, PathBuf)],
+    commit: F,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    validate_storage_migration_plan(migrations)?;
+    let mut prepared = Vec::new();
+    for (from, to) in migrations {
+        match prepare_storage_root_migration(from, to) {
+            Ok(migration) => prepared.push(migration),
+            Err(err) => {
+                rollback_prepared_migrations(&prepared);
+                return Err(err);
+            }
+        }
+    }
+
+    if let Err(err) = commit() {
+        rollback_prepared_migrations(&prepared);
+        return Err(err);
+    }
+
+    // 配置已指向并已完整校验过的目标目录。此后清理旧目录即使失败，
+    // 也只会留下可人工删除的副本，不会再让应用看不见已迁移的数据。
+    for migration in prepared {
+        if migration.cleanup_source {
+            let _ = fs::remove_dir_all(migration.from);
+        }
+    }
+    Ok(())
+}
+
+fn validate_storage_migration_plan(migrations: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+    let active: Vec<_> = migrations
+        .iter()
+        .filter(|(from, to)| from != to)
+        .collect();
+    for (index, (from, to)) in active.iter().enumerate() {
+        for (other_from, other_to) in active.iter().skip(index + 1) {
+            let overlaps = [from.as_path(), to.as_path()].iter().any(|left| {
+                [other_from.as_path(), other_to.as_path()]
+                    .iter()
+                    .any(|right| left.starts_with(right) || right.starts_with(left))
+            });
+            if overlaps {
+                return Err(format!(
+                    "存储根目录迁移失败：存档目录与备份目录存在交叉或嵌套关系（{} -> {}，{} -> {}），已拒绝迁移。",
+                    from.display(),
+                    to.display(),
+                    other_from.display(),
+                    other_to.display()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn prepare_storage_root_migration(from: &Path, to: &Path) -> Result<PreparedStorageMigration, String> {
     if from == to {
-        return Ok(());
+        return Ok(PreparedStorageMigration {
+            from: from.to_path_buf(),
+            copied: Vec::new(),
+            cleanup_source: false,
+        });
     }
     if to.starts_with(from) || from.starts_with(to) {
         return Err(format!(
@@ -387,7 +460,11 @@ fn migrate_storage_root(from: &Path, to: &Path) -> Result<(), String> {
     }
     fs::create_dir_all(to).map_err(|err| format!("创建目标目录失败: {err}"))?;
     if !from.exists() {
-        return Ok(());
+        return Ok(PreparedStorageMigration {
+            from: from.to_path_buf(),
+            copied: Vec::new(),
+            cleanup_source: false,
+        });
     }
     let entries: Vec<_> = fs::read_dir(from)
         .map_err(|err| format!("读取源目录失败: {err}"))?
@@ -407,7 +484,7 @@ fn migrate_storage_root(from: &Path, to: &Path) -> Result<(), String> {
         ));
     }
 
-    // 复制阶段：先完整复制，成功后再删除源，支持失败回滚。
+    // 准备阶段只复制，不删除源。所有根目录准备成功且配置提交后才清理源目录。
     let mut copied: Vec<PathBuf> = Vec::new();
     for entry in &entries {
         let source_path = entry.path();
@@ -435,18 +512,17 @@ fn migrate_storage_root(from: &Path, to: &Path) -> Result<(), String> {
         return Err("存储根目录迁移失败：复制校验未通过，已回滚本次复制。".to_string());
     }
 
-    // 提交阶段：删除源条目，最后删除源目录。
-    for entry in &entries {
-        let source_path = entry.path();
-        let remove_result = if source_path.is_dir() {
-            fs::remove_dir_all(&source_path)
-        } else {
-            fs::remove_file(&source_path)
-        };
-        remove_result.map_err(|err| format!("删除源目录项失败: {err}"))?;
+    Ok(PreparedStorageMigration {
+        from: from.to_path_buf(),
+        copied,
+        cleanup_source: true,
+    })
+}
+
+fn rollback_prepared_migrations(prepared: &[PreparedStorageMigration]) {
+    for migration in prepared.iter().rev() {
+        rollback_copied_entries(&migration.copied);
     }
-    let _ = fs::remove_dir_all(from);
-    Ok(())
 }
 
 fn rollback_copied_entries(copied: &[PathBuf]) {
@@ -529,7 +605,7 @@ fn normalize_relative_path(relative_path: &str) -> Result<PathBuf, String> {
 }
 
 fn path_to_string(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "\\")
+    path.to_string_lossy().into_owned()
 }
 
 fn open_directory(path: &Path) -> Result<(), String> {
@@ -578,4 +654,166 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running kaituoyishi desktop application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new(label: &str) -> Self {
+            let sequence = NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "kaituoyishi-storage-migration-{label}-{}-{sequence}",
+                std::process::id()
+            ));
+            let _ = fs::remove_dir_all(&path);
+            fs::create_dir_all(&path).expect("create test directory");
+            Self(path)
+        }
+
+        fn join(&self, path: &str) -> PathBuf {
+            self.0.join(path)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn storage_root_transaction_rolls_back_first_copy_when_second_root_conflicts() {
+        let root = TestDir::new("second-conflict");
+        let save_from = root.join("old-saves");
+        let save_to = root.join("new-saves");
+        let backup_from = root.join("old-backups");
+        let backup_to = root.join("new-backups");
+        fs::create_dir_all(&save_from).expect("create save source");
+        fs::create_dir_all(&backup_from).expect("create backup source");
+        fs::create_dir_all(&backup_to).expect("create backup target");
+        fs::write(save_from.join("slot-1.json"), "save").expect("write save fixture");
+        fs::write(backup_from.join("slot-1.json"), "backup").expect("write backup fixture");
+        fs::write(backup_to.join("slot-1.json"), "existing").expect("write conflict fixture");
+
+        let mut committed = false;
+        let result = migrate_storage_roots_transactionally(
+            &[
+                (save_from.clone(), save_to.clone()),
+                (backup_from.clone(), backup_to.clone()),
+            ],
+            || {
+                committed = true;
+                Ok(())
+            },
+        );
+
+        assert!(result.is_err());
+        assert!(!committed, "configuration must not commit after a preparation failure");
+        assert!(save_from.join("slot-1.json").exists());
+        assert!(backup_from.join("slot-1.json").exists());
+        assert!(!save_to.join("slot-1.json").exists());
+        assert_eq!(
+            fs::read_to_string(backup_to.join("slot-1.json")).expect("read conflict fixture"),
+            "existing"
+        );
+    }
+
+    #[test]
+    fn storage_root_transaction_rolls_back_copies_when_config_commit_fails() {
+        let root = TestDir::new("commit-failure");
+        let source = root.join("old-saves");
+        let target = root.join("new-saves");
+        fs::create_dir_all(&source).expect("create source");
+        fs::write(source.join("slot-1.json"), "save").expect("write fixture");
+
+        let result = migrate_storage_roots_transactionally(
+            &[(source.clone(), target.clone())],
+            || Err("config write failed".to_string()),
+        );
+
+        assert_eq!(result.expect_err("commit should fail"), "config write failed");
+        assert!(source.join("slot-1.json").exists());
+        assert!(!target.join("slot-1.json").exists());
+    }
+
+    #[test]
+    fn storage_root_transaction_commits_before_removing_sources() {
+        let root = TestDir::new("commit-order");
+        let source = root.join("old-saves");
+        let target = root.join("new-saves");
+        fs::create_dir_all(&source).expect("create source");
+        fs::write(source.join("slot-1.json"), "save").expect("write fixture");
+
+        migrate_storage_roots_transactionally(
+            &[(source.clone(), target.clone())],
+            || {
+                assert!(source.join("slot-1.json").exists());
+                assert!(target.join("slot-1.json").exists());
+                Ok(())
+            },
+        )
+        .expect("transaction should succeed");
+
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read_to_string(target.join("slot-1.json")).expect("read migrated fixture"),
+            "save"
+        );
+    }
+
+    #[test]
+    fn storage_root_transaction_never_removes_a_root_when_paths_are_equal() {
+        let root = TestDir::new("same-root");
+        let storage = root.join("saves");
+        fs::create_dir_all(&storage).expect("create storage root");
+        fs::write(storage.join("slot-1.json"), "save").expect("write fixture");
+
+        migrate_storage_roots_transactionally(
+            &[(storage.clone(), storage.clone())],
+            || Ok(()),
+        )
+        .expect("same-root transaction should succeed");
+
+        assert_eq!(
+            fs::read_to_string(storage.join("slot-1.json")).expect("same root must stay intact"),
+            "save"
+        );
+    }
+
+    #[test]
+    fn storage_root_transaction_rejects_cross_root_overlap_before_copying() {
+        let root = TestDir::new("cross-root-overlap");
+        let save_from = root.join("old-saves");
+        let save_to = root.join("new-saves");
+        let backup_from = root.join("old-backups");
+        fs::create_dir_all(&save_from).expect("create save source");
+        fs::create_dir_all(&backup_from).expect("create backup source");
+        fs::write(save_from.join("save.json"), "save").expect("write save fixture");
+        fs::write(backup_from.join("backup.json"), "backup").expect("write backup fixture");
+
+        let mut committed = false;
+        let result = migrate_storage_roots_transactionally(
+            &[
+                (save_from.clone(), save_to.clone()),
+                (backup_from.clone(), save_from.clone()),
+            ],
+            || {
+                committed = true;
+                Ok(())
+            },
+        );
+
+        assert!(result.is_err());
+        assert!(!committed);
+        assert!(save_from.join("save.json").exists());
+        assert!(backup_from.join("backup.json").exists());
+        assert!(!save_to.join("save.json").exists());
+    }
 }

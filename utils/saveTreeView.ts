@@ -19,6 +19,33 @@ export interface SaveTreeDisplayGroup {
   totalSizeBytes: number;
 }
 
+export function filterSaveTreeDisplayGroup(
+  group: SaveTreeDisplayGroup,
+  matches: (save: SaveListItemSummary) => boolean,
+): SaveTreeDisplayGroup | null {
+  const nodes = group.nodes.filter((node) => matches(node.save));
+  if (!nodes.length) return null;
+  const latestNode = [...nodes].sort((a, b) => b.save.timestamp - a.save.timestamp || b.save.id - a.save.id)[0];
+  const fallbackRootNode = nodes[nodes.length - 1];
+  if (!latestNode || !fallbackRootNode) return null;
+  const forkNodeIds = new Set<string>();
+  for (const node of nodes) {
+    const parentNodeId = node.save.saveTree?.parentNodeId;
+    if (parentNodeId && nodes.some((candidate) => candidate.save.saveTree?.nodeId === parentNodeId)) {
+      forkNodeIds.add(parentNodeId);
+    }
+  }
+  return {
+    ...group,
+    rootSave: nodes.find((node) => node.isRoot)?.save ?? fallbackRootNode.save,
+    latestSave: latestNode.save,
+    nodes,
+    nodeCount: nodes.length,
+    branchCount: Math.max(0, forkNodeIds.size ? group.branchCount : 0),
+    totalSizeBytes: nodes.reduce((sum, node) => sum + Math.max(0, node.save.sizeBytes || 0), 0),
+  };
+}
+
 interface WorkingNode {
   save: SaveListItemSummary;
   nodeId: string;
@@ -48,6 +75,7 @@ function buildSaveTreeGroup(
 ): SaveTreeDisplayGroup {
   const nodeById = new Map<string, WorkingNode>();
   const latestSave = [...saves].sort((a, b) => b.timestamp - a.timestamp)[0];
+  if (!latestSave) throw new Error(`存档树 ${rootId} 没有节点。`);
   const totalSizeBytes = saves.reduce((sum, save) => sum + Math.max(0, save.sizeBytes || 0), 0);
   const legacyNodeIds = buildLegacyNodeIdMap(
     saves.filter((save) => !save.saveTree?.nodeId),

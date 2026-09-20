@@ -15,7 +15,7 @@ function assert(cond, message) {
 
 assert(settings.includes("| 'mimo' |"), 'settings provider union should include mimo');
 assert(apiSettings.includes("小米 MiMo"), 'API settings should expose MiMo option');
-assert(providerRouting.includes("config.provider === 'mimo'"), 'provider routing should detect mimo provider');
+assert(providerRouting.includes("case 'mimo': return 'mimo'"), 'provider routing should detect mimo provider');
 assert(chat.includes("from './providerRouting'") && chat.includes('detectChatProvider(config)'), 'chat client should consume provider routing');
 assert(chat.includes('max_completion_tokens'), 'MiMo request body should use max_completion_tokens');
 assert(chat.includes("body.thinking = { type: 'disabled' }"), 'MiMo request body should disable thinking by default');

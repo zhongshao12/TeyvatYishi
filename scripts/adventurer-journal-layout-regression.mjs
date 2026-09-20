@@ -59,7 +59,11 @@ assert.match(modalSource, /aria-labelledby/, 'Titled dialogs must receive an acc
 assert.match(modalSource, /aria-label/, 'Untitled dialogs must receive a fallback accessible name.');
 assert.match(modalSource, /previouslyFocused/, 'Modal opening must remember the trigger for focus restoration.');
 assert.match(modalSource, /activeModalStack/, 'Nested modals must coordinate focus and body locking.');
-assert.match(modalSource, /event\.key === 'Tab'/, 'Modal keyboard handling must trap Tab and Shift+Tab.');
+// 迁移: 旧 /event\.key === 'Tab'/ -> 新 /if \(event\.key !== 'Tab'\) return;/ + /event\.shiftKey/，
+// 理由: Modal 的 Tab 焦点陷阱改为「取反守卫 + 提前 return」，Shift+Tab 方向由 event.shiftKey 传给
+// resolveTabFocusTarget 决定（见 Modal.tsx 的 handleKeyDown）。断言意图不变：Tab 与 Shift+Tab 都被焦点圈定接管。
+assert.match(modalSource, /if \(event\.key !== 'Tab'\) return;/, 'Modal keyboard handling must trap Tab and Shift+Tab.');
+assert.match(modalSource, /event\.shiftKey/, 'Modal keyboard handling must trap Tab and Shift+Tab.');
 assert.match(modalSource, /focusableElements/, 'Modal initial focus and focus loop must use real focusable descendants.');
 assert.match(modalSource, /\.focus\(\)/, 'Modal must actively place and restore focus.');
 

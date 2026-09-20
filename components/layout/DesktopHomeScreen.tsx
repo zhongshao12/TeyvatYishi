@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_ITEM } from '@/styles/clipPaths';
 import  { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getSaveList, type SaveListItemSummary } from '@/services/dbService';
 import {
@@ -18,6 +19,7 @@ import {
 import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
 import type { SettingsTab } from '@/components/features/Settings/SettingsModal';
 import { getHomeBackground } from '@/data/homeBackgrounds';
+import { formatByteSize } from '@/utils/formatByteSize';
 
 interface DesktopHomeScreenProps {
   onNewGame: () => void;
@@ -44,8 +46,8 @@ interface StarDot {
   opacity: number;
 }
 
-const cardClip = 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
-const smallClip = 'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)';
+
+
 
 // 手账封面配色：金箔标题、皮革封面、羊皮纸内页。
 const FOIL_GRADIENT = 'linear-gradient(180deg, #f6e3ac 8%, #d5b66e 38%, #b68a43 62%, #8a6530 92%)';
@@ -216,7 +218,7 @@ export function DesktopHomeScreen({
           style={{
             background: 'linear-gradient(180deg, color-mix(in srgb, var(--journal-leather) 82%, var(--journal-parchment) 18%), color-mix(in srgb, var(--journal-leather-deep) 92%, var(--journal-parchment) 8%))',
             boxShadow: 'inset 0 0 0 1px rgba(240, 213, 139, 0.3), 0 18px 38px rgba(0, 0, 0, 0.32)',
-            clipPath: cardClip,
+            clipPath: CLIP_CARD,
           }}
         >
           <div className="px-4 pt-4">
@@ -247,7 +249,7 @@ export function DesktopHomeScreen({
             style={{
               background: 'linear-gradient(165deg, color-mix(in srgb, var(--journal-leather) 84%, var(--journal-parchment) 16%), var(--journal-leather-deep))',
               boxShadow: COVER_FRAME,
-              clipPath: cardClip,
+              clipPath: CLIP_CARD,
             }}
           >
             {/* 缎带书签 */}
@@ -308,7 +310,7 @@ export function DesktopHomeScreen({
                   color: 'var(--journal-ink)',
                   background: 'linear-gradient(180deg, var(--journal-parchment), color-mix(in srgb, var(--journal-parchment) 86%, var(--journal-leather) 14%))',
                   boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}, 0 10px 24px rgba(0, 0, 0, 0.3)`,
-                  clipPath: cardClip,
+                  clipPath: CLIP_CARD,
                   fontWeight: 600,
                 }}
               >
@@ -322,7 +324,7 @@ export function DesktopHomeScreen({
                   color: 'var(--journal-ink)',
                   background: 'linear-gradient(180deg, var(--journal-parchment), color-mix(in srgb, var(--journal-parchment) 86%, var(--journal-leather) 14%))',
                   boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}, 0 10px 24px rgba(0, 0, 0, 0.3)`,
-                  clipPath: cardClip,
+                  clipPath: CLIP_CARD,
                   fontWeight: 600,
                 }}
               >
@@ -381,7 +383,7 @@ export function DesktopHomeScreen({
                 {updateProgress && (
                   <>
                     <DesktopLine label="进度" value={updateProgress.phase} />
-                    <DesktopLine label="已下载" value={`${formatSize(updateProgress.downloadedBytes)}${updateProgress.contentLength ? ` / ${formatSize(updateProgress.contentLength)}` : ''}`} />
+                    <DesktopLine label="已下载" value={`${formatByteSize(updateProgress.downloadedBytes)}${updateProgress.contentLength ? ` / ${formatByteSize(updateProgress.contentLength)}` : ''}`} />
                   </>
                 )}
               </div>
@@ -407,7 +409,7 @@ function PaperPanel({ title, subtitle, children }: { title: string; subtitle: st
       style={{
         background: 'linear-gradient(180deg, var(--journal-parchment), color-mix(in srgb, var(--journal-parchment) 88%, var(--journal-leather) 12%))',
         boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}, 0 14px 34px rgba(0, 0, 0, 0.32)`,
-        clipPath: cardClip,
+        clipPath: CLIP_CARD,
       }}
     >
       <div className="flex items-baseline justify-between gap-3 pb-2" style={{ borderBottom: `1px solid rgba(53, 46, 39, 0.14)` }}>
@@ -430,7 +432,7 @@ function DesktopLine({ label, value }: { label: string; value: string }) {
 
 function StatTile({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="px-3 py-3" style={{ background: 'rgba(53, 46, 39, 0.04)', boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}`, clipPath: smallClip }}>
+    <div className="px-3 py-3" style={{ background: 'rgba(53, 46, 39, 0.04)', boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}`, clipPath: CLIP_ITEM }}>
       <div className="text-[11px] tracking-[0.18em]" style={{ color: 'var(--journal-antique-gold)' }}>{label}</div>
       <div className="mt-1 font-serif text-[15px] tracking-[0.12em]" style={{ color: INK }}>{value}</div>
       <div className="mt-1 text-[11px] leading-5" style={{ color: INK_MUTED }}>{detail}</div>
@@ -456,7 +458,7 @@ function ToolButton({ label, onClick, active, tone }: { label: string; onClick: 
           : tone === 'accent'
             ? 'inset 0 0 0 1px rgba(240, 213, 139, 0.42)'
             : 'inset 0 0 0 1px rgba(240, 213, 139, 0.2)',
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       {label}
@@ -474,7 +476,7 @@ function SecondaryButton({ label, onClick }: { label: string; onClick: () => voi
         color: 'color-mix(in srgb, var(--journal-ink) 90%, transparent)',
         background: 'rgba(53, 46, 39, 0.05)',
         boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}`,
-        clipPath: smallClip,
+        clipPath: CLIP_ITEM,
       }}
     >
       {label}
@@ -484,10 +486,4 @@ function SecondaryButton({ label, onClick }: { label: string; onClick: () => voi
 
 function SectionLabel({ text }: { text: string }) {
   return <div className="text-[11px] tracking-[0.2em]" style={{ color: 'var(--journal-antique-gold)' }}>{text}</div>;
-}
-
-function formatSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }

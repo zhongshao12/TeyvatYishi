@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -23,7 +24,13 @@ const settingsModel = fs.readFileSync('models/settings.ts', 'utf8');
 const albumPanel = `${fs.readFileSync('components/features/GameSystems/AlbumPanel.tsx', 'utf8')}\n${albumWorkspaces}\n${albumLibrary}\n${albumFoundation}\n${referenceInjection}\n${referenceWorkspace}\n${albumArchive}\n${albumContent}`;
 const imageSettings = fs.readFileSync('components/features/Settings/ImageGenerationSettingsTab.tsx', 'utf8');
 const imageRuleEditor = fs.readFileSync('components/features/ImageGeneration/ImageRuleTemplateEditor.tsx', 'utf8');
-const sendWorkflow = fs.readFileSync('hooks/useGame/sendWorkflow.ts', 'utf8');
+// 正文生图工作流已抽到 hooks/useGame/narrativeImageWorkflow.ts；按「主剧情工作流」整体读取。
+// 迁移: 读取源由手工数组收敛为 scripts/lib/workflowSources.mjs 登记的工作流视图。
+// 理由: 队列任务标题表已抽到 hooks/useGame/workflowQueue.ts（队列展示名与工作流解耦），
+//       narrative_image_parse / narrative_image_generate 的「故事快照」文案在新文件里；
+//       这三个文件（sendWorkflow / narrativeImageWorkflow / workflowQueue）均已登记进 WORKFLOW_FILES，
+//       故交给统一登记表读取，后续搬迁不必再改本脚本数组、断言范围也不会被悄悄缩小。
+const sendWorkflow = readWorkflowSources();
 const variableDrawer = fs.readFileSync('components/features/Variable/VariableDrawer.tsx', 'utf8');
 const turnItem = fs.readFileSync('components/features/Chat/TurnItem.tsx', 'utf8');
 const chatList = fs.readFileSync('components/features/Chat/ChatList.tsx', 'utf8');
@@ -210,7 +217,16 @@ assert(!sendWorkflow.includes('parseNarrativeImagePrompts'), '正文自动生图
 assert(!sendWorkflow.includes('story snapshot draft:') && !sendWorkflow.includes('parsed positive prompt:'), '正文自动生图不得再把解析 prompt 二次包装进旧场景草稿。');
 assert(sendWorkflow.includes('rules: state.gameSettings.文生图系统.rules'), '正文自动生图必须向共享管线传入当前规则中心配置。');
 assert(sendWorkflow.includes('snapshot.prompt') && sendWorkflow.includes('snapshot.negativePrompt'), '正文自动生图必须使用共享管线的最终正负提示词。');
-assert(sendWorkflow.includes('presentNpcs: presentNpcRecords') && sendWorkflow.includes('playerAppearanceMode,'), '正文自动生图必须向共享管线传入在场角色和玩家出镜模式。');
+// 迁移: 旧 `presentNpcs: presentNpcRecords` -> 新 `const presentNpcs = selectPresentStorySnapshotNpcs(...)`
+// 再以对象简写 `presentNpcs,` 传入 resolveStorySnapshot({...})，理由: 在场角色筛选统一收敛到
+// services/ai/storySnapshotPipeline.ts 的 selectPresentStorySnapshotNpcs；断言意图不变，且进一步要求
+// 该值确实抵达共享管线调用，而非仅在别处声明。
+assert(
+  /const presentNpcs = selectPresentStorySnapshotNpcs\(/.test(sendWorkflow)
+    && /resolveStorySnapshot\(\{[\s\S]*?\bpresentNpcs,/.test(sendWorkflow)
+    && sendWorkflow.includes('playerAppearanceMode,'),
+  '正文自动生图必须向共享管线传入在场角色和玩家出镜模式。',
+);
 assert(sendWorkflow.includes("snapshot.source === 'local'") && sendWorkflow.includes('已使用本地草稿'), '自动故事快照模型失败时必须标记本地兜底并继续生图。');
 assert(!sendWorkflow.includes('正文生图词组转化器未配置，无法解析故事快照提示词。'), '自动故事快照不得因未配置转化器而中断，本地草稿必须可独立工作。');
 assert(narrativeParser.includes('玩家出镜规则') && narrativeParser.includes('player character') && narrativeParser.includes('不要只写 first-person view'), '正文生图解析模型必须支持玩家可见出镜约束。');

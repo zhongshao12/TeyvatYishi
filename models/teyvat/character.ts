@@ -1,5 +1,6 @@
 import { ELEMENT_IDS, type ElementalAttunement, type ElementId, type PowerSource } from './elements';
 import { isReservedNpcIdentityName } from '../npc';
+import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
 
 export type TalentCategory = 'normal_attack' | 'elemental_skill' | 'elemental_burst' | 'passive';
 
@@ -166,10 +167,6 @@ export function createEmptyTravelerProfile(): TravelerProfile {
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 const optionalText = (value: unknown): string | undefined => typeof value === 'string' && value ? value : undefined;
 const textList = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -293,17 +290,21 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
     if (!isRecord(entry)) return [];
     if (isReservedNpcIdentityName(entry.姓名)) return [];
     const ledger = isRecord(entry.relationshipLedger) ? entry.relationshipLedger : {};
-    const roleTier = entry.roleTier === 'companion' ? 'companion' : 'extra';
+    const rawId = text(entry.id);
+    const rawName = text(entry.姓名);
+    const rawAliases = textList(entry.aliases);
+    const canonical = matchCanonicalIdentity({ id: rawId, name: rawName, aliases: rawAliases });
+    const roleTier = canonical || entry.roleTier === 'companion' ? 'companion' : 'extra';
     return [{
-      id: text(entry.id), 姓名: text(entry.姓名), 地区: text(entry.地区), 身份: text(entry.身份),
+      id: rawId, 姓名: canonical?.name ?? rawName, 地区: text(entry.地区), 身份: text(entry.身份),
       ...(normalizeElementId(entry.元素) ? { 元素: normalizeElementId(entry.元素) } : {}),
       ...(normalizePowerSource(entry.力量来源) ? { 力量来源: normalizePowerSource(entry.力量来源) } : {}),
       天赋: Array.isArray(entry.天赋) ? entry.天赋.flatMap((talent) => normalizeTalent(talent) ?? []) : [],
-      说明: text(entry.说明), aliases: textList(entry.aliases), roleTier, affinity: finiteNumber(entry.affinity),
+      说明: text(entry.说明), aliases: canonical?.aliases ? Array.from(new Set([...canonical.aliases, ...rawAliases])) : rawAliases, roleTier, affinity: finiteNumber(entry.affinity),
       relationship: text(entry.relationship), intimate: entry.intimate === true, travelingTogether: entry.travelingTogether === true,
       firstSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.firstSeenTurn))), lastSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.lastSeenTurn))),
-      gender: text(entry.gender), playerAddress: text(entry.playerAddress), appearance: text(entry.appearance), clothing: text(entry.clothing),
-      speechStyle: text(entry.speechStyle), personality: text(entry.personality), equipmentSummary: text(entry.equipmentSummary),
+      gender: text(entry.gender) || canonical?.gender || '', playerAddress: text(entry.playerAddress), appearance: text(entry.appearance) || canonical?.appearance || '', clothing: text(entry.clothing),
+      speechStyle: text(entry.speechStyle), personality: canonical?.personality || text(entry.personality), equipmentSummary: text(entry.equipmentSummary),
       sharedMemories: Array.isArray(entry.sharedMemories) ? entry.sharedMemories.flatMap((item) => normalizeTeyvatNpcSharedMemory(item) ?? []) : [],
       relationshipLedger: {
         recentInteraction: text(ledger.recentInteraction), longTermImpression: text(ledger.longTermImpression), currentStage: text(ledger.currentStage),
@@ -311,8 +312,9 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
         unresolvedConflicts: textList(ledger.unresolvedConflicts), mustRemember: textList(ledger.mustRemember), protectedFacts: textList(ledger.protectedFacts),
         summaries: Array.isArray(ledger.summaries) ? ledger.summaries.flatMap((item) => normalizeTeyvatNpcSummaryMemory(item) ?? []) : [],
       },
-      notes: textList(entry.notes), playerCorrections: textList(entry.playerCorrections), canonical: entry.canonical === true,
+      notes: textList(entry.notes), playerCorrections: textList(entry.playerCorrections), canonical: entry.canonical === true || Boolean(canonical),
       avatar: text(entry.avatar), visualArchive: normalizeTeyvatNpcVisualArchive(entry.visualArchive), matureArchive: normalizeTeyvatNpcMatureArchive(entry.matureArchive),
     }];
   });
 }
+import { isRecord } from '@/utils/valueGuards';

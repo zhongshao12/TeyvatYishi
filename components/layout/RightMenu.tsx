@@ -1,3 +1,4 @@
+import { CLIP_MEDIUM } from '@/styles/clipPaths';
 ﻿import { memo } from 'react';
 import { GAME_MENU_ITEMS, type GameSystemId } from '@/data/gameMenu';
 
@@ -11,8 +12,7 @@ interface RightMenuProps {
   memoryUnread?: number;
 }
 
-const itemClip =
-  'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
+
 
 export const RightMenu = memo(function RightMenu({ activeId, onSelect, onSaveGame, onLoadGame, onSettings, memoryUnread = 0 }: RightMenuProps) {
   return (
@@ -74,7 +74,7 @@ function SystemButton({
         boxShadow: active
           ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.5), inset 3px 0 0 linear-gradient(135deg, rgba(var(--tj-accent-primary),0.96), rgba(var(--tj-accent-secondary),0.92))'
           : 'inset 0 0 0 1px rgba(var(--tj-border), 0.64)',
-        clipPath: itemClip,
+        clipPath: CLIP_MEDIUM,
       }}
     >
       <span
@@ -83,7 +83,7 @@ function SystemButton({
           color: active ? 'rgb(var(--tj-accent-primary))' : 'rgba(var(--tj-accent-primary), 0.72)',
           background: active ? 'rgba(var(--tj-accent-primary), 0.14)' : 'rgba(var(--tj-accent-primary), 0.05)',
           boxShadow: `inset 0 0 0 1px rgba(var(--tj-accent-primary), ${active ? 0.55 : 0.28})`,
-          clipPath: itemClip,
+          clipPath: CLIP_MEDIUM,
         }}
       >
         {glyph}
@@ -133,7 +133,7 @@ function FooterButton({ label, onClick }: { label: string; onClick: () => void }
         color: 'var(--journal-ink)',
         background: 'linear-gradient(180deg, var(--journal-parchment), color-mix(in srgb, var(--journal-parchment) 86%, var(--journal-leather) 14%))',
         boxShadow: 'inset 0 0 0 1px rgba(53, 46, 39, 0.24), 0 6px 14px rgba(0, 0, 0, 0.18)',
-        clipPath: itemClip,
+        clipPath: CLIP_MEDIUM,
         fontWeight: 600,
       }}
     >

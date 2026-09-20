@@ -1,3 +1,4 @@
+import { CLIP_SMALL } from '@/styles/clipPaths';
 import { useMemo } from 'react';
 import type { 聊天消息 } from '@/models/chat';
 import { 是否超预算, 拆分聊天Token用量, 累计Token用量 } from '@/utils/tokenUsageStats';
@@ -7,7 +8,7 @@ interface TokenStatsPanelProps {
   budgetTokens?: number;
 }
 
-const smallClip = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
+
 
 export function TokenStatsPanel({ chatHistory, budgetTokens }: TokenStatsPanelProps) {
   const totals = useMemo(() => 累计Token用量(chatHistory), [chatHistory]);
@@ -23,7 +24,7 @@ export function TokenStatsPanel({ chatHistory, budgetTokens }: TokenStatsPanelPr
   };
   return (
     <div className="space-y-3">
-      <div className="px-3 py-2 text-xs leading-relaxed" style={{ color: overBudget ? "rgba(var(--tj-accent-secondary),0.95)" : "rgba(var(--tj-text-secondary),0.78)", boxShadow: `inset 0 0 0 1px ${overBudget ? "rgba(var(--tj-accent-secondary),0.4)" : "rgba(var(--tj-accent-primary),0.16)"}`, clipPath: smallClip }}>
+      <div className="px-3 py-2 text-xs leading-relaxed" style={{ color: overBudget ? "rgba(var(--tj-accent-secondary),0.95)" : "rgba(var(--tj-text-secondary),0.78)", boxShadow: `inset 0 0 0 1px ${overBudget ? "rgba(var(--tj-accent-secondary),0.4)" : "rgba(var(--tj-accent-primary),0.16)"}`, clipPath: CLIP_SMALL }}>
         会话累计 {totals.totalTokens} token（输入 {totals.inputTokens} / 输出 {totals.outputTokens}）
         {overBudget ? "，已超出预算，请注意用量。" : "。"}
       </div>
@@ -36,6 +37,7 @@ export function TokenStatsPanel({ chatHistory, budgetTokens }: TokenStatsPanelPr
         <tbody>
           {systems.map((system) => {
             const entry = bySystem[system];
+            if (!entry) return null;
             return (
               <tr key={system} style={{ boxShadow: "inset 0 -1px 0 rgba(var(--tj-border),0.35)" }}>
                 <td className="px-2 py-1">{systemLabels[system] ?? system}</td>

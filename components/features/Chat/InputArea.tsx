@@ -1,3 +1,4 @@
+import { CLIP_CARD, CLIP_MEDIUM, insetRing } from '@/styles/clipPaths';
 ﻿import { useState, useRef, useCallback, useMemo, memo, useEffect } from 'react';
 
 interface InputAreaProps {
@@ -26,10 +27,10 @@ interface InputAreaProps {
 }
 
 const btnClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
+  CLIP_CARD;
 
 const iconClip =
-  'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
+  CLIP_MEDIUM;
 
 function isMobileTextInput() {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
@@ -169,7 +170,7 @@ export const InputArea = memo(function InputArea({
           style={{
             color: 'rgba(var(--tj-text-primary), 0.9)',
             background: 'rgba(var(--tj-accent-primary), 0.06)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+            boxShadow: insetRing(0.18),
             clipPath: iconClip,
           }}
         >
@@ -284,7 +285,7 @@ export const InputArea = memo(function InputArea({
               style={{
                 color: 'rgba(var(--tj-accent-primary), 0.92)',
                 background: 'rgba(var(--tj-accent-primary), 0.06)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
+                boxShadow: insetRing(0.35),
                 clipPath: iconClip,
               }}
             >
@@ -398,8 +399,8 @@ function IconButton({
         color: active ? 'rgb(var(--tj-accent-primary))' : 'rgba(var(--tj-accent-primary), 0.85)',
         background: active ? 'rgba(var(--tj-accent-primary), 0.14)' : 'rgba(var(--tj-accent-primary), 0.05)',
         boxShadow: active
-          ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.55)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
+          ? insetRing(0.55)
+          : insetRing(0.3),
         clipPath: iconClip,
       }}
     >

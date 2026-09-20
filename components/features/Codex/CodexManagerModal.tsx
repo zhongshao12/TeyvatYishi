@@ -1,7 +1,9 @@
+import { CLIP_ITEM, CLIP_SECTION } from '@/styles/clipPaths';
 import { useMemo, useState } from 'react';
 import type { ArchiveCodex, CodexEntry } from '@/models/teyvat';
 import { buildCodexArchiveItems } from './productionAdapter';
 import { buildCodexEntryInjectionPreview, retrieveCodexEntries } from '@/services/codexRetrieval';
+import { useModalAccessibility } from '@/components/ui/Modal';
 
 export interface CodexManagerModalProps {
   codex: ArchiveCodex;
@@ -12,7 +14,7 @@ const gold = 'rgb(var(--tj-accent-primary))';
 const goldSoft = (alpha: number) => `rgba(var(--tj-accent-primary), ${alpha})`;
 const ink = (alpha: number) => `rgba(var(--tj-text-primary), ${alpha})`;
 const muted = (alpha: number) => `rgba(var(--tj-text-secondary), ${alpha})`;
-const clipSmall = 'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)';
+
 
 /** 图鉴分类 slug → 中文名（预设文件的分类字段为英文 slug）。 */
 const CATEGORY_LABELS: Record<string, string> = {
@@ -49,6 +51,7 @@ function entryMatchesQuery(entry: CodexEntry, query: string): boolean {
 export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const dialogRef = useModalAccessibility<HTMLElement>(onClose);
 
   const items = useMemo(() => buildCodexArchiveItems(codex), [codex]);
   const entryById = useMemo(() => new Map(codex.entries.map((entry) => [entry.id, entry])), [codex]);
@@ -112,13 +115,18 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
   }, [selectedEntry]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="提瓦特图鉴">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-0 sm:p-4">
       <section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="提瓦特图鉴"
+        tabIndex={-1}
         className="journal-story-page grid h-[100dvh] w-full grid-cols-1 overflow-hidden sm:h-[min(86vh,760px)] sm:w-[min(1020px,100%)] sm:grid-cols-[minmax(280px,38%)_1fr]"
         style={{
           background: 'linear-gradient(180deg, var(--journal-parchment), color-mix(in srgb, var(--journal-parchment) 86%, var(--journal-leather) 14%))',
           boxShadow: `inset 0 0 0 1px ${goldSoft(0.35)}, 0 24px 60px rgba(0, 0, 0, 0.5)`,
-          clipPath: 'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)',
+          clipPath: CLIP_SECTION,
         }}
       >
         {/* ── 检索与条目列表 ── */}
@@ -133,7 +141,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
               onClick={onClose}
               aria-label="关闭图鉴"
               className="flex h-9 w-9 items-center justify-center text-base"
-              style={{ color: ink(0.85), boxShadow: `inset 0 0 0 1px ${goldSoft(0.3)}`, clipPath: clipSmall }}
+              style={{ color: ink(0.85), boxShadow: `inset 0 0 0 1px ${goldSoft(0.3)}`, clipPath: CLIP_ITEM }}
             >
               ✕
             </button>
@@ -145,7 +153,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
               placeholder="搜索名称、关键词、摘要或来源……"
               aria-label="搜索图鉴条目"
               className="w-full px-3 py-2 text-sm"
-              style={{ background: 'rgba(0,0,0,0.24)', color: ink(0.96), boxShadow: `inset 0 0 0 1px ${goldSoft(0.25)}`, clipPath: clipSmall }}
+              style={{ background: 'rgba(0,0,0,0.24)', color: ink(0.96), boxShadow: `inset 0 0 0 1px ${goldSoft(0.25)}`, clipPath: CLIP_ITEM }}
             />
             {categories.length > 1 && (
               <div className="mt-2 flex flex-wrap gap-1">
@@ -158,7 +166,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
                     style={{
                       color: activeCategory === category ? gold : muted(0.8),
                       boxShadow: `inset 0 0 0 1px ${activeCategory === category ? goldSoft(0.5) : goldSoft(0.14)}`,
-                      clipPath: clipSmall,
+                      clipPath: CLIP_ITEM,
                     }}
                   >
                     {category}
@@ -184,7 +192,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
                     style={{
                       background: active ? goldSoft(0.12) : goldSoft(0.04),
                       boxShadow: `inset 0 0 0 1px ${active ? goldSoft(0.5) : goldSoft(0.16)}`,
-                      clipPath: clipSmall,
+                      clipPath: CLIP_ITEM,
                     }}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -215,7 +223,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
             {selectedEntry && (
               <div className="flex shrink-0 flex-wrap justify-end gap-1">
                 {USAGE_LABELS.filter(({ key }) => selectedEntry.usage[key]).map(({ key, label }) => (
-                  <span key={key} className="px-1.5 py-0.5 text-[10px]" style={{ color: goldSoft(0.9), boxShadow: `inset 0 0 0 1px ${goldSoft(0.35)}`, clipPath: clipSmall }}>
+                  <span key={key} className="px-1.5 py-0.5 text-[10px]" style={{ color: goldSoft(0.9), boxShadow: `inset 0 0 0 1px ${goldSoft(0.35)}`, clipPath: CLIP_ITEM }}>
                     {label}
                   </span>
                 ))}
@@ -236,7 +244,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
                 {selectedEntry.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1">
                     {selectedEntry.tags.map((tag) => (
-                      <span key={tag} className="px-2 py-0.5 text-[11px]" style={{ color: goldSoft(0.9), boxShadow: `inset 0 0 0 1px ${goldSoft(0.3)}`, clipPath: clipSmall }}>
+                      <span key={tag} className="px-2 py-0.5 text-[11px]" style={{ color: goldSoft(0.9), boxShadow: `inset 0 0 0 1px ${goldSoft(0.3)}`, clipPath: CLIP_ITEM }}>
                         {tag}
                       </span>
                     ))}
@@ -247,7 +255,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
                     <h4 className="mb-2 font-serif text-[13px] tracking-[0.2em]" style={{ color: gold }}>档案注入内容</h4>
                     <div className="space-y-2">
                       {injectionSections.map((section) => (
-                        <div key={section.label} className="px-3 py-2" style={{ background: goldSoft(0.04), boxShadow: `inset 0 0 0 1px ${goldSoft(0.14)}`, clipPath: clipSmall }}>
+                        <div key={section.label} className="px-3 py-2" style={{ background: goldSoft(0.04), boxShadow: `inset 0 0 0 1px ${goldSoft(0.14)}`, clipPath: CLIP_ITEM }}>
                           <p className="text-[10px] tracking-[0.2em]" style={{ color: goldSoft(0.8) }}>{section.label}</p>
                           <p className="mt-1 whitespace-pre-wrap text-[13px] leading-6" style={{ color: ink(0.92) }}>{section.value}</p>
                         </div>
@@ -273,7 +281,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
                           type="button"
                           onClick={() => setSelectedId(entry.id)}
                           className="px-2 py-1 text-[12px]"
-                          style={{ color: goldSoft(0.92), boxShadow: `inset 0 0 0 1px ${goldSoft(0.3)}`, clipPath: clipSmall }}
+                          style={{ color: goldSoft(0.92), boxShadow: `inset 0 0 0 1px ${goldSoft(0.3)}`, clipPath: CLIP_ITEM }}
                         >
                           {entry.name}
                         </button>

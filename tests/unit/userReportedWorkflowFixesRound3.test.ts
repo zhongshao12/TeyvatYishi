@@ -13,6 +13,7 @@ import {
   parseVariableFacts,
 } from '@/utils/variableFacts';
 import { revealCourierMessages } from '@/hooks/useGame/courierBackgroundJobs';
+import { normalizePlayerSpeechInBody } from '@/utils/playerSpeechGuard';
 
 const legacyNpc = (name: string, patch: Partial<NPC记录> = {}): NPC记录 => ({
   id: `npc_${name}`,
@@ -28,6 +29,13 @@ const legacyNpc = (name: string, patch: Partial<NPC记录> = {}): NPC记录 => (
 });
 
 describe('third user-reported UX regression batch', () => {
+  it('keeps a sentence from a long player input attributed to the player', () => {
+    const userInput = `${'我先把沿途的线索按顺序整理一遍。'.repeat(7)}今晚八点在城门集合，我们一起确认风向。`;
+    const body = '【旅行者】今晚八点在城门集合，我们一起确认风向。';
+    expect(normalizePlayerSpeechInBody({ body, playerName: '旅行者', userInput }))
+      .toBe(body);
+  });
+
   it('reveals every generated phone bubble at a fixed 500ms cadence', async () => {
     const waits: number[] = [];
     const revealed: string[] = [];
@@ -53,13 +61,13 @@ describe('third user-reported UX regression batch', () => {
     const adult = enrichNpcArchives([
       legacyNpc('丽莎', { 性别: '女', NSFW档案: { enabled: true, 年龄确认: 'adult' } }),
     ], { nsfwEnabled: true, maleNsfwArchiveEnabled: false }).records[0];
-    expect(adult.NSFW档案).toMatchObject({ 是否处女: '是', 首次性行为对象: '无' });
+    expect(adult!.NSFW档案).toMatchObject({ 是否处女: '是', 首次性行为对象: '无' });
 
     const unknownAge = enrichNpcArchives([
       legacyNpc('原创女性旅人', { 性别: '女', NSFW档案: { enabled: true, 年龄确认: 'unknown' } }),
     ], { nsfwEnabled: true, maleNsfwArchiveEnabled: false }).records[0];
-    expect(unknownAge.NSFW档案).not.toHaveProperty('是否处女');
-    expect(unknownAge.NSFW档案).not.toHaveProperty('首次性行为对象');
+    expect(unknownAge!.NSFW档案).not.toHaveProperty('是否处女');
+    expect(unknownAge!.NSFW档案).not.toHaveProperty('首次性行为对象');
   });
 
   it('can update adult female sexual-history fields from an explicit mature-archive fact', () => {

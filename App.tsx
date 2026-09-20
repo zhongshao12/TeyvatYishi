@@ -27,13 +27,15 @@ import { InputArea } from '@/components/features/Chat/InputArea';
 import { VariableDrawer } from '@/components/features/Variable/VariableDrawer';
 import type { SettingsTab } from '@/components/features/Settings/SettingsModal';
 import { PathAwakeningInvitation } from '@/components/features/Path/PathAwakeningInvitation';
-import { Modal, closeTopModal } from '@/components/ui/Modal';
+import { closeTopModal } from '@/components/ui/Modal';
 import { MAP_REGION_MAIN_LOCATIONS, markTeleport, unlockStatue } from '@/models/teyvat';
 import { ToastHost } from '@/components/ui/ToastHost';
 import { LazySurfaceFallback, MemoryRebuildModal } from '@/components/layout/AppPanels';
 import { TravelerProfileModal } from '@/components/features/Character/TravelerProfileModal';
 import { GAME_MENU_ITEMS, type GameSystemId } from '@/data/gameMenu';
 import { saveSetting } from '@/services/dbService';
+import { runStartupStorageMaintenance } from '@/services/storage/startupStorageMaintenance';
+import { resolveActiveApiConfig } from '@/services/ai/activeApiConfig';
 import { handleLoadById } from '@/hooks/useGame/saveLoadWorkflow';
 import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
 import type { 角色数据结构 } from '@/models/character';
@@ -41,7 +43,7 @@ import { 切换剧情书签 } from '@/utils/storyBookmarks';
 import { 累计Token用量 } from '@/utils/tokenUsageStats';
 import { TokenMeter } from '@/components/features/Chat/TokenMeter';
 import { CommandPalette } from '@/components/features/Chat/CommandPalette';
-import { clearCommands, listCommands, registerCommand } from '@/utils/commandRegistry';
+import { clearCommands, registerCommand, type CommandItem } from '@/utils/commandRegistry';
 import type { 世界状态 } from '@/models/world';
 import type { NPC记录 } from '@/models/npc';
 import type { QuestJournal, TeyvatInventory } from '@/models/teyvat';
@@ -49,237 +51,36 @@ import type { 记忆失败草稿 } from '@/models/memory';
 import { lazyWithRetry, preloadAll } from '@/utils/lazyWithRetry';
 import { setStreamingMessage } from '@/utils/streamingMessageStore';
 import { buildManuallyEditedNarrativeTurn } from '@/services/ai/narrativeTurnParser';
+import {
+  BookOpenOverlay,
+  HomeJourneyOverlay,
+  JourneyLaunchOverlay,
+  MysteryChatModal,
+  SaveLoadOverlay,
+} from '@/components/layout/AppTransitionOverlays';
 
-const NewGameWizard = lazyWithRetry(() => import('@/components/features/NewGame/NewGameWizard').then((module) => ({ default: module.NewGameWizard })));
-const SettingsModal = lazyWithRetry(() => import('@/components/features/Settings/SettingsModal').then((module) => ({ default: module.SettingsModal })));
-const SaveLoadModal = lazyWithRetry(() => import('@/components/features/SaveLoad/SaveLoadModal').then((module) => ({ default: module.SaveLoadModal })));
-const CourierModal = lazyWithRetry(() => import('@/components/features/Courier/CourierModal').then((module) => ({ default: module.CourierModal })));
-const WorldbookManagerModal = lazyWithRetry(() => import('@/components/features/Worldbook/WorldbookManagerModal').then((module) => ({ default: module.WorldbookManagerModal })));
-const CodexManagerModal = lazyWithRetry(() => import('@/components/features/Codex/CodexManagerModal').then((module) => ({ default: module.CodexManagerModal })));
-const GitHubCloudSaveModal = lazyWithRetry(() => import('@/components/features/CloudSave/GitHubCloudSaveModal').then((module) => ({ default: module.GitHubCloudSaveModal })));
-const ReleaseAnnouncementsModal = lazyWithRetry(() => import('@/components/features/Release/ReleaseAnnouncementsModal').then((module) => ({ default: module.ReleaseAnnouncementsModal })));
-const PlotPanel = lazyWithRetry(() => import('@/components/features/GameSystems/PlotPanel').then((module) => ({ default: module.PlotPanel })));
-const IrminsulPanel = lazyWithRetry(() => import('@/components/features/GameSystems/IrminsulPanel').then((module) => ({ default: module.IrminsulPanel })));
-const MapPanel = lazyWithRetry(() => import('@/components/features/GameSystems/MapPanel').then((module) => ({ default: module.MapPanel })));
-const MemoryPanel = lazyWithRetry(() => import('@/components/features/GameSystems/MemoryPanel').then((module) => ({ default: module.MemoryPanel })));
-const AlbumPanel = lazyWithRetry(() => import('@/components/features/GameSystems/AlbumPanel').then((module) => ({ default: module.AlbumPanel })));
-const SkillPanel = lazyWithRetry(() => import('@/components/features/GameSystems/SkillPanel').then((module) => ({ default: module.SkillPanel })));
-const InventoryPanel = lazyWithRetry(() => import('@/components/features/GameSystems/InventoryPanel').then((module) => ({ default: module.InventoryPanel })));
-const SteambirdPanel = lazyWithRetry(() => import('@/components/features/GameSystems/SteambirdPanel').then((module) => ({ default: module.SteambirdPanel })));
-const TimelinePanel = lazyWithRetry(() => import('@/components/features/GameSystems/TimelinePanel').then((module) => ({ default: module.TimelinePanel })));
-const CompanionPanel = lazyWithRetry(() => import('@/components/features/GameSystems/CompanionPanel').then((module) => ({ default: module.CompanionPanel })));
-const PathPanel = lazyWithRetry(() => import('@/components/features/GameSystems/PathPanel').then((module) => ({ default: module.PathPanel })));
-const QuestPanel = lazyWithRetry(() => import('@/components/features/GameSystems/QuestPanel').then((module) => ({ default: module.QuestPanel })));
+const NewGameWizard = lazyWithRetry(() => import('@/components/features/NewGame/NewGameWizard').then((module) => ({ default: module.NewGameWizard })), 'new-game-wizard');
+const SettingsModal = lazyWithRetry(() => import('@/components/features/Settings/SettingsModal').then((module) => ({ default: module.SettingsModal })), 'settings-modal');
+const SaveLoadModal = lazyWithRetry(() => import('@/components/features/SaveLoad/SaveLoadModal').then((module) => ({ default: module.SaveLoadModal })), 'save-load-modal');
+const CourierModal = lazyWithRetry(() => import('@/components/features/Courier/CourierModal').then((module) => ({ default: module.CourierModal })), 'courier-modal');
+const WorldbookManagerModal = lazyWithRetry(() => import('@/components/features/Worldbook/WorldbookManagerModal').then((module) => ({ default: module.WorldbookManagerModal })), 'worldbook-manager-modal');
+const CodexManagerModal = lazyWithRetry(() => import('@/components/features/Codex/CodexManagerModal').then((module) => ({ default: module.CodexManagerModal })), 'codex-manager-modal');
+const GitHubCloudSaveModal = lazyWithRetry(() => import('@/components/features/CloudSave/GitHubCloudSaveModal').then((module) => ({ default: module.GitHubCloudSaveModal })), 'github-cloud-save-modal');
+const ReleaseAnnouncementsModal = lazyWithRetry(() => import('@/components/features/Release/ReleaseAnnouncementsModal').then((module) => ({ default: module.ReleaseAnnouncementsModal })), 'release-announcements-modal');
+const PlotPanel = lazyWithRetry(() => import('@/components/features/GameSystems/PlotPanel').then((module) => ({ default: module.PlotPanel })), 'plot-panel');
+const IrminsulPanel = lazyWithRetry(() => import('@/components/features/GameSystems/IrminsulPanel').then((module) => ({ default: module.IrminsulPanel })), 'irminsul-panel');
+const MapPanel = lazyWithRetry(() => import('@/components/features/GameSystems/MapPanel').then((module) => ({ default: module.MapPanel })), 'map-panel');
+const MemoryPanel = lazyWithRetry(() => import('@/components/features/GameSystems/MemoryPanel').then((module) => ({ default: module.MemoryPanel })), 'memory-panel');
+const AlbumPanel = lazyWithRetry(() => import('@/components/features/GameSystems/AlbumPanel').then((module) => ({ default: module.AlbumPanel })), 'album-panel');
+const SkillPanel = lazyWithRetry(() => import('@/components/features/GameSystems/SkillPanel').then((module) => ({ default: module.SkillPanel })), 'skill-panel');
+const InventoryPanel = lazyWithRetry(() => import('@/components/features/GameSystems/InventoryPanel').then((module) => ({ default: module.InventoryPanel })), 'inventory-panel');
+const SteambirdPanel = lazyWithRetry(() => import('@/components/features/GameSystems/SteambirdPanel').then((module) => ({ default: module.SteambirdPanel })), 'steambird-panel');
+const TimelinePanel = lazyWithRetry(() => import('@/components/features/GameSystems/TimelinePanel').then((module) => ({ default: module.TimelinePanel })), 'timeline-panel');
+const CompanionPanel = lazyWithRetry(() => import('@/components/features/GameSystems/CompanionPanel').then((module) => ({ default: module.CompanionPanel })), 'companion-panel');
+const PathPanel = lazyWithRetry(() => import('@/components/features/GameSystems/PathPanel').then((module) => ({ default: module.PathPanel })), 'path-panel');
+const QuestPanel = lazyWithRetry(() => import('@/components/features/GameSystems/QuestPanel').then((module) => ({ default: module.QuestPanel })), 'quest-panel');
 
 
-function JourneyLaunchOverlay() {
-  const starSeeds = useMemo(
-    () => Array.from({ length: 34 }, (_, index) => ({
-      id: index,
-      x: 8 + ((index * 17) % 84),
-      y: 10 + ((index * 29) % 78),
-      delay: (index % 8) * 0.045,
-      size: 1 + (index % 4) * 0.42,
-    })),
-    [],
-  );
-
-  return (
-    <div className="teyvat-journey-launch" role="status" aria-live="polite" aria-label="旅途已接入">
-      <div className="teyvat-journey-launch__field" />
-      <div className="teyvat-journey-launch__vignette" />
-      {starSeeds.map((star) => (
-        <span
-          key={star.id}
-          className="teyvat-journey-launch__star"
-          style={{
-            left: `${star.x}%`,
-            top: `${star.y}%`,
-            width: `${star.size}px`,
-            height: `${star.size}px`,
-            animationDelay: `${star.delay}s`,
-          }}
-        />
-      ))}
-      <div className="teyvat-journey-launch__rail teyvat-journey-launch__rail--a" />
-      <div className="teyvat-journey-launch__rail teyvat-journey-launch__rail--b" />
-      <div className="teyvat-journey-launch__rail teyvat-journey-launch__rail--c" />
-      <div className="teyvat-journey-launch__rail teyvat-journey-launch__rail--d" />
-      <div className="teyvat-journey-launch__core">
-        <div className="teyvat-journey-launch__ring" />
-        <div className="teyvat-journey-launch__glyph" aria-hidden="true">
-          <span className="teyvat-journey-launch__starburst teyvat-journey-launch__starburst--main" />
-          <span className="teyvat-journey-launch__starburst teyvat-journey-launch__starburst--cross" />
-          <span className="teyvat-journey-launch__starburst-core" />
-        </div>
-        <div className="teyvat-journey-launch__title">旅途已接入</div>
-        <div className="teyvat-journey-launch__subtitle">正在辨认旅途方向</div>
-      </div>
-      <div className="teyvat-journey-launch__flash" />
-    </div>
-  );
-}
-
-function HomeJourneyOverlay() {
-  const glints = useMemo(
-    () => Array.from({ length: 18 }, (_, index) => ({
-      id: index,
-      x: 10 + ((index * 23) % 80),
-      y: 14 + ((index * 31) % 70),
-      delay: (index % 6) * 0.055,
-      drift: index % 2 === 0 ? -1 : 1,
-    })),
-    [],
-  );
-
-  return (
-    <div className="teyvat-home-journey" role="status" aria-live="polite" aria-label="旅途入口开启中">
-      <div className="teyvat-home-journey__backdrop" />
-      <div className="teyvat-home-journey__tracks" />
-      {glints.map((glint) => (
-        <span
-          key={glint.id}
-          className="teyvat-home-journey__glint"
-          style={{
-            left: `${glint.x}%`,
-            top: `${glint.y}%`,
-            animationDelay: `${glint.delay}s`,
-            ['--glint-drift' as string]: glint.drift,
-          }}
-        />
-      ))}
-      <div className="teyvat-home-journey__door teyvat-home-journey__door--left" />
-      <div className="teyvat-home-journey__door teyvat-home-journey__door--right" />
-      <div className="teyvat-home-journey__threshold">
-        <div className="teyvat-home-journey__seal">启</div>
-        <div className="teyvat-home-journey__title">旅途入口已开启</div>
-        <div className="teyvat-home-journey__subtitle">正在翻开冒险手账</div>
-      </div>
-      <div className="teyvat-home-journey__wipe" />
-    </div>
-  );
-}
-
-function SaveLoadOverlay() {
-  const dataNodes = useMemo(
-    () => Array.from({ length: 24 }, (_, index) => ({
-      id: index,
-      x: 8 + ((index * 19) % 84),
-      y: 12 + ((index * 37) % 74),
-      delay: (index % 8) * 0.045,
-      size: 2 + (index % 3),
-    })),
-    [],
-  );
-
-  return (
-    <div className="teyvat-save-load" role="status" aria-live="polite" aria-label="存档读取中">
-      <div className="teyvat-save-load__backdrop" />
-      <div className="teyvat-save-load__grid" />
-      {dataNodes.map((node) => (
-        <span
-          key={node.id}
-          className="teyvat-save-load__node"
-          style={{
-            left: `${node.x}%`,
-            top: `${node.y}%`,
-            width: `${node.size}px`,
-            height: `${node.size}px`,
-            animationDelay: `${node.delay}s`,
-          }}
-        />
-      ))}
-      <div className="teyvat-save-load__archive">
-        <div className="teyvat-save-load__frame" />
-        <div className="teyvat-save-load__seal">档</div>
-        <div className="teyvat-save-load__title">存档索引已唤醒</div>
-        <div className="teyvat-save-load__subtitle">正在整理旅途足迹</div>
-        <div className="teyvat-save-load__bar"><span /></div>
-      </div>
-      <div className="teyvat-save-load__scan teyvat-save-load__scan--a" />
-      <div className="teyvat-save-load__scan teyvat-save-load__scan--b" />
-    </div>
-  );
-}
-
-function BookOpenOverlay() {
-  const motes = useMemo(
-    () => Array.from({ length: 22 }, (_, index) => ({
-      id: index,
-      x: 12 + ((index * 21) % 76),
-      y: 18 + ((index * 29) % 62),
-      delay: (index % 7) * 0.05,
-      drift: index % 2 === 0 ? -1 : 1,
-    })),
-    [],
-  );
-
-  return (
-    <div className="teyvat-book-open" role="status" aria-live="polite" aria-label="书页展开中">
-      <div className="teyvat-book-open__backdrop" />
-      {motes.map((mote) => (
-        <span
-          key={mote.id}
-          className="teyvat-book-open__mote"
-          style={{
-            left: `${mote.x}%`,
-            top: `${mote.y}%`,
-            animationDelay: `${mote.delay}s`,
-            ['--book-mote-drift' as string]: mote.drift,
-          }}
-        />
-      ))}
-      <div className="teyvat-book-open__book">
-        <div className="teyvat-book-open__spine" />
-        <div className="teyvat-book-open__page teyvat-book-open__page--left"><span /><span /><span /></div>
-        <div className="teyvat-book-open__page teyvat-book-open__page--right"><span /><span /><span /></div>
-        <div className="teyvat-book-open__leaf teyvat-book-open__leaf--a" />
-        <div className="teyvat-book-open__leaf teyvat-book-open__leaf--b" />
-      </div>
-      <div className="teyvat-book-open__copy">
-        <div className="teyvat-book-open__title">提瓦特之书</div>
-        <div className="teyvat-book-open__subtitle">正在翻开未署名的页</div>
-      </div>
-      <div className="teyvat-book-open__glow" />
-    </div>
-  );
-}
-
-function MysteryChatModal({ onClose }: { onClose: () => void }) {
-  return (
-    <Modal onClose={onClose} title="神秘聊天" className="max-w-lg">
-      <div className="space-y-4">
-        <div
-          className="rounded-sm px-4 py-4 text-sm leading-7"
-          style={{
-            background: 'rgba(var(--tj-bg-primary), 0.34)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.7)',
-          }}
-        >
-          <div className="font-serif text-base tracking-[0.18em]" style={{ color: 'rgb(var(--tj-accent-primary))' }}>
-            960494342
-          </div>
-          <p className="mt-3" style={{ color: 'rgba(var(--tj-text-primary), 0.88)' }}>
-            本群只进行内部交流与聊天，禁止对外宣传。
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full px-4 py-2 font-serif text-sm tracking-[0.18em]"
-          style={{
-            color: 'rgb(var(--tj-ui-active-text))',
-            background: 'linear-gradient(135deg, rgb(var(--tj-accent-primary)) 0%, rgb(var(--tj-arcane-accent)) 100%)',
-            boxShadow: 'inset 0 0 0 1px rgba(255,245,200,0.46)',
-            clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
-          }}
-        >
-          关闭
-        </button>
-      </div>
-    </Modal>
-  );
-}
 import type { 相册系统 } from '@/models/imageGeneration';
 import type { 剧情节点 } from '@/models/plot';
 import type { 记忆系统 } from '@/models/memory';
@@ -292,7 +93,7 @@ import { getCurrentStoryChapterLabel } from '@/services/storyProgressService';
 import { generateTravelerTemplate, type TravelerTemplateContext, type TravelerTemplateDraft } from '@/services/ai/travelerTemplate';
 import { revealCourierMessages, runCourierReplyPass } from '@/hooks/useGame/courierBackgroundJobs';
 import { resolveCourierApiConfig } from '@/services/ai/courierLetterModel';
-import { selectGroupReplyMembers } from '@/services/ai/courierService';
+import { appendCourierMessage, beginCourierReply, endCourierReply, selectGroupReplyMembers } from '@/services/ai/courierService';
 import { 天气列表 } from '@/data/weatherRules';
 import { normalizeCourierSystem, type CourierSystem } from '@/models/teyvat/courier';
 
@@ -355,7 +156,10 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    void checkInterruptedWorkflow().then((journal) => {
+    void Promise.all([
+      runStartupStorageMaintenance(),
+      checkInterruptedWorkflow(),
+    ]).then(([, journal]) => {
       if (!cancelled) setRecoveryJournal(journal);
     });
     return () => { cancelled = true; };
@@ -369,8 +173,13 @@ export default function App() {
   // 信使即时回信：玩家在信使里一投递，立刻生成联系人回信（AI 优先、本地兜底），
   // 生成期间会话显示"正在写回信"。同一时间只处理一封，避免并发竞争。
   const courierReplyBusyRef = useRef(false);
+  const courierReplyPendingRef = useRef(new Map<string, CourierSystem>());
+  const courierReplyHandlerRef = useRef<(conversationId: string, courierSnapshot: CourierSystem) => void>(() => undefined);
   const handleCourierReplyRequest = useCallback((conversationId: string, courierSnapshot: CourierSystem) => {
-    if (courierReplyBusyRef.current) return;
+    if (courierReplyBusyRef.current) {
+      courierReplyPendingRef.current.set(conversationId, courierSnapshot);
+      return;
+    }
     if (state.gameSettings.手机系统.enabled === false) return;
     const conversation = courierSnapshot.conversations.find((item) => item.id === conversationId);
     if (!conversation || conversation.type === 'system') return;
@@ -386,6 +195,16 @@ export default function App() {
       typingIds = contactId ? [contactId] : [];
     }
     if (!typingIds.length) return;
+    if (!beginCourierReply(conversationId)) {
+      courierReplyPendingRef.current.set(conversationId, courierSnapshot);
+      globalThis.setTimeout(() => {
+        const pending = courierReplyPendingRef.current.get(conversationId);
+        if (!pending || courierReplyBusyRef.current) return;
+        courierReplyPendingRef.current.delete(conversationId);
+        courierReplyHandlerRef.current(conversationId, pending);
+      }, 500);
+      return;
+    }
 
     courierReplyBusyRef.current = true;
     // 打字指示：会话标记正在输入的成员（群聊为多位）。
@@ -417,6 +236,7 @@ export default function App() {
       letterApiConfig,
       turn: state.game.turnCount,
       maxReplies: 1,
+      preclaimedConversationIds: [conversationId],
     }).then(async (result) => {
       state.setNPC(result.npcs);
       const snapshotConversation = courierSnapshot.conversations.find((item) => item.id === conversationId);
@@ -439,18 +259,7 @@ export default function App() {
       await revealCourierMessages(newMessages, (message) => {
         state.updateGameState((current) => ({
           ...current,
-          手机: {
-            ...current.手机,
-            conversations: current.手机.conversations.map((item) => item.id === conversationId
-              ? {
-                  ...item,
-                  messages: item.messages.some((existing) => existing.id === message.id)
-                    ? item.messages
-                    : [...item.messages, message],
-                  updatedAt: Math.max(item.updatedAt, message.timestamp),
-                }
-              : item),
-          },
+          手机: appendCourierMessage(current.手机, conversationId, { ...message, timestamp: Date.now() }),
         }));
       });
 
@@ -475,9 +284,16 @@ export default function App() {
         },
       }));
     }).finally(() => {
+      endCourierReply(conversationId);
       courierReplyBusyRef.current = false;
+      const pending = courierReplyPendingRef.current.entries().next().value as [string, CourierSystem] | undefined;
+      if (pending) {
+        courierReplyPendingRef.current.delete(pending[0]);
+        queueMicrotask(() => courierReplyHandlerRef.current(pending[0], pending[1]));
+      }
     });
   }, [state]);
+  courierReplyHandlerRef.current = handleCourierReplyRequest;
 
   const handleResumeRecovery = useCallback(async () => {
     if (!recoveryJournal) return;
@@ -535,21 +351,29 @@ export default function App() {
   }), [state.gameSettings.keyboardShortcuts]);
   useKeyboardShortcuts(keyboardShortcutHandlers, keyboardBindings, state.view === 'game');
 
-  const commandItems = useMemo(() => {
+  const commandItems = useMemo<CommandItem[]>(() => [
+    { id: 'save', label: '手动存档', keywords: ['存档', 'save'], run: () => void actions.handleSave() },
+    { id: 'reroll', label: '重新生成（重 roll）', keywords: ['重 roll', 'reroll', '重新生成'], run: () => void actions.handleReroll() },
+    { id: 'settings', label: '打开设置', keywords: ['设置', 'settings'], run: () => setShowSettings(true) },
+    { id: 'courier', label: '打开手机', keywords: ['手机', '聊天', 'courier'], run: () => setShowCourier(true) },
+    { id: 'codex', label: '北陆图书馆', keywords: ['图鉴', '北陆图书馆', 'codex'], run: () => setShowCodexManager(true) },
+    { id: 'companion', label: '伙伴', keywords: ['伙伴', 'companion'], run: () => setActiveSystem('companion') },
+    { id: 'worldbook', label: '提瓦特之书（世界书）', keywords: ['世界书', 'worldbook', '提瓦特之书'], run: () => setShowWorldbookManager(true) },
+    ...GAME_MENU_ITEMS
+      .filter((item) => item.id !== 'codex' && item.id !== 'companion' && item.id !== 'worldbook')
+      .map((item) => ({
+        id: `menu_${item.id}`,
+        label: `打开系统：${item.label}`,
+        keywords: [item.label, item.subtitle],
+        run: () => setActiveSystem(item.id),
+      })),
+  ], [actions]);
+
+  useEffect(() => {
     clearCommands();
-    registerCommand({ id: 'save', label: '手动存档', keywords: ['存档', 'save'], run: () => void actions.handleSave() });
-    registerCommand({ id: 'reroll', label: '重新生成（重 roll）', keywords: ['重 roll', 'reroll', '重新生成'], run: () => void actions.handleReroll() });
-    registerCommand({ id: 'settings', label: '打开设置', keywords: ['设置', 'settings'], run: () => setShowSettings(true) });
-    registerCommand({ id: 'courier', label: '打开手机', keywords: ['手机', '聊天', 'courier'], run: () => setShowCourier(true) });
-    registerCommand({ id: 'codex', label: '北陆图书馆', keywords: ['图鉴', '北陆图书馆', 'codex'], run: () => setShowCodexManager(true) });
-    registerCommand({ id: 'companion', label: '伙伴', keywords: ['伙伴', 'companion'], run: () => setActiveSystem('companion') });
-    registerCommand({ id: 'worldbook', label: '提瓦特之书（世界书）', keywords: ['世界书', 'worldbook', '提瓦特之书'], run: () => setShowWorldbookManager(true) });
-    for (const item of GAME_MENU_ITEMS) {
-      if (item.id === 'codex' || item.id === 'companion' || item.id === 'worldbook') continue;
-      registerCommand({ id: `menu_${item.id}`, label: `打开系统：${item.label}`, keywords: [item.label, item.subtitle], run: () => setActiveSystem(item.id) });
-    }
-    return listCommands();
-  }, [actions]);
+    for (const item of commandItems) registerCommand(item);
+    return () => clearCommands();
+  }, [commandItems]);
 
   const recoveryBannerElement = recoveryJournal ? (
     <RecoveryBanner
@@ -606,6 +430,7 @@ export default function App() {
   const handleOpenSteambird = useCallback(() => setActiveSystem('steambird'), []);
   const handleOpenProfile = useCallback(() => setShowCharacter(true), []);
   const handleOpenCourier = useCallback(() => setShowCourier(true), []);
+  const handleCloseCourier = useCallback(() => setShowCourier(false), []);
   const handleOpenMemoryRebuild = useCallback(() => setShowMemoryRebuild(true), []);
   const handleOpenSaveLoad = useCallback(() => setShowSaveLoad(true), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
@@ -627,7 +452,7 @@ export default function App() {
         if (!parsedResponse) return m;
         return {
           ...m,
-          content: parsedResponse.body[0].text,
+          content: parsedResponse.body[0]?.text ?? newBody,
           parsedResponse,
         };
       }),
@@ -766,6 +591,11 @@ export default function App() {
     && state.gameSettings.文生图系统.正文生图.mode === 'manual',
   );
 
+  const rewriteConfig = useMemo(() => resolveActiveApiConfig(
+    state.apiSettings,
+    state.gameSettings.enableClaudeMode === true,
+  ), [state.apiSettings, state.gameSettings.enableClaudeMode]);
+
   const recoveryDraft = useMemo(() => (
     state.interruptedWorkflow ? {
       workflowId: state.interruptedWorkflow.workflowId,
@@ -807,6 +637,23 @@ export default function App() {
     }
 
     const timer = window.setTimeout(preloadCodex, 300);
+    return () => window.clearTimeout(timer);
+  }, [state.view]);
+
+  useEffect(() => {
+    if (state.view !== 'game') return;
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const preloadFrequentPanels = () => {
+      void Promise.allSettled([CourierModal.preload(), CompanionPanel.preload()]);
+    };
+    if (idleWindow.requestIdleCallback) {
+      const idleHandle = idleWindow.requestIdleCallback(preloadFrequentPanels, { timeout: 800 });
+      return () => idleWindow.cancelIdleCallback?.(idleHandle);
+    }
+    const timer = window.setTimeout(preloadFrequentPanels, 180);
     return () => window.clearTimeout(timer);
   }, [state.view]);
 
@@ -870,7 +717,7 @@ export default function App() {
         narrativeImageManualEnabled={narrativeImageManualEnabled}
         onEditBody={handleEditBody}
         onToggleBookmark={handleToggleBookmark}
-        rewriteConfig={state.apiSettings.activeConfigId ? (state.apiSettings.configs.find((item) => item.id === state.apiSettings.activeConfigId) ?? state.apiSettings.configs[0] ?? null) : (state.apiSettings.configs[0] ?? null)}
+        rewriteConfig={rewriteConfig ?? undefined}
       />
       <PathAwakeningInvitation
         world={state.世界}
@@ -923,7 +770,7 @@ export default function App() {
             npcRecords: state.NPC,
             onNpcRecordsChange: state.setNPC,
             courier: state.game.手机,
-            onCourierChange: (手机) => state.updateGameState((current) => ({ ...current, 手机 })),
+            onCourierChange: (update) => state.set手机(update),
             variableBatches: state.variableBatches,
             quest: state.game.任务,
             onQuestChange: (updater) => state.updateGameState((current) => ({
@@ -1303,9 +1150,9 @@ export default function App() {
             travelerName={state.旅人.姓名}
             travelerAvatar={state.旅人.头像}
             currentTurn={state.game.turnCount}
-            onCourierChange={(手机) => state.updateGameState((current) => ({ ...current, 手机 }))}
+            onCourierChange={state.set手机}
             onRequestReply={handleCourierReplyRequest}
-            onClose={() => setShowCourier(false)}
+            onClose={handleCloseCourier}
           />
         </Suspense>
       )}
@@ -1386,7 +1233,7 @@ function renderSystemPanel(
     npcRecords: NPC记录[];
     onNpcRecordsChange: React.Dispatch<React.SetStateAction<NPC记录[]>>;
     courier: import('@/models/teyvat').CourierSystem;
-    onCourierChange: (next: import('@/models/teyvat').CourierSystem) => void;
+    onCourierChange: (update: import('@/models/teyvat').CourierSystem | ((previous: import('@/models/teyvat').CourierSystem) => import('@/models/teyvat').CourierSystem)) => void;
     quest: QuestJournal;
     onQuestChange: (updater: (previous: QuestJournal) => QuestJournal) => void;
     variableBatches: import('@/models/variableCommand').变量命令批次[];

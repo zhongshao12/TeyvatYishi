@@ -142,10 +142,12 @@ export async function unpackCloudBackupPart(
   limits: { maxEntries?: number; maxEntryBytes?: number; maxUnpackedBytes?: number } = {},
 ): Promise<Map<string, Uint8Array>> {
   const compressed = toOwnedBytes(input);
-  const raw = compression === 'gzip' ? await gunzipBytes(compressed) : compressed;
   const maxEntries = limits.maxEntries ?? DEFAULT_MAX_ENTRIES;
   const maxEntryBytes = limits.maxEntryBytes ?? DEFAULT_MAX_ENTRY_BYTES;
   const maxUnpackedBytes = limits.maxUnpackedBytes ?? DEFAULT_MAX_UNPACKED_BYTES;
+  const raw = compression === 'gzip'
+    ? await gunzipBytes(compressed, maxUnpackedBytes)
+    : compressed;
   if (raw.byteLength > maxUnpackedBytes) throw new Error('云备份分卷解压后大小超过安全上限。');
   if (raw.byteLength < CLOUD_PART_PREFIX_BYTES) throw new Error('云备份分卷头部不完整。');
   for (let index = 0; index < CLOUD_PART_MAGIC.byteLength; index += 1) {
@@ -237,10 +239,42 @@ async function gzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-async function gunzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
+async function gunzipBytes(bytes: Uint8Array, maxOutputBytes: number): Promise<Uint8Array> {
   if (typeof DecompressionStream !== 'function') throw new Error('当前环境不支持解压云备份分卷。');
   const stream = new Blob([toOwnedBytes(bytes)]).stream().pipeThrough(new DecompressionStream('gzip'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  return readByteStreamWithLimit(stream, maxOutputBytes);
+}
+
+export async function readByteStreamWithLimit(
+  stream: ReadableStream<Uint8Array>,
+  maxBytes: number,
+): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      if (totalBytes + value.byteLength > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new Error('云备份分卷解压后大小超过安全上限。');
+      }
+      chunks.push(value);
+      totalBytes += value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const result = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
 }
 
 function toOwnedBytes(input: ArrayBuffer | Uint8Array): Uint8Array {

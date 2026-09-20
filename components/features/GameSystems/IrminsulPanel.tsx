@@ -1,3 +1,4 @@
+import { CLIP_ITEM, insetRing } from '@/styles/clipPaths';
 import { useMemo, useState } from 'react';
 import type { IrminsulMemory, IrminsulEntry } from '@/models/teyvat/irminsul';
 
@@ -68,7 +69,7 @@ export function IrminsulPanel({ memory }: { memory: IrminsulMemory }) {
           placeholder="搜索标题、摘要、关键词或归档正文……"
           aria-label="搜索世界树记忆"
           className="w-full px-3 py-2 text-sm"
-          style={{ background: 'rgba(0,0,0,0.22)', color: 'rgba(var(--tj-text-primary),0.95)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.25)', clipPath: 'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)' }}
+          style={{ background: 'rgba(0,0,0,0.22)', color: 'rgba(var(--tj-text-primary),0.95)', boxShadow: insetRing(0.25), clipPath: CLIP_ITEM }}
         />
         <div className="flex flex-wrap gap-1">
           {typeFilters.map((item) => (
@@ -80,7 +81,7 @@ export function IrminsulPanel({ memory }: { memory: IrminsulMemory }) {
               style={{
                 color: typeFilter === item.id ? 'rgb(var(--tj-on-accent))' : 'rgba(var(--tj-text-secondary),0.85)',
                 background: typeFilter === item.id ? 'rgba(var(--tj-accent-primary),0.8)' : 'rgba(var(--tj-accent-primary),0.06)',
-                clipPath: 'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)',
+                clipPath: CLIP_ITEM,
               }}
             >
               {item.label}
@@ -99,9 +100,9 @@ export function IrminsulPanel({ memory }: { memory: IrminsulMemory }) {
             {filtered.map((entry) => {
               const expanded = expandedIds.has(entry.id);
               return (
-                <article key={entry.id} className="p-3" style={{ background: 'rgba(var(--tj-bubble),0.6)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.2)', clipPath: 'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)' }}>
+                <article key={entry.id} className="p-3" style={{ background: 'rgba(var(--tj-bubble),0.6)', boxShadow: insetRing(0.2), clipPath: CLIP_ITEM }}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="px-1.5 py-0.5 text-[10px] tracking-[0.14em]" style={{ color: 'rgba(var(--tj-accent-primary),0.9)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.35)' }}>
+                    <span className="px-1.5 py-0.5 text-[10px] tracking-[0.14em]" style={{ color: 'rgba(var(--tj-accent-primary),0.9)', boxShadow: insetRing(0.35) }}>
                       {ARCHIVE_TYPE_LABELS[entry.archiveType]}
                     </span>
                     <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.7)' }}>

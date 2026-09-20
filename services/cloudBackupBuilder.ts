@@ -127,6 +127,7 @@ export async function buildCompleteCloudBackup(
     for (let index = 0; index < ordered.length; index += 1) {
       assertNotAborted(options.signal);
       const summary = ordered[index];
+      if (!summary) throw new Error(`本地存档目录第 ${index + 1} 项无效。`);
       options.onProgress?.({
         phase: 'packing-node',
         current: index,
@@ -242,6 +243,7 @@ function assertCatalogVersionCompatibility(
 ): { universe: 'teyvat'; schemaVersion: 2 } {
   const versions = summaries.map((summary) => normalizeVersion(summary.universe, summary.schemaVersion));
   const first = versions[0];
+  if (!first) throw new Error('没有可打包的本地存档。');
   if (versions.some((version) => version.universe !== first.universe)) {
     throw new Error('不能在同一云备份中混合不同存档宇宙。');
   }
@@ -266,13 +268,6 @@ function normalizeVersion(
   throw new Error('云备份目录包含不兼容的 universe/schemaVersion。');
 }
 
-function assertNotAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw signal.reason ?? new DOMException('云备份任务已取消。', 'AbortError');
-}
-
-function yieldToMainThread(): Promise<void> {
-  return new Promise((resolve) => globalThis.setTimeout(resolve, 0));
-}
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
@@ -284,3 +279,4 @@ function resolveRecordBlob(record: SaveAssetRecord): Blob | null {
   if (record.blob instanceof Blob) return record.blob;
   return dataUrlToBlob(record.dataUrl || '') ?? dataUrlToBlob(record.originalUrl || '');
 }
+import { assertNotAborted, yieldToMainThread } from '@/utils/asyncControl';

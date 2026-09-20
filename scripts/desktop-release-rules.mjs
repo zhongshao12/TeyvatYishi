@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const DESKTOP_RELEASE_KIND = 'kaituoyishi-desktop-release';
-export const DEFAULT_DESKTOP_REPOSITORY = 'LingYuYue1/KaiTuoYiShi';
+export const DEFAULT_DESKTOP_REPOSITORY = 'zhongshao12/TeyvatYishi';
 
 export function loadPackageJson(root = process.cwd()) {
   return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));

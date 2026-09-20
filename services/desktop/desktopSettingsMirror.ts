@@ -26,9 +26,16 @@ export interface DesktopSpecialSettingMirrorStatus {
 }
 
 const SETTINGS_PATH = 'config/settings.json';
+// 携带供应商 API Key 的设置走独立 sidecar，不再和普通设置一起堆进 config/settings.json：
+// 共享 settings.json 是排查/复制/脚本会直接读的那个文件（见 scripts/desktop-install-update-drill.mjs），
+// 把密钥留在里面等于把「本机全部 Key」放进最容易被带出去的那一个文件。
+// 注意：这里是**隔离**而不是加密——Key 仍然以本机明文形式存在于专用文件里，
+// 因为产品要求重启后能直接继续用（scripts/api-profile-regression.mjs 明确要求本机方案保留 Key）。
 const SPECIAL_SETTING_PATHS: Record<string, string> = {
   worldbooks: 'worldbooks/worldbooks.json',
   activeWorkflowRecoveryV1: 'logs/workflow-recovery.json',
+  apiSettings: 'config/api-settings.json',
+  apiProfileSlots: 'config/api-profile-slots.json',
 };
 
 export async function mirrorSettingToDesktop(key: string, value: unknown): Promise<void> {

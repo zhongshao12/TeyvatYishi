@@ -281,6 +281,14 @@ coverage: {
 
 ### 5.3 UI 层零行为测试
 
+> **更正（G3，2026-09-20）：本节结论已不成立，仅保留作历史记录。**
+> `package.json` devDependencies 现有 **`jsdom ^26.1.0`**（`:155`），且 `tests/` 下已有 **7 个文件**在首行声明
+> `// @vitest-environment jsdom` 并全部通过：`chatInputAreaBehavior.test.ts`、`chatListScrollBehavior.test.ts`、
+> `companionPanelBehavior.test.ts`、`courierModalBehavior.test.ts`、`importSourceFileBackup.test.ts`、
+> `modalFocusBehavior.test.ts`、`streamingPreviewDelay.test.ts`。
+> `vitest.config.ts:7` 的 `environment: 'node'` 是**默认值**而非写死——上面 7 个文件用文件级指令覆盖了它。
+> 因此"无 jsdom / UI 层零行为测试"不再成立（真正的 UI 事件测试仍需 `@testing-library/*`，那部分确实仍缺）。
+
 **先更正我在第 1 节里的一个错误说法**：我当时写"已安装 `@testing-library/react` 与 `user-event`"，这是**错的**。`node_modules` 里出现的 `@testing-library/user-event` 是 **Storybook 的传递依赖**，不是本项目的依赖；`package.json` 的 devDependencies（20 项）里 **grep `testing-library` 为 0 命中**。实际情况比"装了没用"更差 —— **能力本身就不存在**：
 
 - `package.json` 里**没有** `@testing-library/*`、`jsdom`、`happy-dom`、`@vitest/browser`
@@ -745,7 +753,7 @@ hooks/useGame/sendWorkflow.ts:2287, 2298       消费者按"外层 attempt"重�
 | 代理不转发取消 | `arkProxyCore.ts:83-90`、`pioneerProxyCore.ts:74-81`、`opencodeProxyCore.ts:101-105`、`qianfanProxyCore.ts:128-135,147-154,169-176` | `request.signal` 未传给上游 fetch |
 | 4 个 `*ProxyCore.ts` 高度重复 | `arkProxyCore.ts:61-104` vs `pioneerProxyCore.ts:52-95` | 43 行 handler 里约 40 行完全相同；`proxyHeaders()` / `readText()` 在 4 个文件中逐字节相同；跨 2+ 文件重复的不同行有 49 行（21 行在全部 4 个文件里）。另有**三份互不一致的 OpenCode URL 归一化器**（`opencodeProxyCore.ts:15-28`、`chatCompletionClient.ts:228-239`、`apiTools.ts:55-67`）—— 这类"同一规则三份实现"是未来 bug 的温床 |
 | `onError` 契约破损 | `chatCompletionClient.ts:15-22` 声明 → `:1351` 传递 → `services/ai/text/index.ts:81` 依赖，**但传输层从不调用它** | 上层认为会收到错误回调，实际只有 `onDone` 会在成功时触发 |
-| 死代码 | `isGeminiConfig:83`、`shouldUseDeepSeekPrefix:96`、`openCodeHeaders:260-275`、`readOpenCodeResponsesStreamDelta:1773-1782` | 仅有定义、无调用 |
+| 死代码 | `shouldUseDeepSeekPrefix:96`、`openCodeHeaders:260-275`、`readOpenCodeResponsesStreamDelta:1773-1782` | 仅有定义、无调用。**更正（G3）**：原条目里的 `isGeminiConfig:83` 已随重构移除（全仓 grep 0 命中），该判断逻辑现为 `services/ai/usageExtraction.ts` 的 `/gemini/i.test(config.model)`（`:492`、`:497`） |
 | 模型缓存永不失效 | `openAICompatibleModels.ts:80-82` `clearOpenAICompatibleModelCache` **零调用者** | 模块级 `Map` 缓存（key 里含明文 apiKey，见 4.3）永不清空、无淘汰、无 in-flight 去重 → 测试间串味 |
 | NovelAI 响应体二次读取 | `imageGeneration.ts:721-728` | `readJsonResponse` 已在 `:325` 用 `text()` 消费 body，`:728` 又落到 `blob()` → 抛 `TypeError`，**掩盖真实错误** |
 | 中止被伪装成失败 | `imageGeneration.ts:104-116` | abort 被转成 `status:'failed'`，于是 `sendWorkflow.ts:1079` 的调用方守卫**永远不会触发** |
@@ -766,6 +774,15 @@ hooks/useGame/sendWorkflow.ts:2287, 2298       消费者按"外层 attempt"重�
 ## 9. 渲染与运行时性能
 
 ### 9.0 真正的第一性能风险：每一次状态变更都重渲染整条可见正文 `[复核]`
+
+> **状态（G3，2026-09-20）：已修复。**
+> 修复提交 `7ed1657`（"合并已审阅改动：回归基线恢复至 185/185，并完成 M6 三步拆分"）。落地方式与本节建议一致：
+> `hooks/useTeyvatRuntime.ts:11-17` 的 `updateTeyvatState` 在 `next === current` 时返回原对象（切片级 bail-out），
+> `hooks/useGameState.ts:917-942` 的 `createLegacyGameViewSelector` 改为**按切片引用**缓存 11 个 legacy adapter
+> （只改手机时整份 view 引用不变）。回归测试：`tests/unit/runtimePerformanceRegression.test.ts:27-59`
+> （`keeps legacy slice references stable when only the phone changes`）——只改 `手机` 时断言 `second === first`，
+> 改 `NPC` 时断言 `chatHistory`/`相册`/`variableBatches` 仍是同一引用。
+> 下面保留原始分析：它解释了"为什么"必须有这两个 identity 修复。
 
 我最初只找到了滚动 thrash（9.1）和 `rewriteConfig` 穿透 memo（9.2）。但更根本的问题在下面这条链上，**它比前两条严重得多，而且作者自己在注释里已经点出了这个危险**：
 

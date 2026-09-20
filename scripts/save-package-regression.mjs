@@ -67,7 +67,22 @@ assert(!savePackage.includes('SYSTEM_ENTRY_PATHS'), '正式包不得重新拆回
 assert(saveLoadWorkflow.includes('compactChatHistoryForLongSession'), '本地持久化存档必须复用长期会话聊天归一化。');
 assert(saveLoadWorkflow.includes('compactVariableBatchHistory'), '本地持久化存档必须复用变量批次归一化。');
 assert(!saveLoadWorkflow.includes('delete clean.preTurnSnapshot'), '本地持久化存档不得移除 chatHistory.preTurnSnapshot，否则读档后立即重roll无法完整回滚。');
-assert(savePackage.includes('apiKeysRemoved: true'), '存档包 manifest 必须声明 API Key 已移除。');
+// 迁移: 旧断言 `savePackage.includes('apiKeysRemoved: true')` 锁死了一条**不实声明**
+//   （当时全仓没有任何剥离实现，导出不含 Key 只是 schema-2 白名单的副作用）；
+//   -> 新断言要求 apiKeysRemoved 来自对导出产物的真实检测（剥离 + 结构性复核 + 密钥扫描）。
+// 理由: 断言应该保护「导出产物真的不含 Key」这个不变量，而不是保护某个字面量。
+assert(
+  savePackage.includes('collectApiKeySecrets')
+    && savePackage.includes('redactApiKeysDeep')
+    && savePackage.includes('assertNoApiKeyFieldsInExport')
+    && savePackage.includes('findLeakedSecrets(readEntryTexts(dataEntries), secrets)'),
+  '存档包 manifest 的 apiKeysRemoved 必须来自对导出产物的真实扫描（剥离 + 复核 + 密钥检测），不得硬编码。',
+);
+assert(!savePackage.includes('apiKeysRemoved: true'), '存档包 manifest 不得再无条件声明 API Key 已移除。');
+assert(
+  savePackage.includes('存档包导出检测到 API Key 残留，已中止导出'),
+  '导出产物中残留 API Key 字段时必须中止导出，而不是继续声明已移除。',
+);
 assert(savePackage.includes('assertTeyvatSaveForWrite(save)'), '每个导出入口都必须先执行正式写入边界。');
 
 assert(dbService.includes('exportSavePackage'), 'dbService 必须导出新存档包导出函数。');

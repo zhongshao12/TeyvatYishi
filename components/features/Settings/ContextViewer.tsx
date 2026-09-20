@@ -80,7 +80,7 @@ export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) 
       <div className="px-3 py-3" style={{ background: "rgba(var(--tj-accent-primary),0.045)", boxShadow: insetRing(0.16), clipPath: CLIP_CARD }}>
         <div className="mb-2 flex items-center justify-between gap-2 text-[11px]" style={{ color: "rgba(var(--tj-text-secondary),0.75)" }}>
           <span>上下文构成</span>
-          <span>共 ${composition.totalChars.toLocaleString()} 字符 · 约 ${formatTokenCount(composition.totalTokens)} token</span>
+          <span>共 {composition.totalChars.toLocaleString()} 字符 · 约 {formatTokenCount(composition.totalTokens)} token</span>
         </div>
         {composition.sections.length === 0 ? (
           <div className="text-[11px]" style={{ color: "rgba(var(--tj-text-secondary),0.6)" }}>暂无构成数据。</div>
@@ -94,7 +94,7 @@ export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) 
                   <div className="h-1.5 min-w-0 flex-1 overflow-hidden bg-[rgba(var(--tj-text-secondary),0.12)]">
                     <div className="h-full" style={{ width: (ratio + "%"), background: "rgb(var(--tj-accent-primary))" }} />
                   </div>
-                  <span className="w-24 shrink-0 text-right" style={{ color: "rgba(var(--tj-text-secondary),0.65)" }}>{ratio}% · ${formatTokenCount(section.tokens)}</span>
+                  <span className="w-24 shrink-0 text-right" style={{ color: "rgba(var(--tj-text-secondary),0.65)" }}>{ratio}% · {formatTokenCount(section.tokens)}</span>
                 </div>
               );
             })}
@@ -173,8 +173,17 @@ export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) 
                   return (
                     <tr
                       key={section.id}
-                      className={`cursor-pointer border-b border-white/5 ${active ? 'bg-[rgb(var(--tj-accent-primary))]/12' : 'hover:bg-white/5'}`}
+                      tabIndex={0}
+                      aria-current={active ? 'true' : undefined}
+                      className={`cursor-pointer border-b border-white/5 outline-none focus-visible:ring-1 focus-visible:ring-[rgb(var(--tj-accent-primary))] ${active ? 'bg-[rgb(var(--tj-accent-primary))]/12' : 'hover:bg-white/5'}`}
                       onClick={() => {
+                        setSelectedId(section.id);
+                        setMode('single');
+                      }}
+                      onKeyDown={(event) => {
+                        // 键盘通路：可点击的非交互元素必须能用 Enter/Space 操作
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
                         setSelectedId(section.id);
                         setMode('single');
                       }}

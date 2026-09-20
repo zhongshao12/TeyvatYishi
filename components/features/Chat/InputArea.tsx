@@ -164,9 +164,14 @@ export const InputArea = memo(function InputArea({
         boxShadow: '0 -8px 22px rgba(var(--tj-shadow), 0.05)',
       }}
     >
-      {workflowHint && (
+      {(workflowHint || (loading && onCancelWorkflow)) && (
         <div
-          className="mb-1.5 flex items-center justify-between gap-3 px-3 py-1.5 font-serif text-[11px] tracking-[0.18em]"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          aria-busy={workflowStatus !== 'done'}
+          data-testid="workflow-hint-live"
+          className="mb-1.5 flex items-center justify-between gap-3 px-3 py-1.5 font-serif text-[12px] tracking-[0.18em]"
           style={{
             color: 'rgba(var(--tj-text-primary), 0.9)',
             background: 'rgba(var(--tj-accent-primary), 0.06)',
@@ -174,13 +179,28 @@ export const InputArea = memo(function InputArea({
             clipPath: iconClip,
           }}
         >
+          {workflowHint ? (
           <span
-            className={`min-w-0 cursor-pointer ${hintExpanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}
+            role="button"
+            tabIndex={0}
+            aria-expanded={hintExpanded}
+            aria-label={hintExpanded ? '收起后台任务提示全文' : '展开后台任务提示全文'}
+            className={`min-w-0 cursor-pointer focus:outline focus:outline-1 focus:outline-[rgb(var(--tj-accent-primary))] ${hintExpanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}
             title={hintExpanded ? '点击收起' : '点击展开全文'}
             onClick={() => setHintExpanded((value) => !value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              setHintExpanded((value) => !value);
+            }}
           >
             {workflowHint}
           </span>
+          ) : (
+          <span className="min-w-0 truncate" style={{ color: 'rgba(var(--tj-text-secondary), 0.88)' }}>
+            正在处理后台任务……
+          </span>
+          )}
           <span className="flex shrink-0 items-center gap-2">
           {workflowFailCount > 0 && (
             <span style={{ color: workflowRetrying ? 'rgba(var(--tj-accent-primary),0.92)' : 'rgba(255,180,180,0.9)' }}>

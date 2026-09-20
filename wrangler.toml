@@ -5,6 +5,14 @@ pages_build_output_dir = "dist"
 [vars]
 ONLINE_SESSIONS_KV_PREFIX = "kaituoyishi/online"
 
+# G2 的 guardProxyEndpoint 读取该限流绑定；缺省时降级为「仅来源校验 + 告警」。
+# namespace_id 每个环境应唯一；limit/period 见 Cloudflare 限流绑定文档。
+# 注意：该绑定需要部署侧验证（本地无法测试），若账号未开通限流能力请先移除本段。
+[[ratelimits]]
+binding = "AI_PROXY_RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }
+
 [[kv_namespaces]]
 binding = "ONLINE_SESSIONS_KV"
 id = "fa2733b4a1b64405997a4f34f725234f"

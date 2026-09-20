@@ -35,16 +35,59 @@ interface TurnItemProps {
 
 type ToolKey = 'edit' | 'rewrite' | 'usage' | 'context';
 
-const HISTORY_TURN_VISIBILITY_STYLE = {
-  contentVisibility: 'auto',
-  containIntrinsicSize: 'auto 640px',
-} as const;
+/**
+ * content-visibility: auto 的占位高度模型（**实测拟合**，口径见
+ * `.triage/measure-turn-height.mjs`：headless Chrome + dist 编译后 CSS 渲染逐字照抄的
+ * 回合 DOM 结构，量 getBoundingClientRect().height）。
+ *
+ * 实测（列宽 900px → 正文容器 695px）：
+ *   AI 回合   400/700/1000/1600/2400 字 → 657/897/1214/1848/2593 px
+ *             拟合 height ≈ 240.3 + 0.985 × 字数（残差 RMS 23.9px）
+ *   玩家回合  40/120/300/600 字 → 112/163/238/389 px
+ *             拟合 height ≈ 96.9 + 0.485 × 字数（残差 RMS 5.0px）
+ *
+ * 旧的固定 `auto 640px` 对两种回合都不对：AI 回合低估（1000 字低估 574px、2400 字
+ * 低估 1953px），玩家回合高估（600 字回合真实只有 389px）。长会话里 ChatList 一次
+ * 渲染 20 回合（INITIAL_RENDER_TURNS），滚动条长度因此整体偏短。
+ * `auto` 关键字保留：元素渲染过一次后浏览器改用记住的真实尺寸，估算只影响尚未渲染的那一段。
+ */
+interface TurnPlaceholderModel {
+  basePx: number;
+  pxPerChar: number;
+  minPx: number;
+  maxPx: number;
+}
+
+const NARRATIVE_TURN_PLACEHOLDER: TurnPlaceholderModel = {
+  basePx: 240.3, pxPerChar: 0.985, minPx: 240, maxPx: 3200,
+};
+const TRAVELER_TURN_PLACEHOLDER: TurnPlaceholderModel = {
+  basePx: 96.9, pxPerChar: 0.485, minPx: 97, maxPx: 3200,
+};
+
+export function estimateTurnPlaceholderHeight(bodyCharCount: number, role: 聊天消息['role'] = 'assistant'): number {
+  const model = role === 'user' ? TRAVELER_TURN_PLACEHOLDER : NARRATIVE_TURN_PLACEHOLDER;
+  const chars = Number.isFinite(bodyCharCount) ? Math.max(0, Math.trunc(bodyCharCount)) : 0;
+  const estimated = model.basePx + model.pxPerChar * chars;
+  return Math.round(Math.min(model.maxPx, Math.max(model.minPx, estimated)));
+}
+
+function resolveTurnPlaceholderStyle(
+  message: 聊天消息,
+): { contentVisibility: 'auto'; containIntrinsicSize: string } {
+  const parsed = message.parsedResponse;
+  const charCount = parsed ? narrativeTurnBodyText(parsed).length : message.content.length;
+  return {
+    contentVisibility: 'auto',
+    containIntrinsicSize: `auto ${estimateTurnPlaceholderHeight(charCount, message.role)}px`,
+  };
+}
 
 function TurnItemImpl({ message, isStreaming, deferOffscreen = false, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, fallbackElementId, previousUserInput, visualTextSettings, rewriteConfig }: TurnItemProps) {
   const isUser = message.role === 'user';
   const parsed = message.parsedResponse;
   const shouldDeferOffscreen = deferOffscreen && !isStreaming && !message.isStreaming;
-  const visibilityStyle = shouldDeferOffscreen ? HISTORY_TURN_VISIBILITY_STYLE : undefined;
+  const visibilityStyle = shouldDeferOffscreen ? resolveTurnPlaceholderStyle(message) : undefined;
 
   if (isUser) {
     return (

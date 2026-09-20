@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useEffect, useId, useRef } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 interface ModalProps {
   children: ReactNode;
@@ -204,6 +204,117 @@ export function Modal({ children, onClose, title, className = 'max-w-2xl', ariaL
           </>
         )}
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-3 md:p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+export interface ConfirmDialogRequest {
+  /** 同时用作对话框的可访问名（aria-label）。 */
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  /** danger 用危险色渲染确认按钮。 */
+  tone?: 'default' | 'danger';
+}
+
+export interface ConfirmDialogApi {
+  /** 打开一个可样式化的确认弹窗，返回玩家是否确认。 */
+  confirm: (request: ConfirmDialogRequest) => Promise<boolean>;
+  /** 结算当前弹窗；由 ConfirmDialogHost 调用。 */
+  resolve: (confirmed: boolean) => void;
+  /** 当前待确认的请求（无则为 null）。 */
+  pending: (ConfirmDialogRequest & { key: number }) | null;
+}
+
+interface PendingConfirm extends ConfirmDialogRequest {
+  key: number;
+}
+
+/**
+ * 用样式化弹窗替代原生 window.confirm。
+ * 原生 confirm 无法换主题、无法读屏标注、也无法在移动端保持应用外观。
+ */
+export function useConfirmDialog(): ConfirmDialogApi {
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
+  const resolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const seqRef = useRef(0);
+
+  const confirm = useCallback((request: ConfirmDialogRequest) => new Promise<boolean>((resolve) => {
+    // 同一时刻只允许一个待确认请求：前一个按“取消”结算，避免 Promise 悬空。
+    resolverRef.current?.(false);
+    resolverRef.current = resolve;
+    seqRef.current += 1;
+    setPending({ key: seqRef.current, ...request });
+  }), []);
+
+  const resolve = useCallback((confirmed: boolean) => {
+    const resolver = resolverRef.current;
+    resolverRef.current = null;
+    setPending(null);
+    resolver?.(confirmed);
+  }, []);
+
+  return { confirm, resolve, pending };
+}
+
+/**
+ * 承载 useConfirmDialog 的弹窗节点。放在组件树任意位置即可。
+ */
+export function ConfirmDialogHost({ dialog }: { dialog: ConfirmDialogApi }) {
+  if (!dialog.pending) return null;
+  return <ConfirmDialog key={dialog.pending.key} request={dialog.pending} onResolve={dialog.resolve} />;
+}
+
+export function ConfirmDialog({ request, onResolve }: { request: ConfirmDialogRequest; onResolve: (confirmed: boolean) => void }) {
+  const dialogRef = useModalAccessibility<HTMLDivElement>(() => onResolve(false));
+  const danger = request.tone === 'danger';
+  return (
+    <div
+      className="teyvat-modal-overlay journal-modal-overlay fixed inset-0 z-[130] flex items-center justify-center p-4"
+      onClick={(event) => { if (event.target === event.currentTarget) onResolve(false); }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={request.title}
+        tabIndex={-1}
+        className="journal-modal-shell journal-paper-surface w-[min(440px,94vw)] animate-slide-up p-4 text-[rgb(var(--tj-text-primary))] md:p-5"
+        style={{ boxShadow: `inset 0 0 0 1px ${danger ? 'rgba(var(--tj-danger), 0.6)' : 'rgba(var(--tj-accent-primary), 0.5)'}, 0 20px 50px rgba(var(--tj-shadow), 0.42)` }}
+      >
+        <h3 className="font-serif text-base font-bold tracking-[0.2em]" style={{ color: danger ? 'rgb(var(--tj-danger))' : 'rgb(var(--tj-accent-primary))' }}>
+          {request.title}
+        </h3>
+        <p className="mt-2 whitespace-pre-wrap break-words font-serif text-[13px] leading-6" style={{ color: 'rgba(var(--tj-text-primary), 0.92)' }}>
+          {request.message}
+        </p>
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            data-modal-autofocus
+            onClick={() => onResolve(false)}
+            className="px-3 py-1.5 font-serif text-[12px] tracking-[0.18em]"
+            style={{ color: 'rgb(var(--tj-text-primary))', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.4)' }}
+          >
+            {request.cancelLabel ?? '取消'}
+          </button>
+          <button
+            type="button"
+            onClick={() => onResolve(true)}
+            className="px-3 py-1.5 font-serif text-[12px] tracking-[0.18em]"
+            style={{
+              color: 'rgb(var(--tj-on-accent))',
+              background: danger
+                ? 'linear-gradient(135deg, rgba(var(--tj-danger), 0.95), rgba(var(--tj-danger), 0.85))'
+                : 'linear-gradient(135deg, rgb(var(--tj-btn-primary-start)), rgb(var(--tj-btn-primary-end)))',
+              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.35)',
+            }}
+          >
+            {request.confirmLabel ?? '确定'}
+          </button>
+        </div>
       </div>
     </div>
   );

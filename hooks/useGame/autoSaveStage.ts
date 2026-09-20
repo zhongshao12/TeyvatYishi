@@ -18,12 +18,7 @@ import { runPostTurnAutosaveTask } from './postTurnAutosaveTask';
 import { compactVariableBatchHistory } from '@/utils/longSessionRetention';
 import { pushWorkflowQueueTask as pushQueueTask } from './workflowQueue';
 import type { UseGameStateReturn } from '@/hooks/useGameState';
-import type { API配置项 } from '@/models/settings';
-import type { 聊天消息, 回合快照 } from '@/models/chat';
-import type { VisibilityBufferedPublisher } from '@/utils/visibilityBufferedPublisher';
 import type { VariableCalibrationResult } from './variableCalibrationStage';
-import { createRafCoalescedSetter } from '@/utils/rafCoalescedSetter';
-import { createStreamingPreviewDelayController } from '@/utils/streamingPreviewDelay';
 
 export interface RunAutoSaveStageDeps {
   state: UseGameStateReturn;

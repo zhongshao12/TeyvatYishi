@@ -63,6 +63,10 @@ describe('committed restart post-settlement tail', () => {
     settings.手机系统.enabled = false;
     settings.文生图系统.正文生图.enabled = false;
     const replaced: unknown[] = [];
+    // 复刻 UseGameStateReturn 的真实语义：`game` 是渲染快照，活体存档只有 setState 能看到。
+    // 恢复尾流程现在按「提交那一刻的活体存档」复核存档身份（CAS），所以假状态必须提供
+    // updateGameState 的 updater 语义；断言语义不变：提交后活体根恰好被替换一次。
+    const live = { current: stale as unknown };
     const state = {
       game: stale,
       chatHistory: [],
@@ -72,7 +76,16 @@ describe('committed restart post-settlement tail', () => {
       相册: {} as UseGameStateReturn['相册'],
       gameSettings: settings,
       apiSettings: { activeConfigId: '', configs: [] },
-      replaceGameState: (next: unknown) => { replaced.push(next); },
+      replaceGameState: (next: unknown) => {
+        live.current = next;
+        replaced.push(next);
+      },
+      updateGameState: (updater: (current: unknown) => unknown) => {
+        const next = updater(live.current);
+        if (next === live.current) return;
+        live.current = next;
+        replaced.push(next);
+      },
       setHasSave: vi.fn(),
     } as unknown as UseGameStateReturn;
 

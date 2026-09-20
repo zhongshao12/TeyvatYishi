@@ -13,6 +13,8 @@ import {
   type TeyvatItem,
 } from '@/models/teyvat/items';
 import { consumeInventoryItem, discardInventoryItem } from '@/utils/inventoryActions';
+import { pushToast } from '@/utils/toastStore';
+import { toUserFacingError } from '@/utils/userFacingError';
 
 interface InventoryPanelProps {
   inventory: TeyvatInventory;
@@ -21,6 +23,9 @@ interface InventoryPanelProps {
 }
 
 type 标签 = ItemCategory | '全部';
+
+/** 撤销提示的可见时长；比普通 toast 长，让玩家有时间反应。 */
+const UNDO_WINDOW_MS = 9000;
 
 
 
@@ -122,30 +127,49 @@ export function InventoryPanel({ inventory, onInventoryChange, turnCount }: Inve
         showFlash('物品已使用。');
         return next;
       } catch (error) {
-        showFlash(error instanceof Error ? error.message : '物品使用失败。');
+        showFlash(toUserFacingError(error, { action: '物品使用' }));
         return prev;
       }
     });
   };
 
   const handleDrop = (itemId: string, count?: number) => {
-    if (!confirm(count ? `确认丢弃 ${count} 件?` : '确认全部丢弃该物品?')) return;
+    const item = inventory.items.find((it) => it.id === itemId);
+    if (!item) return;
+    // 破坏性操作改为「立即执行 + 撤销窗口」：不再经过原生 confirm，
+    // 丢档风险由撤销提示兜底（背包是纯内存状态，可以完整回滚）。
+    const previousInventory = inventory;
+    const amount = count ?? item.quantity;
     let willEmpty = false;
     onInventoryChange((prev) => {
       const cur = prev.items.find((it) => it.id === itemId);
       if (!cur) return prev;
-      const amount = count ?? cur.quantity;
-      if (amount >= cur.quantity) willEmpty = true;
+      const dropAmount = count ?? cur.quantity;
+      if (dropAmount >= cur.quantity) willEmpty = true;
       try {
-        const next = discardInventoryItem(prev, itemId, amount);
+        const next = discardInventoryItem(prev, itemId, dropAmount);
         showFlash('物品已丢弃。');
         return next;
       } catch (error) {
-        showFlash(error instanceof Error ? error.message : '物品丢弃失败。');
+        showFlash(toUserFacingError(error, { action: '物品丢弃' }));
         return prev;
       }
     });
     if (willEmpty) setSelectedId(null);
+    pushToast({
+      kind: 'info',
+      title: `已丢弃 ${item.name}${amount > 1 ? ` ×${amount}` : ''}`,
+      detail: '点「撤销」可以把这次丢弃原样还原。',
+      durationMs: UNDO_WINDOW_MS,
+      action: {
+        label: '撤销',
+        run: () => {
+          onInventoryChange(previousInventory);
+          setSelectedId(itemId);
+          showFlash('已撤销丢弃。');
+        },
+      },
+    });
   };
 
   const cellMinCount = 12;

@@ -20,6 +20,7 @@ import {
   updateCloudBackupTransfer,
 } from '@/services/storage/cloudBackupTransferStore';
 import { sanitizeTeyvatSaveForExport } from '@/services/savePackage';
+import { findApiKeyFieldPaths, redactApiKeysDeep } from '@/services/storage/sensitiveSettings';
 import {
   extractSaveAssetRecords,
   stripSaveAssetPayloadForStorage,
@@ -178,9 +179,19 @@ export async function buildCompleteCloudBackup(
         assetByContentHash.set(contentHash, meta);
       }
 
-      const portable = sanitizeTeyvatSaveForExport(
+      const portableRaw = sanitizeTeyvatSaveForExport(
         stripSaveAssetPayloadForStorage(save) as unknown as import('@/models/teyvat').TeyvatSaveData,
       ) as unknown as 存档数据;
+      // 云备份会把内容写到远端：不能只靠白名单的副作用丢弃 apiKey。
+      // 这里显式深度剥离，并对剥离结果做结构性复核 —— 仍有带值的 apiKey 字段说明
+      // 剥离逻辑本身失效了（新供应商字段、结构变更等），此时宁可中止也不能把密钥传出去。
+      const portable = redactApiKeysDeep(portableRaw);
+      const residualApiKeyPaths = findApiKeyFieldPaths(portable);
+      if (residualApiKeyPaths.length > 0) {
+        throw new Error(
+          `云备份检测到 API Key 残留，已中止备份：${residualApiKeyPaths.join(', ')}`,
+        );
+      }
       const fingerprint = await fingerprintCloudBackupNode(portable);
       const entryPath = `nodes/${fingerprint}-${summary.id}.json`;
       const nodeBytes = new TextEncoder().encode(JSON.stringify(portable));

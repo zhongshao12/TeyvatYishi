@@ -49,13 +49,29 @@ function migrateImportCandidate(value: unknown, label: string): 存档数据 {
   throw new Error(`无效的${label}`);
 }
 
+/**
+ * 触发浏览器下载。
+ *
+ * 两个必须的细节（否则存档导出可能下不来 / 0 字节，而这是玩家唯一的数据备份出口）：
+ *  1. anchor 必须挂进文档再点击：未挂载的 anchor 在部分浏览器里点不出下载；
+ *  2. `revokeObjectURL` 必须晚于点击所在的这一轮同步代码：click() 之后浏览器是**异步**
+ *     去读这个 blob URL 的，同步撤销会让下载读到已释放的 URL。
+ */
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.rel = 'noopener';
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  try {
+    anchor.click();
+  } finally {
+    anchor.remove();
+  }
+  // 延迟释放：让浏览器先拿到 blob URL 对应的数据。
+  globalThis.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function exportStamp(timestamp?: number): string {

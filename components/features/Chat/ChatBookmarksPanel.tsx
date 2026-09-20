@@ -1,4 +1,5 @@
 import { CLIP_SECTION, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
+import { useModalAccessibility } from '@/components/ui/Modal';
 import type { 剧情书签 } from '@/utils/storyBookmarks';
 
 interface ChatBookmarksPanelProps {
@@ -7,13 +8,24 @@ interface ChatBookmarksPanelProps {
   onClose: () => void;
 }
 
-
-
-
 export function ChatBookmarksPanel({ bookmarks, onSelect, onClose }: ChatBookmarksPanelProps) {
+  // 复用 Modal 的 Esc / 焦点圈定 / 焦点恢复语义，避免这一层只有视觉遮罩。
+  const dialogRef = useModalAccessibility<HTMLDivElement>(onClose);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true" aria-label="剧情书签">
-      <div className="w-[min(560px,94vw)] overflow-hidden" style={{ background: "rgba(var(--tj-surface-strong),0.98)", boxShadow: "inset 0 0 0 1px rgba(var(--tj-accent-primary),0.4), 0 24px 60px rgba(0,0,0,0.5)", clipPath: CLIP_SECTION }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="剧情书签"
+        tabIndex={-1}
+        className="w-[min(560px,94vw)] overflow-hidden"
+        style={{ background: "rgba(var(--tj-surface-strong),0.98)", boxShadow: "inset 0 0 0 1px rgba(var(--tj-accent-primary),0.4), 0 24px 60px rgba(0,0,0,0.5)", clipPath: CLIP_SECTION }}
+      >
       <div className="flex items-center justify-between gap-2 px-3 py-2" style={{ background: "rgba(var(--tj-accent-primary),0.08)" }}>
         <span className="font-serif text-xs font-bold tracking-[0.18em]" style={{ color: "rgb(var(--tj-accent-primary))" }}>剧情书签</span>
         <button type="button" onClick={onClose} className="px-3 py-1 text-xs" style={{ color: "rgba(var(--tj-text-secondary),0.85)", boxShadow: insetRing(0.3), clipPath: CLIP_SMALL }}>关闭</button>

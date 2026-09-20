@@ -61,10 +61,23 @@ export interface PushToastInput {
   action?: ToastAction;
 }
 
+/**
+ * 错误提示必须由用户手动关闭，不能自动消失。
+ * 其中包含「自动保存失败」这类丢档风险信息：若按 polite 队列排后、几秒后自行消失，
+ * 玩家既可能没听到，也可能在看到之前就丢失了唯一的失败信号。
+ * 显式传入 durationMs 时仍以调用方为准（便于需要短提示的特殊场景）。
+ */
+function resolveDurationMs(input: PushToastInput, kind: ToastItem['kind']): number | null {
+  if (input.durationMs !== undefined) return input.durationMs;
+  if (kind === 'error') return null;
+  return DEFAULT_DURATION_MS;
+}
+
 export function pushToast(input: PushToastInput): number {
+  const kind = input.kind ?? 'info';
   const item: ToastItem = {
     id: nextId++,
-    kind: input.kind ?? 'info',
+    kind,
     title: input.title,
     detail: input.detail?.trim() ? input.detail : undefined,
     action: input.action,
@@ -72,7 +85,9 @@ export function pushToast(input: PushToastInput): number {
   // 超出可见上限时挤掉最旧的提示。
   toasts = [...toasts.slice(-(MAX_VISIBLE - 1)), item];
   emitChange();
-  const timer = setTimeout(() => dismissToast(item.id), input.durationMs ?? DEFAULT_DURATION_MS);
+  const durationMs = resolveDurationMs(input, kind);
+  if (durationMs === null) return item.id;
+  const timer = setTimeout(() => dismissToast(item.id), durationMs);
   timers.set(item.id, timer);
   return item.id;
 }

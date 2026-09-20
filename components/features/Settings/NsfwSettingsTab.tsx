@@ -149,6 +149,9 @@ function ToggleRow({
       </div>
       <button
         type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className="relative h-6 w-11 flex-shrink-0 transition-all disabled:cursor-not-allowed"

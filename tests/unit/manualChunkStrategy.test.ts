@@ -19,6 +19,9 @@ describe('manual chunk strategy', () => {
     expect(resolveManualChunk('/repo/hooks/useGame/variableSettlementWorkflow.ts')).toBeUndefined();
     expect(resolveManualChunk('/repo/hooks/useGame/postSettlementCommitStage.ts')).toBeUndefined();
     expect(resolveManualChunk('/repo/hooks/useGame/contextSnapshot.ts')).toBeUndefined();
+    // 主叙事请求装配阶段：原先只被 sendWorkflow 的**死 import** 静态引用而被迫并入
+    // app-core（白名单漏登记 + 静态边），两者都必须不复存在，否则它就回不到异步分包。
+    expect(resolveManualChunk('/repo/hooks/useGame/mainNarrativeRequestStage.ts')).toBeUndefined();
   });
 
   it('keeps vendor packages in stable package-oriented chunks', () => {

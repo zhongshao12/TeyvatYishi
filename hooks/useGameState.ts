@@ -941,6 +941,31 @@ export function createLegacyGameViewSelector(): (game: TeyvatGameState) => Legac
   };
 }
 
+/**
+ * `setChatHistory` 的纯函数实现（可单测）。
+ *
+ * 身份快速通道：updater 原样返回**同一个数组引用**时（无操作更新、幂等 map/filter、
+ * React StrictMode 的重复调用），整条 `toLegacyChat` → `withLegacyChat` 重建都可以跳过，
+ * 直接返回 `current`；`updateTeyvatState` 见到同一个引用也会让 React 跳过这次渲染。
+ *
+ * 其余情况与原实现逐字一致：`withLegacyChat(toLegacyChat(current) ± action)`。
+ *
+ * 关于"更深的切片级 bail-out"：真正省时间的是**逐条 entry 复用**
+ * （改一条书签/附图时只重建那一条），但 `withLegacyChat` 末尾的
+ * `normalizeConversationLog`（`models/teyvat/runtimeSlices.ts:427-453`）对每条 entry
+ * 无条件新建对象并重跑 13 个 normalizer，逐条复用必须改那个文件——超出本次允许改动
+ * 的文件范围，故未做（见报告）。
+ */
+export function applyChatHistoryAction(
+  current: TeyvatGameState,
+  action: React.SetStateAction<聊天消息[]>,
+): TeyvatGameState {
+  const legacyChat = toLegacyChat(current);
+  const nextChat = applyStateAction(legacyChat, action);
+  if (nextChat === legacyChat) return current;
+  return withLegacyChat(current, nextChat);
+}
+
 export function useGameState(): UseGameStateReturn {
   const [view, setView] = useState<ViewState>('home');
   const { game, replaceGameState, updateGameState, buildTeyvatSavePayload } = useTeyvatRuntime();
@@ -966,7 +991,7 @@ export function useGameState(): UseGameStateReturn {
     updateGameState((current) => applyLegacyWorldState(current, applyStateAction(toLegacyWorld(current), action)));
   }, [updateGameState]);
   const setChatHistory = useCallback<React.Dispatch<React.SetStateAction<聊天消息[]>>>((action) => {
-    updateGameState((current) => withLegacyChat(current, applyStateAction(toLegacyChat(current), action)));
+    updateGameState((current) => applyChatHistoryAction(current, action));
   }, [updateGameState]);
   const set记忆 = useCallback<React.Dispatch<React.SetStateAction<记忆系统>>>((action) => {
     updateGameState((current) => withLegacyMemory(current, applyStateAction(toLegacyMemory(current), action)));

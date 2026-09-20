@@ -19,6 +19,8 @@ import {
   type SaveCatalogRepairState,
   type SaveListItemSummary,
 } from '@/services/dbService';
+import { pushToast } from '@/utils/toastStore';
+import { toUserFacingError } from '@/utils/userFacingError';
 import { formatStorageOperationError } from '@/services/storage/saveCatalog';
 import { clearActiveSaveTreeMetaIfMatches } from '@/hooks/useGame/saveLoadWorkflow';
 import { buildSaveTreeGroups, buildSaveTreeTimeline, filterSaveTreeDisplayGroup, type SaveTreeDisplayGroup } from '@/utils/saveTreeView';
@@ -167,7 +169,7 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
       setTab('manual');
     } catch (err) {
       console.error('[save] failed', err);
-      alert(formatStorageOperationError('保存', err));
+      pushToast({ kind: 'error', title: '保存失败', detail: formatStorageOperationError('保存', err) });
     } finally {
       setSaving(false);
     }
@@ -183,7 +185,7 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
       setTab('manual');
     } catch (err) {
       console.error('[save-export-current] failed', err);
-      alert(formatStorageOperationError('导出', err));
+      pushToast({ kind: 'error', title: '导出失败', detail: formatStorageOperationError('导出', err) });
     } finally {
       setSaving(false);
     }
@@ -194,10 +196,10 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
     setLoadingId(id);
     try {
       const ok = await onLoad(id);
-      if (!ok) alert('加载失败：没有读取到可用存档内容');
+      if (!ok) pushToast({ kind: 'error', title: '加载失败', detail: '没有读取到可用存档内容' });
     } catch (err) {
       console.error('[save-load] load failed', err);
-      alert(`加载失败：${err instanceof Error ? err.message : '存档读取或恢复过程异常'}`);
+      pushToast({ kind: 'error', title: '加载失败', detail: toUserFacingError(err, { fallback: '存档读取或恢复过程异常' }) });
     } finally {
       setLoadingId(null);
     }
@@ -216,7 +218,7 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
       void refresh();
     } catch (err) {
       console.error('[save-delete] delete failed', err);
-      alert(`删除失败：${err instanceof Error ? err.message : '存档删除过程异常'}`);
+      pushToast({ kind: 'error', title: '删除失败', detail: toUserFacingError(err, { fallback: '存档删除过程异常' }) });
       await refresh();
       setDeletingId(null);
     }
@@ -234,7 +236,7 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
       await refresh();
     } catch (err) {
       console.error('[save-delete-legacy-backups] failed', err);
-      alert(`历史恢复点清理失败：${err instanceof Error ? err.message : '存档删除过程异常'}`);
+      pushToast({ kind: 'error', title: '历史恢复点清理失败', detail: toUserFacingError(err, { fallback: '存档删除过程异常' }) });
     } finally {
       setDeletingLegacyBackups(false);
     }
@@ -251,7 +253,7 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
       void refresh();
     } catch (err) {
       console.error('[save-delete-tree] delete failed', err);
-      alert(`删除整树失败：${err instanceof Error ? err.message : '存档树删除过程异常'}`);
+      pushToast({ kind: 'error', title: '删除整树失败', detail: toUserFacingError(err, { fallback: '存档树删除过程异常' }) });
       await refresh();
       setDeletingRootId(null);
     }

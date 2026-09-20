@@ -30,6 +30,8 @@ import { PathAwakeningInvitation } from '@/components/features/Path/PathAwakenin
 import { closeTopModal } from '@/components/ui/Modal';
 import { MAP_REGION_MAIN_LOCATIONS, markTeleport, unlockStatue } from '@/models/teyvat';
 import { ToastHost } from '@/components/ui/ToastHost';
+import { CLIP_SMALL } from '@/styles/clipPaths';
+import { OFFLINE_HINT, useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { LazySurfaceFallback, MemoryRebuildModal } from '@/components/layout/AppPanels';
 import { TravelerProfileModal } from '@/components/features/Character/TravelerProfileModal';
 import { GAME_MENU_ITEMS, type GameSystemId } from '@/data/gameMenu';
@@ -132,6 +134,7 @@ const getBookOpenViewSwitchDelay = () => prefersReducedMotion() ? BOOK_OPEN_REDU
 
 export default function App() {
   const { state, actions } = useGame();
+  const networkStatus = useNetworkStatus();
   const pendingMemoryDraftCount = (state.记忆.失败草稿 ?? []).filter(
     (draft) => draft.status === 'pending' || draft.status === 'retrying',
   ).length;
@@ -293,7 +296,11 @@ export default function App() {
       }
     });
   }, [state]);
-  courierReplyHandlerRef.current = handleCourierReplyRequest;
+  // 渲染期写 ref 在 React 19 并发渲染下可能指向被丢弃的那次渲染闭包（该渲染永远不会提交），
+  // 之后从 ref 取到的就是错误的处理器；这里挪到提交后的 effect 里同步。
+  useEffect(() => {
+    courierReplyHandlerRef.current = handleCourierReplyRequest;
+  }, [handleCourierReplyRequest]);
 
   const handleResumeRecovery = useCallback(async () => {
     if (!recoveryJournal) return;
@@ -383,6 +390,23 @@ export default function App() {
       onDismiss={() => void handleDismissRecovery()}
     />
   ) : null;
+
+  // 断网提示：浏览器已经能一眼判定断网时，不该让玩家白等 45 秒首字节看门狗。
+  const offlineNoticeElement = networkStatus.online ? null : (
+    <div className="fixed bottom-4 left-1/2 z-[125] -translate-x-1/2" role="status" aria-live="polite">
+      <div
+        className="px-4 py-2 text-xs"
+        style={{
+          color: 'rgba(var(--tj-text-primary))',
+          background: 'rgba(var(--tj-surface-strong),0.96)',
+          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.45), 0 12px 32px rgba(0,0,0,0.35)',
+          clipPath: CLIP_SMALL,
+        }}
+      >
+        {OFFLINE_HINT}
+      </div>
+    </div>
+  );
 
   const gamePanelsPreloadedRef = useRef(false);
   useEffect(() => {
@@ -819,6 +843,7 @@ export default function App() {
         </Suspense>
       </SystemDrawer>
       {recoveryBannerElement}
+      {offlineNoticeElement}
     </>
   );
 
@@ -978,6 +1003,7 @@ export default function App() {
           </Suspense>
         )}
         <ToastHost />
+        {offlineNoticeElement}
       </>
     );
   }
@@ -1215,6 +1241,7 @@ export default function App() {
         </Suspense>
       )}
       <ToastHost />
+      {offlineNoticeElement}
     </>
   );
 }

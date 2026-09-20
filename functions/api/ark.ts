@@ -1,9 +1,11 @@
-import { limitRequestBody, optionsResponse, type PagesContextLike } from './auth/_shared';
+import { guardProxyEndpoint, limitRequestBody, optionsResponse, type PagesContextLike } from './auth/_shared';
 import { handleArkProxyRequest } from '../../services/ai/arkProxyCore';
 
 export const onRequestOptions = async (): Promise<Response> => optionsResponse();
 
-export const onRequestPost = async ({ request }: PagesContextLike): Promise<Response> => {
+export const onRequestPost = async ({ request, env }: PagesContextLike): Promise<Response> => {
+  const denied = await guardProxyEndpoint({ request, env }, { scope: 'ark' });
+  if (denied) return denied;
   const limited = await limitRequestBody(request);
   if (limited instanceof Response) return limited;
   return handleArkProxyRequest(limited);

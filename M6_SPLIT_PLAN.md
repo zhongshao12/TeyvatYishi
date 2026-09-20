@@ -358,3 +358,47 @@ node .triage/m6-classify.mjs <tscOut> <module>       # 把 tsc 报的名字分�
 **门禁（最终一次全量）**：tsc exit 0；integrity exit 0（48 个文件）；185/185；
 vitest 101 files / 600 tests；build exit 0；bundle exit 0。
 **全程零断言删除、零断言弱化。**
+---
+
+## 12. 死代码清理（M6 收尾）
+
+M6 把绝大部分逻辑搬进阶段模块后，`sendWorkflow.ts` 的 import 与阶段模块的部分入参成了死代码。
+依据 `npx tsc -p tsconfig.json --noEmit --noUnusedLocals` 的 **TS6133**（"声明但从未读取"）定位：
+
+| 文件 | 清理内容 |
+| --- | --- |
+| `sendWorkflow.ts` | 42 个未使用 import 说明符 + 整条删除 30 条 import 语句 |
+| 10 个阶段模块 | 25 个未使用 import 说明符 |
+| `autoSaveStage.ts` | 9 个未使用入参（解构 / 接口 / 调用处**三处同步**） |
+| `apiMessagesStage.ts` | 2 个无副作用的死局部量 |
+| `mainPromptAssembly.ts` | 21 行的死对象字面量 `codexSceneContext` |
+
+合计 7 文件 −152/+54 行。门禁：tsc 0 / integrity 0 / **185/185** / vitest 101·600 / build 0 / bundle 0。
+
+### ⚠️ 本项目的一条重要纪律：**TS6133 ≠ 可删**
+
+`const usePresetPrefill = false` 在编译器眼里是死代码（从未被读取），但它是被
+`scripts/deepseek-format-stability-regression.mjs:73` **刻意断言**的决定：
+「正式主剧情不得使用预设 assistant prefill 截断 JSON」。
+我第一次清理时删掉了它，**回归门禁立刻打红**；修法是**恢复它**（并在上方加注释说明为什么不能删），
+而不是改断言。
+
+→ 结论：清理死代码前必须先 grep 该名字是否出现在 `scripts/*-regression.mjs` 或 `tests/` 里。
+**"编译器说没读"与"没有任何东西依赖它"是两件事。**
+
+## 13. 跨维度量化基线（用于交叉核对审计结论）
+
+扫描范围：428 个源文件（不含 `tests/`、`scripts/`）。
+
+| 指标 | 实测 |
+| --- | --- |
+| 原生 `alert/confirm/prompt` | 86 |
+| `console.*` | 132（`StorageManager.tsx` 34、`dbService.ts` 22、`SaveLoadModal.tsx` 10） |
+| `dangerouslySetInnerHTML` / `.innerHTML=` | 0 |
+| `@ts-ignore` / `@ts-expect-error` | 0 |
+| `as unknown as` | 42 |
+| `any` | 14 |
+| `JSON.parse` | 53 |
+| `localStorage` | 11 |
+| `setInterval` | 1 |
+| 超 500 行文件 | 65（`workspaces.tsx` 2772、`AlbumPanel.tsx` 1482、`App.tsx` 1377、`TurnItem.tsx` 1245、`sendWorkflow.ts` 1139） |

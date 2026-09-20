@@ -9,7 +9,22 @@ assert(fs.existsSync(dist), '缺少 dist 目录；请先运行构建（pnpm buil
 assert(fs.existsSync(path.join(dist, 'assets')), '缺少 dist/assets 目录；请先运行构建（pnpm build），再执行体积门禁。');
 const budget = JSON.parse(fs.readFileSync(budgetPath, 'utf8'));
 const assets = fs.readdirSync(path.join(dist, 'assets')).filter((f) => f.endsWith('.js'));
-const indexName = assets.find((f) => f.startsWith('index-'));
+// 入口分片必须从 dist/index.html 里读出来：dist/assets 下可能同时存在多个 `index-*.js`
+// —— 被动态 import 的 `services/ai/text/index.ts` 也会被 Rollup 命名为 index-*。
+// 原来用 assets.find(...) 只取第一个匹配、依赖 readdir 顺序，可能量到 2 KB 的模块，
+// 让「index ≤ 预算」这条检查假绿（实测：曾量到 2.1 KB，真实入口是 185.6 KB）。
+// 注意：index.html 可能不存在（例如体积门禁的 fixture 只造 dist/assets），
+// 此时不能抛错 —— 回退到"取最大的 index-*"，让后续的预算断言照常执行。
+const indexHtmlPath = path.join(dist, 'index.html');
+const entryMatch = fs.existsSync(indexHtmlPath)
+  ? /<script[^>]+src="[./]*assets\/(index-[^"]+\.js)"/.exec(fs.readFileSync(indexHtmlPath, 'utf8'))
+  : null;
+const indexCandidates = assets.filter((f) => f.startsWith('index-'));
+const indexName = entryMatch
+  ? entryMatch[1]
+  : indexCandidates.sort(
+      (a, b) => fs.statSync(path.join(dist, 'assets', b)).size - fs.statSync(path.join(dist, 'assets', a)).size,
+    )[0];
 assert(indexName, 'missing main index chunk in dist/assets.');
 const indexBytes = fs.statSync(path.join(dist, 'assets', indexName)).size;
 let maxChunkBytes = 0;

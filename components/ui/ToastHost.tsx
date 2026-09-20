@@ -9,6 +9,14 @@ const KIND_STYLE: Record<ToastItem['kind'], { stroke: string; glyph: string; gly
   error: { stroke: 'rgba(var(--tj-danger), 0.65)', glyph: '！', glyphColor: 'rgba(var(--tj-danger), 0.95)' },
 };
 
+// 错误提示是打断式的（role="alert" + assertive），不会被 polite 队列排在后面；
+// 且 toastStore 对 error 不设自动消失计时器，必须由玩家手动关闭。
+const KIND_LIVE_REGION: Record<ToastItem['kind'], { role: 'status' | 'alert'; live: 'polite' | 'assertive' }> = {
+  info: { role: 'status', live: 'polite' },
+  success: { role: 'status', live: 'polite' },
+  error: { role: 'alert', live: 'assertive' },
+};
+
 export function ToastHost() {
   const toasts = useSyncExternalStore(subscribeToasts, getToasts, getToasts);
   if (toasts.length === 0) return null;
@@ -16,10 +24,14 @@ export function ToastHost() {
     <div className="pointer-events-none fixed bottom-4 right-4 z-[120] flex w-[min(92vw, 340px)] flex-col gap-2">
       {toasts.map((toast) => {
         const style = KIND_STYLE[toast.kind];
+        const live = KIND_LIVE_REGION[toast.kind];
         return (
           <div
             key={toast.id}
-            role="status"
+            role={live.role}
+            aria-live={live.live}
+            aria-atomic="true"
+            data-toast-kind={toast.kind}
             className="journal-toast-card pointer-events-auto animate-slide-up px-3 py-2.5"
             style={{
               background: 'rgba(var(--tj-surface-strong), 0.96)',

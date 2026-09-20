@@ -77,6 +77,9 @@ import {
   listDesktopSpecialSettingMirrors,
 } from '@/services/desktop/desktopSettingsMirror';
 import { buildSaveTreeGroups, filterSaveTreeDisplayGroup, type SaveTreeDisplayGroup } from '@/utils/saveTreeView';
+import { ConfirmDialogHost, useConfirmDialog } from '@/components/ui/Modal';
+import { pushToast } from '@/utils/toastStore';
+import { toUserFacingError } from '@/utils/userFacingError';
 import { getRuntimePlatform } from '@/utils/platform/desktopRuntime';
 import { formatByteSize } from '@/utils/formatByteSize';
 import {
@@ -166,6 +169,14 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
   const [updateProgress, setUpdateProgress] = useState<DesktopUpdateProgress | null>(null);
   const [updateError, setUpdateError] = useState('');
   const [browserStorage, setBrowserStorage] = useState<{ usage: number; quota: number; persisted?: boolean } | null>(null);
+  // 破坏性操作不再经过原生 confirm（无法换主题、无法读屏标注），
+  // 改用支持键盘陷阱与焦点恢复的样式化弹窗。
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
+  /** 失败通知统一走 error toast：assertive 播报且不会自动消失。 */
+  const notifyFailure = (title: string, error: unknown, fallback: string) => {
+    pushToast({ kind: 'error', title, detail: toUserFacingError(error, { fallback }) });
+  };
 
   const refresh = async () => {
     setLoadError('');
@@ -179,7 +190,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       return snapshot;
     } catch (err) {
       console.error('[storage-manager] save list failed', err);
-      setLoadError(err instanceof Error ? err.message : '存档列表读取失败');
+      setLoadError(toUserFacingError(err, { fallback: '存档列表读取失败' }));
     }
   };
 
@@ -276,7 +287,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
         }
       } catch (err) {
         console.error('[storage-manager] desktop info failed', err);
-        if (!cancelled) setDesktopError(err instanceof Error ? err.message : '桌面端信息读取失败');
+        if (!cancelled) setDesktopError(toUserFacingError(err, { fallback: '桌面端信息读取失败' }));
       }
     };
     void loadDesktopInfo();
@@ -293,7 +304,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refresh();
     } catch (err) {
       console.error('[storage-manager] repair failed', err);
-      setLoadError(err instanceof Error ? err.message : '存档摘要修复失败');
+      setLoadError(toUserFacingError(err, { fallback: '存档摘要修复失败' }));
     } finally {
       setLoading(false);
     }
@@ -373,31 +384,40 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
     setLoading(true);
     try {
       const ok = await onContinue();
-      if (!ok) alert('没有可用的存档');
+      if (!ok) pushToast({ kind: 'error', title: '没有可用的存档' });
     } catch (err) {
       console.error('[storage-manager] continue failed', err);
-      alert(`读取失败：${err instanceof Error ? err.message : '存档读取或恢复过程异常'}`);
+      notifyFailure('读取失败', err, '存档读取或恢复过程异常');
     } finally {
       setLoading(false);
     }
   };
 
   const handleLoad = async (id: number) => {
-    if (!confirm('读取这个存档会替换当前未保存的进度，是否继续？')) return;
+    if (!await askConfirm({
+      title: '读取存档',
+      message: '读取这个存档会替换当前未保存的进度，是否继续？',
+      confirmLabel: '读取',
+    })) return;
     setLoadingId(id);
     try {
       const ok = await onLoadSave(id);
-      if (!ok) alert('读取失败：没有读取到可用存档内容');
+      if (!ok) pushToast({ kind: 'error', title: '读取失败', detail: '没有读取到可用存档内容' });
     } catch (err) {
       console.error('[storage-manager] load failed', err);
-      alert(`读取失败：${err instanceof Error ? err.message : '存档读取或恢复过程异常'}`);
+      notifyFailure('读取失败', err, '存档读取或恢复过程异常');
     } finally {
       setLoadingId(null);
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定删除这个存档？此操作不可恢复。')) return;
+    if (!await askConfirm({
+      title: '删除存档',
+      message: '确定删除这个存档？此操作不可恢复。',
+      confirmLabel: '删除',
+      tone: 'danger',
+    })) return;
     const target = [...saves, ...legacyBackups].find((save) => save.id === id)?.saveTree;
     setDeletingId(id);
     setSaves((prev) => prev.filter((save) => save.id !== id));
@@ -410,13 +430,23 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       const stillListed = fullList.some((save) => save.id === id);
       if (stillListed && target?.rootId) {
         const nodeCount = fullList.filter((save) => save.saveTree?.rootId === target.rootId).length || 1;
-        if (confirm(`这个存档是更新的自动存档的增量基底，无法单独删除。
-要改为删除整棵存档树（共 ${nodeCount} 个节点）吗？此操作不可恢复。`)) {
+        if (await askConfirm({
+          title: '删除整棵存档树',
+          message: `这个存档是更新的自动存档的增量基底，无法单独删除。
+要改为删除整棵存档树（共 ${nodeCount} 个节点）吗？此操作不可恢复。`,
+          confirmLabel: '删除整树',
+          tone: 'danger',
+        })) {
           await deleteSaveTree(target.rootId);
         }
       } else if (stillListed) {
         // 空存档 / 无 saveTree 元信息的记录：直接强制删除。
-        if (confirm('这个存档删除后仍残留在列表中（可能是空的存档记录）。要强制删除吗？此操作不可恢复。')) {
+        if (await askConfirm({
+          title: '强制删除存档记录',
+          message: '这个存档删除后仍残留在列表中（可能是空的存档记录）。要强制删除吗？此操作不可恢复。',
+          confirmLabel: '强制删除',
+          tone: 'danger',
+        })) {
           await forceDeleteSave(id);
         }
       }
@@ -426,7 +456,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       void refreshDesktopMirrorCount();
     } catch (err) {
       console.error('[storage-manager] delete failed', err);
-      alert(`删除失败：${err instanceof Error ? err.message : '存档删除过程异常'}`);
+      notifyFailure('删除失败', err, '存档删除过程异常');
       await refresh();
       setDeletingId(null);
     }
@@ -434,7 +464,12 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
 
   const handleDeleteLegacyBackups = async () => {
     if (!legacyBackups.length || deletingLegacyBackups) return;
-    if (!confirm(`确定清理全部 ${legacyBackups.length} 个历史恢复点？此操作不可恢复。`)) return;
+    if (!await askConfirm({
+      title: '清理历史恢复点',
+      message: `确定清理全部 ${legacyBackups.length} 个历史恢复点？此操作不可恢复。`,
+      confirmLabel: '全部清理',
+      tone: 'danger',
+    })) return;
     setDeletingLegacyBackups(true);
     try {
       await deleteLegacyBackupSaves();
@@ -445,14 +480,19 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refreshDesktopMirrorCount();
     } catch (err) {
       console.error('[storage-manager] legacy backup cleanup failed', err);
-      alert(`历史恢复点清理失败：${err instanceof Error ? err.message : '存档删除过程异常'}`);
+      notifyFailure('历史恢复点清理失败', err, '存档删除过程异常');
     } finally {
       setDeletingLegacyBackups(false);
     }
   };
 
   const handleDeleteTree = async (rootId: string, nodeCount: number) => {
-    if (!confirm(`确定删除这整棵存档树？将删除 ${nodeCount} 个节点，此操作不可恢复。`)) return;
+    if (!await askConfirm({
+      title: '删除存档树',
+      message: `确定删除这整棵存档树？将删除 ${nodeCount} 个节点，此操作不可恢复。`,
+      confirmLabel: '删除整树',
+      tone: 'danger',
+    })) return;
     setDeletingRootId(rootId);
     setSaves((prev) => prev.filter((save) => save.saveTree?.rootId !== rootId));
     try {
@@ -463,7 +503,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       void refreshDesktopMirrorCount();
     } catch (err) {
       console.error('[storage-manager] delete tree failed', err);
-      alert(`删除整树失败：${err instanceof Error ? err.message : '存档树删除过程异常'}`);
+      notifyFailure('删除整树失败', err, '存档树删除过程异常');
       await refresh();
       setDeletingRootId(null);
     }
@@ -499,7 +539,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
         await refreshDesktopMirrorCount();
         setFilter('imported');
       } catch (err) {
-        alert(`导入失败：${err instanceof Error ? err.message : '存档文件格式无效'}`);
+        notifyFailure('导入失败', err, '存档文件格式无效');
       } finally {
         setImporting(false);
       }
@@ -519,7 +559,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refreshDesktopMirrorCount();
     } catch (err) {
       console.error('[storage-manager] desktop probe failed', err);
-      setDesktopError(err instanceof Error ? err.message : '桌面端探针写入失败');
+      setDesktopError(toUserFacingError(err, { fallback: '桌面端探针写入失败' }));
     } finally {
       setCheckingDesktop(false);
     }
@@ -531,7 +571,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await openDesktopDataDir('saves');
     } catch (err) {
       console.error('[storage-manager] open desktop save dir failed', err);
-      setDesktopError(err instanceof Error ? err.message : '打开桌面存档目录失败');
+      setDesktopError(toUserFacingError(err, { fallback: '打开桌面存档目录失败' }));
     }
   };
 
@@ -541,7 +581,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await openDesktopDataDir('config');
     } catch (err) {
       console.error('[storage-manager] open desktop config dir failed', err);
-      setDesktopError(err instanceof Error ? err.message : '打开桌面配置目录失败');
+      setDesktopError(toUserFacingError(err, { fallback: '打开桌面配置目录失败' }));
     }
   };
 
@@ -551,7 +591,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await openDesktopDataDir('codex');
     } catch (err) {
       console.error('[storage-manager] open desktop codex dir failed', err);
-      setDesktopError(err instanceof Error ? err.message : '打开桌面图鉴目录失败');
+      setDesktopError(toUserFacingError(err, { fallback: '打开桌面图鉴目录失败' }));
     }
   };
 
@@ -561,7 +601,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await openDesktopDataDir('worldbooks');
     } catch (err) {
       console.error('[storage-manager] open desktop worldbook dir failed', err);
-      setDesktopError(err instanceof Error ? err.message : '打开桌面世界书目录失败');
+      setDesktopError(toUserFacingError(err, { fallback: '打开桌面世界书目录失败' }));
     }
   };
 
@@ -571,7 +611,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await openDesktopDataDir('assets');
     } catch (err) {
       console.error('[storage-manager] open desktop asset dir failed', err);
-      setDesktopError(err instanceof Error ? err.message : '打开桌面资源目录失败');
+      setDesktopError(toUserFacingError(err, { fallback: '打开桌面资源目录失败' }));
     }
   };
 
@@ -581,7 +621,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await openDesktopDataDir('backups');
     } catch (err) {
       console.error('[storage-manager] open desktop backup dir failed', err);
-      setDesktopError(err instanceof Error ? err.message : '打开桌面备份目录失败');
+      setDesktopError(toUserFacingError(err, { fallback: '打开桌面备份目录失败' }));
     }
   };
 
@@ -592,7 +632,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       if (folder) setSaveRootEdit(folder);
     } catch (err) {
       console.error('[storage-manager] choose save root failed', err);
-      setDesktopError(err instanceof Error ? err.message : '选择存档目录失败');
+      setDesktopError(toUserFacingError(err, { fallback: '选择存档目录失败' }));
     }
   };
 
@@ -603,7 +643,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       if (folder) setBackupRootEdit(folder);
     } catch (err) {
       console.error('[storage-manager] choose backup root failed', err);
-      setDesktopError(err instanceof Error ? err.message : '选择备份目录失败');
+      setDesktopError(toUserFacingError(err, { fallback: '选择备份目录失败' }));
     }
   };
 
@@ -627,7 +667,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       setBackupRootEdit(info.backupDir ?? null);
     } catch (err) {
       console.error('[storage-manager] apply storage roots failed', err);
-      setDesktopError(err instanceof Error ? err.message : '保存存储路径失败');
+      setDesktopError(toUserFacingError(err, { fallback: '保存存储路径失败' }));
     }
   };
 
@@ -637,7 +677,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await openDesktopDataDir('logs');
     } catch (err) {
       console.error('[storage-manager] open desktop log dir failed', err);
-      setDesktopError(err instanceof Error ? err.message : '打开桌面日志目录失败');
+      setDesktopError(toUserFacingError(err, { fallback: '打开桌面日志目录失败' }));
     }
   };
 
@@ -652,7 +692,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       if (result.error) setUpdateError(result.error);
     } catch (err) {
       console.error('[storage-manager] desktop update check failed', err);
-      setUpdateError(err instanceof Error ? err.message : '桌面端更新检查失败');
+      setUpdateError(toUserFacingError(err, { fallback: '桌面端更新检查失败' }));
     } finally {
       setCheckingUpdate(false);
     }
@@ -665,7 +705,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await downloadAndInstallDesktopUpdate(setUpdateProgress);
     } catch (err) {
       console.error('[storage-manager] desktop update install failed', err);
-      setUpdateError(err instanceof Error ? err.message : '桌面端更新安装失败');
+      setUpdateError(toUserFacingError(err, { fallback: '桌面端更新安装失败' }));
     } finally {
       setInstallingUpdate(false);
     }
@@ -701,7 +741,12 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
   };
 
   const handleCleanupDesktopAssets = async () => {
-    if (!confirm('确定清理桌面端无引用图片资源？只会删除当前存档库未引用的本地图片镜像。')) return;
+    if (!await askConfirm({
+      title: '清理桌面图片镜像',
+      message: '确定清理桌面端无引用图片资源？只会删除当前存档库未引用的本地图片镜像。',
+      confirmLabel: '清理',
+      tone: 'danger',
+    })) return;
     setCleaningDesktopAssets(true);
     setDesktopError('');
     try {
@@ -710,7 +755,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refreshDesktopMirrorCount();
     } catch (err) {
       console.error('[storage-manager] desktop asset cleanup failed', err);
-      setDesktopError(err instanceof Error ? err.message : '桌面资源清理失败');
+      setDesktopError(toUserFacingError(err, { fallback: '桌面资源清理失败' }));
     } finally {
       setCleaningDesktopAssets(false);
     }
@@ -730,7 +775,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refreshDesktopMirrorCount();
     } catch (err) {
       console.error('[storage-manager] desktop index repair failed', err);
-      setDesktopError(err instanceof Error ? err.message : '桌面镜像索引修复失败');
+      setDesktopError(toUserFacingError(err, { fallback: '桌面镜像索引修复失败' }));
     } finally {
       setRepairingDesktopIndexes(false);
     }
@@ -748,14 +793,18 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refreshDesktopMirrorCount();
     } catch (err) {
       console.error('[storage-manager] desktop save backup failed', err);
-      setDesktopError(err instanceof Error ? err.message : '桌面本地备份失败');
+      setDesktopError(toUserFacingError(err, { fallback: '桌面本地备份失败' }));
     } finally {
       setBackingUpDesktop(false);
     }
   };
 
   const handleBackupDesktopMigration = async () => {
-    if (!confirm('生成迁移前完整备份？此操作只写入备份文件，不会迁移、删除或覆盖当前数据。')) return;
+    if (!await askConfirm({
+      title: '生成迁移前完整备份',
+      message: '生成迁移前完整备份？此操作只写入备份文件，不会迁移、删除或覆盖当前数据。',
+      confirmLabel: '生成备份',
+    })) return;
     setBackingUpDesktopMigration(true);
     setDesktopError('');
     try {
@@ -766,7 +815,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refreshDesktopMirrorCount();
     } catch (err) {
       console.error('[storage-manager] desktop migration backup failed', err);
-      setDesktopError(err instanceof Error ? err.message : '桌面迁移前完整备份失败');
+      setDesktopError(toUserFacingError(err, { fallback: '桌面迁移前完整备份失败' }));
     } finally {
       setBackingUpDesktopMigration(false);
     }
@@ -808,14 +857,19 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refreshDesktopMirrorCount();
     } catch (err) {
       console.error('[storage-manager] desktop diagnostic export failed', err);
-      setDesktopError(err instanceof Error ? err.message : '桌面诊断报告导出失败');
+      setDesktopError(toUserFacingError(err, { fallback: '桌面诊断报告导出失败' }));
     } finally {
       setExportingDiagnostic(false);
     }
   };
 
   const handleRestoreDesktopMirror = async () => {
-    if (!confirm('确定用桌面本地镜像恢复当前存档库？当前存档列表会被镜像内容替换。')) return;
+    if (!await askConfirm({
+      title: '用桌面镜像恢复存档库',
+      message: '确定用桌面本地镜像恢复当前存档库？当前存档列表会被镜像内容替换。',
+      confirmLabel: '恢复',
+      tone: 'danger',
+    })) return;
     setRestoringDesktopMirror(true);
     setLoadError('');
     try {
@@ -823,10 +877,10 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refresh();
       await refreshDesktopMirrorCount();
       setFilter('all');
-      if (restored <= 0) alert('没有可恢复的桌面存档镜像');
+      if (restored <= 0) pushToast({ kind: 'error', title: '没有可恢复的桌面存档镜像' });
     } catch (err) {
       console.error('[storage-manager] desktop mirror restore failed', err);
-      setLoadError(err instanceof Error ? err.message : '桌面存档镜像恢复失败');
+      setLoadError(toUserFacingError(err, { fallback: '桌面存档镜像恢复失败' }));
     } finally {
       setRestoringDesktopMirror(false);
     }
@@ -834,14 +888,19 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
 
   const handleRestoreDesktopBackup = async (backup: DesktopSaveBackupSummary | null) => {
     if (!backup) {
-      alert('没有可恢复的桌面本地备份');
+      pushToast({ kind: 'error', title: '没有可恢复的桌面本地备份' });
       return;
     }
     if (!isRestorableDesktopBackup(backup)) {
-      alert('这份桌面本地备份不可恢复，请检查备份列表中的校验状态。');
+      pushToast({ kind: 'error', title: '这份桌面本地备份不可恢复', detail: '请检查备份列表中的校验状态。' });
       return;
     }
-    if (!confirm(`确定恢复这份桌面本地备份？当前存档库会先自动备份，再替换为 ${backup.count} 个备份存档。`)) return;
+    if (!await askConfirm({
+      title: '恢复桌面本地备份',
+      message: `确定恢复这份桌面本地备份？当前存档库会先自动备份，再替换为 ${backup.count} 个备份存档。`,
+      confirmLabel: '恢复',
+      tone: 'danger',
+    })) return;
     setRestoringDesktopBackup(true);
     setLoadError('');
     try {
@@ -849,17 +908,22 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refresh();
       await refreshDesktopMirrorCount();
       setFilter('all');
-      if (restored <= 0) alert('这份桌面本地备份没有可恢复的存档');
+      if (restored <= 0) pushToast({ kind: 'error', title: '这份桌面本地备份没有可恢复的存档' });
     } catch (err) {
       console.error('[storage-manager] desktop backup restore failed', err);
-      setLoadError(err instanceof Error ? err.message : '桌面本地备份恢复失败');
+      setLoadError(toUserFacingError(err, { fallback: '桌面本地备份恢复失败' }));
     } finally {
       setRestoringDesktopBackup(false);
     }
   };
 
   const handleDeleteDesktopBackup = async (backup: DesktopSaveBackupSummary) => {
-    if (!confirm(`确定删除这份桌面本地备份？${new Date(backup.createdAt).toLocaleString('zh-CN')} / ${backup.count} 个存档。`)) return;
+    if (!await askConfirm({
+      title: '删除桌面本地备份',
+      message: `确定删除这份桌面本地备份？${new Date(backup.createdAt).toLocaleString('zh-CN')} / ${backup.count} 个存档。`,
+      confirmLabel: '删除',
+      tone: 'danger',
+    })) return;
     setDeletingDesktopBackupPath(backup.path);
     setDesktopError('');
     try {
@@ -870,7 +934,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refreshDesktopMirrorCount();
     } catch (err) {
       console.error('[storage-manager] desktop backup delete failed', err);
-      setDesktopError(err instanceof Error ? err.message : '桌面本地备份删除失败');
+      setDesktopError(toUserFacingError(err, { fallback: '桌面本地备份删除失败' }));
     } finally {
       setDeletingDesktopBackupPath(null);
     }
@@ -882,13 +946,13 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
     try {
       const record = await loadDesktopSaveBackup(backup.path);
       if (!record) {
-        alert('这份桌面本地备份无法读取或格式不正确');
+        pushToast({ kind: 'error', title: '这份桌面本地备份无法读取或格式不正确' });
         return;
       }
       downloadDesktopBackupRecord(record, backup.fileName);
     } catch (err) {
       console.error('[storage-manager] desktop backup export failed', err);
-      setDesktopError(err instanceof Error ? err.message : '桌面本地备份导出失败');
+      setDesktopError(toUserFacingError(err, { fallback: '桌面本地备份导出失败' }));
     } finally {
       setExportingDesktopBackupPath(null);
     }
@@ -900,20 +964,25 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
     try {
       const payload = await loadDesktopDiagnosticReport(report.path);
       if (!payload) {
-        alert('这份桌面诊断报告无法读取或格式不正确');
+        pushToast({ kind: 'error', title: '这份桌面诊断报告无法读取或格式不正确' });
         return;
       }
       downloadDesktopDiagnosticReport(payload, report.fileName);
     } catch (err) {
       console.error('[storage-manager] desktop diagnostic report export failed', err);
-      setDesktopError(err instanceof Error ? err.message : '桌面诊断报告导出失败');
+      setDesktopError(toUserFacingError(err, { fallback: '桌面诊断报告导出失败' }));
     } finally {
       setExportingDiagnosticReportPath(null);
     }
   };
 
   const handleDeleteDesktopDiagnosticReport = async (report: DesktopDiagnosticReportSummary) => {
-    if (!confirm(`确定删除这份桌面诊断报告？${new Date(report.createdAt).toLocaleString('zh-CN')}。`)) return;
+    if (!await askConfirm({
+      title: '删除桌面诊断报告',
+      message: `确定删除这份桌面诊断报告？${new Date(report.createdAt).toLocaleString('zh-CN')}。`,
+      confirmLabel: '删除',
+      tone: 'danger',
+    })) return;
     setDeletingDiagnosticReportPath(report.path);
     setDesktopError('');
     try {
@@ -921,7 +990,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       await refreshDesktopMirrorCount();
     } catch (err) {
       console.error('[storage-manager] desktop diagnostic report delete failed', err);
-      setDesktopError(err instanceof Error ? err.message : '桌面诊断报告删除失败');
+      setDesktopError(toUserFacingError(err, { fallback: '桌面诊断报告删除失败' }));
     } finally {
       setDeletingDiagnosticReportPath(null);
     }
@@ -982,6 +1051,11 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       )}
 
       <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-busy={repairingSummaries}
+        data-testid="storage-progress-live"
         className="px-3 py-2 font-serif text-[12px] leading-relaxed tracking-wider"
         style={{
           color: 'rgba(var(--tj-text-primary),0.68)',
@@ -998,6 +1072,8 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
           : ''}
         {!repairingSummaries && unreadableSummaryCount > 0 ? ` ${unreadableSummaryCount} 个节点详情读取失败，可使用修复摘要重试。` : ''}
       </div>
+
+      <ConfirmDialogHost dialog={confirmDialog} />
 
       <DesktopStorageStatus
         platform={getRuntimePlatform()}

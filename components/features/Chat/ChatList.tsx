@@ -31,6 +31,19 @@ interface NeighborMeta {
 
 const INITIAL_RENDER_TURNS = 20;
 const RENDER_TURN_INCREMENT = 20;
+/**
+ * 流式正文的读屏播报节流桶。
+ * aria-live 不能挂在逐 chunk 变化的正文节点上（会逐字刷屏），
+ * 所以只播报按 400 字分桶后的进度，正文本身仅标记 aria-busy。
+ */
+const STREAM_ANNOUNCE_BUCKET = 400;
+
+/** 把高频流式文本压成节流后的进度播报串。同一桶内不产生新的播报。 */
+export function buildStreamAnnouncement(text: string): string {
+  if (!text) return '';
+  const announced = Math.floor(text.length / STREAM_ANNOUNCE_BUCKET) * STREAM_ANNOUNCE_BUCKET;
+  return `正在接收正文，已生成约 ${announced} 字`;
+}
 
 function findHistoryWindowStart(messages: 聊天消息[], turnLimit: number): number {
   let assistantTurns = 0;
@@ -130,6 +143,10 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onToggleBoo
   const [nearBottom, setNearBottom] = useState(true);
   const nearBottomRef = useRef(true);
   const scrollStateRafRef = useRef<number | null>(null);
+  // 读屏播报：唯一一个 polite 进度区，文本已按桶节流，不会随 chunk 抖动。
+  const liveStatus = loading
+    ? (streamingMessage ? buildStreamAnnouncement(streamingMessage) : '正在沉思……')
+    : '';
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -299,26 +316,28 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onToggleBoo
 
       {/* Streaming preview — lives in parent so stream text does not remap history */}
       {streamingMessage && (
-        <TurnItem
-          message={{
-            id: 'streaming',
-            role: 'assistant',
-            content: streamingMessage,
-            timestamp: Date.now(),
-            isStreaming: true,
-          }}
-          isStreaming
-          npcRecords={npcRecords}
-          traveler={traveler}
-          album={album}
-          showInnerVoice={showInnerVoice}
-          visualTextSettings={visualTextSettings}
-        />
+        <div data-testid="chat-streaming-preview" aria-busy="true">
+          <TurnItem
+            message={{
+              id: 'streaming',
+              role: 'assistant',
+              content: streamingMessage,
+              timestamp: Date.now(),
+              isStreaming: true,
+            }}
+            isStreaming
+            npcRecords={npcRecords}
+            traveler={traveler}
+            album={album}
+            showInnerVoice={showInnerVoice}
+            visualTextSettings={visualTextSettings}
+          />
+        </div>
       )}
 
       {/* Loading indicator (no stream yet) */}
       {loading && !streamingMessage && (
-        <div className="flex items-center gap-2 py-4">
+        <div className="flex items-center gap-2 py-4" data-testid="chat-loading-indicator" aria-busy="true">
           <div className="flex gap-1">
             {[0, 1, 2].map((i) => (
               <div
@@ -340,6 +359,18 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onToggleBoo
           </span>
         </div>
       )}
+
+      {/* 后台结算 / 流式进度的唯一读屏通道：polite + busy，文本已节流 */}
+      <p
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-busy={loading}
+        data-testid="chat-live-status"
+        className="sr-only"
+      >
+        {liveStatus}
+      </p>
 
       <div ref={bottomRef} data-testid="main-chat-bottom" />
 

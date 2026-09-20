@@ -1,23 +1,22 @@
+// 本编排器只保留「立即需要」的静态依赖；每个 M6 阶段模块都走 `await import()` 懒加载，
+// 并且必须在 `build/manualChunkStrategy.ts` 的 allowlist 里登记，否则会被 Rollup
+// 并回 app-core 首屏分包。
+//
+// 特例（G3-C5）：`./mainNarrativeRequestStage` 曾经在这里有一条**静态 import**，
+// 但它的四个导出在本文件里一个都没用到（tsc `--noUnusedLocals` 判 TS6192），
+// 该静态边把整个 303 行的请求装配阶段强行钉进 app-core。删除该死 import 后，
+// 它只被同样懒加载的 `mainNarrativeStreamingStage` / `apiMessagesStage` 引用，
+// 因而回到真正的异步分包；本文件不再需要（也不应再有）任何指向它的 import。
 import {
   toLegacyTurnCheckpoint,
   type UseGameStateReturn} from '@/hooks/useGameState';
 import { type 聊天消息, type 回合快照 } from '@/models/chat';
 import { narrativeTurnBodyText} from '@/models/teyvat/narrativeTurn';
 
-import { getNarrativeTurnNormalizationWarnings, revalidateFactCandidatesForBody } from '@/services/ai/narrativeTurnParser';
 import { appendApiErrorReport } from '@/services/ai/apiErrorReportService';
-
-import { buildOpeningSystemPrompt, buildSystemPrompt } from './systemPromptBuilder';
-
-import { getBuiltinPresetsV2, loadAllBuiltinTavernPresets } from '@/data/builtinPresets';
 
 import { runSteambirdGenerationStep } from './steambirdWorkflow';
 import { applyAbortedWorkflowPolicy, runCommittedSettlementRecovery, runPendingSettlementRecovery, type WorkflowResumeResult } from './recoveryResume';
-import {
-  archiveCommittedQuestSettlement,
-  collectQuestUpdatePayloads,
-  notifyCommittedQuestUpdate} from './questWorkflow';
-import { evaluateStoryWeavingGate, getStoryWeavingInjectionDiagnostics } from '@/services/storyWeaving';
 
 import { saveSetting} from '@/services/dbService';
 import {
@@ -25,7 +24,6 @@ import {
   createWorkflowRecoveryJournal,
   persistWorkflowRecoveryJournal,
   type WorkflowRecoveryJournal} from '@/services/workflowRecovery';
-import { buildSavePayload, commitActiveSaveTreeMeta } from './saveLoadWorkflow';
 import type { TeyvatGameState } from '@/models/teyvat/state';
 import {
   type VisibilityBufferedPublisher} from '@/utils/visibilityBufferedPublisher';
@@ -35,8 +33,6 @@ import { createStreamingPreviewDelayController } from '@/utils/streamingPreviewD
 import type { 变量命令, 变量命令批次 } from '@/models/variableCommand';
 import { enterElementalEcho } from '@/services/elementalAttunementService';
 
-import { runCourierDeliveryTask, runCourierReplyTask } from './courierBackgroundJobs';
-
 import type { ElementId } from '@/models/teyvat/elements';
 
 import type { API配置项 } from '@/models/settings';
@@ -45,40 +41,14 @@ import type { 队列任务记录 } from '@/models/queueTask';
 import { buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 
 import { type NPC记录 } from '@/models/npc';
-import {
-  buildImmediateStoryReview,
-  buildCodexKeywordRecallQuery,
-  buildMainRecallQuery,
-  getMainHistoryWindow} from './historyWindow';
 import { restorePreTurnSnapshot } from './turnSnapshot';
 import { getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
 
-import { sanitizeParsedResponse, sanitizeContaminatedText } from '@/utils/textSanitizer';
-import { getAnticipatedNpcNamesForTurn, getCodexNpcNamesForTurn, getMissingPartyMembers } from './npcPresence';
-import { buildCachePrefixDiagnostics, buildTurnTokenUsage } from './turnDiagnostics';
-
-import { buildNarrativeApiMessages, injectPromptModuleMessages } from './promptModuleMessageInjection';
-import {
-  buildRerollGenerationGuard,
-  DEEPSEEK_MAIN_FORMAT_GUARD,
-  requestMainNarrativeAttempt,
-  runValidatedMainNarrativeRequest} from './mainNarrativeRequestStage';
-import { runPostTurnBackgroundTasks, runSteambirdPostTurnTask } from './postTurnBackgroundTasks';
 import { splitStreamingReveal } from './mainNarrativeStreamingSession';
 
-import {
-  attachNpcLedgerUpdateDebug,
-  buildNpcLedgerDebug,
-  formatCodexDiagnosticsPreview,
-  formatNpcLedgerPreview} from './turnDebugContext';
 import type { CodexEntry } from '@/models/teyvat/codex';
 
-import { DEFAULT_NOTIFICATION_SETTINGS, notifyEvent } from '@/utils/notifications';
 import { pushToast } from '@/utils/toastStore';
-
-import { compactChatHistoryForLongSession, compactVariableBatchHistory } from '@/utils/longSessionRetention';
-
-import { createMacroContext, type MacroContext, type MacroGameState } from '@/utils/macroEngine';
 
 import { pushWorkflowQueueTask as pushQueueTask } from './workflowQueue';
 import type {
@@ -344,7 +314,13 @@ export async function resumePostSettlementWorkflow(
 ): Promise<WorkflowResumeResult> {
   try {
     const recovery = await import('./postSettlementRecoveryWorkflow');
-    await recovery.runPostSettlementRecoveryWorkflow(state, journal, committedOverride);
+    const outcome = await recovery.runPostSettlementRecoveryWorkflow(state, journal, committedOverride);
+    // 守卫可能因「等待生图期间玩家读档 / 开新局」而放弃写回。此时绝不能把 journal 推进到
+    // autosave_committed —— 那等于谎报「自动存档已完成」，下次恢复会跳过该回合的收尾。
+    // 复用 ok:false 分支如实上报：调用方 recoveryResume 在 post.ok 为假时本就不会推进 journal。
+    if (!outcome.committed) {
+      return { ok: false, journal, error: 'RECOVERY_POST_SETTLEMENT_SUPERSEDED' };
+    }
     return { ok: true, journal };
   } catch (error) {
     return { ok: false, journal, error: error instanceof Error ? error.message : String(error) };

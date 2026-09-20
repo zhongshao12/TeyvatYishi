@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { MigrationIssue, MigrationReport } from '@/compat/legacy-hsr/migrate';
 import { ELEMENT_IDS, type ElementId, type ItemRarity } from '@/models/teyvat';
 import { ELEMENT_NAMES as elementLabels } from '@/styles/elementTokens';
+import { useModalAccessibility } from '@/components/ui/Modal';
+import { toUserFacingError } from '@/utils/userFacingError';
 
 export type MigrationChoice = Record<string, ElementId | ItemRarity>;
 
@@ -16,7 +18,6 @@ interface Props {
 }
 
 export function SaveMigrationDialog({ issues, report, sourceBackupId, backupError, initialChoices, onConfirm, onCancel }: Props) {
-  const dialogRef = useRef<HTMLElement>(null);
   const [choices, setChoices] = useState<MigrationChoice>(() => initialChoices ?? {});
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState('');
@@ -25,10 +26,9 @@ export function SaveMigrationDialog({ issues, report, sourceBackupId, backupErro
     () => `${report.appliedMappings.length} 项确定映射；${report.issues.length} 项需要你的选择。`,
     [report],
   );
-
-  useEffect(() => {
-    dialogRef.current?.focus();
-  }, []);
+  // 写入进行中不允许 Esc 关闭，避免迁移写到一半被中断：
+  // useModalAccessibility 提供 Esc / 焦点圈定 / 焦点恢复，这里在写入途中吞掉 Esc。
+  const dialogRef = useModalAccessibility<HTMLElement>(() => { if (!confirming) onCancel(); });
 
   const handleConfirm = async () => {
     if (!canConfirm) return;
@@ -37,7 +37,7 @@ export function SaveMigrationDialog({ issues, report, sourceBackupId, backupErro
     try {
       await onConfirm(choices);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '迁移写入失败，原档备份仍可保留。');
+      setError(toUserFacingError(cause, { action: '迁移写入' }));
     } finally {
       setConfirming(false);
     }
@@ -51,7 +51,11 @@ export function SaveMigrationDialog({ issues, report, sourceBackupId, backupErro
       aria-labelledby="migration-title"
       tabIndex={-1}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && !confirming) onCancel();
+        // 迁移写入途中吞掉 Esc：既不走 Modal 的文档级处理器，也不触发 onCancel。
+        if (confirming && event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+        }
       }}
       className="mx-3 my-4 max-h-[85dvh] w-auto max-w-3xl self-center overflow-y-auto border p-4 font-serif md:mx-6 md:p-6"
       style={{ background: 'rgb(var(--tj-panel-bg-start))', borderColor: 'rgba(var(--tj-accent-primary),0.62)', boxShadow: '6px 7px 0 rgba(var(--tj-shadow),0.18)', color: 'rgb(var(--tj-text-primary))' }}

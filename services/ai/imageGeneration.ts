@@ -452,11 +452,11 @@ function stripDataUrlPrefix(src: string): string {
 }
 
 /** Convert a display/reference src (data URL, blob URL, or remote) to raw base64 for API payloads. */
-async function referenceSrcToBase64(src: string, signal?: AbortSignal): Promise<string> {
+async function referenceSrcToBase64(src: string, signal?: AbortSignal, allowedHosts: readonly string[] = []): Promise<string> {
   const trimmed = src.trim();
   if (!trimmed) return '';
   if (trimmed.startsWith('data:')) return stripDataUrlPrefix(trimmed);
-  const blob = await loadReferenceImageBlob(trimmed, signal);
+  const blob = await loadReferenceImageBlob(trimmed, signal, allowedHosts);
   const buffer = await blob.arrayBuffer();
   const bytes = new Uint8Array(buffer);
   let binary = '';
@@ -524,7 +524,7 @@ async function generateOpenAICompatibleReferenceImage(
   prompt: string,
   reference: ImageReferenceInput,
 ): Promise<ImageGenerationResult> {
-  const referenceBlob = await loadReferenceImageBlob(reference.src, request.signal);
+  const referenceBlob = await loadReferenceImageBlob(reference.src, request.signal, configuredHostsOf(config));
   const form = new FormData();
   form.append('model', config.model);
   form.append('prompt', prompt);
@@ -545,9 +545,16 @@ async function generateOpenAICompatibleReferenceImage(
   return readOpenAICompatibleImageResult(response, config, request.signal);
 }
 
-async function loadReferenceImageBlob(src: string, signal?: AbortSignal): Promise<Blob> {
+async function loadReferenceImageBlob(src: string, signal?: AbortSignal, allowedHosts: readonly string[] = []): Promise<Blob> {
+  const trusted = assertTrustedImageUrl(src, {
+    allowedHosts,
+    allowedSchemes: ['data-image', 'blob'],
+    rejectionLabel: '参考图地址不受信任',
+  });
+  const inline = dataImageUrlToBlob(trusted);
+  if (inline) return inline;
   try {
-    const response = await fetch(src, { signal });
+    const response = await fetch(trusted, { signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const blob = await response.blob();
     if (!blob.size) throw new Error('图片内容为空');
@@ -555,6 +562,73 @@ async function loadReferenceImageBlob(src: string, signal?: AbortSignal): Promis
   } catch (error) {
     throw new Error(`参考图读取失败：${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/** 内联 data:image base64 直接本地解码，不走网络栈。 */
+function dataImageUrlToBlob(value: string): Blob | null {
+  const match = /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]*)$/iu.exec(value.trim());
+  if (!match) return null;
+  const binary = atob(match[2] ?? '');
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: match[1] ?? 'image/png' });
+}
+
+/** 内网/本机/链路本地地址：只有用户自己配置的图片接口才允许落在这些地址上。 */
+const PRIVATE_HOST_PATTERN = /^(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|169\.254(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|::1|f[cd][0-9a-f]{2}:.*)$/iu;
+const DATA_IMAGE_URL_PATTERN = /^data:image\/[a-z0-9.+-]+[,;]/iu;
+
+function readUrlHostname(raw: string): string {
+  try {
+    return new URL(raw).hostname.replace(/^\[|\]$/gu, '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function isPrivateHostname(hostname: string): boolean {
+  if (!hostname) return false;
+  return PRIVATE_HOST_PATTERN.test(hostname) || hostname.endsWith('.local') || hostname.endsWith('.internal');
+}
+
+/**
+ * 图片 URL 信任边界。
+ *
+ * 上游返回的图片地址是不可信输入：直接 fetch 会变成内网探测原语
+ * （169.254.169.254 / 127.0.0.1 …），file: 之类的 scheme 更会读取本机文件。
+ * 规则：默认只允许 https 公网地址；只有与用户自己配置的图片接口同源时，
+ * 才额外允许 http / 本机 / 内网（本地 ComfyUI、SD WebUI 的既有用法）。
+ */
+function assertTrustedImageUrl(
+  raw: string,
+  options: { allowedHosts: readonly string[]; allowedSchemes?: readonly ('data-image' | 'blob')[]; rejectionLabel: string },
+): string {
+  const value = raw.trim();
+  if (!value) throw new Error(`${options.rejectionLabel}：地址为空。`);
+  const extras = options.allowedSchemes ?? [];
+  if (extras.includes('data-image') && DATA_IMAGE_URL_PATTERN.test(value)) return value;
+  if (value.startsWith('data:')) throw new Error(`${options.rejectionLabel}：只允许 data:image 内联图片。`);
+
+  const scheme = /^([a-z][a-z0-9+.-]*):/iu.exec(value)?.[1]?.toLowerCase() ?? '';
+  if (extras.includes('blob') && scheme === 'blob') return value;
+
+  const hostname = readUrlHostname(value);
+  if (!hostname) throw new Error(`${options.rejectionLabel}：仅允许 https 或与图片接口同源的地址（收到 ${scheme || '相对地址'}）。`);
+  const sameAsConfigured = options.allowedHosts.some((host) => host === hostname);
+  if (scheme !== 'https' && !(scheme === 'http' && sameAsConfigured)) {
+    throw new Error(`${options.rejectionLabel}：仅允许 https 或与图片接口同源的地址（收到 ${scheme}）。`);
+  }
+  if (isPrivateHostname(hostname) && !sameAsConfigured) {
+    throw new Error(`${options.rejectionLabel}：地址指向本机/内网（${hostname}）。`);
+  }
+  return value;
+}
+
+function configuredHostsOf(config: 文生图API配置): string[] {
+  const hostname = readUrlHostname(config.baseUrl.trim());
+  return hostname ? [hostname] : [];
 }
 
 function imageExtension(mimeType: string): string {
@@ -570,7 +644,22 @@ async function readOpenAICompatibleImageResult(response: Response, config: 文�
   if (!first) throw new Error('图片接口没有返回结果。');
 
   if (typeof first.url === 'string' && first.url.trim()) {
-    return persistRemoteImage(first.url.trim(), { model: config.model, backend: config.backend, signal });
+    const rawUrl = first.url.trim();
+    // 部分中转在 response_format=b64_json 时把内联图片塞进 url 字段：直接当内联结果处理，不进下载链路。
+    if (DATA_IMAGE_URL_PATTERN.test(rawUrl)) {
+      return {
+        src: rawUrl,
+        mimeType: normalizeImageMimeType(rawUrl.slice(5, rawUrl.indexOf(';')), undefined),
+        model: config.model,
+        backend: config.backend,
+      };
+    }
+    return persistRemoteImage(rawUrl, {
+      model: config.model,
+      backend: config.backend,
+      signal,
+      allowedHosts: configuredHostsOf(config),
+    });
   }
 
   if (typeof first.b64_json === 'string' && first.b64_json.trim()) {
@@ -762,7 +851,7 @@ async function generateSdWebUIImage(config: 文生图API配置, request: ImageGe
   };
   if (useImg2Img) {
     payload.init_images = await Promise.all(
-      referenceImages.map((item) => referenceSrcToBase64(item.src, request.signal)),
+      referenceImages.map((item) => referenceSrcToBase64(item.src, request.signal, configuredHostsOf(config))),
     );
     payload.denoising_strength = clampReferenceStrength(request.referenceStrength);
     payload.resize_mode = 1;
@@ -806,7 +895,7 @@ async function generateComfyUIImage(config: 文生图API配置, request: ImageGe
   }
   const referenceImages = normalizeReferenceImages(request.referenceImages);
   const firstReferenceImage = referenceImages[0]?.src
-    ? await referenceSrcToBase64(referenceImages[0].src, request.signal)
+    ? await referenceSrcToBase64(referenceImages[0].src, request.signal, configuredHostsOf(config))
     : '';
   const workflowText = config.comfyWorkflowJson
     .replaceAll('__PROMPT__', request.prompt.trim())
@@ -978,7 +1067,12 @@ async function pollComfyResult(config: 文生图API配置, promptId: string, sig
           subfolder: image.subfolder || '',
           type: image.type || 'output',
         });
-        return persistRemoteImage(joinUrl(config.baseUrl, `/view?${params.toString()}`), { model: config.model, backend: config.backend, signal });
+        return persistRemoteImage(joinUrl(config.baseUrl, `/view?${params.toString()}`), {
+          model: config.model,
+          backend: config.backend,
+          signal,
+          allowedHosts: configuredHostsOf(config),
+        });
       }
     }
   }
@@ -1002,7 +1096,14 @@ async function readNovelAIImageBlob(blob: Blob, contentType: string): Promise<{ 
   return { src: await blobToDataUrl(blob), mimeType };
 }
 
-async function persistRemoteImage(url: string, meta: { model?: string; backend?: string; signal?: AbortSignal }): Promise<ImageGenerationResult> {
+async function persistRemoteImage(
+  rawUrl: string,
+  meta: { model?: string; backend?: string; signal?: AbortSignal; allowedHosts?: readonly string[] },
+): Promise<ImageGenerationResult> {
+  const url = assertTrustedImageUrl(rawUrl, {
+    allowedHosts: meta.allowedHosts ?? [],
+    rejectionLabel: '上游返回的图片地址不受信任',
+  });
   try {
     const response = await fetch(url, { signal: meta.signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1015,13 +1116,10 @@ async function persistRemoteImage(url: string, meta: { model?: string; backend?:
       backend: meta.backend,
       originalUrl: url,
     };
-  } catch {
-    return {
-      src: url,
-      model: meta.model,
-      backend: meta.backend,
-      originalUrl: url,
-    };
+  } catch (error) {
+    // 下载失败时绝不把远端 URL 当结果回填：签名 URL 会随存档导出/云备份流出，
+    // 而且空壳结果会让玩家以为图片生成成功了。
+    throw new Error(`图片下载失败：${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

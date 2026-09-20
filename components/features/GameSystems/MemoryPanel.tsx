@@ -5,6 +5,8 @@ import { CLIP_ITEM, CLIP_SECTION, insetRing } from '@/styles/clipPaths';
 import { useState } from 'react';
 import { MEMORY_LAYER_COMPRESSION_THRESHOLD, type 记忆失败草稿, type 记忆系统 } from '@/models/memory';
 import type { 记忆系统设置 } from '@/models/settings';
+import { pushToast } from '@/utils/toastStore';
+import { toUserFacingError } from '@/utils/userFacingError';
 import {
   checkCompressionThreshold,
   checkMiddleTermThreshold,
@@ -22,6 +24,9 @@ interface MemoryPanelProps {
 }
 
 type MemoryLayer = 'immediate' | 'short' | 'middle' | 'long' | 'failed';
+
+/** 撤销提示的可见时长；比普通 toast 长，让玩家有时间反应。 */
+const UNDO_WINDOW_MS = 9000;
 
 
 
@@ -60,6 +65,29 @@ export function MemoryPanel({
   const [activeLayer, setActiveLayer] = useState<MemoryLayer>('immediate');
   const failedDrafts = failedDraftsProp ?? memorySystem.失败草稿 ?? [];
 
+  /**
+   * 执行一次记忆压缩，并保留压缩前的完整快照供撤销。
+   * 记忆系统是纯内存状态（onMemorySystemChange 是 setState），因此可以无损回滚。
+   */
+  const applyMemoryUpdate = (compute: () => 记忆系统) => {
+    const snapshot = memorySystem;
+    onMemorySystemChange(() => compute());
+    pushToast({
+      kind: 'info',
+      title: '记忆已整理',
+      detail: '覆盖了原始条目。点「撤销」可以回到整理前的状态。',
+      durationMs: UNDO_WINDOW_MS,
+      action: {
+        label: '撤销',
+        run: () => onMemorySystemChange(snapshot),
+      },
+    });
+  };
+
+  const announceCompression = (detail: string) => {
+    pushToast({ kind: 'info', title: '压缩完成', detail });
+  };
+
   const visibleTextItems =
     activeLayer === 'immediate'
       ? memorySystem.即时记忆
@@ -73,11 +101,15 @@ export function MemoryPanel({
 
   const handleCompressShort = () => {
     const threshold = settings.即时转短期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD;
+    // 压缩是破坏性操作（原始条目会被摘要替换）。改为「立即执行 + 撤销窗口」：
+    // 不再用原生 confirm 打断，撤销提示可把整套记忆原样还原。
     if (!checkCompressionThreshold(memorySystem, threshold)) {
-      if (!confirm(`即时记忆不足 ${threshold} 条，仍要压缩当前累积内容到短期？`)) return;
+      announceCompression('即时记忆条数不足阈值，已按当前累积内容压缩到短期。');
+    } else {
+      announceCompression('已压缩即时记忆到短期。');
     }
-    onMemorySystemChange((prev) => {
-      let next = prev;
+    applyMemoryUpdate(() => {
+      let next = memorySystem;
       if (next.即时记忆.length > 0 && next.即时记忆.length < threshold) {
         return compressToShortTerm(next, turnCount, next.即时记忆.length);
       }
@@ -91,10 +123,12 @@ export function MemoryPanel({
   const handleCompressMiddle = () => {
     const threshold = settings.短期转中期阈值 || settings.短期转长期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD;
     if (!checkMiddleTermThreshold(memorySystem, threshold)) {
-      if (!confirm(`短期记忆不足 ${threshold} 条，仍要压缩当前累积内容到中期？`)) return;
+      announceCompression('短期记忆条数不足阈值，已按当前累积内容压缩到中期。');
+    } else {
+      announceCompression('已压缩短期记忆到中期。');
     }
-    onMemorySystemChange((prev) => {
-      let next = prev;
+    applyMemoryUpdate(() => {
+      let next = memorySystem;
       if (next.短期记忆.length > 0 && next.短期记忆.length < threshold) {
         return compressToMiddleTerm(next, turnCount, next.短期记忆.length);
       }
@@ -108,10 +142,12 @@ export function MemoryPanel({
   const handleCompressLong = () => {
     const threshold = settings.中期转长期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD;
     if (!checkLongTermThreshold(memorySystem, threshold)) {
-      if (!confirm(`中期记忆不足 ${threshold} 条，仍要压缩当前累积内容到长期？`)) return;
+      announceCompression('中期记忆条数不足阈值，已按当前累积内容压缩到长期。');
+    } else {
+      announceCompression('已压缩中期记忆到长期。');
     }
-    onMemorySystemChange((prev) => {
-      let next = prev;
+    applyMemoryUpdate(() => {
+      let next = memorySystem;
       const middle = next.中期记忆 ?? [];
       if (middle.length > 0 && middle.length < threshold) {
         return compressToLongTerm(next, turnCount, middle.length);
@@ -196,7 +232,7 @@ export function MemoryPanel({
                     </span>
                   </div>
                   <div
-                    className="mt-1 truncate font-serif text-[11px]"
+                    className="mt-1 font-serif text-[12px]"
                     style={{ color: 'rgba(var(--tj-text-secondary), 0.74)' }}
                   >
                     {meta.subtitle}
@@ -440,11 +476,11 @@ function FailedDraftRow({
           {statusLabel}
         </span>
       </div>
-      <div className="mt-1 text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
+      <div className="mt-1 text-[12px]" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
         {draft.failureCode} · {dateLabel} · 已尝试 {draft.attemptCount} 次
       </div>
       <div className="mt-2 whitespace-pre-wrap break-words text-[12px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-primary), 0.9)' }}>
-        {draft.failureMessage || '总结接口未返回可用内容。'}
+        {draft.failureMessage ? toUserFacingError(new Error(draft.failureMessage), { fallback: '总结接口未返回可用内容。' }) : '总结接口未返回可用内容。'}
       </div>
       {draft.fallbackSummary && (
         <div className="mt-2 border-l-2 border-[rgba(var(--tj-accent-primary),0.35)] pl-2 text-[12px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.84)' }}>

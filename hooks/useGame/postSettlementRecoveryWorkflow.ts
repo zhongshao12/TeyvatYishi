@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom';
 import { applyLegacyGameStateOverrides, toLegacyTurnCheckpoint, type UseGameStateReturn } from '@/hooks/useGameState';
 import { narrativeTurnBodyText } from '@/models/teyvat/narrativeTurn';
 import { normalizeTeyvatGameState, type TeyvatGameState } from '@/models/teyvat/state';
@@ -13,6 +14,82 @@ import { buildSavePayload, commitActiveSaveTreeMeta } from './saveLoadWorkflow';
 import { runSteambirdGenerationStep } from './steambirdWorkflow';
 
 /**
+ * 存档身份令牌。
+ *
+ * 只取「读入另一份存档 / 开新局一定会变、而同一存档内的 手机 / NPC 等增量更新不会变」的真实字段：
+ * 回合数 + 对话条目数 + 对话条目 id 序列指纹。
+ * 不取 `state.game` 的对象引用：任何一次 updateGameState 都会换引用，会误判成「换存档」。
+ * 指纹覆盖全部条目（FNV-1a）而不是只看最后一条：旧存档 / 导入存档的 id 可能很短且跨存档重名，
+ * 只看尾巴会把「另一份存档」误判成「同一份存档」。
+ */
+export interface PostSettlementSaveToken {
+  turnCount: number;
+  conversationLength: number;
+  conversationFingerprint: string;
+}
+
+function fingerprintConversationIds(entries: readonly { id: string }[]): string {
+  let hash = 0x811c9dc5;
+  for (const entry of entries) {
+    const id = String(entry.id);
+    for (let index = 0; index < id.length; index += 1) {
+      hash ^= id.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    // 条目分隔符，避免 ['ab','c'] 与 ['a','bc'] 撞成同一个指纹。
+    hash ^= 0x1f;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+export function capturePostSettlementSaveToken(game: TeyvatGameState): PostSettlementSaveToken {
+  const entries = game.对话.entries;
+  return {
+    turnCount: Math.trunc(Number(game.turnCount) || 0),
+    conversationLength: entries.length,
+    conversationFingerprint: fingerprintConversationIds(entries),
+  };
+}
+
+export function isSamePostSettlementSave(
+  left: PostSettlementSaveToken,
+  right: PostSettlementSaveToken,
+): boolean {
+  return left.turnCount === right.turnCount
+    && left.conversationLength === right.conversationLength
+    && left.conversationFingerprint === right.conversationFingerprint;
+}
+
+/**
+ * 提交恢复尾流程算出的 backgroundState，但只在「提交那一刻的活体存档」仍是开始恢复时的同一份存档时。
+ *
+ * 为什么不能先比较再 `replaceGameState`：`UseGameStateReturn` 是**每次渲染一份的快照**，
+ * await 之后 `state.game` 还是旧值，读档并不会改变它；`replaceGameState(next)` 又是无条件覆盖，
+ * 于是玩家在等待期间读入的存档会被旧快照整体覆盖（数据损坏）。
+ * 只有 setState 的 updater 形式能在**提交那一刻**读到 React 的真实存档（current），
+ * 所以这里用 updater 做 CAS；`flushSync` 用来同步拿到 CAS 结果，
+ * 避免出现「状态没写、却把旧快照落盘」的二次损坏（落盘会挂到新存档的存档树节点下）。
+ *
+ * @returns 是否真的把 backgroundState 写回了根状态。
+ */
+export function commitPostSettlementBackgroundState(
+  state: UseGameStateReturn,
+  token: PostSettlementSaveToken,
+  next: TeyvatGameState,
+): boolean {
+  let committed = false;
+  flushSync(() => {
+    state.updateGameState((current) => {
+      if (!isSamePostSettlementSave(capturePostSettlementSaveToken(current), token)) return current;
+      committed = true;
+      return next;
+    });
+  });
+  return committed;
+}
+
+/**
  * Idempotent work after the settlement boundary. This module is lazy-loaded
  * only after an interrupted committed turn needs recovery.
  */
@@ -20,8 +97,11 @@ export async function runPostSettlementRecoveryWorkflow(
   state: UseGameStateReturn,
   journal: WorkflowRecoveryJournal,
   committedOverride?: TeyvatGameState,
-): Promise<void> {
-  if (journal.phase !== 'settlement_committed') return;
+): Promise<{ committed: boolean }> {
+  if (journal.phase !== 'settlement_committed') return { committed: false };
+  // 本流程唯一的长耗时 await（正文生图，可能数十秒）之前先钉住存档身份；
+  // 期间的读档 / 开新局会在提交时被下文的 CAS 守卫拦下。
+  const saveToken = capturePostSettlementSaveToken(state.game);
   const committed = normalizeTeyvatGameState(committedOverride ?? journal.committedState ?? state.game);
   const committedHistory = committed.对话.entries;
   const assistant = journal.assistantMessageId
@@ -158,10 +238,13 @@ export async function runPostSettlementRecoveryWorkflow(
     ...backgroundState,
     对话: { entries: conversation },
   }, { 相册: album });
-  state.replaceGameState(backgroundState);
+  // 守卫：正文生图等待期间若玩家读档 / 开新局，活体存档已经不是这份 journal 的存档，
+  // 旧快照绝不能写回去（也绝不落盘），直接放弃本次恢复尾流程。
+  if (!commitPostSettlementBackgroundState(state, saveToken, backgroundState)) return { committed: false };
 
   const saveData = buildSavePayload(state, 'auto', undefined, backgroundState);
   await saveGame(saveData);
   commitActiveSaveTreeMeta(saveData);
   state.setHasSave(true);
+  return { committed: true };
 }

@@ -8,6 +8,7 @@ import { appendCourierMessage, calculateCourierUnread, canAddNpcToCourierContact
 import { 解析相册资源引用 } from '@/utils/albumActions';
 import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { useModalAccessibility } from '@/components/ui/Modal';
+import { pushToast } from '@/utils/toastStore';
 import { CourierConversationList } from './CourierConversationList';
 import { CourierMessageTimeline } from './CourierMessageTimeline';
 import { CourierContactTools } from './CourierContactTools';
@@ -31,6 +32,8 @@ type MobileView = 'list' | 'chat';
 const INITIAL_VISIBLE_MESSAGES = 80;
 const VISIBLE_MESSAGE_INCREMENT = 80;
 const INITIAL_VISIBLE_CONVERSATIONS = 60;
+/** 解散群聊的撤销窗口；比普通 toast 长，避免玩家来不及反应。 */
+const UNDO_WINDOW_MS = 9000;
 
 const gold = 'rgb(var(--tj-accent-primary))';
 const goldSoft = (alpha: number) => `rgba(var(--tj-accent-primary), ${alpha})`;
@@ -201,12 +204,29 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
 
   const dissolveSelectedGroup = () => {
     if (!selected || selected.type !== 'group') return;
-    if (!window.confirm(`确定解散群聊“${selected.title || '未命名群聊'}”吗？群聊记录会被删除，但联系人和私聊会保留。`)) return;
+    // 破坏性操作改为「立即执行 + 撤销窗口」：手机系统是纯状态更新，
+    // 解散前的完整快照可以在撤销窗口内原样写回，所以不再需要原生 confirm。
+    const snapshot = courier;
+    const dissolvedTitle = selected.title || '未命名群聊';
     const nextSelectedId = courier.conversations.find((conversation) => conversation.id !== selected.id)?.id ?? '';
     commit((previous) => dissolveCourierGroupConversation(previous, selected.id));
     setShowGroupEditor(false);
     setSelectedId(nextSelectedId);
     setMobileView('list');
+    pushToast({
+      kind: 'info',
+      title: `已解散「${dissolvedTitle}」`,
+      detail: '群聊记录已移除，联系人与私聊保留。点「撤销」可以恢复。',
+      durationMs: UNDO_WINDOW_MS,
+      action: {
+        label: '撤销',
+        run: () => {
+          onCourierChange(() => snapshot);
+          setSelectedId(selected.id);
+          setMobileView('chat');
+        },
+      },
+    });
   };
 
   const sendMessage = () => {
@@ -351,7 +371,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
               <div className="min-w-0">
                 <h3 className="truncate font-serif text-lg tracking-wide">{selected?.title ?? '消息'}</h3>
                 {selected?.type === 'group' && (
-                  <p className="truncate text-[11px]" style={{ color: muted(0.75) }}>
+                  <p className="break-words text-[12px]" style={{ color: muted(0.75) }}>
                     {selected.participantIds.map(memberName).join('、')}
                   </p>
                 )}

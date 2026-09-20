@@ -53,7 +53,7 @@ const CourierConversationListItem = memo(function CourierConversationListItem({
         )}
       </div>
       <div className="mt-0.5 flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-[11px]" style={{ color: muted(0.8) }}>
+        <span className="min-w-0 break-words text-[12px]" style={{ color: muted(0.8) }}>
           {last ? `${last.senderName}：${last.content.slice(0, 24)}` : TYPE_LABELS[conversation.type]}
         </span>
         <span className="shrink-0 text-[10px]" style={{ color: muted(0.6) }}>

@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { normalizeNovelAITaskOverrides, normalizeStorySnapshotRenderContext, 读取图片参考目标 } from '@/models/imageGeneration';
 import type { NovelAITaskOverrides, StorySnapshotRenderContext, 图片槽位, 图片生成任务, 图片生成任务来源, 图片目标类型, 相册条目, 相册系统 } from '@/models/imageGeneration';
@@ -30,6 +30,7 @@ import {
   revokeAlbumAssets,
 } from '@/utils/albumObjectUrl';
 import { generateImage } from '@/services/ai/imageGeneration';
+import { useModalAccessibility } from '@/components/ui/Modal';
 import { ImageRuleTemplateEditor } from '@/components/features/ImageGeneration/ImageRuleTemplateEditor';
 import { ImageGenerationSettingsTab } from '@/components/features/Settings/ImageGenerationSettingsTab';
 import { parseSceneImagePrompt } from '@/services/ai/narrativeImageParse';
@@ -958,6 +959,8 @@ export function BaseGenerationFields(props: {
 }
 
 export function ImagePreviewModal({ open, src, title, onClose }: { open: boolean; src: string; title: string; onClose: () => void }) {
+  const dialogRef = useModalAccessibility<HTMLDivElement>(onClose, open && Boolean(src));
+
   useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;
@@ -972,33 +975,36 @@ export function ImagePreviewModal({ open, src, title, onClose }: { open: boolean
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center px-4 py-5"
       style={{ background: 'rgba(0,0,0,0.86)' }}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
       onClick={onClose}
     >
-      <button
-        type="button"
-        onClick={onClose}
-        className="fixed right-5 top-5 z-[10001] min-h-11 px-4 py-2 font-serif text-xs tracking-[0.16em]"
-        style={{
-          color: 'rgb(var(--tj-ui-active-text))',
-          background: 'linear-gradient(135deg, rgb(var(--tj-btn-primary-start)), rgb(var(--tj-btn-primary-end)))',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.48), 0 12px 36px rgba(0,0,0,0.42)',
-          clipPath: smallClip,
-        }}
-      >
-        关闭
-      </button>
       <div
+        ref={dialogRef}
         className="relative flex h-[92vh] w-full max-w-6xl items-center justify-center overflow-hidden px-4 py-12"
         style={{
           background: 'linear-gradient(180deg, rgb(var(--tj-bg-primary)), rgb(var(--tj-bg-secondary)))',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start),0.42), 0 24px 80px rgba(0,0,0,0.62)',
           clipPath: cardClip,
         }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={`关闭${title}预览`}
+          className="fixed right-5 top-5 z-[10001] min-h-11 px-4 py-2 font-serif text-xs tracking-[0.16em]"
+          style={{
+            color: 'rgb(var(--tj-ui-active-text))',
+            background: 'linear-gradient(135deg, rgb(var(--tj-btn-primary-start)), rgb(var(--tj-btn-primary-end)))',
+            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary),0.48), 0 12px 36px rgba(0,0,0,0.42)',
+            clipPath: smallClip,
+          }}
+        >
+          关闭
+        </button>
         <div className="absolute left-5 top-4 max-w-[70%] truncate font-serif text-xs tracking-[0.14em]" style={{ color: 'rgba(var(--tj-btn-primary-start),0.82)' }}>
           {title}
         </div>
@@ -1030,19 +1036,16 @@ export function SlotPickerModal({
   onClose: () => void;
   onSelect: (slot: 图片槽位) => void;
 }) {
+  const dialogRef = useModalAccessibility<HTMLDivElement>(onClose, open);
+
   useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
     return () => {
       document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', onKeyDown);
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   const slots: Array<{ slot: 图片槽位; title: string; desc: string }> = [
@@ -1055,18 +1058,20 @@ export function SlotPickerModal({
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center px-4 py-5"
       style={{ background: 'rgba(0,0,0,0.78)' }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="设置到槽位"
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         className="w-full max-w-xl px-4 py-4"
         style={{
           background: 'linear-gradient(180deg, rgb(var(--tj-bg-primary)), rgb(var(--tj-bg-secondary)))',
           boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start),0.38), 0 24px 80px rgba(0,0,0,0.58)',
           clipPath: cardClip,
         }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="设置到槽位"
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">

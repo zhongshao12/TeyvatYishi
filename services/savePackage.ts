@@ -9,6 +9,13 @@ import {
 import type { ParsedSavePackage, TeyvatSaveManifest } from '@/models/teyvat/save';
 import { compactDuplicatedSaveImages } from '@/utils/saveImageCompactor';
 import { expandSaveAssetPayloadForExport } from '@/utils/saveAssetStorage';
+import { readByteStreamWithLimit } from '@/services/cloudBackupPackage';
+import {
+  collectApiKeySecrets,
+  findApiKeyFieldPaths,
+  findLeakedSecrets,
+  redactApiKeysDeep,
+} from '@/services/storage/sensitiveSettings';
 import { concatBytes, crc32 } from '@/utils/zip';
 
 const PACKAGE_VERSION = 2;
@@ -65,8 +72,11 @@ type ZipEntryOutput = ZipEntryInput & {
 
 export async function buildSavePackage(save: 存档数据 | TeyvatSaveData): Promise<Blob> {
   assertTeyvatSaveForWrite(save);
+  // 导出边界真实剥离：不再依赖 schema-2 白名单的副作用顺手丢字段。
+  const secrets = collectApiKeySecrets(save);
   const expanded = await expandSaveAssetPayloadForExport(save as unknown as 存档数据);
   const portable = sanitizeTeyvatSaveForExport(expanded as unknown as TeyvatSaveData);
+  const safePortable = redactApiKeysDeep(portable);
   const manifest: TeyvatSaveManifest = {
     app: 'KaiTuoYiShi',
     kind: 'save-package',
@@ -76,22 +86,27 @@ export async function buildSavePackage(save: 存档数据 | TeyvatSaveData): Pro
     schemaVersion: TEYVAT_SCHEMA_VERSION,
     files: ['manifest.json', 'save.json'],
   };
-  return new Blob([await createZip([
+  const entries = [
     textEntry('manifest.json', manifest),
-    textEntry('save.json', portable),
-  ])], { type: 'application/zip' });
+    textEntry('save.json', safePortable),
+  ];
+  assertNoApiKeyFieldsInExport(entries);
+  return new Blob([await createZip(entries)], { type: 'application/zip' });
 }
 
 export async function buildSaveTreePackage(saves: Array<存档数据 | TeyvatSaveData>): Promise<Blob> {
   const candidates = saves.filter((save) => save && typeof save === 'object');
   if (!candidates.length) throw new Error('没有可导出的存档树节点');
   for (const save of candidates) assertTeyvatSaveForWrite(save);
+  const secrets = candidates.flatMap((save) => collectApiKeySecrets(save));
   const expandedSaves = await Promise.all(
     candidates.map((save) => expandSaveAssetPayloadForExport(save as unknown as 存档数据)),
   );
   const normalized = expandedSaves
-    .map((save) => sanitizeTeyvatSaveForExport(save as unknown as TeyvatSaveData))
+    .map((save) => redactApiKeysDeep(sanitizeTeyvatSaveForExport(save as unknown as TeyvatSaveData)))
     .sort((a, b) => readSaveTimestamp(a) - readSaveTimestamp(b) || readSaveId(a) - readSaveId(b));
+  // 说明：这里每个节点都已经过 sanitizeTeyvatSaveForExport 归一化 + redactApiKeysDeep 剥离，
+  // 单包路径（buildSavePackage）保留 `const portable = sanitizeTeyvatSaveForExport` 的边界写法。
   const first = normalized[0];
   const latest = [...normalized].sort((a, b) => readSaveTimestamp(b) - readSaveTimestamp(a))[0];
   if (!first || !latest) throw new Error('没有可导出的有效存档树节点');
@@ -127,6 +142,8 @@ export async function buildSaveTreePackage(saves: Array<存档数据 | TeyvatSav
     [TREE_MANIFEST_PATH, treeManifest],
     ...nodeEntries.map((entry) => [entry.path, entry.save] as [string, unknown]),
   ];
+  const dataEntries = files.map(([name, value]) => textEntry(name, value));
+  assertNoApiKeyFieldsInExport(dataEntries);
   const manifest: TeyvatSaveManifest & Record<string, unknown> = {
     app: 'KaiTuoYiShi',
     kind: 'save-tree-package',
@@ -140,15 +157,21 @@ export async function buildSaveTreePackage(saves: Array<存档数据 | TeyvatSav
     format: 'ktysave',
     nodeCount: nodeEntries.length,
     rootId,
+    // 真实检测结果，不是无条件声明：扫描将要写入 ZIP 的原始文本，
+    // 只要还能找到输入里携带的任一供应商 Key 就如实声明 false。
     privacy: {
-      apiKeysRemoved: true,
+      apiKeysRemoved: findLeakedSecrets(readEntryTexts(dataEntries), secrets).length === 0,
     },
     files: ['manifest.json', ...files.map(([name]) => name)],
   };
-  const entries = [
-    textEntry('manifest.json', manifest),
-    ...files.map(([name, value]) => textEntry(name, value)),
-  ];
+  let manifestEntry = textEntry('manifest.json', manifest);
+  // manifest 自身也要复核：travelerName 等字段取自存档，同样可能夹带 Key。
+  assertNoApiKeyFieldsInExport([manifestEntry]);
+  if (findLeakedSecrets([decoder.decode(manifestEntry.bytes)], secrets).length > 0) {
+    manifest.privacy = { apiKeysRemoved: false };
+    manifestEntry = textEntry('manifest.json', manifest);
+  }
+  const entries = [manifestEntry, ...dataEntries];
   return new Blob([await createZip(entries)], { type: 'application/zip' });
 }
 
@@ -284,6 +307,30 @@ function textEntry(name: string, value: unknown): ZipEntryInput {
     name,
     bytes: encoder.encode(JSON.stringify(value, null, 2)),
   };
+}
+
+/** 导出产物的原始文本：检测必须针对真正要写进 ZIP 的字节。 */
+function readEntryTexts(entries: readonly ZipEntryInput[]): string[] {
+  return entries.map((entry) => decoder.decode(entry.bytes));
+}
+
+/**
+ * 结构性复核：产物的 JSON 树里不得再出现任何仍然带值的 apiKey 字段。
+ * 这一条如果不成立，说明剥离逻辑本身漏了路径，必须中止导出。
+ */
+function assertNoApiKeyFieldsInExport(entries: readonly ZipEntryInput[]): void {
+  const leakedFieldPaths = readEntryTexts(entries).flatMap((text) => findApiKeyFieldPaths(safeJsonParse(text)));
+  if (leakedFieldPaths.length > 0) {
+    throw new Error(`存档包导出检测到 API Key 残留，已中止导出：${leakedFieldPaths.join('、')}`);
+  }
+}
+
+function safeJsonParse(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 function validatePackageManifest(manifest: SavePackageManifestInput, files: Map<string, string>): void {
@@ -490,10 +537,42 @@ function writeCentralHeader(view: DataView, entry: ZipEntryOutput, nameBytes: Ui
 }
 
 async function readZip(buffer: ArrayBuffer): Promise<Map<string, string>> {
+  return readSavePackageEntries(buffer);
+}
+
+export interface SavePackageReadLimits {
+  /** 单个条目解压后的字节上限。 */
+  maxEntryBytes?: number;
+  /** 整包所有条目解压后的累计字节上限。 */
+  maxTotalUnpackedBytes?: number;
+}
+
+/** 单个条目解压上限（与云备份分卷的条目上限同量级）。 */
+export const SAVE_PACKAGE_ENTRY_LIMIT_BYTES = 256 * 1024 * 1024;
+/** 整包解压累计上限（与相册备份的数据总量上限一致）。 */
+export const SAVE_PACKAGE_UNPACKED_LIMIT_BYTES = 512 * 1024 * 1024;
+export const SAVE_PACKAGE_LIMIT_MESSAGE = '存档包解压后大小超过安全上限。';
+
+/**
+ * 读取存档包 ZIP 条目。
+ *
+ * 解压必须是限额流式解压：小体积 DEFLATE 可以膨胀到几百 MB，
+ * 只在解压完成后拿长度跟头部声明值比对等于没有上限。
+ * 这里照抄 services/cloudBackupPackage.ts 的限额模式：
+ * 先按头部声明值做 O(1) 预检，再用 readByteStreamWithLimit 累计拦截谎报大小的条目。
+ */
+export async function readSavePackageEntries(
+  buffer: ArrayBuffer,
+  limits: SavePackageReadLimits = {},
+): Promise<Map<string, string>> {
+  const maxEntryBytes = limits.maxEntryBytes ?? SAVE_PACKAGE_ENTRY_LIMIT_BYTES;
+  const maxTotalUnpackedBytes = limits.maxTotalUnpackedBytes ?? SAVE_PACKAGE_UNPACKED_LIMIT_BYTES;
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
   const files = new Map<string, string>();
   let offset = 0;
+  let declaredTotalBytes = 0;
+  let unpackedTotalBytes = 0;
   while (offset + 30 <= bytes.length) {
     const signature = view.getUint32(offset, true);
     if (signature === 0x02014b50 || signature === 0x06054b50) break;
@@ -509,9 +588,16 @@ async function readZip(buffer: ArrayBuffer): Promise<Map<string, string>> {
     const dataStart = nameStart + nameLength + extraLength;
     const dataEnd = dataStart + compressedSize;
     if (dataEnd > bytes.length) throw new Error('存档包文件长度异常');
+    if (fileSize > maxEntryBytes) throw new Error(SAVE_PACKAGE_LIMIT_MESSAGE);
+    declaredTotalBytes += fileSize;
+    if (declaredTotalBytes > maxTotalUnpackedBytes) throw new Error(SAVE_PACKAGE_LIMIT_MESSAGE);
     const name = decoder.decode(bytes.slice(nameStart, nameStart + nameLength));
     const compressedData = bytes.slice(dataStart, dataEnd);
-    const data = compression === 8 ? await inflateRaw(compressedData) : compressedData;
+    const data = compression === 8
+      ? await inflateRaw(compressedData, maxEntryBytes)
+      : compressedData;
+    unpackedTotalBytes += data.length;
+    if (unpackedTotalBytes > maxTotalUnpackedBytes) throw new Error(SAVE_PACKAGE_LIMIT_MESSAGE);
     if (data.length !== fileSize) throw new Error('存档包条目大小异常');
     if (crc32(data) !== crc) throw new Error(`存档包条目校验失败：${name}`);
     files.set(name, decoder.decode(data));
@@ -529,20 +615,25 @@ async function deflateRawIfAvailable(bytes: Uint8Array): Promise<Uint8Array | nu
   }
 }
 
-async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
+async function inflateRaw(bytes: Uint8Array, maxOutputBytes: number): Promise<Uint8Array> {
   if (!('DecompressionStream' in globalThis)) {
     throw new Error('当前浏览器不支持压缩存档包解压，请更新浏览器或使用未压缩旧包');
   }
-  return runDecompressionStream(bytes, 'deflate-raw');
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  try {
+    return await readByteStreamWithLimit(stream, maxOutputBytes);
+  } catch (error) {
+    // readByteStreamWithLimit 是云备份引入的共享限额读取器，这里把它的上限文案
+    // 换成存档包语境（两者共用同一段中文后缀），其它错误原样抛出。
+    if (error instanceof Error && error.message.includes('解压后大小超过安全上限')) {
+      throw new Error(SAVE_PACKAGE_LIMIT_MESSAGE);
+    }
+    throw error;
+  }
 }
 
 async function runCompressionStream(bytes: Uint8Array, format: CompressionFormat): Promise<Uint8Array> {
   const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream(format));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
-async function runDecompressionStream(bytes: Uint8Array, format: CompressionFormat): Promise<Uint8Array> {
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 

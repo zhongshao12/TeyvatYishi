@@ -11,7 +11,7 @@ type OpenCodeProxyBody = {
   stream?: boolean;
 };
 
-function assertOpenCodeBaseUrl(baseUrl: string): string {
+export function assertOpenCodeBaseUrl(baseUrl: string): string {
   const base = normalizeOpenCodeBaseUrl(baseUrl);
   if (!/^https:\/\/opencode\.ai\/zen\/v1(?:\/|$)/i.test(base)) {
     throw new Error('仅允许代理 OpenCode Zen：opencode.ai/zen/v1。');

@@ -373,6 +373,10 @@ function ToggleRow({
         </div>
       </div>
       <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
         onClick={() => onChange(!checked)}
         className="relative h-6 w-11 flex-shrink-0 transition-all"
         style={{

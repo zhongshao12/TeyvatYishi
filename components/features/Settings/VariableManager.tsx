@@ -1150,6 +1150,8 @@ function NsfwTagEditor({ label, items, onChange, multiline }: {
               />
             )}
             <button
+              type="button"
+              aria-label={`删除${label} ${idx + 1}`}
               onClick={() => onChange(items.filter((_, i) => i !== idx))}
               className="flex-shrink-0 px-1.5 py-1 text-[10px]"
               style={{ color: 'rgba(255,135,135,0.86)', boxShadow: 'inset 0 0 0 1px rgba(255,135,135,0.22)', clipPath: CLIP_SMALL }}
@@ -1170,6 +1172,8 @@ function NsfwTagEditor({ label, items, onChange, multiline }: {
           spellCheck={false}
         />
         <button
+          type="button"
+          aria-label={`添加${label}`}
           onClick={add}
           className="flex-shrink-0 px-2 py-1 text-[10px]"
           style={{ color: 'rgba(165,230,170,0.94)', boxShadow: 'inset 0 0 0 1px rgba(165,230,170,0.25)', clipPath: CLIP_SMALL }}

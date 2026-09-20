@@ -27,6 +27,56 @@ const readInt = (v: unknown): number | null => {
   return value === null ? null : Math.floor(value);
 };
 
+// ── 导入白名单 ───────────────────────────────────────────────────
+// ST 预设 JSON 由第三方提供，只有下面这些字段会被本项目消费。
+// 其余键（任意自定义属性、体积巨大的附属数据等）一律不进入 settings，
+// 避免导入文件的未知内容被持久化并随存档/云备份流出。
+
+const ST_PRESET_FIELDS = [
+  'prompts',
+  'prompt_order',
+  'world_info',
+  'regex_scripts',
+  'temperature',
+  'top_p',
+  'top_k',
+  'top_a',
+  'min_p',
+  'max_tokens',
+  'openai_max_tokens',
+  'openai_max_context',
+  'max_context',
+  'repetition_penalty',
+  'frequency_penalty',
+  'presence_penalty',
+  'assistant_prefill',
+] as const;
+
+const ST_PROMPT_FIELDS = [
+  'identifier',
+  'name',
+  'role',
+  'content',
+  'marker',
+  'system_prompt',
+  'injection_position',
+  'injection_depth',
+  'injection_order',
+  'forbid_overrides',
+] as const;
+
+/** 只复制白名单里的自有属性，其余键（含 __proto__ 之类的注入键）直接丢弃。 */
+function pickKnownFields(source: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
+  const picked: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(source, field)) continue;
+    const value = source[field];
+    if (typeof value === 'undefined') continue;
+    picked[field] = value;
+  }
+  return picked;
+}
+
 // ── 规范化单个 prompt ────────────────────────────────────────────
 
 export function normalizeSTPrompt(raw: unknown): STPresetPrompt | null {
@@ -49,11 +99,12 @@ export function normalizeSTPrompt(raw: unknown): STPresetPrompt | null {
   if (!content && !marker) return null;
 
   return {
-    ...obj,
+    ...pickKnownFields(obj, ST_PROMPT_FIELDS),
     identifier,
     name: readText(obj.name) || readText(obj.title) || undefined,
     role,
     content,
+    marker: readBool(obj.marker),
     system_prompt: readBool(obj.system_prompt),
     injection_position: readInt(obj.injection_position) ?? undefined,
     injection_depth: readInt(obj.injection_depth) ?? undefined,
@@ -168,7 +219,7 @@ export function normalizeSTPreset(raw: unknown): STPreset | null {
   if (prompts.length === 0 || promptOrder.length === 0) return null;
 
   return {
-    ...obj,
+    ...pickKnownFields(obj, ST_PRESET_FIELDS),
     prompts,
     prompt_order: promptOrder,
     ...extractSamplingParams(obj),

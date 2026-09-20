@@ -2638,10 +2638,19 @@ function ModuleItem({
         <span
           role="switch"
           aria-checked={toggleDisabled || m.enabled}
+          aria-label={`切换模块 ${m.id}`}
+          tabIndex={toggleDisabled ? -1 : 0}
           title={toggleDisabled ? '独立模型展示模块不是真实请求开关' : m.enabled ? '已启用' : '已关闭'}
           onClick={(e) => {
             e.stopPropagation();
             if (!toggleDisabled) onToggle(m.id);
+          }}
+          onKeyDown={(e) => {
+            if (toggleDisabled) return;
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            e.stopPropagation();
+            onToggle(m.id);
           }}
           className="relative inline-flex h-4 w-7 flex-shrink-0 cursor-pointer items-center transition-all"
           style={{

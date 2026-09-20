@@ -52,14 +52,38 @@ describe('desktop settings batching', () => {
     expect(sharedWrites[0]?.[1]).toMatchObject({
       settings: {
         theme: { id: 'warm' },
-        apiSettings: { configs: [] },
         gameSettings: { enableStreaming: true },
       },
     });
+    // 携带 API Key 的设置必须走专用 sidecar，而不是共享的 settings.json。
+    expect((sharedWrites[0]?.[1] as { settings: Record<string, unknown> }).settings).not.toHaveProperty('apiSettings');
+    expect(storage.writeJson).toHaveBeenCalledWith(
+      'config/api-settings.json',
+      expect.objectContaining({ key: 'apiSettings', value: { configs: [] } }),
+    );
     expect(storage.writeJson).toHaveBeenCalledWith(
       'worldbooks/worldbooks.json',
       expect.objectContaining({ key: 'worldbooks' }),
     );
+  });
+
+  it('keeps provider API keys out of the shared config/settings.json mirror', async () => {
+    const batchWrite = Reflect.get(desktopSettings, 'mirrorSettingsToDesktop');
+    const secret = 'sk-live-mirror-secret';
+
+    await batchWrite({
+      theme: { id: 'warm' },
+      apiSettings: { activeConfigId: 'a', configs: [{ id: 'a', apiKey: secret }] },
+      gameSettings: { enableStreaming: true },
+    });
+
+    const sharedWrites = storage.writeJson.mock.calls.filter(([path]) => path === 'config/settings.json');
+    const sharedText = JSON.stringify(sharedWrites.map(([, value]) => value));
+    expect(sharedText).not.toContain(secret);
+    expect(sharedText).not.toContain('apiKey');
+
+    // 取舍：Key 仍然持久化在专用 sidecar 里，保证重启后主剧情/变量等仍能直接使用。
+    expect(JSON.stringify(storage.records.get('config/api-settings.json'))).toContain(secret);
   });
 
   it('commits the end-of-turn settings snapshot in one batch', () => {

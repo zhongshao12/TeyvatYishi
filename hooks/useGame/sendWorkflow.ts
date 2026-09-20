@@ -112,7 +112,7 @@ import { buildOpeningSteambirdPreprocess } from './openingSteambirdStage';
 import { settlePostTurnElements } from './postTurnElementalStage';
 import { settlePostNarrativeMemory } from './postNarrativeMemoryStage';
 
-function stripLeakedHistoryMetaFromBody(body: string): string {
+export function stripLeakedHistoryMetaFromBody(body: string): string {
   if (!body) return body;
   return body
     .split(/\r?\n/)
@@ -284,7 +284,7 @@ function buildRecentTurnWindowForSteambird(history: 聊天消息[], currentUserI
   return pairs.slice(-windowSize);
 }
 
-async function revealStreamingPreview(
+export async function revealStreamingPreview(
   state: UseGameStateReturn,
   text: string,
   signal?: AbortSignal,
@@ -999,151 +999,51 @@ export async function executeSendWorkflow(
 
     if (abortController.signal.aborted || !isCurrentWorkflow()) return;
 
-    // 5. Build AI message
-    const duration = (Date.now() - startTime) / 1000;
-    pushQueueTask(state, 'main_story', 'success', {
-      detail: `正文生成完成，用时 ${Math.round(duration)}s。`,
-    });
-    const cleanedParsed = sanitizeParsedResponse(result.parsed, state.gameSettings.额外功能);
-    const parsedBody = normalizePlayerSpeechInBody({
-      body: narrativeTurnBodyText(cleanedParsed),
-      playerName: state.旅人.姓名 || state.旅人.别名 || '你',
+    // 5. Build AI message（已抽到 aiMessageStage，M6 阶段 5）。懒加载 + 原始位置回写外层可变量。
+    const { runAiMessageStage } = await import('./aiMessageStage');
+    const aiMessageStage = await runAiMessageStage({
+      state,
       userInput,
-    });
-    const finalBody = stripLeakedHistoryMetaFromBody(sanitizeContaminatedText(parsedBody, state.gameSettings.额外功能)).trim();
-    const displayText = finalBody;
-    if (state.gameSettings.enableStreaming) {
-      if (streamingSession.eventCount > 0) {
-        await streamingSession.waitForPending();
-      } else if (displayText.trim()) {
-        await revealStreamingPreview(state, displayText, abortController.signal, {
-          delayMs: 16,
-          minChunks: 8,
-        });
-      }
-      streamMessageSetter.flush('');
-    } else {
-      streamMessageSetter.cancel();
-    }
-    const finalBodyBlocks: NarrativeTurn['body'] = finalBody
-      ? [{ kind: 'narration', text: finalBody }]
-      : [];
-    const validatedFactCandidates = revalidateFactCandidatesForBody(cleanedParsed.factCandidates, finalBodyBlocks);
-    const validatedFactKeys = new Set(validatedFactCandidates.map((candidate) => `${candidate.domain}\u0000${candidate.fact}\u0000${candidate.evidence}`));
-    const narrativeNormalizationWarnings = [
-      ...getNarrativeTurnNormalizationWarnings(result.parsed),
-      ...cleanedParsed.factCandidates
-      .filter((candidate) => !validatedFactKeys.has(`${candidate.domain}\u0000${candidate.fact}\u0000${candidate.evidence}`))
-      .map((candidate) => `事实证据未能与最终正文对齐，未进入变量结算：${candidate.domain}｜${candidate.fact}｜证据：${candidate.evidence}`),
-    ];
-    const parsedForDisplay: NarrativeTurn = {
-      body: finalBodyBlocks,
-      choices: cleanedParsed.choices.map((choice) => ({ ...choice })),
-      factCandidates: validatedFactCandidates,
-      continuation: {
-        summary: cleanedParsed.continuation.summary,
-        unresolved: [...cleanedParsed.continuation.unresolved],
-      },
-    };
-    const tokenUsage = buildTurnTokenUsage({
-      system: 'main_story',
-      apiUsage: result.usage,
+      startTime,
+      abortController,
+      streamMessageSetter,
       systemPrompt,
-      messages: apiMessages,
-      outputText: result.fullText || displayText,
-      provider: config.provider,
-      model: config.model,
-    });
-    const previousDebugContext = [...updatedHistory]
-      .reverse()
-      .find((msg) => msg.role === 'assistant' && msg.debugContext?.systemPrompt)?.debugContext;
-    const cachePrefixDiagnostics = buildCachePrefixDiagnostics({
-      enabled: state.gameSettings.enableCacheDiagnostics === true,
-      systemPrompt,
-      messages: apiMessages,
-      previous: previousDebugContext
-        ? {
-            systemPrompt: previousDebugContext.systemPrompt,
-            messages: previousDebugContext.messages,
-          }
-        : undefined,
-    });
-    const aiMsg = 创建聊天消息('assistant', displayText, {
-      gameTime: `${state.turnCount}`,
-      parsedResponse: parsedForDisplay,
-      inputTokens: tokenUsage.inputTokens,
-      outputTokens: tokenUsage.outputTokens,
-      tokenUsage,
-      responseDurationSec: duration,
+      tavernV2Messages,
+      apiMessages,
+      mainRequestMode,
+      deepSeekMainActive,
+      streamingSession,
+      result,
+      rerollSimilarityRetried,
+      storyWeavingDiagnostics,
+      storyWeavingGate,
+      tavernV2Error,
+      irminsulPreview,
+      codexPreview,
+      codexRecallEnabled,
+      npcLedgerSelection,
+      config,
+      updatedHistory,
+      userMsg,
       preTurnSnapshot,
-      debugContext: {
-        systemPrompt,
-        messages: apiMessages.map((msg) => ({ role: msg.role, content: msg.content })),
-        deepSeekMainMode: deepSeekMainActive ? deepSeekMainMode : 'off',
-        deepSeekCotFakeHistorySkipped: deepSeekMainActive && state.gameSettings.enableCotFakeHistory === true,
-        deepSeekPrefixMode: deepSeekLockFormat,
-        deepSeekProtocolIssues: deepSeekProtocolIssuesForTurn,
-        narrativeNormalizationWarnings,
-        deepSeekMainOriginalModel: result.deepSeekRecovery?.originalModel,
-        deepSeekMainAdaptedModel: result.deepSeekRecovery?.fallbackModel
-          ?? (result.deepSeekRecovery?.initialModel !== result.deepSeekRecovery?.originalModel
-            ? result.deepSeekRecovery?.initialModel
-            : undefined),
-        stV2Attempted: shouldTryTavernV2,
-        stV2Used: Boolean(tavernV2Messages),
-        stV2FallbackReason: tavernV2Error instanceof Error ? tavernV2Error.message : tavernV2Error ? String(tavernV2Error) : undefined,
-        rerollSimilarity: rerollSimilarityForTurn,
-        rerollSimilarityRetried,
-        cachePrefixDiagnostics,
-        mainRequestMode,
-        recallSummary: recallSummaryForTurn,
-        recallFullContent: recallFullContentForTurn,
-        irminsulRecallPreview: irminsulPreview?.previewText ?? '',
-        irminsulRecallRawText: '',
-        irminsulRecallUsedModel: irminsulPreview?.usedModel === true,
-        codexRecallPreview: formatCodexDiagnosticsPreview(codexPreview),
-        codexRecallInjection: codexRecallEnabled ? (codexPreview?.injection ?? '') : '',
-        codexRecallRawText: '',
-        codexRecallUsedModel: false,
-        npcLedgerInjection: buildNpcLedgerDebug(npcLedgerSelection),
-        npcLedgerSelectionRaw: npcLedgerSelection,
-        recallPreview: [
-          irminsulPreview?.previewText ?? '',
-          storyWeavingGate
-            ? `剧情编织门禁：${storyWeavingGate.mode}｜第 ${storyWeavingGate.分段组号 ?? '?'} 段｜${storyWeavingGate.reasons.join('；') || '无命中理由'}`
-            : '',
-          storyWeavingDiagnostics
-            ? [
-              `剧情编织注入健康：${storyWeavingDiagnostics.健康状态}`,
-              `剧情编织实际注入：第 ${storyWeavingDiagnostics.当前分段组号} 段「${storyWeavingDiagnostics.当前分段标题}」｜${storyWeavingDiagnostics.当前分段运行状态}`,
-              storyWeavingDiagnostics.归档锚点标题 ? `已跳过归档锚点：第 ${storyWeavingDiagnostics.归档锚点组号} 段「${storyWeavingDiagnostics.归档锚点标题}」` : '',
-              storyWeavingDiagnostics.前一分段标题 ? `历史承接段：${storyWeavingDiagnostics.前一分段标题}` : '',
-              storyWeavingDiagnostics.下一分段标题 ? `下一段预热：${storyWeavingDiagnostics.下一分段标题}` : '',
-              storyWeavingDiagnostics.检查项.length ? `注入检查：${storyWeavingDiagnostics.检查项.join('；')}` : '',
-            ].filter(Boolean).join('\n')
-            : '',
-          formatCodexDiagnosticsPreview(codexPreview),
-          formatNpcLedgerPreview(npcLedgerSelection),
-        ].filter(Boolean).join('\n\n'),
+      deepSeekMainMode,
+      deepSeekLockFormat,
+      deepSeekProtocolIssuesForTurn,
+      rerollSimilarityForTurn,
+      shouldTryTavernV2,
+      recallSummaryForTurn,
+      recallFullContentForTurn,
+      recoveryJournal,
+      pendingVariableStarted,
+      onJournalUpdated: (journal) => {
+        recoveryJournal = journal;
+      },
+      onPendingVariableStartedChanged: (started) => {
+        pendingVariableStarted = started;
       },
     });
-    recoveryJournal = updateWorkflowRecoveryJournal(recoveryJournal, {
-      phase: 'narrative_received',
-      assistantMessageId: aiMsg.id,
-      pendingNarrative: parsedForDisplay,
-    });
-    await persistWorkflowRecoveryJournal(recoveryJournal);
-    let finalHistory = [...updatedHistory, aiMsg];
-    // assistant 消息已携带 preTurnSnapshot，清掉 user 消息上的，避免存档膨胀
-    const userMsgIdx = finalHistory.findIndex((m) => m.id === userMsg.id);
-    if (userMsgIdx >= 0 && finalHistory[userMsgIdx]?.preTurnSnapshot) {
-      finalHistory = finalHistory.map((m, i) => i === userMsgIdx ? { ...m, preTurnSnapshot: undefined } : m);
-    }
-    finalHistory = compactChatHistoryForLongSession(finalHistory);
-    streamMessageSetter.flush('');
-    state.setLoading(false);
-    state.setPendingVariable(true);
-    pendingVariableStarted = true;
+    let finalHistory = aiMessageStage.finalHistory;
+    const { displayText, parsedForDisplay, aiMsg } = aiMessageStage;
 
     // 6. Update memory
     pushQueueTask(state, 'memory', 'pending', { detail: '正在写入即时记忆并检查压缩阈值。' });

@@ -210,3 +210,53 @@ npm run build                          → exit 0
 node scripts/bundle-size-regression.mjs→ exit 0
     app-core 1089.3 KB ≤ 1171.9 KB
 ```
+---
+
+## 7. 第 4 步（续拆）：步骤 5「Build AI message」✅ 完成（2026-09-20）
+
+> 用户审阅并合并上一批改动（提交 `7ed1657`）后，继续拆分。
+
+| 项 | 内容 |
+| --- | --- |
+| 新模块 | `hooks/useGame/aiMessageStage.ts`（`runAiMessageStage`，281 行） |
+| 搬运 | `sendWorkflow.ts` 1002-1146（145 行）→ 45 行懒加载调用 |
+| 分包登记 | allowlist 加入 `aiMessageStage` |
+| 视图登记 | `WORKFLOW_FILES` 41 → 42 个文件 |
+| 附带 | `stripLeakedHistoryMetaFromBody`、`revealStreamingPreview` 改为 `export`（模块顶层函数） |
+
+**方法改进（相对前三步）**：依赖类型改为**从产出者推导**，而不是手工猜：
+- `PromptAssemblyResult[...]`（来自 `mainPromptAssembly` 的结果类型，本步新增该导出）
+- `NarrativeRequestResult = MainNarrativeRequestStageResult`（`mainNarrativeRequestStage` 已导出的接口）
+- `ReturnType<typeof createMainNarrativeStreamingSession>` 等
+
+**踩到的三个坑**：
+1. **接口里 `ReturnType<typeof X>` 用到的 import 必须无条件添加** —— 与块内是否使用无关。
+   我最初按"块内用到才加"处理，直接编译失败。
+2. `import type { 聊天消息, type 回合快照 }` 是**非法语法**（`import type` 内不能再写 `type` 修饰符）。
+3. `requestMainNarrativeAttempt` 的返回类型（`ChatResult`）**不是** `narrativeRequest` 的类型 ——
+   后者来自 `runValidatedMainNarrativeRequest`，返回 `MainNarrativeRequestStageResult`。
+   靠 tsc 报错定位，而非猜测。
+
+**门禁（全部通过）**：
+
+```
+workflow-sources-integrity-regression → exit 0（42 个文件）
+npx tsc -b --force                     → exit 0
+node scripts/run-all-regressions.mjs   → 185/185 通过, exit 0
+npx vitest run                         → 101 files / 600 tests, exit 0
+npm run build                          → exit 0
+node scripts/bundle-size-regression.mjs→ exit 0（app-core 1080.9 KB ≤ 1171.9 KB）
+```
+
+## 8. M6 累计成效（含第 4 步）
+
+| 指标 | 起点 | 现在 |
+| --- | --- | --- |
+| `sendWorkflow.ts` 行数 | 2042 | **1319** |
+| `executeSendWorkflow` 跨度 | 1393 行 | **641 行**（−54%） |
+| app-core | 1,141,796 B | **1,106,859 B**（−34,937 B） |
+| app-core 预算余量 | ~58 KB | **~91 KB** |
+| 独立懒加载 chunk | — | 4 个（25.8 KB 合计） |
+
+剩余可拆块（按大小，均无顶层 return）：步骤 10（124 行）、步骤 3（90 行）、步骤 9.5（32 行）、
+步骤 6（21 行）、步骤 7（19 行）。步骤 4（125 行）**有顶层 return**，需要早退信号量，单独处理。

@@ -52,6 +52,8 @@ export interface MainPromptAssemblyDeps {
   rerollContext: SendWorkflowDeps['rerollContext'];
 }
 
+export type MainPromptAssemblyResult = Awaited<ReturnType<typeof runMainPromptAssembly>>;
+
 export async function runMainPromptAssembly(deps: MainPromptAssemblyDeps) {
   const {
     state,

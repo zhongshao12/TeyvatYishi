@@ -33,6 +33,8 @@ export const WORKFLOW_FILES = [
   'hooks/useGame/sendPreparationStage.ts',
   // 主剧情提示词装配阶段（M6 阶段 3：步骤 2）
   'hooks/useGame/mainPromptAssembly.ts',
+  // 构建 AI 消息阶段（M6 阶段 5：步骤 5）
+  'hooks/useGame/aiMessageStage.ts',
   // 变量模型校准阶段（M6 阶段 2：步骤 8.5）
   'hooks/useGame/variableCalibrationStage.ts',
   // 请求装配阶段

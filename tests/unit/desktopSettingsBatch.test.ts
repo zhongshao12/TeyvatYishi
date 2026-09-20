@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readWorkflowSources } from '../../scripts/lib/workflowSources.mjs';
 
 const storage = vi.hoisted(() => {
   const records = new Map<string, unknown>();
@@ -63,7 +63,8 @@ describe('desktop settings batching', () => {
   });
 
   it('commits the end-of-turn settings snapshot in one batch', () => {
-    const source = readFileSync(new URL('../../hooks/useGame/sendWorkflow.ts', import.meta.url), 'utf8');
+    // 读工作流源码视图，而非写死 sendWorkflow.ts：M6 已把收尾存档搬到独立阶段模块，const source = workflowSources 会随搬迁自动跟随（后续拆分不会再打红本测试）。
+    const source = readWorkflowSources();
 
     expect(source).toContain('await saveSettings({');
     expect(source).not.toMatch(/await saveSetting\('(theme|apiSettings|gameSettings|worldbooks)'/);

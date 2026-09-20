@@ -257,7 +257,7 @@ function getNsfwBlockedCommandReason(command: 变量命令, npcs: NPC记录[]): 
   return reason ? `NSFW 档案已阻止：${reason}。` : null;
 }
 
-function isPageHidden(): boolean {
+export function isPageHidden(): boolean {
   return typeof document !== 'undefined' && document.hidden;
 }
 
@@ -708,7 +708,9 @@ export async function executeSendWorkflow(
   let keepWorkflowHint = false;
   let rollbackHistoryOnAbort = state.chatHistory;
   let rollbackSnapshotOnAbort: 回合快照 | null = null;
-  let visibilityPublisher: VisibilityBufferedPublisher | null = null;
+  // M6: 该变量的赋值已移入懒加载阶段（通过回调回写），控制流分析看不到闭包赋值，
+  // 会把它窄化成 null；这里的显式加宽断言是为了让 finally 里的 dispose 仍可见其真实类型。
+  let visibilityPublisher: VisibilityBufferedPublisher | null = null as VisibilityBufferedPublisher | null;
   // Declared outside the stream setup so finally can always cancel a pending rAF commit.
   const streamMessageSetter = createRafCoalescedSetter(setStreamingMessage);
   const streamDelayController = createStreamingPreviewDelayController(abortController.signal);
@@ -782,222 +784,75 @@ export async function executeSendWorkflow(
       recentHistory,
     } = promptAssembly;
 
-    // 3. Prepare messages for API
-    const apiMessages = buildNarrativeApiMessages({
-      recentHistory,
-      tavernMessages: tavernV2Messages,
+    // 3. Prepare messages for API（已抽到 apiMessagesStage）。懒加载 + 登记 allowlist。
+    const { runApiMessagesStage } = await import('./apiMessagesStage');
+    const apiMessagesStage = await runApiMessagesStage({
+      state,
       isOpeningSystemTrigger,
-      openingInstruction,
       isAwakeningEnterTrigger,
+      openingInstruction,
       awakeningInstruction,
       awakeningPhase,
-    });
-
-    const deepSeekMainMode = state.gameSettings.deepSeekMainMode ?? 'off';
-    const deepSeekMainActive = isDeepSeekMainConfig(mainStoryConfig) && deepSeekMainMode !== 'off';
-    const deepSeekLockFormat = deepSeekMainActive && deepSeekMainMode === 'lock_format';
-    const shouldUseCotFakeHistory =
-      state.gameSettings.enableCotFakeHistory && !isOpeningSystemTrigger && !deepSeekMainActive;
-
-    // Phase 4/7：从当前激活预设读取 assistant prefill
-    // 正式 JSON 合同不使用 DeepSeek assistant prefill，避免缺少 JSON 起始字符。
-    const currentPresetId = state.gameSettings.currentStPresetId;
-    const allPresets = [
-      ...getBuiltinPresets(),
-      ...(state.gameSettings.stPresets ?? []),
-    ];
-    const currentPreset = currentPresetId
-      ? allPresets.find((p) => p.id === currentPresetId)
-      : undefined;
-    const presetAssistantPrefill = currentPreset?.assistantPrefill;
-    const usePresetPrefill = false;
-    const effectivePrefixMode = false;
-    const effectivePrefixContent = '';
-
-    if (deepSeekMainActive) {
-      apiMessages.push(创建聊天消息('user', DEEPSEEK_MAIN_FORMAT_GUARD));
-    }
-    if (deps.rerollContext && !isOpeningSystemTrigger) {
-      apiMessages.push(创建聊天消息(
-        'user',
-        buildRerollGenerationGuard(deps.rerollContext.nonce, deps.rerollContext.previousResponse),
-      ));
-    }
-
-    // 区E执法块(结构轮): 主剧情普通回合的最后一条 user 消息。开局/狭间评判/ST V2 消息链回合跳过
-    // (各有自己的收尾协议)。
-    if (!isOpeningSystemTrigger && !tavernV2Messages && awakeningPhase !== 'judgement') {
-      apiMessages.push(创建聊天消息('user', buildTurnEnforcementBlock({
-        playerName: state.旅人.姓名 || state.旅人.别名 || '无名旅者',
-        wordCountTarget: state.gameSettings.wordCountTarget,
-        codexEntries: codexPreview?.entries,
-        storyWeavingActive: Boolean(state.gameSettings.剧情编织系统?.enabled && state.gameSettings.剧情编织系统.currentWindow),
-      })));
-    }
-
-    // 3b. 格式伪历史注入：在消息序列最前面塞一对 user/assistant，提供最小合法 NarrativeTurn 范例。
-    //     DeepSeek 专用模式下不注入这段伪装续聊，避免污染真实 user 输入并降低格式漂移。
-    if (shouldUseCotFakeHistory) {
-      apiMessages.unshift(
-        创建聊天消息('user', NARRATIVE_TURN_EXAMPLE_USER),
-        创建聊天消息('assistant', NARRATIVE_TURN_EXAMPLE_ASSISTANT),
-      );
-    }
-
-    // 3c. ST 预设兼容：In-Chat depth 注入。
-    //     injectionPosition=1 的模块按 injectionDepth 插入聊天历史。
-    //     depth=0 末尾后，depth=1 末尾前，依此类推。
-    //     Claude 方案 D：Claude 下 normalizeClaudeMessages 会抽取所有 system 消息到顶层，
-    //     所以 Claude 下跳过 depth 注入。user/assistant 角色的 depth 模块追加到 systemPrompt 尾部。
-    //     兜底：injectionPosition=0 的 user/assistant 模块（ST 预设很少用）也追加到 systemPrompt，
-    //     避免内容丢失。
-    //
-    // 方案 B + C（v3 计划）：position 分流规则
-    //   - position=0 + system role → 进 systemSection（在 injectPromptModules 里处理）
-    //   - position=0 + user/assistant role → 追加 systemPrompt 尾部（方案 B，下方分支）
-    //     简化处理：ST 语义里 position=0 + depth>0 表示插入 systemPrompt 中段，
-    //     但我们的 systemPrompt 是字符串拼接，无法精确插入中段，统一追加到尾部。
-    //     ST 预设中 position=0 + user/assistant + depth>0 极罕见，此简化可接受。
-    //   - position=1 + user/assistant role（非 Claude）→ depth 注入（方案 C，下方分支）
-    //   - position=1 + user/assistant role（Claude）→ 追加 systemPrompt 尾部（Claude 方案 D）
-    const promptModuleInjection = injectPromptModuleMessages({
+      mainStoryConfig,
+      tavernV2Messages,
+      codexPreview,
+      recentHistory,
+      moduleChatMessages,
+      rerollContext: deps.rerollContext,
+      buildTurnEnforcementBlock,
+      isDeepSeekMainConfig,
+      isPageHidden,
+      NARRATIVE_TURN_EXAMPLE_USER,
+      NARRATIVE_TURN_EXAMPLE_ASSISTANT,
       systemPrompt,
-      messages: apiMessages,
-      moduleMessages: moduleChatMessages,
-      provider: mainStoryConfig.provider,
-    });
-    systemPrompt = promptModuleInjection.systemPrompt;
-    apiMessages.length = 0;
-    apiMessages.push(...promptModuleInjection.messages);
-
-    const shouldStreamMainRequest = state.gameSettings.enableStreaming && !isPageHidden();
-    const mainRequestMode: 'stream' | 'non-stream' = shouldStreamMainRequest ? 'stream' : 'non-stream';
-
-    // 4. Stream AI response（含自动重试循环）
-    const streamingSession = createMainNarrativeStreamingSession({
-      enabled: state.gameSettings.enableStreaming,
-      signal: abortController.signal,
-      set: streamMessageSetter.set,
-      flush: streamMessageSetter.flush,
-      wait: streamDelayController.wait,
-      isHidden: isPageHidden,
-      bufferWhenHidden: (text) => visibilityPublisher?.bufferWhenHidden(text) ?? false,
-    });
-    visibilityPublisher = typeof document === 'undefined'
-      ? null
-      : createVisibilityBufferedPublisher({
-          source: createDocumentVisibilitySource(document),
-          commit: streamingSession.acceptBufferedText,
-        });
-    const hasRequiredParty = getMissingPartyMembers('', state.NPC).length > 0;
-    const maxAttempts = resolveMainNarrativeMaxAttempts({
-      autoRetryOnError: state.gameSettings.autoRetryOnError,
-      autoRetryCount: state.gameSettings.autoRetryCount,
-      requiresValidationRepair: Boolean(deepSeekMainActive || deps.rerollContext || hasRequiredParty),
-    });
-    const narrativeRequest = await runValidatedMainNarrativeRequest({
-      maxAttempts,
-      signal: abortController.signal,
-      request: async () => {
-        streamingSession.reset();
-        return requestMainNarrativeAttempt({
-          config: mainStoryConfig,
-          messages: apiMessages,
-          systemPrompt,
-          onDelta: streamingSession.onDelta,
-          onStreamReset: streamingSession.reset,
-          signal: abortController.signal,
-          streaming: shouldStreamMainRequest,
-          prefixMode: effectivePrefixMode,
-          prefixContent: effectivePrefixContent,
-          transformOutput: tavernV2Messages && currentPresetV2
-            ? (text) => {
-                const regexCleanup = applyTavernOutputRegexScripts(text || streamingSession.streamedText, currentPresetV2.preset);
-                if (regexCleanup.applied.length === 0 || regexCleanup.text === text) return null;
-                console.info('[ST V2] 已执行安全输出正则清理:', regexCleanup.applied);
-                return regexCleanup.text;
-              }
-            : undefined,
-        });
-      },
-      getMissingPartyMembers: (candidateText) => getMissingPartyMembers(candidateText, state.NPC),
-      deepSeekValidation: deepSeekMainActive,
-      ...(deps.rerollContext ? { rerollContext: deps.rerollContext } : {}),
-      appendRetryInstruction: (instruction) => {
-        apiMessages.push(创建聊天消息('user', instruction));
-      },
-      onValidationIssue: (issue) => {
-        const source = issue.kind === 'missing_party'
-          ? '队伍完整性校验'
-          : issue.kind === 'reroll_similarity'
-            ? '重roll相似度校验'
-            : issue.kind === 'protocol'
-              ? 'DeepSeek 主剧情协议校验'
-              : '主剧情工作流';
-        const errorMessage = issue.kind === 'empty'
-          ? `返回空响应，触发自动重试。主剧情第 ${issue.attempt}/${issue.maxAttempts} 次（无可见正文块）。`
-          : `主剧情第 ${issue.attempt}/${issue.maxAttempts} 次：${issue.detail}`;
-        void appendApiErrorReport({
-          source,
-          config: mainStoryConfig,
-          requestMode: mainRequestMode,
-          error: new Error(errorMessage),
-          responseText: issue.responseText || streamingSession.streamedText || streamingSession.previewText || '（空响应）',
-        });
-      },
-      onValidationRetry: ({ kind, attempt, detail }) => {
-        if (kind === 'empty') {
-          console.warn(`[sendWorkflow] 第 ${attempt} 次返回空响应（无可见正文块），自动重试。`);
-          return;
-        }
-        const queueDetail = kind === 'missing_party'
-          ? `${detail}，正在自动补写。`
-          : kind === 'reroll_similarity'
-            ? '重roll结果与上一版过于相似，正在强制换写。'
-            : `${detail}，正在自动重试。`;
-        pushQueueTask(state, 'main_story', 'pending', {
-          detail: queueDetail,
-          failCount: attempt,
-          retrying: true,
-          cancellable: true,
-        });
-        console.warn(`[sendWorkflow] 第 ${attempt}/${maxAttempts} 次${detail}，自动重试。`);
-      },
-      isNonRetryableError: isNonRetryableAIError,
-      onAttemptError: (innerErr) => {
-        const innerMessage = innerErr instanceof Error ? innerErr.message : String(innerErr ?? '');
-        const alreadyReportedByApiLayer =
-          innerMessage.includes('API Error') ||
-          innerMessage.includes('Failed to fetch') ||
-          innerMessage.includes('No response body');
-        if (!alreadyReportedByApiLayer) {
-          void appendApiErrorReport({
-            source: '主剧情工作流',
-            config: mainStoryConfig,
-            requestMode: mainRequestMode,
-            error: innerErr,
-            responseText: streamingSession.streamedText || streamingSession.previewText || '',
-          });
-        }
-      },
-      onErrorRetry: (innerErr, { attempt, maxAttempts: attemptLimit }) => {
-        pushQueueTask(state, 'main_story', 'pending', {
-          detail: `主剧情生成失败 ${attempt} 次，正在自动重试。`,
-          failCount: attempt,
-          retrying: true,
-          cancellable: true,
-        });
-        console.warn(`[sendWorkflow] 第 ${attempt}/${attemptLimit} 次尝试失败，自动重试：`, innerErr);
+      onSystemPromptUpdated: (prompt) => {
+        systemPrompt = prompt;
       },
     });
-    const result = narrativeRequest.result;
-    const deepSeekProtocolIssuesForTurn = narrativeRequest.deepSeekProtocolIssues;
-    const rerollSimilarityForTurn = narrativeRequest.rerollSimilarity;
-    const rerollSimilarityRetried = narrativeRequest.rerollSimilarityRetried;
+    const {
+      apiMessages,
+      deepSeekMainActive,
+      deepSeekMainMode,
+      deepSeekLockFormat,
+      effectivePrefixMode,
+      effectivePrefixContent,
+      shouldStreamMainRequest,
+      mainRequestMode,
+    } = apiMessagesStage;
 
-    visibilityPublisher?.flush();
-
-    if (abortController.signal.aborted || !isCurrentWorkflow()) return;
+    // 4. Stream AI response（已抽到 mainNarrativeStreamingStage，M6 阶段 4）。
+    //    该块含两个顶层 return（结束整个 executeSendWorkflow），现由早退信号承接。
+    const { runMainNarrativeStreamingStage } = await import('./mainNarrativeStreamingStage');
+    const streamingStage = await runMainNarrativeStreamingStage({
+      state,
+      abortController,
+      isCurrentWorkflow,
+      deepSeekMainActive,
+      systemPrompt,
+      tavernV2Messages,
+      apiMessages,
+      currentPresetV2,
+      rerollContext: deps.rerollContext,
+      streamMessageSetter,
+      streamDelayController,
+      mainStoryConfig,
+      shouldStreamMainRequest,
+      effectivePrefixMode,
+      effectivePrefixContent,
+      mainRequestMode,
+      visibilityPublisher,
+      onVisibilityPublisherChanged: (publisher) => {
+        visibilityPublisher = publisher;
+      },
+    });
+    if (streamingStage.earlyReturn) return streamingStage.returnValue;
+    const {
+      streamingSession,
+      result,
+      deepSeekProtocolIssuesForTurn,
+      rerollSimilarityForTurn,
+      rerollSimilarityRetried,
+    } = streamingStage;
 
     // 5. Build AI message（已抽到 aiMessageStage，M6 阶段 5）。懒加载 + 原始位置回写外层可变量。
     const { runAiMessageStage } = await import('./aiMessageStage');
@@ -1045,47 +900,50 @@ export async function executeSendWorkflow(
     let finalHistory = aiMessageStage.finalHistory;
     const { displayText, parsedForDisplay, aiMsg } = aiMessageStage;
 
-    // 6. Update memory
-    pushQueueTask(state, 'memory', 'pending', { detail: '正在写入即时记忆并检查压缩阈值。' });
-    const memorySettlement = await settlePostNarrativeMemory({
-      memory: state.记忆,
-      irminsul: state.世界树,
+    // 6. Update memory（已抽到 memoryUpdateStage）。懒加载 + 登记 allowlist。
+    const { runMemoryUpdateStage } = await import('./memoryUpdateStage');
+    const memoryUpdateStage = await runMemoryUpdateStage({
+      state,
       userInput,
-      narrativeSummary: parsedForDisplay.continuation.summary,
-      body: displayText,
-      turn: state.turnCount,
-      settings: state.gameSettings.记忆系统 ?? 创建默认记忆系统设置(),
-      mainConfig: config,
-      signal: abortController.signal,
+      config,
+      displayText,
+      parsedForDisplay,
+      abortController,
+      assertWorkflowActive,
     });
-    assertWorkflowActive();
-    let mem = memorySettlement.memory;
-    const irminsulWithCompression = memorySettlement.irminsul;
-    pushQueueTask(state, 'memory', memorySettlement.feedback.status, {
-      detail: memorySettlement.feedback.detail,
-      failCount: memorySettlement.feedback.failCount,
-      retryHint: memorySettlement.feedback.retryHint,
-    });
+    let mem = memoryUpdateStage.mem;
+    const { irminsulWithCompression } = memoryUpdateStage;
 
-    // 7 / 7a / 7b. 先在独立阶段结算世界事实、元素回响与天气，
-    // 再把得到的本地快照交给变量模型，避免后续提交覆盖本回合变化。
-    const narrativeWorldStage = applyNarrativeWorldStage({
-      world: effectiveWorld,
-      traveler: state.旅人,
-      factCandidates: parsedForDisplay.factCandidates,
-      rawResponseText: result.fullText || displayText,
+    // 7 / 7a / 7b. 先在独立阶段结算世界事实、元素回响与天气，（已抽到 worldCommitStage）。懒加载 + 登记 allowlist。
+    const { runWorldCommitStage } = await import('./worldCommitStage');
+    const worldCommitStage = await runWorldCommitStage({
+      state,
+      effectiveWorld,
+      parsedForDisplay,
+      displayText,
+      result,
+      apiMessages,
+      streamingSession,
+      systemPrompt,
+      tavernV2Messages,
+      onResultMutated: (current) => {
+        void current;
+      },
+      onApiMessagesCleared: (messages) => {
+        void messages;
+      },
+      onSystemPromptUpdated: (prompt) => {
+        systemPrompt = prompt;
+      },
+      onTavernV2MessagesUpdated: (messages) => {
+        tavernV2Messages = messages;
+      },
     });
-    let worldAfter: typeof state.世界 = narrativeWorldStage.world;
-    let travelerAfter: typeof state.旅人 = narrativeWorldStage.traveler;
-    const worldFactCandidates = narrativeWorldStage.worldFacts;
-
-    result.fullText = '';
-    result.parsed = createEmptyNarrativeTurn();
-    result.usage = undefined;
-    apiMessages.length = 0;
-    systemPrompt = '';
-    streamingSession.reset();
-    tavernV2Messages = null;
+    let worldAfter = worldCommitStage.worldAfter;
+    let travelerAfter = worldCommitStage.travelerAfter;
+    const {
+      worldFactCandidates,
+    } = worldCommitStage;
 
     // 8.5 变量模型校准（已抽到 variableCalibrationStage，M6 阶段 2）。
     //      懒加载 + 新模块登记于 build/manualChunkStrategy.ts allowlist；
@@ -1134,86 +992,48 @@ export async function executeSendWorkflow(
       courierAfterFallbackSeed,
       finalHistoryForSave,
     } = variableCalibration;
-      // 9.5 元素附着与反应结算（G1 极简版）：从正文检测元素应用，更新场面附着并记录反应事件。
-      // 熟练度只记旅行者本人施放的元素（主语过滤），避免敌人的元素攻击被算到旅行者头上。
-      const travelerForMastery = variableOverrides?.旅人 ?? state.旅人;
-      const elementalSettlement = settlePostTurnElements({
-        body: displayText,
-        traveler: travelerForMastery,
-        travelerNames: [
-          committedSettlementGame.旅行者.姓名,
-          committedSettlementGame.旅行者.别名,
-        ],
-        field: committedSettlementGame.叙事.元素场面,
-        events: committedSettlementGame.叙事.元素事件,
-        turn: committedSettlementGame.turnCount,
-      });
-      const travelerAfterMastery = elementalSettlement.traveler;
-      const masteryGains = elementalSettlement.masteryGains;
-      if (masteryGains.length) {
-        state.set旅人(travelerAfterMastery);
-        pushQueueTask(state, 'variable', 'success', {
-          detail: `本回合使用了 ${masteryGains.map((element) => ELEMENT_NAMES[element]).join('、')}，元素熟练度 +${elementalSettlement.masteryGainPerTurn}。`,
-        });
-      }
-      if (elementalSettlement.fieldChanged) {
-        state.updateGameState((current) => ({
-          ...current,
-          叙事: {
-            ...current.叙事,
-            元素场面: elementalSettlement.field,
-            元素事件: elementalSettlement.events,
-          },
-        }));
-      }
-
-      // 10. Auto-save —— 每回合只在后台队列收尾写一次，避免正文/变量阶段重复生成多条自动存档。
-      if (state.gameSettings.enableAutoSaveEveryTurn) {
-        pushQueueTask(state, 'autosave', 'pending', { detail: '正在写入本回合自动存档。' });
-      }
-      await runPostTurnAutosaveTask({
-        enabled: state.gameSettings.enableAutoSaveEveryTurn,
-        build: () => {
-          const variableBatchesForSave = compactVariableBatchHistory(variableOverrides?.batch
-            ? [...state.variableBatches, variableOverrides.batch]
-            : state.variableBatches);
-          return buildSavePayload(state, 'auto', {
-            chatHistory: finalHistoryForSave,
-            记忆: memoryAfterStoryProgress,
-            世界树: irminsulAfterTurnRecall,
-            手机: courierAfterFallbackSeed,
-            背包: committedSettlementGame.背包,
-            旅人: travelerAfterMastery ?? variableOverrides?.旅人,
-            世界: variableOverrides?.世界,
-            NPC: npcAfterCompression,
-            蒸汽鸟报: steambirdAfterGeneration ?? variableOverrides?.蒸汽鸟报,
-            剧情: variableOverrides?.剧情,
-            剧情编织: storyWeavingForSave,
-            图鉴: codexAfterRuntimeUnlock,
-            variableBatches: variableBatchesForSave,
-            queueTasks: state.queueTasks,
-            turnCount: state.turnCount + 1,
-          }, committedSettlementGame);
-        },
-        assertActive: assertWorkflowActive,
-        persist: saveGame,
-        commit: commitActiveSaveTreeMeta,
-        markSaved: () => {
-          pushQueueTask(state, 'autosave', 'success', { detail: '本回合自动存档完成。' });
-          state.setHasSave(true);
-        },
-      });
-
-      recoveryJournal = updateWorkflowRecoveryJournal(recoveryJournal, { phase: 'autosave_committed' });
-      await persistWorkflowRecoveryJournal(recoveryJournal);
-
-    await saveSettings({
-      theme: state.currentTheme,
-      apiSettings: state.apiSettings,
-      gameSettings: state.gameSettings,
-      worldbooks: state.worldbooks,
+    // 9.5 元素附着与反应结算（G1 极简版）（已抽到 elementalSettlementStage）。懒加载 + 登记 allowlist。
+    const { runElementalSettlementStage } = await import('./elementalSettlementStage');
+    const elementalSettlementStage = await runElementalSettlementStage({
+      state,
+      displayText,
+      committedSettlementGame,
+      variableOverrides,
     });
-    await clearWorkflowRecoveryJournal(recoveryJournal.workflowId);
+    const {
+      travelerAfterMastery,
+    } = elementalSettlementStage;
+
+    // 10. Auto-save（已抽到 autoSaveStage）。懒加载 + 登记 allowlist。
+    const { runAutoSaveStage } = await import('./autoSaveStage');
+    const autoSaveStage = await runAutoSaveStage({
+      state,
+      config,
+      abortController,
+      isCurrentWorkflow,
+      assertWorkflowActive,
+      pendingVariableStarted,
+      rollbackSnapshotOnAbort,
+      rollbackHistoryOnAbort,
+      visibilityPublisher,
+      streamMessageSetter,
+      streamDelayController,
+      committedSettlementGame,
+      variableOverrides,
+      steambirdAfterGeneration,
+      travelerAfterMastery,
+      finalHistoryForSave,
+      memoryAfterStoryProgress,
+      irminsulAfterTurnRecall,
+      courierAfterFallbackSeed,
+      npcAfterCompression,
+      storyWeavingForSave,
+      codexAfterRuntimeUnlock,
+      recoveryJournal,
+      onJournalUpdated: (journal) => {
+        recoveryJournal = journal;
+      },
+    });
   } catch (err: unknown) {
     if ((err as Error).name === 'AbortError' || abortController.signal.aborted) {
       const abortDisposition = await applyAbortedWorkflowPolicy({

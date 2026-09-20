@@ -87,6 +87,7 @@ export interface VariableCalibrationDeps {
   onJournalUpdated: (journal: WorkflowRecoveryJournal) => void;
 }
 
+export type VariableCalibrationResult = Awaited<ReturnType<typeof runVariableCalibrationStage>>;
 export async function runVariableCalibrationStage(deps: VariableCalibrationDeps) {
   const {
     state,

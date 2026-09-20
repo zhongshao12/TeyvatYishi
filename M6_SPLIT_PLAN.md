@@ -260,3 +260,101 @@ node scripts/bundle-size-regression.mjs→ exit 0（app-core 1080.9 KB ≤ 1171.
 
 剩余可拆块（按大小，均无顶层 return）：步骤 10（124 行）、步骤 3（90 行）、步骤 9.5（32 行）、
 步骤 6（21 行）、步骤 7（19 行）。步骤 4（125 行）**有顶层 return**，需要早退信号量，单独处理。
+---
+
+## 9. 第 5 步（续拆）：步骤 10「Auto-save」✅ 完成
+
+| 项 | 内容 |
+| --- | --- |
+| 新模块 | `hooks/useGame/autoSaveStage.ts`（`runAutoSaveStage`） |
+| 搬运 | `sendWorkflow.ts` 1170-1216（**47 行**）→ 30 行懒加载调用 |
+| 分包/视图 | allowlist 与 `WORKFLOW_FILES`（42 → 43）均已登记 |
+
+**重要发现：块的"大小"要用 `} catch` 裁剪。** 侦察器最初把步骤 10 报成 124 行，
+但那段实际含 `} catch (err: unknown) {` 与 `} finally {` —— 它们是**编排器的错误处理**，
+不是本阶段。真实块只有 47 行（止于 catch 前）。教训：**最后一个阶段必须裁剪到 catch 之前**。
+
+**踩到的坑**：
+1. `keepWorkflowHint` 的两处写入在 **catch 块内**（1236/1239），不属于本阶段 —— 生成器的
+   "回调插入数不符即报错" 正确拦住了我，而不是静默生成错误代码。
+2. `manualChunkStrategy.ts` 里斜杠是**转义过的**（`\/hooks\/useGame\/`），正则写法踩坑；
+   登记器改为字符串定位。
+3. **单元测试也做源码文本断言**：`tests/unit/desktopSettingsBatch.test.ts` 读
+   `sendWorkflow.ts` 断言 `await saveSettings({`。此前的收敛只覆盖了 `scripts/*-regression.mjs`，
+   **漏了 `tests/unit/`**。已改为读工作流视图（`readWorkflowSources()`），后续搬迁不会再打红它。
+4. 为让 TS 侧能 import 该 `.mjs`，新增 `scripts/lib/workflowSources.d.mts` 类型声明 ——
+   否则 `tsc` 报 TS7016，而 `no-unchecked-indexed-access-regression` 会因此判为"错误数增加"。
+
+**门禁（全部通过）**：tsc exit 0；integrity exit 0；185/185；vitest 101 files / 600 tests；
+build exit 0；bundle exit 0（app-core 1080.9 KB）。
+
+## 10. 工具链（已脚本化，供后续步骤复用）
+
+```
+node .triage/m6-recon.mjs <stepId>        # 侦察：块范围/依赖/写入/泄漏/顶层return
+node .triage/m6-decls.mjs <stepId>        # 各依赖的首次声明（用于写类型）
+node .triage/m6-tool.mjs gen <cfg.json>   # 生成模块 + 调用方替换块
+node .triage/m6-tool.mjs register <module> <anchor>  # 登记 allowlist 与 WORKFLOW_FILES
+node .triage/m6-splice.mjs <start> <end> .triage/step-caller.txt <首行前缀> <次后首个非空前缀>
+node .triage/m6-classify.mjs <tscOut> <module>       # 把 tsc 报的名字分类为入参/import
+```
+---
+
+## 11. 第 6–11 步（续拆）：步骤 3 / 9.5 / 6 / 7 / 10 / 4 全部完成
+
+### 11.1 六个块的明细
+
+| 步骤 | 块范围 | 行数 | 新模块（行数） | 早退信号 | 回写外层 |
+| --- | --- | --- | --- | --- | --- |
+| 3 | 785-874 | 90 | `apiMessagesStage.ts`（170） | — | `systemPrompt` |
+| 9.5 | 1082-1113 | 32 | `elementalSettlementStage.ts`（68） | — | — |
+| 6 | 993-1013 | 21 | `memoryUpdateStage.ts`（66） | — | — |
+| 7 | 1007-1025 | 19 | `worldCommitStage.ts`（87） | — | `result`×3 / `apiMessages` / `systemPrompt` / `tavernV2Messages` |
+| 10 | 1170-1216 | 47 | `autoSaveStage.ts`（137） | — | `recoveryJournal` |
+| 4 | 821-945 | 125 | `mainNarrativeStreamingStage.ts`（217） | **有** | `visibilityPublisher` |
+
+### 11.2 步骤 4：唯一含**顶层 `return`** 的块（单独处理）
+
+原块有两个会结束整个 `executeSendWorkflow` 的返回点，改写为**判别联合的早退信号**：
+`{ earlyReturn: true, returnValue }` / `{ earlyReturn: false, returnValue: undefined, ...返回值 }`，
+调用方 `if (stage.earlyReturn) return stage.returnValue;` —— 语义等价（catch/finally 仍按原顺序执行）。
+
+**两个都踩过的坑（值得写进纪律）**：
+1. **缩进启发式会误判"顶层 return"**。`return requestMainNarrativeAttempt({...})` 其实在**嵌套回调**内部
+   （必须返回 `Promise<ChatResult>`），只有与阶段标记**同级缩进**的 return 才真正退出编排器。
+   改用「基准缩进」判定，并由 tsc 的 `TS2322` 反向证实了这一点。
+2. **接线后绝不能重跑 `gen`** —— 它会读到调用方块区域而不是原文。我和子代理各自踩过一次；
+   生成器的自检每次都拦住了错误写入。**正确做法：先落盘原文快照（`.triage/m6-orig-<step>.txt`），
+   接线后只做只读验证，补丁直接打在模块文件上。**
+
+### 11.3 一个「不必要改写」的教训
+
+我最初把块内的 `deps.rerollContext` 机械改写成 `rerollContext`，结果打红了
+`reroll-regression`（它断言的正是原文 `deps.rerollContext`）。
+**修法不是改断言，而是撤回改写**：模块形参本来就叫 `deps`，同名属性可直接解析。
+撤回后该断言**一行未改**即恢复，块也变成 100% 逐字。
+→ 纪律补充：**能不改就不改；任何"适配"都先问一句"是不是本来就成立"。**
+
+### 11.4 独立验证（不采信子代理自述）
+
+- 六个模块全部通过**逐字验证**（`.triage/m6-verify-move.mjs`，双指针逐行比对）。
+- **步骤 3 的快照是在接线后才写的（内容无效）**，我从接线前备份
+  `.triage/sendWorkflow.pre-m6step3.bak` 重建了原文快照（1076-1165，90 行），独立验证通过。
+- 步骤 4 的验证器长度计数差 2，我另写逐行对照脚本确认**内容 125 行全部逐字一致**，
+  差异只是末尾一个空行的边界约定。
+- 子代理四步的独立复跑：`tsc 0 / integrity 0 / 185-185 / vitest 101-600`。
+
+### 11.5 M6 最终成效
+
+| 指标 | 起点 | 现在 |
+| --- | --- | --- |
+| `sendWorkflow.ts` 行数 | 2042 | **1139** |
+| `executeSendWorkflow` 跨度 | 1393 行 | **461 行（−67%）** |
+| app-core | 1,141,796 B | **1,102,278 B（−39,518 B）** |
+| app-core 预算余量 | ~58 KB | **~95 KB** |
+| 抽出的阶段模块 | — | **10 个（合计 2062 行）** |
+| 独立懒加载 chunk | 1 个（既有） | **11 个** |
+
+**门禁（最终一次全量）**：tsc exit 0；integrity exit 0（48 个文件）；185/185；
+vitest 101 files / 600 tests；build exit 0；bundle exit 0。
+**全程零断言删除、零断言弱化。**

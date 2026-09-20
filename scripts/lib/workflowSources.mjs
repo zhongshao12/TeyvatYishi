@@ -31,12 +31,23 @@ export const WORKFLOW_FILES = [
   'hooks/useGame/sendWorkflow.ts',
   // 发送前置阶段（M6 阶段 1：步骤 0-1）
   'hooks/useGame/sendPreparationStage.ts',
-  // 主剧情提示词装配阶段（M6 阶段 3：步骤 2）
+  // 主剧情提示词装配阶段（M6 阶段 2：步骤 2）
   'hooks/useGame/mainPromptAssembly.ts',
+  // 构建 API 消息阶段（M6 阶段 3：步骤 3）
+  'hooks/useGame/apiMessagesStage.ts',
   // 构建 AI 消息阶段（M6 阶段 5：步骤 5）
   'hooks/useGame/aiMessageStage.ts',
+  // 记忆更新阶段（M6 阶段 6：步骤 6）
+  'hooks/useGame/memoryUpdateStage.ts',
+  // 世界事实/元素回响/天气结算阶段（M6 阶段 7：步骤 7）
+  'hooks/useGame/worldCommitStage.ts',
+  'hooks/useGame/mainNarrativeStreamingStage.ts',
   // 变量模型校准阶段（M6 阶段 2：步骤 8.5）
   'hooks/useGame/variableCalibrationStage.ts',
+  // 元素附着与反应结算阶段（M6 阶段 9.5：步骤 9.5）
+  'hooks/useGame/elementalSettlementStage.ts',
+  // 回合收尾自动存档阶段（M6 阶段 10：步骤 10）
+  'hooks/useGame/autoSaveStage.ts',
   // 请求装配阶段
   'hooks/useGame/systemPromptBuilder.ts',
   'hooks/useGame/promptModuleMessageInjection.ts',

@@ -7,17 +7,15 @@
  *
  * 拆分原则：**纯搬运，不改行为** —— 被搬动的代码逐字保留（含原有换行与缩进）。
  */
-import { loadSetting, saveGame, saveSetting, saveSettings } from '@/services/dbService';
+import { saveGame, saveSettings } from '@/services/dbService';
 import {
   clearWorkflowRecoveryJournal,
-  createWorkflowRecoveryJournal,
   persistWorkflowRecoveryJournal,
   updateWorkflowRecoveryJournal,
-  type WorkflowRecoveryJournal,
-} from '@/services/workflowRecovery';
+  type WorkflowRecoveryJournal} from '@/services/workflowRecovery';
 import { buildSavePayload, commitActiveSaveTreeMeta } from './saveLoadWorkflow';
 import { runPostTurnAutosaveTask } from './postTurnAutosaveTask';
-import { compactChatHistoryForLongSession, compactVariableBatchHistory } from '@/utils/longSessionRetention';
+import { compactVariableBatchHistory } from '@/utils/longSessionRetention';
 import { pushWorkflowQueueTask as pushQueueTask } from './workflowQueue';
 import type { UseGameStateReturn } from '@/hooks/useGameState';
 import type { API配置项 } from '@/models/settings';
@@ -29,16 +27,7 @@ import { createStreamingPreviewDelayController } from '@/utils/streamingPreviewD
 
 export interface RunAutoSaveStageDeps {
   state: UseGameStateReturn;
-  config: API配置项;
-  abortController: AbortController;
-  isCurrentWorkflow: () => boolean;
   assertWorkflowActive: () => void;
-  pendingVariableStarted: boolean;
-  rollbackSnapshotOnAbort: 回合快照 | null;
-  rollbackHistoryOnAbort: 聊天消息[];
-  visibilityPublisher: VisibilityBufferedPublisher | null;
-  streamMessageSetter: ReturnType<typeof createRafCoalescedSetter>;
-  streamDelayController: ReturnType<typeof createStreamingPreviewDelayController>;
   committedSettlementGame: VariableCalibrationResult['committedSettlementGame'];
   variableOverrides: VariableCalibrationResult['variableOverrides'];
   steambirdAfterGeneration: VariableCalibrationResult['steambirdAfterGeneration'];
@@ -58,16 +47,7 @@ export interface RunAutoSaveStageDeps {
 export async function runAutoSaveStage(deps: RunAutoSaveStageDeps) {
   const {
     state,
-    config,
-    abortController,
-    isCurrentWorkflow,
     assertWorkflowActive,
-    pendingVariableStarted,
-    rollbackSnapshotOnAbort,
-    rollbackHistoryOnAbort,
-    visibilityPublisher,
-    streamMessageSetter,
-    streamDelayController,
     committedSettlementGame,
     variableOverrides,
     steambirdAfterGeneration,

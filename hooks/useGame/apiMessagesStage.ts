@@ -92,7 +92,10 @@ export async function runApiMessagesStage(deps: RunApiMessagesStageDeps) {
     const currentPreset = currentPresetId
       ? allPresets.find((p) => p.id === currentPresetId)
       : undefined;
-    const presetAssistantPrefill = currentPreset?.assistantPrefill;
+    // 注意：下面这行看起来是"死代码"（tsc --noUnusedLocals 会说它从未被读取），但它是
+    // 被 scripts/deepseek-format-stability-regression.mjs:73 刻意钉住的**决定**：
+    // 「正式主剧情不得使用预设 assistant prefill 截断 JSON」。删掉它会打红该回归门禁，
+    // 因此必须保留（并保持字面形式 `const usePresetPrefill = false`）。
     const usePresetPrefill = false;
     const effectivePrefixMode = false;
     const effectivePrefixContent = '';

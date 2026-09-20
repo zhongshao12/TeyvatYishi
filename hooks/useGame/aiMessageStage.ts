@@ -9,25 +9,20 @@
  *  - 块内**没有顶层 return**；
  *  - 依赖类型从**产出者**推导（`PromptAssemblyResult[...]` / `ReturnType<typeof ...>`），而非手工猜测。
  */
-import { createEmptyNarrativeTurn, narrativeTurnBodyText, type NarrativeTurn } from '@/models/teyvat/narrativeTurn';
+import { narrativeTurnBodyText, type NarrativeTurn } from '@/models/teyvat/narrativeTurn';
 import { getNarrativeTurnNormalizationWarnings, revalidateFactCandidatesForBody } from '@/services/ai/narrativeTurnParser';
 import {
-  clearWorkflowRecoveryJournal,
-  createWorkflowRecoveryJournal,
   persistWorkflowRecoveryJournal,
   updateWorkflowRecoveryJournal,
-  type WorkflowRecoveryJournal,
-} from '@/services/workflowRecovery';
+  type WorkflowRecoveryJournal} from '@/services/workflowRecovery';
 import { normalizePlayerSpeechInBody } from '@/utils/playerSpeechGuard';
 import { sanitizeParsedResponse, sanitizeContaminatedText } from '@/utils/textSanitizer';
 import { buildCachePrefixDiagnostics, buildTurnTokenUsage } from './turnDiagnostics';
 import {
-  attachNpcLedgerUpdateDebug,
   buildNpcLedgerDebug,
   formatCodexDiagnosticsPreview,
-  formatNpcLedgerPreview,
-} from './turnDebugContext';
-import { compactChatHistoryForLongSession, compactVariableBatchHistory } from '@/utils/longSessionRetention';
+  formatNpcLedgerPreview} from './turnDebugContext';
+import { compactChatHistoryForLongSession} from '@/utils/longSessionRetention';
 import { pushWorkflowQueueTask as pushQueueTask } from './workflowQueue';
 import type { UseGameStateReturn } from '@/hooks/useGameState';
 import type { API配置项 } from '@/models/settings';

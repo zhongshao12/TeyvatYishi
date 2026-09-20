@@ -1,116 +1,89 @@
 import {
-  applyLegacyGameStateOverrides,
   toLegacyTurnCheckpoint,
-  type UseGameStateReturn,
-} from '@/hooks/useGameState';
-import { 创建聊天消息, type 聊天消息, type 回合快照 } from '@/models/chat';
-import { createEmptyNarrativeTurn, narrativeTurnBodyText, type NarrativeTurn } from '@/models/teyvat/narrativeTurn';
-import type { SteambirdNews } from '@/models/teyvat/steambird';
+  type UseGameStateReturn} from '@/hooks/useGameState';
+import { type 聊天消息, type 回合快照 } from '@/models/chat';
+import { narrativeTurnBodyText} from '@/models/teyvat/narrativeTurn';
+
 import { getNarrativeTurnNormalizationWarnings, revalidateFactCandidatesForBody } from '@/services/ai/narrativeTurnParser';
 import { appendApiErrorReport } from '@/services/ai/apiErrorReportService';
-import { isNonRetryableAIError } from '@/services/ai/deepSeekRecovery';
-import { resolveMainNarrativeMaxAttempts } from '@/services/ai/mainNarrativeRetryPolicy';
+
 import { buildOpeningSystemPrompt, buildSystemPrompt } from './systemPromptBuilder';
-import { buildTavernMessageChain } from './tavernMessageChainBuilder';
-import { applyTavernOutputRegexScripts } from './tavernRegexProcessor';
-import { getCurrentSTPresetV2 } from '@/utils/stSettingsNormalizer';
+
 import { getBuiltinPresetsV2, loadAllBuiltinTavernPresets } from '@/data/builtinPresets';
-import { 构建天气Prompt片段 } from '@/data/weatherRules';
-import {
-  addImmediateMemory,
-} from './memoryUtils';
+
 import { runSteambirdGenerationStep } from './steambirdWorkflow';
 import { applyAbortedWorkflowPolicy, runCommittedSettlementRecovery, runPendingSettlementRecovery, type WorkflowResumeResult } from './recoveryResume';
 import {
   archiveCommittedQuestSettlement,
   collectQuestUpdatePayloads,
-  notifyCommittedQuestUpdate,
-} from './questWorkflow';
+  notifyCommittedQuestUpdate} from './questWorkflow';
 import { evaluateStoryWeavingGate, getStoryWeavingInjectionDiagnostics } from '@/services/storyWeaving';
-import { 格式化开局档案上下文 } from '@/models/world';
-import { loadSetting, saveGame, saveSetting, saveSettings } from '@/services/dbService';
+
+import { saveSetting} from '@/services/dbService';
 import {
   clearWorkflowRecoveryJournal,
   createWorkflowRecoveryJournal,
   persistWorkflowRecoveryJournal,
-  updateWorkflowRecoveryJournal,
-  type WorkflowRecoveryJournal,
-} from '@/services/workflowRecovery';
+  type WorkflowRecoveryJournal} from '@/services/workflowRecovery';
 import { buildSavePayload, commitActiveSaveTreeMeta } from './saveLoadWorkflow';
 import type { TeyvatGameState } from '@/models/teyvat/state';
 import {
-  createDocumentVisibilitySource,
-  createVisibilityBufferedPublisher,
-  type VisibilityBufferedPublisher,
-} from '@/utils/visibilityBufferedPublisher';
+  type VisibilityBufferedPublisher} from '@/utils/visibilityBufferedPublisher';
 import { createRafCoalescedSetter } from '@/utils/rafCoalescedSetter';
 import { setStreamingMessage } from '@/utils/streamingMessageStore';
 import { createStreamingPreviewDelayController } from '@/utils/streamingPreviewDelay';
 import type { 变量命令, 变量命令批次 } from '@/models/variableCommand';
 import { enterElementalEcho } from '@/services/elementalAttunementService';
-import { resolveCourierApiConfig } from '@/services/ai/courierLetterModel';
-import { mergeCourierSystemUpdates } from '@/services/ai/courierService';
+
 import { runCourierDeliveryTask, runCourierReplyTask } from './courierBackgroundJobs';
-import { 天气列表 } from '@/data/weatherRules';
+
 import type { ElementId } from '@/models/teyvat/elements';
-import { ELEMENT_NAMES } from '@/styles/elementTokens';
-import { 创建默认记忆系统设置 } from '@/models/settings';
+
 import type { API配置项 } from '@/models/settings';
 import type { 队列任务记录 } from '@/models/queueTask';
-import { applyStoryArchiveCodexRuntimeUnlock } from '@/services/codexRuntimeUnlock';
+
 import { buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
-import { getBuiltinPresets } from '@/data/builtinPresets';
-import { 创建默认图鉴系统设置 } from '@/models/settings';
-import { selectNpcLedgersForTurn, type NPC记录 } from '@/models/npc';
+
+import { type NPC记录 } from '@/models/npc';
 import {
   buildImmediateStoryReview,
   buildCodexKeywordRecallQuery,
   buildMainRecallQuery,
-  getMainHistoryWindow,
-} from './historyWindow';
+  getMainHistoryWindow} from './historyWindow';
 import { restorePreTurnSnapshot } from './turnSnapshot';
 import { getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
-import { normalizePlayerSpeechInBody } from '@/utils/playerSpeechGuard';
+
 import { sanitizeParsedResponse, sanitizeContaminatedText } from '@/utils/textSanitizer';
 import { getAnticipatedNpcNamesForTurn, getCodexNpcNamesForTurn, getMissingPartyMembers } from './npcPresence';
 import { buildCachePrefixDiagnostics, buildTurnTokenUsage } from './turnDiagnostics';
-import { applyNarrativeWorldStage } from './narrativeWorldStage';
+
 import { buildNarrativeApiMessages, injectPromptModuleMessages } from './promptModuleMessageInjection';
 import {
   buildRerollGenerationGuard,
   DEEPSEEK_MAIN_FORMAT_GUARD,
   requestMainNarrativeAttempt,
-  runValidatedMainNarrativeRequest,
-} from './mainNarrativeRequestStage';
+  runValidatedMainNarrativeRequest} from './mainNarrativeRequestStage';
 import { runPostTurnBackgroundTasks, runSteambirdPostTurnTask } from './postTurnBackgroundTasks';
-import { createMainNarrativeStreamingSession, splitStreamingReveal } from './mainNarrativeStreamingSession';
-import { runPostTurnIrminsulArchiveTask } from './postTurnIrminsulTask';
-import { runPostTurnNarrativeImageTask } from './postTurnNarrativeImageTask';
-import { runPostTurnAutosaveTask } from './postTurnAutosaveTask';
+import { splitStreamingReveal } from './mainNarrativeStreamingSession';
+
 import {
   attachNpcLedgerUpdateDebug,
   buildNpcLedgerDebug,
   formatCodexDiagnosticsPreview,
-  formatNpcLedgerPreview,
-} from './turnDebugContext';
+  formatNpcLedgerPreview} from './turnDebugContext';
 import type { CodexEntry } from '@/models/teyvat/codex';
-import { globalImageTaskQueue } from '@/utils/imageTaskQueue';
+
 import { DEFAULT_NOTIFICATION_SETTINGS, notifyEvent } from '@/utils/notifications';
 import { pushToast } from '@/utils/toastStore';
-import { compactPreTurnSnapshot } from '@/utils/saveRuntimeCompactor';
+
 import { compactChatHistoryForLongSession, compactVariableBatchHistory } from '@/utils/longSessionRetention';
-import { buildElementalFieldPromptSection } from '@/models/teyvat';
+
 import { createMacroContext, type MacroContext, type MacroGameState } from '@/utils/macroEngine';
-import { updateTriggerStatesAfterTurn } from '@/utils/worldbook';
+
 import { pushWorkflowQueueTask as pushQueueTask } from './workflowQueue';
 import type {
   VariableSettlementParams,
-  VariableSettlementResult,
-} from './variableSettlementWorkflow';
-import { buildMainRecallStage } from './mainRecallStage';
-import { buildOpeningSteambirdPreprocess } from './openingSteambirdStage';
-import { settlePostTurnElements } from './postTurnElementalStage';
-import { settlePostNarrativeMemory } from './postNarrativeMemoryStage';
+  VariableSettlementResult} from './variableSettlementWorkflow';
 
 export function stripLeakedHistoryMetaFromBody(body: string): string {
   if (!body) return body;
@@ -349,7 +322,6 @@ export interface SendWorkflowDeps {
     previousResponse: string;
   } | null;
 }
-
 
 export function compactForRerollInstruction(text: string): string {
   const cleaned = text.replace(/\s+/g, ' ').trim();
@@ -1008,16 +980,7 @@ export async function executeSendWorkflow(
     const { runAutoSaveStage } = await import('./autoSaveStage');
     const autoSaveStage = await runAutoSaveStage({
       state,
-      config,
-      abortController,
-      isCurrentWorkflow,
       assertWorkflowActive,
-      pendingVariableStarted,
-      rollbackSnapshotOnAbort,
-      rollbackHistoryOnAbort,
-      visibilityPublisher,
-      streamMessageSetter,
-      streamDelayController,
       committedSettlementGame,
       variableOverrides,
       steambirdAfterGeneration,

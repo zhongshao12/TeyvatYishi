@@ -14,14 +14,13 @@ import { buildTavernMessageChain } from './tavernMessageChainBuilder';
 import { getCurrentSTPresetV2 } from '@/utils/stSettingsNormalizer';
 import { getBuiltinPresetsV2, loadAllBuiltinTavernPresets } from '@/data/builtinPresets';
 import { evaluateStoryWeavingGate, getStoryWeavingInjectionDiagnostics } from '@/services/storyWeaving';
-import { selectNpcLedgersForTurn, type NPC记录 } from '@/models/npc';
+import { selectNpcLedgersForTurn} from '@/models/npc';
 import {
   buildImmediateStoryReview,
   buildCodexKeywordRecallQuery,
   buildMainRecallQuery,
-  getMainHistoryWindow,
-} from './historyWindow';
-import { getAnticipatedNpcNamesForTurn, getCodexNpcNamesForTurn, getMissingPartyMembers } from './npcPresence';
+  getMainHistoryWindow} from './historyWindow';
+import { getAnticipatedNpcNamesForTurn, getCodexNpcNamesForTurn} from './npcPresence';
 import { buildElementalFieldPromptSection } from '@/models/teyvat';
 import { createMacroContext, type MacroContext, type MacroGameState } from '@/utils/macroEngine';
 import { updateTriggerStatesAfterTurn } from '@/utils/worldbook';
@@ -128,27 +127,6 @@ export async function runMainPromptAssembly(deps: MainPromptAssemblyDeps) {
     const storyWeavingDiagnostics = state.gameSettings.剧情编织系统?.enabled && state.gameSettings.剧情编织系统.currentWindow
       ? getStoryWeavingInjectionDiagnostics(state.剧情编织)
       : null;
-    const codexSceneContext = {
-      ...worldbookCtx,
-      startScenarioId: undefined,
-      startSceneName: undefined,
-      currentLocation: undefined,
-      npcNames: [],
-      presentNpcNamesForFallback: worldbookCtx.npcNames,
-      anticipatedNpcNames: anticipatedCodexNpcNames,
-      aiSupplementHints: {
-        currentLocation: effectiveWorld.当前地点,
-        presentNpcNames: worldbookCtx.npcNames,
-        immediateStoryReview: immediateStoryReviewForCodex,
-        storyPlan: [
-          latestCodexStoryPlan,
-          storyWeavingDiagnostics
-            ? `当前剧情段：${storyWeavingDiagnostics.当前分段标题}；下一段预热：${storyWeavingDiagnostics.下一分段标题 || '无'}`
-            : '',
-        ].filter(Boolean).join('\n'),
-        openingArchiveText,
-      },
-    };
     const recallQuery = buildMainRecallQuery({
       userInput,
       history: updatedHistory,

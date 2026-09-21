@@ -4,6 +4,12 @@ import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
 export interface AppStorageAdapter {
   readText(path: string): Promise<string | null>;
   writeText(path: string, content: string): Promise<void>;
+  /**
+   * 排他写入：仅当路径不存在时写入，返回是否由本次调用创建成功。
+   * 用于跨进程 CAS（例如两个应用实例竞争同一个存档 id）。
+   * Web 端为单上下文，语义上总能成功。
+   */
+  writeTextExclusive(path: string, content: string): Promise<boolean>;
   readBase64File?(path: string): Promise<string | null>;
   writeBase64File?(path: string, base64Content: string): Promise<void>;
   readJson<T>(path: string): Promise<T | null>;
@@ -19,6 +25,13 @@ export class DesktopAppStorageAdapter implements AppStorageAdapter {
 
   async writeText(path: string, content: string): Promise<void> {
     await invoke('desktop_write_text_atomic', { relativePath: normalizeStoragePath(path), content });
+  }
+
+  async writeTextExclusive(path: string, content: string): Promise<boolean> {
+    return invoke<boolean>('desktop_write_text_exclusive', {
+      relativePath: normalizeStoragePath(path),
+      content,
+    });
   }
 
   async writeBase64File(path: string, base64Content: string): Promise<void> {
@@ -68,6 +81,14 @@ export class WebAppStorageAdapter implements AppStorageAdapter {
 
   async writeJson<T>(path: string, value: T): Promise<void> {
     await this.writeText(path, JSON.stringify(value));
+  }
+
+  async writeTextExclusive(path: string, content: string): Promise<boolean> {
+    const key = storageKey(path);
+    // 浏览器只有一个上下文参与这份存储，不存在跨进程竞争。
+    if (localStorage.getItem(key) !== null) return false;
+    localStorage.setItem(key, content);
+    return true;
   }
 
   async list(path: string): Promise<string[]> {

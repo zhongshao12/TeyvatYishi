@@ -144,18 +144,41 @@ export async function mirrorSaveToDesktop(save: 存档数据, summary: SaveListI
   await writeSaveSequence(Math.max(nextSummary.id, getMaxSaveId(nextSaves)), adapter);
 }
 
+/** 认领 id 用的排他标记：目录独立，避免污染 saves/ 的枚举。 */
+const saveIdClaimPath = (id: number): string => `claims/save-id-${id}`;
+
 export async function reserveDesktopSaveId(minimumNextId = 1): Promise<number | null> {
   if (!isDesktopRuntime()) return null;
   const adapter = createAppStorageAdapter();
-  const index = await readMirrorIndex();
-  const sequence = await readSaveSequence(adapter);
-  const nextId = Math.max(
-    Number(minimumNextId) || 1,
-    getMaxSaveId(index.saves) + 1,
-    (Number(sequence?.lastSaveId) || 0) + 1,
-  );
-  await writeSaveSequence(nextId, adapter);
-  return nextId;
+  // 跨进程 CAS：两个应用实例同时预留时，双方各自 max(...)+1 会算出**同一个 id**，
+  // 于是后写的一方覆盖前者的存档 —— 这是数据丢失级的竞态。
+  // `writeTextExclusive` 走 Rust 的 create_new 排他语义：并发下只有一个进程能创建成功，
+  // 失败的一方改取下一个候选，从而保证两边拿到不同 id。
+  let floor = 0;
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const index = await readMirrorIndex();
+    const sequence = await readSaveSequence(adapter);
+    const candidate = Math.max(
+      Number(minimumNextId) || 1,
+      getMaxSaveId(index.saves) + 1,
+      (Number(sequence?.lastSaveId) || 0) + 1,
+      floor + 1,
+    );
+    const claimed = await adapter.writeTextExclusive(saveIdClaimPath(candidate), String(candidate));
+    if (claimed) {
+      await writeSaveSequence(candidate, adapter);
+      // 认领标记是**持久墓碑**，刻意不删除：
+      // 另一个实例可能在本次认领之前就读完了 index/sequence（拿到同样的 candidate），
+      // 但直到我们写完序列之后才轮到它调用 create_new。若此刻把标记删掉，
+      // 它那次过期计算就能成功认领同一个 id —— 竞态窗口重新打开，存档照样互相覆盖。
+      // 保留标记让过期的一方必定失败并顺延到下一个 id。
+      // `claims/` 不在 desktopMigrationBackup 的 TEXT_DIRS 里，因此不会进入迁移备份或导出包。
+      return candidate;
+    }
+    floor = candidate;
+  }
+  // 连续 16 次都被别人抢先：宁可返回 null（调用方会走降级路径），也不要拿一个可能重号的 id。
+  return null;
 }
 
 export async function removeSaveFromDesktopMirror(id: number): Promise<void> {

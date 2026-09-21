@@ -178,6 +178,38 @@ fn desktop_write_text_atomic(app: AppHandle, relative_path: String, content: Str
         .map_err(|err| format!("atomic desktop text write failed ({relative_path}): {err}"))
 }
 
+/// 原子排他创建：仅当文件**不存在**时才写入，返回「是否由本次调用创建成功」。
+///
+/// 用途：跨进程竞争同一资源时做 CAS。两个应用实例同时预留存档 id 时，
+/// `create_new(true)` 的排他语义保证并发下只有一个调用者能得到 `Ok(true)`，
+/// 另一个得到 `Ok(false)` 后另选 id —— 避免两边算出同一个 id 而互相覆盖存档。
+#[tauri::command]
+fn desktop_write_text_exclusive(
+    app: AppHandle,
+    relative_path: String,
+    content: String,
+) -> Result<bool, String> {
+    use std::io::Write;
+
+    let file_path = resolve_data_path(&app, &relative_path)?;
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| format!("创建桌面文件目录失败({relative_path}): {err}"))?;
+    }
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&file_path)
+    {
+        Ok(mut file) => {
+            file.write_all(content.as_bytes())
+                .map_err(|err| format!("排他写入桌面文件失败({relative_path}): {err}"))?;
+            Ok(true)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(err) => Err(format!("排他创建桌面文件失败({relative_path}): {err}")),
+    }
+}
+
 #[tauri::command]
 fn desktop_write_base64_file(
     app: AppHandle,
@@ -646,6 +678,7 @@ pub fn run() {
             desktop_read_text,
             desktop_write_text,
             desktop_write_text_atomic,
+            desktop_write_text_exclusive,
             desktop_write_base64_file,
             desktop_read_base64_file,
             desktop_list,

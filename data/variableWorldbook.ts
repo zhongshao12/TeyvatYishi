@@ -27,6 +27,8 @@ export const NPC_MEMORY_WRITE_RULE_PROMPT = `<NPC档案记忆写入法则>
 
 ## 好感与关系
 - 好感度范围 -50..150，关系阶段由前端确定性派生，不输出 relation 或 relationshipStage。
+- 好感变化默认只写 affinityDelta（本回合相对增减）；affinitySet 是绝对覆盖，只在正文明确给出绝对值时才写。
+- 不得把上下文里已印出的当前好感值回填成 affinitySet / 好感度：那是当前值而非本回合变化，回填会整条覆盖本回合真实的 +/- 变化。
 - 好感审计只看互动证据与关系基础，不看玩家性别、NPC 性别、同性/异性线路或 NSFW 开关。
 - 男性 NPC 的感谢、信任、并肩作战、兑现承诺、主动袒露等正向证据，与女性或其他性别 NPC 使用同等权重。
 - intimateRelationship 只在正文明确建立或解除关系时记录，不由好感度推断。

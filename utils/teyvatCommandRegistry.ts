@@ -14,7 +14,7 @@ import { ITEM_CATEGORIES, ITEM_RARITIES, normalizeTeyvatItem } from '@/models/te
 import { normalizeTeyvatNpcMatureArchive, normalizeTeyvatNpcRecords, normalizeTeyvatNpcSharedMemory } from '@/models/teyvat/character';
 import { normalizeCourierSystem } from '@/models/teyvat/courier';
 import { normalizeCanonDeviation } from '@/services/canonDeviationService';
-import { 获取NPC关系阶段, 获取NPC兼容关系 } from '@/models/npc';
+import { 获取NPC关系阶段, 获取NPC兼容关系, 限制NPC好感度 } from '@/models/npc';
 import { isLegacyTravelerCommandPath } from '@/compat/legacy-hsr/readOnly';
 
 export interface TeyvatEvidenceContext {
@@ -238,15 +238,21 @@ function applyNpc(state: TeyvatGameState, command: TeyvatDomainCommand, index: n
   if (field === 'affinity') {
     const invalidAction = validateAction(command, ['set', 'add', 'sub'], index);
     if (invalidAction) return { ok: false, error: invalidAction };
-    const next = nextNumber(target.affinity, command, -50, index);
-    if (typeof next !== 'number' || next > 150) return { ok: false, error: typeof next === 'number' ? error(index, 'INVALID_NUMERIC_RESULT', command.root, command.path) : next };
+    // 下限交给 限制NPC好感度 夹取，所以这里用 -Infinity 让 nextNumber 只做有限性检查。
+    const next = nextNumber(target.affinity, command, Number.NEGATIVE_INFINITY, index);
+    if (typeof next !== 'number') return { ok: false, error: next };
+    // 夹取，而不是在越界时报错把整条命令丢掉：
+    // 好感度是长期累计值，临近上限（或下限）时每回合的 +N 都被拒绝，
+    // 玩家看到的是「一直在互动，好感度却停住」，而且回执里只有一条 INVALID_NUMERIC_RESULT。
+    // 限制NPC好感度 同时负责取整，避免 add 1.5 累加出 41.49999999999999 这类值。
+    const affinity = 限制NPC好感度(next);
     nextTarget = {
       ...target,
-      affinity: next,
-      relationship: 获取NPC兼容关系(next),
+      affinity,
+      relationship: 获取NPC兼容关系(affinity),
       relationshipLedger: {
         ...target.relationshipLedger,
-        currentStage: 获取NPC关系阶段(next),
+        currentStage: 获取NPC关系阶段(affinity),
       },
     };
   } else if (field === 'lastSeenTurn') {

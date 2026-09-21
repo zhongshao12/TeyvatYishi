@@ -197,6 +197,8 @@ export interface 变量命令结果 {
   kind?: 'command' | 'warning' | 'error' | 'rejected';
   /** 失败原因：路径未登记 / 类型不匹配 / 解析错误等 */
   reason?: string;
+  /** 产生这条命令的证据/原因（例如「每日同行固定好感度」），用于关系图等展示「为什么变了」。旧批次没有该字段。 */
+  evidence?: string;
 }
 
 /** 一回合的变量命令批次（一次 AI 调用产出的所有命令 + 结果），存入命令历史。 */

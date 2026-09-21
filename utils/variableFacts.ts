@@ -846,8 +846,13 @@ function 推断跨日目标时间(evidence: string | undefined, currentTime: str
 
 function 归一化耗时分钟(fact: Extract<变量事实, { type: 'time' }>): number {
   const raw = Math.max(1, Math.trunc(fact.minutes ?? 3));
-  const hasLongDurationEvidence = Boolean(fact.evidence && /小时|钟头|半日|整日|整天|长途|赶路|等待|休整|睡眠|过夜/.test(fact.evidence));
-  return Math.min(hasLongDurationEvidence ? 7 * 1440 : 30, raw);
+  // 上限 7 天是最后一道闸：防止模型报出荒谬的分钟数一次跳掉几个月。
+  //
+  // 这里曾经还有一条「证据里没有 小时/等待/赶路… 就压到 30 分钟」的规则，已移除：
+  // 它让「三天后，队伍抵达璃月港。」被压成半小时 —— 天数、日期、每日同行好感加成全都静止；
+  // 而语义完全相同的句子只要多写一个「等待」就立刻走满 3 天（+15 好感）。
+  // 同一个意思两种结算，玩家看到的就是「好感度时涨时不涨」，所以改为按事实自报的耗时结算。
+  return Math.min(7 * 1440, raw);
 }
 
 function 计算耗时结果(currentMinutes: number, elapsedMinutes: number): { dayDelta: number; targetTime: string } {

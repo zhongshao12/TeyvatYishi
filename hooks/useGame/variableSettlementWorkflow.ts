@@ -225,6 +225,7 @@ export async function runVariableSettlementWorkflow(
       command: { action: item.action, key: `${item.root}.${item.path}`, value: item.value ?? null },
       ok: true,
       kind: 'command' as const,
+      ...(item.evidence ? { evidence: item.evidence } : {}),
     }));
     const batch: 变量命令批次 = {
       id: params.settlementId

@@ -15,7 +15,12 @@ interface RelationshipGraphPanelProps {
 
 export const RelationshipGraphPanel = memo(function RelationshipGraphPanel({ npcRecords, variableBatches, onSelectNpc, travelerName }: RelationshipGraphPanelProps) {
   const { nodes, edges } = useMemo(() => 构建关系图(npcRecords), [npcRecords]);
-  const affinityEvents = useMemo(() => 提取好感变化事件(variableBatches ?? []), [variableBatches]);
+  // 结算批次里只存稳定 id（`NPC.[id=npc_amber].affinity`），显示名要从当前档案反查。
+  const nameById = useMemo(() => new Map(npcRecords.map((npc) => [npc.id, npc.姓名])), [npcRecords]);
+  const affinityEvents = useMemo(
+    () => 提取好感变化事件(variableBatches ?? [], { resolveNpcName: (npcId) => nameById.get(npcId) }),
+    [variableBatches, nameById],
+  );
   const recentEvents = affinityEvents.slice(-8).reverse();
   const radius = 120;
   const centerX = 150;
@@ -76,9 +81,17 @@ export const RelationshipGraphPanel = memo(function RelationshipGraphPanel({ npc
         {recentEvents.length === 0 ? (
           <div className="text-[11px]" style={{ color: "rgba(var(--tj-text-secondary),0.6)" }}>暂无好感变化记录。</div>
         ) : recentEvents.map((event, index) => (
-          <div key={index} className="flex items-center justify-between text-[11px] py-1" style={{ color: "rgba(var(--tj-text-secondary),0.8)", boxShadow: "inset 0 -1px 0 rgba(var(--tj-border),0.25)" }}>
-            <span>{event.npcName} · 第 {event.turn} 回合</span>
-            <span style={{ color: event.delta >= 0 ? "rgba(var(--tj-ui-success),0.9)" : "rgba(var(--tj-danger),0.9)" }}>{event.delta >= 0 ? "+" : ""}{event.delta}</span>
+          <div key={index} className="flex items-center justify-between gap-2 text-[11px] py-1" style={{ color: "rgba(var(--tj-text-secondary),0.8)", boxShadow: "inset 0 -1px 0 rgba(var(--tj-border),0.25)" }}>
+            <span className="truncate" title={event.reason ?? undefined}>
+              {event.npcName} · 第 {event.turn} 回合
+              {event.reason ? <span style={{ color: "rgba(var(--tj-text-secondary),0.55)" }}> · {event.reason}</span> : null}
+            </span>
+            {event.delta === null ? (
+              // `set` 是绝对值覆盖，不是增量：显示成「→ 35」而不是假的「+35」。
+              <span className="shrink-0" style={{ color: "rgba(var(--tj-text-secondary),0.9)" }}>→ {event.value}</span>
+            ) : (
+              <span className="shrink-0" style={{ color: event.delta >= 0 ? "rgba(var(--tj-ui-success),0.9)" : "rgba(var(--tj-danger),0.9)" }}>{event.delta >= 0 ? "+" : ""}{event.delta}</span>
+            )}
           </div>
         ))}
       </div>

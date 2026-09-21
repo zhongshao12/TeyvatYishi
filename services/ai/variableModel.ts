@@ -244,6 +244,8 @@ export function buildVariableModelPrompt(
     '- gender 可选 男 / 女 / 其他；新建 NPC 时尽量提供。',
     '- 建档（新角色）：名字不在「当前 NPC 名单」里的角色首次登场时，必须输出 npc 事实建档：至少给 name，尽量给 gender、intro（一两句身份背景）、recentInteraction（本回合与玩家的互动）、evidence；tier/关系/阶段由系统派生，不用写。',
     '- 好感度范围 -50..150；关系阶段由前端派生，禁止输出 relation/relationshipStage。',
+    '- 好感变化默认只用 affinityDelta（本回合的相对增减）。affinitySet 是绝对覆盖，只在正文明确给出角色当前好感的绝对值时才用。',
+    '- 禁止把提示里已经印出的当前好感值原样回填成 affinitySet 或 好感度：那是「现在是多少」，不是「本回合变了多少」；回填会覆盖掉本回合真实的 +/- 变化（系统里 affinitySet 优先于 affinityDelta）。',
     '- 原著角色的长期性格不由变量模型改写；长期口吻以图鉴主体资料校准。',
     '- 单回合的沉默/紧张/冷淡不要固化为长期性格，只写进 memory / recentInteraction / openItems / unresolvedConflicts / mustRemember / doNotForget。',
     '- 重要 NPC 的低风险日常轻记忆：已入档、原著、同行、当前镜头重点或具名原创角色，只要正文写明与玩家发生了具体共同互动，就应输出 npc 事实。',

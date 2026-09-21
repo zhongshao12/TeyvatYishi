@@ -98,6 +98,30 @@ assert(committedNpc.relationship === 'stranger', '兼容关系必须随好感阶
 assert(committedNpc.intimate === true, '亲密关系必须经过正式 transaction 落库。');
 assert(npc.格式化NPC关系(committedNpc.affinity, committedNpc.intimate) === '陌生 · 亲密关系', '关系展示必须组合阶段与亲密状态。');
 
+// 边界行为：好感度是长期累计值，越界必须夹取到 -50 / 150，而不是让命令报错被丢掉。
+// 之前 `next > 150` 直接返回 INVALID_NUMERIC_RESULT，被 variableSettlementWorkflow 的
+// excludeRejectedSettlementCommands 剔掉后玩家只会看到「一直在互动但好感度不动」。
+const boundsState = teyvatState.normalizeTeyvatGameState({
+  ...teyvatState.createEmptyTeyvatGameState(),
+  NPC: [{
+    id: 'npc_bounds', 姓名: '边界角色', roleTier: 'companion', affinity: 148,
+    relationship: 'close', intimate: false, travelingTogether: false,
+    firstSeenTurn: 1, lastSeenTurn: 1,
+  }],
+});
+const evidence = '边界角色认可了旅行者的判断';
+const boundsFact = { domain: 'relationship', fact: evidence, evidence };
+const boundsCommit = (value) => {
+  const result = transaction.commitTeyvatTurn(boundsState, [{
+    action: 'add', root: 'NPC', path: '[id=npc_bounds].affinity', value, evidence,
+  }], () => undefined, { factCandidates: [boundsFact] });
+  assert(result.status === 'committed', `好感度边界命令必须提交而不是被拒绝（value=${value}）。`);
+  return result.nextState.NPC[0].affinity;
+};
+assert(boundsCommit(5) === 150, '越过上限的好感增量必须夹取到 150。');
+assert(boundsCommit(1.5) === 149, '好感度必须取整，与旧路径 限制NPC好感度 保持一致。');
+assert(boundsCommit(-999) === -50, '越过下限的好感扣减必须夹取到 -50。');
+
 const canonicalAliasRecords = npc.归一化NPC记录列表([
   { id: 'raiden-a', 姓名: '雷电将军', 阶位: 'companion', 好感度: 20, 关系: 'acquaintance', 同行: false, 初见回合: 1, 最近回合: 2, 备注: [] },
   { id: 'raiden-b', 姓名: 'Raiden Shogun', 阶位: 'companion', 好感度: 50, 关系: 'friend', 同行: false, 初见回合: 1, 最近回合: 3, 备注: [] },

@@ -1,4 +1,7 @@
 import { CLIP_CARD, CLIP_MEDIUM, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
+import { ConfirmDialogHost, Modal, useConfirmDialog } from '@/components/ui/Modal';
+import { pushToast } from '@/utils/toastStore';
+import { toUserFacingError } from '@/utils/userFacingError';
 import { useEffect, useMemo, useState } from 'react';
 import type { 游戏设置, API设置, API配置项 } from '@/models/settings';
 import type { 提示词模块, 提示词模块类目, 提示词模块作用域 } from '@/models/prompts';
@@ -373,6 +376,9 @@ function TogglePill({
 export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbooks, onWorldbooksChange, apiSettings, onApiSettingsChange }: Props) {
   const isTavernMode = mode === 'tavern';
   const modules = settings.promptModules;
+  // 原生 confirm/alert 无法换主题、不能读屏标注；提示词模块页统一走样式化确认弹窗与 toast。
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
   /** 内置酒馆预设按需加载：挂载时触发加载，完成后 bump 版本号让下方 useMemo 重算。 */
   const [builtinPresetVersion, setBuiltinPresetVersion] = useState(0);
   useEffect(() => {
@@ -586,8 +592,12 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
     if (selectedId === id) setSelectedId(next[0]?.id ?? null);
   };
 
-  const resetBuiltins = () => {
-    if (!confirm('确定将所有内置模块的内容/标题恢复为初始？\n（自定义模块不会被删除，玩家修改过的主剧情内置 enabled 状态会被保留；独立模型展示模块会保持展示状态）')) {
+  const resetBuiltins = async () => {
+    if (!await askConfirm({
+      title: '重置内置模块',
+      message: '确定将所有内置模块的内容/标题恢复为初始？\n（自定义模块不会被删除，玩家修改过的主剧情内置 enabled 状态会被保留；独立模型展示模块会保持展示状态）',
+      confirmLabel: '恢复初始',
+    })) {
       return;
     }
     const fresh = createBuiltinPromptModules();
@@ -654,7 +664,11 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
         const text = await file.text();
         const parsedV2 = parseSTPresetV2(text);
         if (!parsedV2.preset) {
-          alert(`酒馆预设解析失败：${parsedV2.error ?? '未找到有效结构'}\n请确认文件包含 prompts + prompt_order。`);
+          pushToast({
+            kind: 'error',
+            title: '酒馆预设解析失败',
+            detail: `${parsedV2.error ?? '未找到有效结构'}\n请确认文件包含 prompts + prompt_order。`,
+          });
           return;
         }
 
@@ -697,10 +711,18 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
           regexScriptCount: importedRegexCount,
           v2RepairUsed: parsedV2.usedRepair,
         });
-        alert(`已导入酒馆预设「${presetName}」。\n保留 ${parsedV2.preset.prompts.length} 个内容项 / ${parsedV2.preset.prompt_order[0]?.order.length ?? 0} 个顺序项。\n附带 world_info：${importedWorldInfoCount} 条；regex_scripts：${importedRegexCount} 条。\n不再生成提示词模块副本。`);
+        pushToast({
+          kind: 'success',
+          title: `已导入酒馆预设「${presetName}」`,
+          detail: `保留 ${parsedV2.preset.prompts.length} 个内容项 / ${parsedV2.preset.prompt_order[0]?.order.length ?? 0} 个顺序项。\n附带 world_info：${importedWorldInfoCount} 条；regex_scripts：${importedRegexCount} 条。\n不再生成提示词模块副本。`,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        alert(`ST 预设解析失败：${message}\n请确认文件是 SillyTavern 导出的预设 JSON（含 prompts + prompt_order 字段）。`);
+        pushToast({
+          kind: 'error',
+          title: 'ST 预设解析失败',
+          detail: `${toUserFacingError(err, { fallback: message })}\n请确认文件是 SillyTavern 导出的预设 JSON（含 prompts + prompt_order 字段）。`,
+        });
       }
     };
     input.click();
@@ -922,25 +944,37 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
   const deletePresetV2 = (presetId: string) => {
     const target = (settings.stPresetsV2 ?? []).find((entry) => entry.id === presetId);
     if (!target || target.isBuiltin) return;
-    if (!confirm(`确定删除酒馆预设「${target.name}」？\n该操作只会删除玩家导入的预设，不会影响内置预设和原生提示词模块。`)) return;
+    void (async () => {
+      if (!await askConfirm({
+        title: '删除酒馆预设',
+        message: `确定删除酒馆预设「${target.name}」？\n该操作只会删除玩家导入的预设，不会影响内置预设和原生提示词模块。`,
+        confirmLabel: '删除预设',
+        tone: 'danger',
+      })) return;
 
-    const nextPresets = (settings.stPresetsV2 ?? []).filter((entry) => entry.id !== presetId);
-    const isCurrent = settings.currentStPresetIdV2 === presetId;
-    onChange({
-      ...settings,
-      stPresetsV2: nextPresets,
-      currentStPresetIdV2: isCurrent ? null : settings.currentStPresetIdV2,
-      currentStCharacterId: isCurrent ? null : settings.currentStCharacterId,
-    });
+      const nextPresets = (settings.stPresetsV2 ?? []).filter((entry) => entry.id !== presetId);
+      const isCurrent = settings.currentStPresetIdV2 === presetId;
+      onChange({
+        ...settings,
+        stPresetsV2: nextPresets,
+        currentStPresetIdV2: isCurrent ? null : settings.currentStPresetIdV2,
+        currentStCharacterId: isCurrent ? null : settings.currentStCharacterId,
+      });
+    })();
   };
 
   /** 删除预设。内置预设不可删。若删除的是当前激活预设，需先切走（恢复参数）。 */
-  const deletePreset = (presetId: string) => {
+  const deletePreset = async (presetId: string) => {
     // 内置预设（原生 / 二创成品）不可删
     if (getBuiltinPresets().some((p) => p.id === presetId)) return;
     const target = (settings.stPresets ?? []).find((p) => p.id === presetId);
     if (!target) return;
-    if (!confirm(`确定删除预设「${target.name}」？\n该预设的 ${target.modules.length} 条模块也会从当前列表移除。`)) return;
+    if (!await askConfirm({
+      title: '删除预设',
+      message: `确定删除预设「${target.name}」？\n该预设的 ${target.modules.length} 条模块也会从当前列表移除。此操作不可撤销。`,
+      confirmLabel: '删除预设',
+      tone: 'danger',
+    })) return;
     const presets = (settings.stPresets ?? []).filter((p) => p.id !== presetId);
     const isCurrent = settings.currentStPresetId === presetId;
     // Phase 7.2：删除预设时同步移除对应的 ST 世界书
@@ -981,6 +1015,7 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
     const currentV2EnabledSlots = currentV2Order?.order.filter((slot) => slot.enabled !== false).length ?? 0;
     const tavernV2Ready = (settings.enableStPreset ?? true) && Boolean(currentV2Preset && currentV2Order);
     return (
+      <>
       <div className="flex h-full min-w-0 flex-col gap-4 overflow-y-auto pr-1" style={{ minHeight: 0 }}>
         <div
           className="flex flex-col gap-3 p-3"
@@ -1159,6 +1194,8 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
           </div>
         </div>
       </div>
+      <ConfirmDialogHost dialog={confirmDialog} />
+      </>
     );
   }
 
@@ -1212,12 +1249,17 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
             modules={visibleModules}
             selected={selected}
             onSelect={setSelectedId}
-            onToggle={(id) => {
+            onToggle={async (id) => {
               const target = modules.find((m) => m.id === id);
               if (!target || target.scope?.includes('calibration')) return;
               const nextEnabled = !target.enabled;
               if (isBuiltinPresetModule(target) && target.enabled && !nextEnabled) {
-                if (!window.confirm('该模块属于原生提示词底座，关闭可能影响输出稳定性。确定要关闭吗？')) {
+                if (!await askConfirm({
+                  title: '关闭原生提示词底座模块',
+                  message: '该模块属于原生提示词底座，关闭可能影响输出稳定性。确定要关闭吗？',
+                  confirmLabel: '仍然关闭',
+                  tone: 'danger',
+                })) {
                   return;
                 }
               }
@@ -1269,7 +1311,16 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
             <EditorPanel
               module={selected}
               onPatch={(p) => patch(selected.id, p)}
-              onDelete={() => removeModule(selected.id)}
+              onDelete={() => {
+                void (async () => {
+                  if (await askConfirm({
+                    title: '删除自定义模块',
+                    message: `确定删除模块「${selected.title}」？此操作不可撤销。`,
+                    confirmLabel: '删除模块',
+                    tone: 'danger',
+                  })) removeModule(selected.id);
+                })();
+              }}
             />
           ) : (
             <div
@@ -1295,6 +1346,7 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
           onCancel={() => setShowAddModal(false)}
         />
       )}
+      <ConfirmDialogHost dialog={confirmDialog} />
     </div>
   );
 }
@@ -2910,9 +2962,7 @@ function EditorPanel({
       {!readonly && !isBuiltinPromptModule(m.id) && m.id !== 'builtin_writing_style_custom' && (
         <div className="pt-2" style={{ borderTop: '1px solid rgba(var(--tj-accent-primary), 0.15)' }}>
           <button
-            onClick={() => {
-              if (confirm(`确定删除模块「${m.title}」？此操作不可撤销。`)) onDelete();
-            }}
+            onClick={onDelete}
             className="px-3 py-1.5 text-xs font-serif tracking-wider transition-all hover:opacity-80"
             style={{
               background: 'transparent',
@@ -2972,27 +3022,8 @@ function AddCustomModuleModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(2px)' }}
-      onClick={onCancel}
-    >
-      <div
-        className="flex w-[360px] max-w-[90vw] flex-col gap-4 p-5"
-        style={{
-          background: 'rgb(var(--tj-bg-primary))',
-          boxShadow: '0 0 40px rgba(var(--tj-accent-primary), 0.12), inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.25)',
-          clipPath: CLIP_CARD,
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div
-          className="text-sm font-serif tracking-[0.2em]"
-          style={{ color: 'rgba(var(--tj-accent-primary), 0.9)' }}
-        >
-          + 新增自定义模块
-        </div>
-
+    <Modal onClose={onCancel} title="新增自定义模块" className="max-w-[420px]">
+      <div className="flex flex-col gap-4">
         <div className="space-y-4">
           <div>
             <div
@@ -3142,7 +3173,7 @@ function AddCustomModuleModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

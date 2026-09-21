@@ -22,6 +22,12 @@ export type NPC关系阶段 = '敌对' | '陌生' | '初见' | '熟识' | '知�
 export const NPC_AFFINITY_MIN = -50;
 export const NPC_AFFINITY_MAX = 150;
 /**
+ * 队伍上限（**不含玩家本人**）。
+ * 唯一真源：写入层（`utils/teyvatCommandRegistry.ts` 的 travelingTogether 分支）、
+ * 模型提示词、以及左侧队伍面板都从这里取，避免三者漂移。
+ */
+export const NPC_PARTY_LIMIT = 4;
+/**
  * 「生死挚友」的门槛：好感度 **大于** 该值即为生死挚友。
  * 关系阶段派生与「到该等级后不再掉好感度」的保护共用这个常量，避免两处边界漂移。
  */

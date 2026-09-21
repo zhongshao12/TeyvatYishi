@@ -1,4 +1,6 @@
 import { CLIP_CARD, CLIP_SMALL, gradientAccent, insetRing } from '@/styles/clipPaths';
+import { ConfirmDialogHost, PromptDialogHost, useConfirmDialog, usePromptDialog } from '@/components/ui/Modal';
+import { pushToast } from '@/utils/toastStore';
 import { useSavedFlash } from '@/hooks/useSavedFlash';
 ﻿import { useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
@@ -677,6 +679,11 @@ function TreeNode({
   const objectLike = isRecord(value);
   const [expanded, setExpanded] = useState(depth === 0);
   const [visibleArrayItems, setVisibleArrayItems] = useState(ARRAY_RENDER_BATCH_SIZE);
+  // 原生 prompt/confirm/alert 无法换主题、不能读屏标注；变量树的新增/删除统一走样式化弹窗。
+  const promptDialog = usePromptDialog();
+  const askPrompt = promptDialog.prompt;
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
 
   if (!isArray && !objectLike) {
     return <LeafRow label={label} value={value} depth={depth} onChange={onChange} onDelete={onDelete} />;
@@ -710,6 +717,7 @@ function TreeNode({
   }
 
   return (
+    <>
     <details
       open={expanded}
       onToggle={(event) => {
@@ -742,13 +750,20 @@ function TreeNode({
               onChange([...value, inferDefaultValueFromSibling(value)]);
               return;
             }
-            const key = window.prompt('新字段名');
-            if (!key) return;
-            if (key in value) {
-              window.alert('字段已存在');
-              return;
-            }
-            onChange({ ...value, [key]: '' });
+            void (async () => {
+              const key = (await askPrompt({
+                title: '新增字段',
+                message: '为当前对象添加一个字段。',
+                label: '新字段名',
+                confirmLabel: '新增',
+              }))?.trim();
+              if (!key) return;
+              if (key in value) {
+                pushToast({ kind: 'error', title: '字段已存在', detail: `「${key}」已经在当前对象里。` });
+                return;
+              }
+              onChange({ ...value, [key]: '' });
+            })();
           }}
           className="px-1.5 py-0.5 text-[10px]"
           style={{ color: 'rgba(165,230,170,0.94)', boxShadow: 'inset 0 0 0 1px rgba(165,230,170,0.25)', clipPath: CLIP_SMALL }}
@@ -760,7 +775,14 @@ function TreeNode({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              if (window.confirm(`确认删除 ${label} ?`)) onDelete();
+              void (async () => {
+                if (await askConfirm({
+                  title: '删除字段',
+                  message: `确认删除 ${label} ?`,
+                  confirmLabel: '删除',
+                  tone: 'danger',
+                })) onDelete();
+              })();
             }}
             className="px-1.5 py-0.5 text-[10px]"
             style={{ color: 'rgba(255,135,135,0.9)', boxShadow: 'inset 0 0 0 1px rgba(255,135,135,0.25)', clipPath: CLIP_SMALL }}
@@ -822,6 +844,9 @@ function TreeNode({
       </div>
       )}
     </details>
+    <ConfirmDialogHost dialog={confirmDialog} />
+    <PromptDialogHost dialog={promptDialog} />
+    </>
   );
 }
 
@@ -839,8 +864,11 @@ function LeafRow({
   onDelete?: () => void;
 }) {
   const type = typeof value;
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
 
   return (
+    <>
     <div
       className="flex flex-col gap-1 py-1.5 sm:flex-row sm:items-start sm:gap-2"
       style={{
@@ -904,7 +932,14 @@ function LeafRow({
       {onDelete && (
         <button
           onClick={() => {
-            if (window.confirm(`确认删除 ${label} ?`)) onDelete();
+            void (async () => {
+              if (await askConfirm({
+                title: '删除字段',
+                message: `确认删除 ${label} ?`,
+                confirmLabel: '删除',
+                tone: 'danger',
+              })) onDelete();
+            })();
           }}
           className="mt-0.5 flex-shrink-0 px-1.5 py-0.5 text-[11px]"
           style={{ color: 'rgba(255,135,135,0.86)', boxShadow: 'inset 0 0 0 1px rgba(255,135,135,0.22)', clipPath: CLIP_SMALL }}
@@ -913,6 +948,8 @@ function LeafRow({
         </button>
       )}
     </div>
+    <ConfirmDialogHost dialog={confirmDialog} />
+    </>
   );
 }
 

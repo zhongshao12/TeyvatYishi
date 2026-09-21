@@ -9,6 +9,7 @@ import type { API设置, PNG画风预设来源, 游戏设置, 文生图API配置
 import type { NPC记录, NPC头像槽位, NPC角色锚点档案 } from '@/models/npc';
 import { 读取NPC头像 } from '@/models/npc';
 import { saveSetting } from '@/services/dbService';
+import { ConfirmDialogHost, useConfirmDialog } from '@/components/ui/Modal';
 import {
   添加图片到相册,
   创建相册图片条目,
@@ -102,6 +103,9 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
   const [showNsfw, setShowNsfw] = useState(false);
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  // B9：批量删除图片此前零确认，误点即永久丢图；统一走样式化危险确认弹窗。
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
   const [prompt, setPrompt] = useState('');
   const [negativePrompt, setNegativePrompt] = useState('');
   const [promptEditorOpen, setPromptEditorOpen] = useState(false);
@@ -685,13 +689,19 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
     setMessage(`已挂载到 ${slotLabel(params.slot)}。`);
   };
 
-  const deleteLibraryEntries = (entryIds: string[]) => {
+  const deleteLibraryEntries = async (entryIds: string[]) => {
     if (albumOperationBusy) return;
     const ids = Array.from(new Set(entryIds)).filter(Boolean);
     if (!ids.length) {
       setMessage('请先选择要删除的图片。');
       return;
     }
+    if (!await askConfirm({
+      title: '删除图片',
+      message: `确定删除选中的 ${ids.length} 张图片？删除后无法找回。`,
+      confirmLabel: `删除 ${ids.length} 张`,
+      tone: 'danger',
+    })) return;
     const idSet = new Set(ids);
     setMessage(`正在删除 ${ids.length} 张图片…`);
     startAlbumUpdate(() => {
@@ -1481,6 +1491,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
           )}
         </section>
       </div>
+      <ConfirmDialogHost dialog={confirmDialog} />
     </div>
   );
 }

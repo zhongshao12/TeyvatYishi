@@ -116,7 +116,15 @@ assert(client.includes('withDeepSeekPrefixMessages'), '请求层必须构造 Dee
 assert(client.includes('prefix: true'), 'DeepSeek prefix assistant 消息必须带 prefix:true。');
 assert(client.includes("request.prefixContent ?? ''"), 'DeepSeek prefix 请求层不得默认注入 hidden reasoning 起点。');
 assert(client.includes('isDeepSeekPrefixUnsupportedError'), 'DeepSeek prefix 不支持时必须可识别并降级。');
-assert(client.includes('prefixMode === true && isDeepSeekConfig(config)'), 'prefixMode 必须只作用于 DeepSeek。');
+// 迁移（第二轮审计 D5）：旧断言 `client.includes('prefixMode === true && isDeepSeekConfig(config)')`
+// 断言的是一个**无人调用的死函数体** `shouldUseDeepSeekPrefix` —— 门禁在守不执行的代码。
+// 活的真相是：`withPrefixMessages` 按 provider 分支，DeepSeek 专属处理（/beta + prefix:true）
+// 只在 `provider === 'deepseek'` 分支内。删掉死函数，断言改为指向活分支。
+assert(
+  /if \(provider === 'deepseek'\)[\s\S]{0,400}normalizeDeepSeekPrefixBaseUrl/.test(client),
+  'DeepSeek 专属 prefix 处理（/beta + prefix:true）必须只在 deepseek 分支内。',
+);
+assert(!client.includes('function shouldUseDeepSeekPrefix'), '不得保留无人调用的 shouldUseDeepSeekPrefix：规则已由 provider 分支落实。');
 assert(client.includes('已自动降级为标准模式'), 'DeepSeek prefix 不支持时必须自动降级标准模式。');
 assert(client.includes('executeWithDeepSeekRecovery'), '流式和非流式客户端必须接入共享 DeepSeek 恢复协调器。');
 assert(client.includes('hasReasoningPayload') && client.includes('sawReasoning'), 'OpenAI 兼容解析必须记录 reasoning 活动而不展示内容。');

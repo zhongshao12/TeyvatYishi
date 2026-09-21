@@ -60,11 +60,26 @@ export const RelationshipGraphPanel = memo(function RelationshipGraphPanel({ npc
             const relationText = `${node.relationLabel} · ${node.affinity >= 0 ? '+' : ''}${node.affinity}`;
             const labelWidth = Math.min(92, Math.max(48, relationText.length * 8));
             return (
-              <g key={node.id} onClick={() => onSelectNpc(node.id)} style={{ cursor: "pointer" }}>
+              <g
+                key={node.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`${node.name}，${relationText}，打开角色档案`}
+                onClick={() => onSelectNpc(node.id)}
+                onKeyDown={(event) => {
+                  // 键盘通路：可点击的 SVG 节点必须能用 Enter 与 Space 操作
+                  if (event.key !== 'Enter' && event.key !== ' ') return;
+                  event.preventDefault();
+                  onSelectNpc(node.id);
+                }}
+                className="relationship-graph-node"
+              >
                 <line x1={centerX} y1={centerY} x2={x} y2={y} stroke={edgeColor} strokeWidth={edge?.kind === 'intimate' ? 2.2 : 1.4} strokeDasharray={edge?.kind === 'rival' ? '4 3' : undefined} />
                 <rect x={labelX - labelWidth / 2} y={labelY - 8} width={labelWidth} height="16" rx="7" fill="rgba(var(--tj-surface-strong),0.96)" stroke={edgeColor} strokeWidth="0.8" />
                 <text x={labelX} y={labelY + 0.5} textAnchor="middle" dominantBaseline="central" fontSize="8" fontWeight="600" fill="rgb(var(--tj-text-primary))">{relationText}</text>
                 <circle cx={x} cy={y} r="18" fill="rgba(var(--tj-surface-strong),0.95)" stroke={color} strokeWidth="1.5" />
+                {/* 键盘焦点环：SVG 元素上的 outline 在多数浏览器不渲染，改为常驻但默认透明的外圈。 */}
+                <circle className="relationship-graph-node__ring" cx={x} cy={y} r="23" fill="none" stroke="rgb(var(--tj-accent-primary))" strokeWidth="2" strokeDasharray="3 3" />
                 <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize="10" fill={color}>{node.name.slice(0, 2)}</text>
                 <text x={x} y={y + 30} textAnchor="middle" fontSize="9" fill="rgba(var(--tj-text-secondary),0.85)">{node.name}</text>
               </g>

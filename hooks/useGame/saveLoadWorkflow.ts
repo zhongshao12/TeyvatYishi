@@ -346,11 +346,17 @@ export async function applySaveToState(
       await clearWorkflowRecoveryJournal(state.interruptedWorkflow.workflowId);
       recoveryWasCleared = true;
     },
-    replaceGameState: state.replaceGameState,
+    // A4：相册必须在**提交那一刻**就物化（`dataUrl` → `asset:` 引用）。
+    // 原先是在 `replaceGameState` 之后才 `nextGame.相册 = materialize(...)`，
+    // 而 `replaceGameState` 内部会 normalize 成**新对象**——于是那次赋值写在一个已经失效的对象上，
+    // React 状态里的相册仍留着每张图的 base64（正是物化要消除的 MB 级字符串），且界面看不出异常。
+    replaceGameState: (next) => state.replaceGameState({
+      ...next,
+      相册: materializeAlbumRuntimePayload(next.相册),
+    }),
   });
 
   const nextAlbum = materializeAlbumRuntimePayload(nextGame.相册);
-  nextGame.相册 = nextAlbum;
   pruneAlbumAssetCache(nextAlbum.assets.map((asset) => asset.id));
 
   activeSaveTreeMeta = nextTreeMeta;

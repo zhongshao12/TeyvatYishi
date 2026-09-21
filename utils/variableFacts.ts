@@ -25,7 +25,7 @@ import {
 } from '@/models/teyvat/domainCommand';
 import { extractJsonLikeText, parseJsonWithRepair } from '@/services/ai/structuredOutputRepair';
 import { 天气列表 } from '@/data/weatherRules';
-import { getNsfwArchiveBlockReason, isProtectedCanonicalNpc } from '@/utils/nsfwArchivePolicy';
+import { getMinorAgeEvidenceReason, getNsfwArchiveBlockReason, isProtectedCanonicalNpc } from '@/utils/nsfwArchivePolicy';
 import {
   normalizeLegacyFactKind,
   readLegacyNpcKeyFromName,
@@ -787,6 +787,12 @@ const 亲密事件档位 = [
 const 亲密事件否定模式 = /(?:没有|并未|未曾|不曾|尚未|拒绝|推开|挣脱|躲开|抽开|抽回|避开|梦见|幻想).{0,12}(?:亲吻|接吻|吻|拥抱|抱|牵手|搂|暧昧|表白|告白|性爱|做爱)/u;
 
 /**
+ * 匿名主语（成对/复数）：情爱场景常写「两人发生了性爱关系。」而不重复角色名。
+ * 这类句子只有在**唯一同行者**时才可归属（那时"两人"必然是玩家与该同伴），否则宁可不加。
+ */
+const 亲密事件匿名主语模式 = /(两人|二人|双方|彼此|他们|她们|对方|互相)/u;
+
+/**
  * 正文里的亲密事件 → 固定好感度事实（玩家指定的 4 条规则）。
  *
  * 归属规则是保守的：**只有角色姓名/别名与亲密词出现在同一句时才计入**。
@@ -796,47 +802,71 @@ const 亲密事件否定模式 = /(?:没有|并未|未曾|不曾|尚未|拒绝|�
  */
 export function deriveNarrativeIntimacyFacts(
   body: string,
-  records: readonly (Pick<NPC记录, 'id' | '姓名'> & { aliases?: readonly string[]; gender?: string })[],
+  records: readonly (Pick<NPC记录, 'id' | '姓名'> & {
+    aliases?: readonly string[];
+    gender?: string;
+    travelingTogether?: boolean;
+    同行?: boolean;
+    /** 以下三项用于「未成年年龄证据」判定（Teyvat 记录的字段名与 legacy 不同）。 */
+    说明?: string;
+    appearance?: string;
+    notes?: readonly string[];
+  })[],
   options: { nsfwEnabled?: boolean } = {},
 ): 变量事实[] {
   if (!body.trim()) return [];
   const sentences = body.split(/(?<=[。！？!?\n])/u).map((item) => item.trim()).filter(Boolean);
   const facts: 变量事实[] = [];
+  // 唯一同行者：用于归属匿名主语（「两人/彼此」）的句子。
+  const companions = records.filter((record) => record.travelingTogether === true || record.同行 === true);
+  const soleCompanion = companions.length === 1 ? companions[0] : undefined;
   for (const record of records) {
     const name = (record.姓名 ?? '').trim();
     if (!name) continue;
     const names = [name, ...(record.aliases ?? [])].map((item) => item.trim()).filter(Boolean);
+    // 描述文本里可能写着年龄（自定义角色没有原著名单可依）。
+    const identityText = [record.说明, record.appearance, ...(record.notes ?? [])]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .join(' ');
+    // 受保护原著角色与非成年证据都跳过**全部**档位（不只是性爱档）。
     if (isProtectedCanonicalNpc(undefined, names)) continue;
+    if (getMinorAgeEvidenceReason(undefined, name, identityText)) continue;
     const sexTierAllowed = options.nsfwEnabled !== false
-      && getNsfwArchiveBlockReason(undefined, name, names.join(' ')) === null;
+      && getNsfwArchiveBlockReason(undefined, name, `${names.join(' ')} ${identityText}`) === null;
+    // 契约是「同一回合同一角色只按命中的最高档结算一次」，所以必须先扫完所有可归属的句子再取最高档，
+    // 不能命中第一句就 break（那样「拥抱…随后亲吻…」只算 +3，而「两人发生了性爱关系」会被整条漏掉）。
+    let best: { matched: (typeof 亲密事件档位)[number]; sentence: string } | null = null;
     for (const sentence of sentences) {
-      if (!names.some((candidate) => sentence.includes(candidate))) continue;
       if (亲密事件否定模式.test(sentence)) continue;
+      const named = names.some((candidate) => sentence.includes(candidate));
+      const anonymous = !named && soleCompanion === record && 亲密事件匿名主语模式.test(sentence);
+      if (!named && !anonymous) continue;
       const matched = 亲密事件档位.find((tier) => tier.模式.test(sentence));
       if (!matched) continue;
       if (matched.名称 === '性爱事件' && !sexTierAllowed) continue;
-      // 证据必须够长：结算的宽松证据门槛是 8 字，太短的句子会被整条拒掉。
-      const evidence = 亲密事件证据(body, sentence, matched.名称);
+      if (!best || matched.加成 > best.matched.加成) best = { matched, sentence };
+    }
+    if (!best) continue;
+    // 证据必须够长：结算的宽松证据门槛是 8 字，太短的句子会被整条拒掉。
+    const evidence = 亲密事件证据(body, best.sentence, best.matched.名称);
+    facts.push({
+      type: 'npc',
+      id: record.id,
+      name,
+      affinityDelta: best.matched.加成,
+      evidence,
+    });
+    if (best.matched.名称 === '性爱事件' && record.gender === '女') {
+      // 女角色的「是否处女」默认是「是」（建档案时写入），发生性爱事件后翻成「否」。
+      // 走 nsfw_archive 事实而不是直接改字段：matureArchive 的写入必须经过 registry 校验与夹取。
       facts.push({
-        type: 'npc',
-        id: record.id,
-        name,
-        affinityDelta: matched.加成,
+        type: 'nsfw_archive',
+        npcId: record.id,
+        npcName: name,
+        ageConfirm: 'adult',
+        virginityStatus: 'not_virgin',
         evidence,
       });
-      if (matched.名称 === '性爱事件' && record.gender === '女') {
-        // 女角色的「是否处女」默认是「是」（建档案时写入），发生性爱事件后翻成「否」。
-        // 走 nsfw_archive 事实而不是直接改字段：matureArchive 的写入必须经过 registry 校验与夹取。
-        facts.push({
-          type: 'nsfw_archive',
-          npcId: record.id,
-          npcName: name,
-          ageConfirm: 'adult',
-          virginityStatus: 'not_virgin',
-          evidence,
-        });
-      }
-      break;
     }
   }
   return facts;

@@ -1173,30 +1173,28 @@ function NarrativeImageCard({
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.2)',
       }}
     >
-      {/* 标题栏：点击折叠/展开 */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-all hover:opacity-80"
-        style={{ color: 'rgba(var(--tj-text-primary), 0.85)' }}
-      >
-        <span>{icon}</span>
-        <span className="flex-1 font-medium">{typeLabel}：{image.description || '剧情瞬间'}</span>
+      {/* 标题栏：折叠/展开按钮与「重新生成」必须是并列的兄弟控件。
+          此前「重新生成」是嵌在折叠按钮内部的可聚焦 role="button" span，
+          形成可聚焦控件嵌套：读屏会读到嵌套按钮，Tab 顺序也依赖 stopPropagation 才不误触折叠。 */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs transition-all hover:opacity-80"
+          style={{ color: 'rgba(var(--tj-text-primary), 0.85)' }}
+        >
+          <span>{icon}</span>
+          <span className="flex-1 font-medium">{typeLabel}：{image.description || '剧情瞬间'}</span>
+          <span style={{ color: 'rgba(var(--tj-text-secondary), 0.5)' }}>
+            {expanded ? '▲' : '▼'}
+          </span>
+        </button>
         {canRegenerate && (
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(event) => {
-              event.stopPropagation();
-              handleRegenerate();
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                event.stopPropagation();
-                handleRegenerate();
-              }
-            }}
-            className="px-2 py-1 font-serif text-[11px] tracking-[0.12em] transition-all hover:opacity-85"
+          <button
+            type="button"
+            onClick={handleRegenerate}
+            className="mr-3 shrink-0 px-2 py-1 font-serif text-[11px] tracking-[0.12em] transition-all hover:opacity-85"
             style={{
               color: 'rgba(var(--tj-btn-primary-start),0.95)',
               background: 'rgba(var(--tj-btn-primary-start),0.06)',
@@ -1205,12 +1203,9 @@ function NarrativeImageCard({
             }}
           >
             重新生成
-          </span>
+          </button>
         )}
-        <span style={{ color: 'rgba(var(--tj-text-secondary), 0.5)' }}>
-          {expanded ? '▲' : '▼'}
-        </span>
-      </button>
+      </div>
 
       {/* 展开内容：图片 */}
       {expanded && imageSrc && (

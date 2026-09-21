@@ -319,3 +319,144 @@ export function ConfirmDialog({ request, onResolve }: { request: ConfirmDialogRe
     </div>
   );
 }
+
+export interface PromptDialogRequest {
+  /** 同时用作对话框的可访问名（aria-label）。 */
+  title: string;
+  message?: string;
+  /** 输入框上方的说明文字。 */
+  label?: string;
+  defaultValue?: string;
+  placeholder?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  /** danger 用危险色渲染确认按钮（例如重命名会触发清空既有结果时）。 */
+  tone?: 'default' | 'danger';
+}
+
+export interface PromptDialogApi {
+  /** 打开一个可样式化的输入弹窗；返回玩家输入，取消返回 null。 */
+  prompt: (request: PromptDialogRequest) => Promise<string | null>;
+  /** 结算当前弹窗；由 PromptDialogHost 调用。 */
+  resolve: (value: string | null) => void;
+  /** 当前待输入的请求（无则为 null）。 */
+  pending: (PromptDialogRequest & { key: number }) | null;
+}
+
+interface PendingPrompt extends PromptDialogRequest {
+  key: number;
+}
+
+/**
+ * 用样式化输入弹窗替代原生 window.prompt。
+ * 原生 prompt 无法换主题、无法读屏标注，在移动端与内嵌 WebView 中还可能被直接拦截，
+ * 表现为「点了改名什么都没发生」。
+ */
+export function usePromptDialog(): PromptDialogApi {
+  const [pending, setPending] = useState<PendingPrompt | null>(null);
+  const resolverRef = useRef<((value: string | null) => void) | null>(null);
+  const seqRef = useRef(0);
+
+  const prompt = useCallback((request: PromptDialogRequest) => new Promise<string | null>((resolve) => {
+    // 同一时刻只允许一个待输入请求：前一个按「取消」结算，避免 Promise 悬空。
+    resolverRef.current?.(null);
+    resolverRef.current = resolve;
+    seqRef.current += 1;
+    setPending({ key: seqRef.current, ...request });
+  }), []);
+
+  const resolve = useCallback((value: string | null) => {
+    const resolver = resolverRef.current;
+    resolverRef.current = null;
+    setPending(null);
+    resolver?.(value);
+  }, []);
+
+  return { prompt, resolve, pending };
+}
+
+/**
+ * 承载 usePromptDialog 的弹窗节点。放在组件树任意位置即可。
+ */
+export function PromptDialogHost({ dialog }: { dialog: PromptDialogApi }) {
+  if (!dialog.pending) return null;
+  return <PromptDialog key={dialog.pending.key} request={dialog.pending} onResolve={dialog.resolve} />;
+}
+
+export function PromptDialog({ request, onResolve }: { request: PromptDialogRequest; onResolve: (value: string | null) => void }) {
+  const dialogRef = useModalAccessibility<HTMLDivElement>(() => onResolve(null));
+  const danger = request.tone === 'danger';
+  const [value, setValue] = useState(request.defaultValue ?? '');
+  const inputId = useId();
+
+  return (
+    <div
+      className="teyvat-modal-overlay journal-modal-overlay fixed inset-0 z-[130] flex items-center justify-center p-4"
+      onClick={(event) => { if (event.target === event.currentTarget) onResolve(null); }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={request.title}
+        tabIndex={-1}
+        className="journal-modal-shell journal-paper-surface w-[min(440px,94vw)] animate-slide-up p-4 text-[rgb(var(--tj-text-primary))] md:p-5"
+        style={{ boxShadow: `inset 0 0 0 1px ${danger ? 'rgba(var(--tj-danger), 0.6)' : 'rgba(var(--tj-accent-primary), 0.5)'}, 0 20px 50px rgba(var(--tj-shadow), 0.42)` }}
+      >
+        <h3 className="font-serif text-base font-bold tracking-[0.2em]" style={{ color: danger ? 'rgb(var(--tj-danger))' : 'rgb(var(--tj-accent-primary))' }}>
+          {request.title}
+        </h3>
+        {request.message && (
+          <p className="mt-2 whitespace-pre-wrap break-words font-serif text-[13px] leading-6" style={{ color: 'rgba(var(--tj-text-primary), 0.92)' }}>
+            {request.message}
+          </p>
+        )}
+        <label htmlFor={inputId} className="mt-3 block font-serif text-[12px] tracking-[0.16em]" style={{ color: 'rgba(var(--tj-text-secondary), 0.9)' }}>
+          {request.label ?? '输入内容'}
+        </label>
+        <input
+          id={inputId}
+          data-modal-autofocus
+          value={value}
+          placeholder={request.placeholder}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            onResolve(value);
+          }}
+          className="mt-1 w-full px-2 py-2 font-serif text-[13px] outline-none"
+          style={{
+            background: 'rgba(var(--tj-bg-primary), 0.62)',
+            color: 'rgb(var(--tj-text-primary))',
+            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.38)',
+          }}
+        />
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => onResolve(null)}
+            className="px-3 py-1.5 font-serif text-[12px] tracking-[0.18em]"
+            style={{ color: 'rgb(var(--tj-text-primary))', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.4)' }}
+          >
+            {request.cancelLabel ?? '取消'}
+          </button>
+          <button
+            type="button"
+            onClick={() => onResolve(value)}
+            className="px-3 py-1.5 font-serif text-[12px] tracking-[0.18em]"
+            style={{
+              color: 'rgb(var(--tj-on-accent))',
+              background: danger
+                ? 'linear-gradient(135deg, rgba(var(--tj-danger), 0.95), rgba(var(--tj-danger), 0.85))'
+                : 'linear-gradient(135deg, rgb(var(--tj-btn-primary-start)), rgb(var(--tj-btn-primary-end)))',
+              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.35)',
+            }}
+          >
+            {request.confirmLabel ?? '确定'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

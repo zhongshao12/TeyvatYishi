@@ -48,6 +48,7 @@ import {
 } from '@/models/settings';
 import type { 提示词模块 } from '@/models/prompts';
 import type { STPresetEntry } from '@/models/stTypes';
+import { migrateSTPresetsV1ToV2 } from '@/utils/stPresetMigration';
 import { BUILTIN_NARRATIVE_MODULE_IDS, BUILTIN_PROMPT_MODULE_IDS, LEGACY_BUILTIN_COT_ID, getDefaultModuleFields } from '@/models/prompts';
 import { isSTImportedModule } from '@/utils/stPresetParser';
 import { createBuiltinPromptModules } from '@/data/builtinPromptModules';
@@ -1105,7 +1106,11 @@ export function useGameState(): UseGameStateReturn {
         if (savedGame.customPrompt && merged.promptModules.some((m) => m.id === 'legacy_custom')) {
           merged.customPrompt = '';
         }
-        setGameSettings(merged);
+        // D1（第二轮审计）：`migrateSTPresetsV1ToV2` 此前**只被回归脚本调用、生产里 0 调用**，
+        // 于是老玩家的 V1 预设永远进不了 V2 列表（V2 在 PromptModulesTab 与 systemPromptBuilder 里都是活的）。
+        // 这里在启动加载时接线；迁移是纯函数且已有约 30 条行为断言（scripts/st-preset-migration-regression.mjs）。
+        const stPresetMigration = migrateSTPresetsV1ToV2(merged);
+        setGameSettings(stPresetMigration.settings);
       }
 
       try {

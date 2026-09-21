@@ -1,6 +1,8 @@
 import { CLIP_CARD, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
 import { useSavedFlash } from '@/hooks/useSavedFlash';
 import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
+import { pushToast } from '@/utils/toastStore';
+import { toUserFacingError } from '@/utils/userFacingError';
 ﻿import type { ReactNode } from 'react';
 import { useState } from 'react';
 import type { AI提供商, API配置项, API设置, 游戏设置, 原著约束强度 } from '@/models/settings';
@@ -92,7 +94,7 @@ export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
     } catch (err) {
       const text = (err as Error).message;
       setFetchMessage({ kind: 'error', text });
-      window.alert(`图鉴获取模型失败：${text}`);
+      pushToast({ kind: 'error', title: '图鉴获取模型失败', detail: toUserFacingError(err, { action: '获取图鉴模型列表' }) });
     } finally {
       setLoadingModels(false);
     }

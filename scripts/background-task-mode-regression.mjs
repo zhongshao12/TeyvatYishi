@@ -35,7 +35,8 @@ assert(gameSettings.includes('稳序') && gameSettings.includes('并行'), 'back
 assert(gameSettings.includes('主剧情前的世界树召回与图鉴召回始终会先完成'), 'UI must explain pre-main recalls still finish before main story.');
 
 assert(gameState.includes('backgroundTaskMode: savedGame.backgroundTaskMode ?? defaults.backgroundTaskMode'), 'old local settings must normalize missing backgroundTaskMode.');
-assert(saveLoad.includes('replaceGameState: state.replaceGameState'), 'formal save loading must replace only the Teyvat game root.');
+// 迁移: 见 extra-features-regression.mjs 同一条（相册物化下沉到提交前，第二轮审计 A4）。
+assert(/replaceGameState:\s*\(next\)\s*=>\s*state\.replaceGameState\(/.test(saveLoad), 'formal save loading must replace only the Teyvat game root.');
 assert(!saveLoad.includes('state.setGameSettings('), 'formal save loading must not overwrite local background-task preferences from save bytes.');
 
 const irminsulRecall = sendWorkflow.indexOf('retrieveIrminsulEntries(');

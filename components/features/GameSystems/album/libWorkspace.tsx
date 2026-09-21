@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { ConfirmDialogHost, useConfirmDialog, useModalAccessibility } from '@/components/ui/Modal';
 import { 图片是否参考角色 } from '@/models/imageGeneration';
 import type { 图片槽位, 相册条目, 相册系统 } from '@/models/imageGeneration';
 import type { 角色数据结构 } from '@/models/character';
@@ -201,6 +202,10 @@ function SceneGalleryCard({ item, active, batchMode, selected, onClick }: { item
 function LibraryImportDialog({ open, onClose, scope, record, traveler, onImport }: { open: boolean; onClose: () => void; scope: GalleryScope; record: CharacterLibraryRecord | null; traveler: 角色数据结构; onImport: (file: File | null, target: AlbumImportTarget, mode: AlbumImportMode) => void }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const modeRef = useRef<AlbumImportMode>('merge');
+  // 自绘弹层补齐对话框语义：Esc 关闭、初始焦点、Tab 圈定与关闭后焦点归还都由 useModalAccessibility 提供。
+  const dialogRef = useModalAccessibility<HTMLDivElement>(onClose, open);
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
   if (!open) return null;
   const target = galleryImportTarget(scope, record);
   const targetLabel = scope === 'character' ? record?.name || traveler.姓名 || '旅人' : galleryScopeLabel(scope);
@@ -208,14 +213,48 @@ function LibraryImportDialog({ open, onClose, scope, record, traveler, onImport 
     modeRef.current = mode;
     fileRef.current?.click();
   };
-  const handleFile = (file: File | null) => {
+  const handleFile = async (file: File | null) => {
     if (!file) return;
     const mode = modeRef.current;
-    if (mode === 'replace' && !window.confirm('覆盖恢复会替换当前相册中的全部资源与任务。确认继续吗？')) return;
+    // 「覆盖恢复」是破坏性操作：必须二次确认，并用样式化危险弹窗替代原生 confirm。
+    if (mode === 'replace' && !await askConfirm({
+      title: '覆盖恢复相册',
+      message: '覆盖恢复会替换当前相册中的全部资源与任务。确认继续吗？',
+      confirmLabel: '覆盖恢复',
+      tone: 'danger',
+    })) return;
     onImport(file, target, mode);
     onClose();
   };
-  return createPortal(<div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 p-4" onMouseDown={onClose}><div className="w-full max-w-md px-4 py-4" style={{ background: 'linear-gradient(160deg, rgba(var(--tj-surface),0.98), rgba(var(--tj-bg-primary),0.98))', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start),0.28)', clipPath: cardClip }} onMouseDown={(event) => event.stopPropagation()}><div className="font-serif text-sm font-bold tracking-[0.18em]" style={{ color: 'rgb(var(--tj-ui-title))' }}>导入相册文件</div><div className="mt-3 space-y-2 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-ui-muted),0.78)' }}><div>合并归类目标：{targetLabel}</div><div>支持本项目导出的 ZIP 备份和旧版相册 JSON。合并导入会保留当前内容并自动复用相同图片。</div><div style={{ color: 'rgba(var(--tj-danger),0.88)' }}>“覆盖恢复”仅用于完整备份，会替换当前相册中的全部资源与任务。</div></div><div className="mt-4 grid gap-2 sm:grid-cols-[auto_1fr_1fr]"><button type="button" onClick={onClose} className="px-3 py-2 text-xs" style={{ color: 'rgba(var(--tj-ui-muted),0.82)' }}>取消</button><button type="button" onClick={() => chooseFile('replace')} className="px-3 py-2 font-serif text-xs tracking-[0.12em]" style={{ color: 'rgba(var(--tj-danger),0.92)', background: 'rgba(var(--tj-danger),0.09)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger),0.24)', clipPath: smallClip }}>覆盖恢复</button><button type="button" onClick={() => chooseFile('merge')} className="px-3 py-2 font-serif text-xs tracking-[0.12em]" style={{ color: 'rgb(var(--tj-ui-active-text))', background: activeAccentSurface, clipPath: smallClip }}>合并导入</button></div><input ref={fileRef} type="file" accept="application/zip,.zip,application/json,.json" className="hidden" onChange={(event) => { handleFile(event.target.files?.[0] ?? null); event.currentTarget.value = ''; }} /></div></div>, document.body);
+  return createPortal(
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 p-4" onMouseDown={onClose}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="导入相册文件"
+        tabIndex={-1}
+        className="w-full max-w-md px-4 py-4"
+        style={{ background: 'linear-gradient(160deg, rgba(var(--tj-surface),0.98), rgba(var(--tj-bg-primary),0.98))', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start),0.28)', clipPath: cardClip }}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="font-serif text-sm font-bold tracking-[0.18em]" style={{ color: 'rgb(var(--tj-ui-title))' }}>导入相册文件</div>
+        <div className="mt-3 space-y-2 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-ui-muted),0.78)' }}>
+          <div>合并归类目标：{targetLabel}</div>
+          <div>支持本项目导出的 ZIP 备份和旧版相册 JSON。合并导入会保留当前内容并自动复用相同图片。</div>
+          <div style={{ color: 'rgba(var(--tj-danger),0.88)' }}>“覆盖恢复”仅用于完整备份，会替换当前相册中的全部资源与任务。</div>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-[auto_1fr_1fr]">
+          <button type="button" onClick={onClose} className="min-h-11 px-3 py-2 text-xs" style={{ color: 'rgba(var(--tj-ui-muted),0.82)' }}>取消</button>
+          <button type="button" onClick={() => chooseFile('replace')} className="min-h-11 px-3 py-2 font-serif text-xs tracking-[0.12em]" style={{ color: 'rgba(var(--tj-danger),0.92)', background: 'rgba(var(--tj-danger),0.09)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger),0.24)', clipPath: smallClip }}>覆盖恢复</button>
+          <button type="button" onClick={() => chooseFile('merge')} className="min-h-11 px-3 py-2 font-serif text-xs tracking-[0.12em]" style={{ color: 'rgb(var(--tj-ui-active-text))', background: activeAccentSurface, clipPath: smallClip }}>合并导入</button>
+        </div>
+        <input ref={fileRef} type="file" accept="application/zip,.zip,application/json,.json" className="hidden" onChange={(event) => { void handleFile(event.target.files?.[0] ?? null); event.currentTarget.value = ''; }} />
+      </div>
+      <ConfirmDialogHost dialog={confirmDialog} />
+    </div>,
+    document.body,
+  );
 }
 
 function galleryImportTarget(scope: GalleryScope, record: CharacterLibraryRecord | null): AlbumImportTarget {

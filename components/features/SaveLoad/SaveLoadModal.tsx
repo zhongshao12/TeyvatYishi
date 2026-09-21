@@ -36,7 +36,7 @@ import type { 角色数据结构 } from '@/models/character';
 import type { 世界书 } from '@/models/worldbook';
 import type { 相册系统 } from '@/models/imageGeneration';
 import type { 聊天消息 } from '@/models/chat';
-import { useModalAccessibility } from '@/components/ui/Modal';
+import { ConfirmDialogHost, useConfirmDialog, useModalAccessibility } from '@/components/ui/Modal';
 
 interface Props {
   onSave: () => Promise<number>;
@@ -82,6 +82,9 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const previewFocusRestoreRef = useRef<HTMLElement | null>(null);
   const modalContentRef = useModalAccessibility<HTMLDivElement>(onClose);
+  // 原生 confirm 无法换主题、不能读屏标注；读档/删档统一走样式化确认弹窗。
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
   const isMigrationPreview = importPreview?.kind === 'partial-teyvat';
 
   const capturePreviewFocus = () => {
@@ -192,7 +195,11 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
   };
 
   const handleLoad = async (id: number) => {
-    if (!confirm('读取这个存档会替换当前未保存的进度，是否继续？')) return;
+    if (!await askConfirm({
+      title: '读取存档',
+      message: '读取这个存档会替换当前未保存的进度，是否继续？',
+      confirmLabel: '读取',
+    })) return;
     setLoadingId(id);
     try {
       const ok = await onLoad(id);
@@ -206,7 +213,12 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定删除这个存档？此操作不可恢复。')) return;
+    if (!await askConfirm({
+      title: '删除存档',
+      message: '确定删除这个存档？此操作不可恢复。',
+      confirmLabel: '删除',
+      tone: 'danger',
+    })) return;
     const target = [...saves, ...legacyBackups].find((save) => save.id === id)?.saveTree;
     setDeletingId(id);
     setSaves((prev) => prev.filter((save) => save.id !== id));
@@ -226,7 +238,12 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
 
   const handleDeleteLegacyBackups = async () => {
     if (!legacyBackups.length || deletingLegacyBackups) return;
-    if (!confirm(`确定清理全部 ${legacyBackups.length} 个历史恢复点？此操作不可恢复。`)) return;
+    if (!await askConfirm({
+      title: '清理历史恢复点',
+      message: `确定清理全部 ${legacyBackups.length} 个历史恢复点？此操作不可恢复。`,
+      confirmLabel: '清理全部',
+      tone: 'danger',
+    })) return;
     setDeletingLegacyBackups(true);
     try {
       await deleteLegacyBackupSaves();
@@ -243,7 +260,12 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
   };
 
   const handleDeleteTree = async (rootId: string, nodeCount: number) => {
-    if (!confirm(`确定删除这整棵存档树？将删除 ${nodeCount} 个节点，此操作不可恢复。`)) return;
+    if (!await askConfirm({
+      title: '删除整棵存档树',
+      message: `确定删除这整棵存档树？将删除 ${nodeCount} 个节点，此操作不可恢复。`,
+      confirmLabel: '删除整树',
+      tone: 'danger',
+    })) return;
     setDeletingRootId(rootId);
     setSaves((prev) => prev.filter((save) => save.saveTree?.rootId !== rootId));
     try {
@@ -821,6 +843,7 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
         </div>,
         document.body,
       )}
+      <ConfirmDialogHost dialog={confirmDialog} />
     </>
   );
 }

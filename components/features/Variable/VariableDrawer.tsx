@@ -1,5 +1,5 @@
 import { CLIP_SMALL, insetRing } from '@/styles/clipPaths';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { 变量命令批次, 变量命令结果, 变量命令动作 } from '@/models/variableCommand';
 import type { 队列任务ID, 队列任务记录, 队列任务状态 } from '@/models/queueTask';
 
@@ -43,6 +43,20 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
         : 'success'
       : latestTaskById.get('variable')?.status ?? 'idle';
 
+  // Esc 关闭抽屉：关闭态此前只能靠点触发条/遮罩，键盘用户无法退出。
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // 更上层的模态弹窗（确认框 / 迁移预览 / 输入弹窗）在场时，Esc 归它处理，避免一并关掉抽屉。
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      event.preventDefault();
+      setOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open]);
+
   const queueRows = [
     latestTaskById.get('variable') ?? createIdleTask('variable', '变量生成', '解析正文并落地变量命令'),
     latestTaskById.get('narrative_image_parse') ?? createIdleTask('narrative_image_parse', '故事快照解析', '从正文提取故事快照提示词'),
@@ -53,39 +67,52 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
 
   return (
     <>
-      {/* 触发按钮：贴在聊天区最左侧边缘，竖向长方形 */}
+      {/* 触发按钮：贴在聊天区最左侧边缘，竖向长方形。
+          触控目标 44px（B10）：外层按钮是 44px 宽的命中区并透明，内层 24px 竖条保持原有视觉尺寸。 */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="absolute top-1/2 -translate-y-1/2 z-20 transition-all hover:opacity-100"
+        aria-expanded={open}
+        aria-controls="variable-drawer-panel"
+        className="absolute top-1/2 z-20 w-11 -translate-y-1/2 transition-all hover:opacity-100"
         style={{
           zIndex: 30,
           left: 0,
-          width: '24px',
           height: pending ? 112 : 88,
-          background: open
-            ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.95), rgba(var(--tj-amber-deep), 0.95))'
-            : 'linear-gradient(180deg, rgb(var(--tj-bubble)), rgb(var(--tj-surface-strong)))',
-          color: open ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-accent-primary), 0.85)',
-          boxShadow: open
-            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 4px 0 12px rgba(var(--tj-accent-primary), 0.2)'
-            : 'inset 0 0 0 1px rgba(var(--tj-border), 0.86), 2px 0 8px rgba(var(--tj-shadow), 0.1)',
-          opacity: 1,
-          clipPath: 'polygon(0 0, 100% 8px, 100% calc(100% - 8px), 0 100%)',
-          writingMode: 'vertical-rl',
-          textOrientation: 'upright',
-          fontSize: '10px',
-          letterSpacing: '0.3em',
-          fontFamily: 'var(--font-serif, serif)',
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          boxShadow: 'none',
         }}
         title={open ? '收起队列' : '展开队列'}
       >
-        {pending ? '变量正在处理' : '处理队列'}
-        {pending && (
-          <span
-            className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full animate-pulse"
-            style={{ background: 'rgb(var(--tj-accent-primary))', boxShadow: '0 0 6px rgba(var(--tj-accent-primary), 0.8)' }}
-          />
-        )}
+        <span
+          className="absolute inset-y-0 left-0 flex items-center justify-center"
+          style={{
+            width: '24px',
+            background: open
+              ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.95), rgba(var(--tj-amber-deep), 0.95))'
+              : 'linear-gradient(180deg, rgb(var(--tj-bubble)), rgb(var(--tj-surface-strong)))',
+            color: open ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-accent-primary), 0.85)',
+            boxShadow: open
+              ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 4px 0 12px rgba(var(--tj-accent-primary), 0.2)'
+              : 'inset 0 0 0 1px rgba(var(--tj-border), 0.86), 2px 0 8px rgba(var(--tj-shadow), 0.1)',
+            opacity: 1,
+            clipPath: 'polygon(0 0, 100% 8px, 100% calc(100% - 8px), 0 100%)',
+            writingMode: 'vertical-rl',
+            textOrientation: 'upright',
+            fontSize: '10px',
+            letterSpacing: '0.3em',
+            fontFamily: 'var(--font-serif, serif)',
+          }}
+        >
+          {pending ? '变量正在处理' : '处理队列'}
+          {pending && (
+            <span
+              className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full animate-pulse"
+              style={{ background: 'rgb(var(--tj-accent-primary))', boxShadow: '0 0 6px rgba(var(--tj-accent-primary), 0.8)' }}
+            />
+          )}
+        </span>
       </button>
 
       {/* 背景遮罩：与 SystemDrawer 对称，点击关闭 */}
@@ -101,8 +128,15 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
         }}
       />
 
-      {/* 抽屉本体：始终挂载，靠 transform 控制滑入/滑出 */}
+      {/* 抽屉本体：始终挂载，靠 transform 控制滑入/滑出。
+          关闭态必须 inert：仅 translateX 移出视口时，内部按钮仍留在 Tab 序与读屏树里。 */}
       <aside
+        id="variable-drawer-panel"
+        role="dialog"
+        aria-modal={open ? true : undefined}
+        aria-label="处理队列"
+        tabIndex={-1}
+        inert={!open}
         className="absolute z-40 flex flex-col overflow-hidden transition-transform duration-300"
         style={{
           zIndex: 32,
@@ -115,7 +149,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
           boxShadow:
             'inset -1px 0 0 rgba(var(--tj-border), 0.9), 8px 0 22px rgba(var(--tj-shadow), 0.1)',
         }}
-        aria-hidden={!open}
       >
         {/* 右侧中部圆形关闭按钮（朝外伸出） */}
         <button

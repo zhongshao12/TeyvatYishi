@@ -76,10 +76,53 @@ const normalizeFullWidthPunctuation = (input: string): string => {
   return replaceOutsideStrings(input, (ch) => map[ch] ?? ch);
 };
 
+/**
+ * 只在**字符串字面量之外**做正则替换。
+ *
+ * 为什么必须这样：修复规则（去尾逗号、`/n` → `\n`）如果直接对整个文本跑正则，
+ * 会把**字符串内容**改坏 —— 例如 `{"path":"dir/nfile"}` 里的路径被改成换行、
+ * `{"note":"见 A,B}"}` 里的逗号被当成尾逗号删掉。第二轮审计在 utils/jsonRepair 里实测到这两个问题。
+ */
+const replaceOutsideStringsPattern = (input: string, pattern: RegExp, replacement: string): string => {
+  let result = '';
+  let segment = '';
+  let inString = false;
+  let escaped = false;
+  const flush = () => {
+    result += segment.replace(pattern, replacement);
+    segment = '';
+  };
+  for (const ch of input) {
+    if (inString) {
+      result += ch;
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      flush();
+      inString = true;
+      result += ch;
+      continue;
+    }
+    segment += ch;
+  }
+  flush();
+  return result;
+};
+
 const normalizeSlashN = (input: string): string => {
-  return input
-    .replace(/\\\/n/g, '\\n')
-    .replace(/\/n/g, '\\n');
+  return replaceOutsideStringsPattern(
+    replaceOutsideStringsPattern(input, /\\\/n/g, '\\n'),
+    /\/n/g,
+    '\\n',
+  );
+};
+
+/** 去掉尾逗号（`{"a":1,}` / `[1,2,]`）——最常见的模型 JSON 错误。 */
+const dropTrailingCommas = (input: string): string => {
+  return replaceOutsideStringsPattern(input, /,(\s*[}\]])/g, '$1');
 };
 
 const normalizeBase = (input: string): string => {
@@ -91,7 +134,10 @@ const repairJsonText = (input: string): string => {
   text = stripFence(text);
   text = extractJsonBlock(text);
   text = normalizeSlashN(text);
+  // 顺序要紧：先把全角标点归一成半角，再去尾逗号 ——
+  // 否则 `{"a"：1，}` 里的全角逗号在去尾逗号时还不算逗号，改完又留下一个尾逗号。
   text = normalizeFullWidthPunctuation(text);
+  text = dropTrailingCommas(text);
   return text.trim();
 };
 

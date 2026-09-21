@@ -1,4 +1,7 @@
 import { CLIP_CARD, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
+import { ConfirmDialogHost, PromptDialogHost, useConfirmDialog, usePromptDialog } from '@/components/ui/Modal';
+import { pushToast } from '@/utils/toastStore';
+import { toUserFacingError } from '@/utils/userFacingError';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { API设置, 游戏设置 } from '@/models/settings';
 import type { 剧情编织分段, 剧情编织进度锚点, 剧情编织系列, 剧情编织系统, 剧情编织运行状态 } from '@/models/storyWeaving';
@@ -197,6 +200,11 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
   const [draftDirty, setDraftDirty] = useState(false);
   const draftSegmentIdRef = useRef<string | null>(null);
   const [trackTab, setTrackTab] = useState<TrackTab>('canon');
+  // 原生 confirm/alert 无法换主题、不能读屏标注，移动端还会中断游戏外观。
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
+  const promptDialog = usePromptDialog();
+  const askPrompt = promptDialog.prompt;
 
   const normalized = useMemo(() => 归一化剧情编织系统(storyWeaving), [storyWeaving]);
   const normalizedCanonTrack = useMemo(() => normalizeCanonTrack(canonTrack), [canonTrack]);
@@ -340,7 +348,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
     } catch (err) {
       const text = (err as Error).message;
       setMessage(`JSON 导入失败：${text}`);
-      window.alert(`剧情编织 JSON 导入失败：${text}`);
+      pushToast({ kind: 'error', title: '剧情编织 JSON 导入失败', detail: toUserFacingError(err, { action: '导入剧情编织 JSON' }) });
     } finally {
       if (jsonInputRef.current) jsonInputRef.current.value = '';
     }
@@ -400,25 +408,45 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
     } catch (err) {
       const text = (err as Error).message;
       setMessage(`恢复内置原著剧情失败：${text}`);
-      window.alert(`恢复内置原著剧情失败：${text}`);
+      pushToast({ kind: 'error', title: '恢复内置原著剧情失败', detail: toUserFacingError(err, { action: '恢复内置原著剧情' }) });
     }
   };
 
   const handleRenameSeries = async (series: 剧情编织系列) => {
-    const title = window.prompt('新的剧情系列名称', series.标题);
-    if (!title || !title.trim()) return;
+    const title = await askPrompt({
+      title: '重命名剧情系列',
+      label: '新的剧情系列名称',
+      defaultValue: series.标题,
+      confirmLabel: '重命名',
+    });
+    if (title === null || !title.trim()) return;
     await replaceSeries({ ...series, 标题: title.trim(), 作品名: title.trim(), updatedAt: Date.now() });
   };
 
   const handleRebuildSeries = async (series: 剧情编织系列) => {
     if (series.来源类型 === 'canon') {
-      window.alert('内置原著剧情轨道不能重建分段。若需要调整，请切换运行状态或暂停注入。');
+      pushToast({
+        kind: 'info',
+        title: '内置原著剧情轨道不能重建分段',
+        detail: '若需要调整，请切换运行状态或暂停注入。',
+      });
       return;
     }
-    const nextSize = window.prompt('每个分段包含几章？', String(series.每段章数 || gameSettings.剧情编织系统.chaptersPerSegment || 1));
-    if (!nextSize) return;
+    const nextSize = await askPrompt({
+      title: '重新分段',
+      message: `重新分段会保留原始 TXT（共 ${series.章节列表.length} 章），但会清空该系列已有的 AI 分解结果。`,
+      label: '每个分段包含几章？',
+      defaultValue: String(series.每段章数 || gameSettings.剧情编织系统.chaptersPerSegment || 1),
+      confirmLabel: '下一步',
+    });
+    if (nextSize === null || !nextSize.trim()) return;
     const size = Math.max(1, Math.trunc(Number(nextSize) || 1));
-    if (!window.confirm('重新分段会保留原始 TXT，但会清空该系列已有的 AI 分解结果。确认继续？')) return;
+    if (!await askConfirm({
+      title: '确认重新分段',
+      message: `将把该系列按每段 ${size} 章重建，已有的 AI 分解结果会被清空。此操作不可撤销。`,
+      confirmLabel: '重新分段',
+      tone: 'danger',
+    })) return;
     const rebuilt = 重建剧情编织系列FromText(series, size);
     setSelectedSegmentId(rebuilt.分段列表[0]?.id ?? null);
     await replaceSeries(rebuilt);
@@ -493,7 +521,11 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
   const handleDecompose = async (series: 剧情编织系列, segment: 剧情编织分段) => {
     const config = buildStoryWeavingApiConfig(gameSettings, apiSettings);
     if (!config) {
-      window.alert('剧情编织 API 未配置。请先到设置 → 剧情编织 配置模型，或配置主 API 作为回退。');
+      pushToast({
+        kind: 'error',
+        title: '剧情编织 API 未配置',
+        detail: '请先到设置 → 剧情编织 配置模型，或配置主 API 作为回退。',
+      });
       return;
     }
     setBusyId(segment.id);
@@ -525,7 +557,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
         updatedAt: Date.now(),
       }));
       setMessage(`分解失败：${text}`);
-      window.alert(`剧情编织分解失败：${text}`);
+      pushToast({ kind: 'error', title: `剧情编织分解失败：${segment.标题}`, detail: toUserFacingError(err, { action: 'AI 分解剧情分段' }) });
     } finally {
       setBusyId(null);
     }
@@ -534,7 +566,11 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
   const handleBatchDecompose = async (series: 剧情编织系列, mode: 'pending' | 'fromCurrent' | 'all') => {
     const config = buildStoryWeavingApiConfig(gameSettings, apiSettings);
     if (!config) {
-      window.alert('剧情编织 API 未配置。请先到设置 → 剧情编织 配置模型，或配置主 API 作为回退。');
+      pushToast({
+        kind: 'error',
+        title: '剧情编织 API 未配置',
+        detail: '请先到设置 → 剧情编织 配置模型，或配置主 API 作为回退。',
+      });
       return;
     }
     const targets = series.分段列表.filter((segment) => {
@@ -547,7 +583,12 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
       return;
     }
     const label = mode === 'pending' ? '待处理分段' : mode === 'fromCurrent' ? '当前以后分段' : '全部分段';
-    if (mode === 'all' && !window.confirm('确认重新分解全部分段？已有分解结果会被覆盖。')) return;
+    if (mode === 'all' && !await askConfirm({
+      title: '重新分解全部分段',
+      message: `将覆盖该系列全部 ${targets.length} 个分段已有的分解结果，此操作不可撤销。确认继续？`,
+      confirmLabel: '全部重新分解',
+      tone: 'danger',
+    })) return;
 
     let workingSystem = normalized;
     let workingSeries = series;
@@ -604,10 +645,19 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
   const handleDeleteSeries = async (seriesId: string) => {
     const target = normalized.系列列表.find((s) => s.id === seriesId);
     if (target?.来源类型 === 'canon') {
-      window.alert('内置原著剧情轨道不能删除。可以暂停注入，或将分段标记为暂停 / 已偏离。');
+      pushToast({
+        kind: 'info',
+        title: '内置原著剧情轨道不能删除',
+        detail: '可以暂停注入，或将分段标记为暂停 / 已偏离。',
+      });
       return;
     }
-    if (!window.confirm('确认删除这个剧情系列？')) return;
+    if (!await askConfirm({
+      title: '删除剧情系列',
+      message: `确定删除剧情系列「${target?.标题 ?? seriesId}」？该系列共 ${target?.章节列表.length ?? 0} 章 / ${target?.分段列表.length ?? 0} 段，删除后无法找回。`,
+      confirmLabel: '删除系列',
+      tone: 'danger',
+    })) return;
     const rest = normalized.系列列表.filter((s) => s.id !== seriesId);
     await persist({
       系列列表: rest,
@@ -953,6 +1003,8 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
 
         {message && <div className="text-xs" style={{ color: message.includes('失败') ? 'rgba(var(--tj-danger),0.9)' : 'rgba(var(--tj-ui-success),0.86)' }}>{message}</div>}
       </div>
+      <ConfirmDialogHost dialog={confirmDialog} />
+      <PromptDialogHost dialog={promptDialog} />
     </div>
   );
 }

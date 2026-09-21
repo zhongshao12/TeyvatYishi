@@ -46,7 +46,8 @@ assert(renderer.includes('fontSettings.playerFontSize'), 'BodyBlock should use p
 
 assert(useGameState.includes('归一化视觉文本设置(savedGame.visualTextSettings)'), 'startup settings load should normalize visualTextSettings');
 assert(useGameState.includes('归一化视觉文本设置(prev.visualTextSettings)'), 'state migration effect should normalize visualTextSettings');
-assert(saveLoad.includes('replaceGameState: state.replaceGameState'), 'formal save load should replace only the Teyvat game root');
+// 迁移: 见 extra-features-regression.mjs 同一条（相册物化下沉到提交前，第二轮审计 A4）。
+assert(/replaceGameState:\s*\(next\)\s*=>\s*state\.replaceGameState\(/.test(saveLoad), 'formal save load should replace only the Teyvat game root');
 assert(!saveLoad.includes('state.setGameSettings('), 'formal saves must not overwrite local visual text preferences');
 
 console.log('PASS visual text settings regression');

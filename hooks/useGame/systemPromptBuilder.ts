@@ -257,7 +257,11 @@ export function buildSystemPrompt(
   // ── 成人关系长期事实（仅 NSFW 开启时注入）──
   // 这些是玩家与角色**已经确立**的私密长期事实、边界与偏好。此前它们只存在档案里、
   // 从不进入提示词，于是「长期事实没有发生作用」。放在 NPC 区块之后，保持承接优先级。
-  const nsfwArchiveSection = buildNsfwArchiveContinuitySection(npcRecords, settings.enableNsfw === true);
+  const nsfwArchiveSection = buildNsfwArchiveContinuitySection(
+    npcRecords,
+    settings.enableNsfw === true,
+    settings.enableMaleNsfwArchive === true,
+  );
   if (nsfwArchiveSection) parts.push(nsfwArchiveSection);
 
   return {
@@ -909,17 +913,28 @@ function hasDurableIntimateFacts(archive: NPC记录['NSFW档案'] | undefined): 
 
 function formatNsfwArchiveContinuityLine(npc: NPC记录, archive: NonNullable<NPC记录['NSFW档案']>): string {
   const segments = [
-    archive.亲密阶段?.trim() ? `关系阶段：${archive.亲密阶段.trim()}` : '',
-    archive.长期事实?.length ? `长期事实：${archive.长期事实.slice(-5).join('；')}` : '',
-    archive.边界?.trim() ? `边界：${archive.边界.trim()}` : '',
-    archive.偏好?.length ? `偏好：${archive.偏好.slice(0, 6).join('、')}` : '',
-    archive.敏感点?.length ? `敏感点：${archive.敏感点.slice(0, 6).join('、')}` : '',
-    archive.禁忌?.length ? `禁忌（硬约束）：${archive.禁忌.slice(0, 6).join('、')}` : '',
+    clampNsfwItem(archive.亲密阶段) ? `关系阶段：${clampNsfwItem(archive.亲密阶段)}` : '',
+    archive.长期事实?.length ? `长期事实：${clampNsfwItems(archive.长期事实, 5).join('；')}` : '',
+    clampNsfwItem(archive.边界) ? `边界：${clampNsfwItem(archive.边界)}` : '',
+    archive.偏好?.length ? `偏好：${clampNsfwItems(archive.偏好, 6).join('、')}` : '',
+    archive.敏感点?.length ? `敏感点：${clampNsfwItems(archive.敏感点, 6).join('、')}` : '',
+    archive.禁忌?.length ? `禁忌（硬约束）：${clampNsfwItems(archive.禁忌, 6).join('、')}` : '',
   ].filter(Boolean);
   return `- ${npc.姓名}${npc.别名 ? `（${npc.别名}）` : ''}｜${segments.join('｜')}`;
 }
 
 const NSFW_ARCHIVE_PROMPT_LIMIT = 8;
+/** 单条文本上限：长期事实由模型写入，可能很长；同一文件的 :791 已有同样的截断先例。 */
+const NSFW_ARCHIVE_ITEM_MAX_LENGTH = 160;
+
+function clampNsfwItem(value: string | undefined): string {
+  const text = (value ?? '').trim();
+  return text.length > NSFW_ARCHIVE_ITEM_MAX_LENGTH ? `${text.slice(0, NSFW_ARCHIVE_ITEM_MAX_LENGTH)}…` : text;
+}
+
+function clampNsfwItems(values: readonly string[] | undefined, limit: number): string[] {
+  return (values ?? []).slice(-limit).map((item) => clampNsfwItem(item)).filter(Boolean);
+}
 
 /**
  * 把「已确立的亲密长期事实」注入正文提示词。
@@ -928,10 +943,16 @@ const NSFW_ARCHIVE_PROMPT_LIMIT = 8;
  * 所以玩家写进去的长期事实对剧情没有任何影响。
  * 只在 NSFW 总开关打开时注入；每个角色的档案严格隔离，且不得违反已写明的边界与禁忌。
  */
-function buildNsfwArchiveContinuitySection(npcRecords: NPC记录[] | undefined, enabled: boolean): string {
+function buildNsfwArchiveContinuitySection(
+  npcRecords: NPC记录[] | undefined,
+  enabled: boolean,
+  maleArchiveEnabled = false,
+): string {
   if (!enabled) return '';
   const rows = (npcRecords ?? [])
     .filter((npc) => Boolean(npc.姓名?.trim()) && hasDurableIntimateFacts(npc.NSFW档案))
+    // 男性档案开关关闭时不得注入男性角色的档案（写入侧受同一开关约束，两侧口径必须一致）。
+    .filter((npc) => npc.性别 !== '男' || maleArchiveEnabled)
     .sort((a, b) => Number(b.最近回合 || 0) - Number(a.最近回合 || 0))
     .slice(0, NSFW_ARCHIVE_PROMPT_LIMIT);
   if (!rows.length) return '';

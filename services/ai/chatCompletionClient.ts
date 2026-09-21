@@ -206,10 +206,6 @@ function normalizeDeepSeekPrefixBaseUrl(baseUrl: string): string {
   return `${trimmed}/beta`;
 }
 
-function shouldUseDeepSeekPrefix(config: API配置项, request: ChatCompletionRequest): boolean {
-  return request.prefixMode === true && isDeepSeekConfig(config);
-}
-
 /**
  * Phase 4：通用化 assistant prefill。
  *

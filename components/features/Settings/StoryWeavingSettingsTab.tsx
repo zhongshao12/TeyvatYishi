@@ -1,6 +1,8 @@
 import { CLIP_CARD, CLIP_MEDIUM, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
 import { useSavedFlash } from '@/hooks/useSavedFlash';
 import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
+import { pushToast } from '@/utils/toastStore';
+import { toUserFacingError } from '@/utils/userFacingError';
 ﻿import { useState } from 'react';
 import type { AI提供商, API设置, 游戏设置 } from '@/models/settings';
 import { fetchModels } from '@/services/ai/apiTools';
@@ -71,7 +73,7 @@ export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Pro
     } catch (err) {
       const text = (err as Error).message;
       setMessage(`获取失败：${text}`);
-      window.alert(`剧情编织获取模型失败：${text}`);
+      pushToast({ kind: 'error', title: '剧情编织获取模型失败', detail: toUserFacingError(err, { action: '获取剧情编织模型列表' }) });
     } finally {
       setLoadingModels(false);
     }

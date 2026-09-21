@@ -44,11 +44,7 @@ export function getToasts(): ToastItem[] {
 
 export function dismissToast(id: number): void {
   if (!toasts.some((item) => item.id === id)) return;
-  const timer = timers.get(id);
-  if (timer) {
-    clearTimeout(timer);
-    timers.delete(id);
-  }
+  dropToast(id);
   toasts = toasts.filter((item) => item.id !== id);
   emitChange();
 }
@@ -73,6 +69,39 @@ function resolveDurationMs(input: PushToastInput, kind: ToastItem['kind']): numb
   return DEFAULT_DURATION_MS;
 }
 
+/** 不可被后续提示挤掉的 toast：错误提示与带操作按钮（撤销/重试）的提示。 */
+function isPinnedToast(item: ToastItem): boolean {
+  return item.kind === 'error' || Boolean(item.action);
+}
+
+function dropToast(id: number): void {
+  const timer = timers.get(id);
+  if (timer) {
+    clearTimeout(timer);
+    timers.delete(id);
+  }
+}
+
+/**
+ * 超出可见上限时淘汰最旧的**普通**提示。
+ *
+ * 原先直接 `slice(-(MAX_VISIBLE - 1))`：不分 kind、也不 clearTimeout。
+ * 而 error toast **不会自动消失**（`resolveDurationMs` 返回 null），所以它们会长期占位，
+ * 一旦同一回合再推 4 条提示（任务更新/蒸汽鸟报/手机消息/手机回复/故事快照）就被静默挤出数组 ——
+ * 「自动保存失败」消失、带撤销的提示被提前掐断（第二轮审计 B1）。
+ * 所以：错误与带操作的提示**不参与淘汰**；只在普通 info 提示里淘汰最旧的。
+ */
+function enforceToastLimit(): void {
+  const pinned = toasts.filter(isPinnedToast);
+  const evictable = toasts.filter((item) => !isPinnedToast(item));
+  const evictableBudget = Math.max(0, MAX_VISIBLE - pinned.length);
+  if (evictable.length <= evictableBudget) return;
+  const dropped = evictable.slice(0, evictable.length - evictableBudget);
+  for (const item of dropped) dropToast(item.id);
+  const droppedIds = new Set(dropped.map((item) => item.id));
+  toasts = toasts.filter((item) => !droppedIds.has(item.id));
+}
+
 export function pushToast(input: PushToastInput): number {
   const kind = input.kind ?? 'info';
   const item: ToastItem = {
@@ -82,8 +111,8 @@ export function pushToast(input: PushToastInput): number {
     detail: input.detail?.trim() ? input.detail : undefined,
     action: input.action,
   };
-  // 超出可见上限时挤掉最旧的提示。
-  toasts = [...toasts.slice(-(MAX_VISIBLE - 1)), item];
+  toasts = [...toasts, item];
+  enforceToastLimit();
   emitChange();
   const durationMs = resolveDurationMs(input, kind);
   if (durationMs === null) return item.id;

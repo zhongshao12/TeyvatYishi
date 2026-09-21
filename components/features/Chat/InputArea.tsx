@@ -249,7 +249,7 @@ export const InputArea = memo(function InputArea({
             <button
               type="button"
               onClick={onCancelWorkflow}
-              className="px-2 py-0.5 text-[10px] tracking-[0.16em]"
+              className="inline-flex min-h-11 items-center justify-center px-2 py-0.5 text-[10px] tracking-[0.16em]"
               style={{
                 color: 'rgba(var(--tj-text-primary),0.92)',
                 background: 'rgba(var(--tj-panel-bg-start),0.2)',

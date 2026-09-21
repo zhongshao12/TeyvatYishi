@@ -15,7 +15,13 @@ assert(apiSettings.includes('enableClaudeMode: gameSettings.enableClaudeMode ===
 assert(apiSettings.includes('enableClaudeMode: profile.enableClaudeMode'), '导入 API 配置包必须恢复 Claude 专用模式开关。');
 assert(apiSettings.includes('cloneWithoutKeys'), '安全导出必须走清理 API Key 的副本。');
 assert(apiSettings.includes("(target as { apiKey?: string }).apiKey = ''"), '安全导出必须清空 apiKey。');
-assert(apiSettings.includes('window.confirm'), '私人 API 配置包导出必须二次确认。');
+// 迁移: 旧 assert(apiSettings.includes('window.confirm')) -> 改为断言导出路径走样式化确认弹窗。
+// 理由: 原生 window.confirm 无法换主题/读屏标注，B6 把私人包导出收敛到 useConfirmDialog
+// （tone:'danger' + API Key 警告文案）。断言意图不变：私人 API 配置包导出必须二次确认。
+assert(
+  apiSettings.includes('私人 API 配置包会包含 API Key') && apiSettings.includes('tone: \'danger\''),
+  '私人 API 配置包导出必须二次确认。',
+);
 assert(apiSettings.includes('请勿分享') || apiSettings.includes('不要发给别人'), '私人 API 配置包必须提示不要分享。');
 assert(apiSettings.includes('loadSetting<API方案槽位[]>'), 'API 页必须读取本机 API 方案槽位。');
 assert(apiSettings.includes('handleSaveProfileSlot'), 'API 页必须能保存当前方案到本机槽位。');

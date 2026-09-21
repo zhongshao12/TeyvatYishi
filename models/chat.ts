@@ -22,6 +22,8 @@ export interface 回合快照 {
   variableBatches: unknown[];
   queueTasks?: unknown[];
   任务?: unknown;
+  /** 重掷回滚必须覆盖地图：传送/解锁神像会写 `地图` 与 `世界`，只还原世界会留下已解锁的传送点。 */
+  地图?: unknown;
   turnCount: number;
   pendingOpeningTrigger?: string | null;
 }

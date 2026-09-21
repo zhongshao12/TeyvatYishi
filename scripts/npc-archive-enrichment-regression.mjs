@@ -91,9 +91,12 @@ assert(canonicalCharacters.includes("name: '派蒙'") && canonicalCharacters.inc
 // NSFW 长期事实必须真正影响正文：此前 matureArchive 只在面板展示、从不进入提示词。
 assert(promptBuilder.includes('buildNsfwArchiveContinuitySection'), '正文提示词必须注入已确立的亲密长期事实。');
 assert(
-  promptBuilder.includes('buildNsfwArchiveContinuitySection(npcRecords, settings.enableNsfw === true)'),
-  '亲密长期事实只能在整个 NSFW 开关打开时注入。',
+  promptBuilder.includes('buildNsfwArchiveContinuitySection(\n    npcRecords,\n    settings.enableNsfw === true,\n    settings.enableMaleNsfwArchive === true,\n  )'),
+  '亲密长期事实必须同时受总开关与男性档案开关约束（写入与注入两侧口径一致）。',
 );
-assert(promptBuilder.includes('buildNsfwArchiveContinuitySection(npcRecords'), '注入点必须消费 NPC 档案。');
+assert(
+  promptBuilder.includes("npc.性别 !== '男' || maleArchiveEnabled"),
+  '男性档案开关关闭时不得注入男性角色的档案。',
+);
 
 console.log('npc archive enrichment regression ok');

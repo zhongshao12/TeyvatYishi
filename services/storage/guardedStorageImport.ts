@@ -6,7 +6,11 @@ export interface StorageImportRecord {
 
 export interface GuardedStorageImportDependencies<T extends StorageImportRecord> {
   parse: (file: File) => Promise<T[]>;
-  confirm: (message: string) => boolean;
+  /**
+   * 二次确认。允许异步：界面侧已统一用 `useConfirmDialog`（可换主题、有读屏标注、支持 danger 语气），
+   * 它返回 Promise，而原生 `window.confirm` 是同步的 —— 两者都要被支持。
+   */
+  confirm: (message: string) => boolean | Promise<boolean>;
   backup: (file: File) => Promise<{ backupId: string }>;
   persist: (record: T) => Promise<unknown>;
   now?: () => number;
@@ -27,7 +31,7 @@ export async function runGuardedStorageImport<T extends StorageImportRecord>(
 ): Promise<GuardedStorageImportResult> {
   const records = await dependencies.parse(file);
   if (records.length === 0) throw new Error('存档包中没有可导入的存档节点。');
-  const confirmed = dependencies.confirm(
+  const confirmed = await dependencies.confirm(
     `准备导入 ${records.length} 个存档节点。导入只会新增节点，并会先下载所选源文件备份；是否继续？`,
   );
   if (!confirmed) return { status: 'cancelled', count: records.length };

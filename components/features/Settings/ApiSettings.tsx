@@ -1,6 +1,7 @@
 import { CLIP_CARD, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 import { useSavedFlash } from '@/hooks/useSavedFlash';
 import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
+import { ConfirmDialogHost, PromptDialogHost, useConfirmDialog, usePromptDialog } from '@/components/ui/Modal';
 import { useEffect, useMemo, useState } from 'react';
 import type { API设置, API配置项, AI提供商, 游戏设置 } from '@/models/settings';
 import {
@@ -418,6 +419,11 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
   const [auxModelOptions, setAuxModelOptions] = useState<string[]>([]);
   const [loadingAuxModels, setLoadingAuxModels] = useState(false);
   const [auxFetchMessage, setAuxFetchMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
+  // 原生 prompt/confirm 无法换主题、不能读屏标注；方案命名与删除、私人包导出统一走样式化弹窗。
+  const promptDialog = usePromptDialog();
+  const askPrompt = promptDialog.prompt;
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
 
   const selectedConfig = useMemo(
     () => settings.configs.find((c) => c.id === selectedId) ?? null,
@@ -591,7 +597,13 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
 
   const handleSaveProfileSlot = async () => {
     const defaultName = selectedConfig?.name || `API 方案 ${profileSlots.length + 1}`;
-    const name = window.prompt('给当前 API 方案起个名字：', defaultName)?.trim();
+    const name = (await askPrompt({
+      title: '保存 API 方案',
+      message: '把当前 API 配置存成本机方案，之后可一键切换。',
+      label: '给当前 API 方案起个名字：',
+      defaultValue: defaultName,
+      confirmLabel: '保存方案',
+    }))?.trim();
     if (!name) return;
     const slot: API方案槽位 = {
       id: `api_profile_${Date.now()}`,
@@ -609,15 +621,25 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
   };
 
   const handleDeleteProfileSlot = async (slot: API方案槽位) => {
-    if (!window.confirm(`删除 API 方案「${slot.name}」？`)) return;
+    if (!await askConfirm({
+      title: '删除 API 方案',
+      message: `删除 API 方案「${slot.name}」？此操作不可撤销。`,
+      confirmLabel: '删除方案',
+      tone: 'danger',
+    })) return;
     await persistProfileSlots(profileSlots.filter((item) => item.id !== slot.id));
     setMessage({ kind: 'info', text: `已删除 API 方案：${slot.name}` });
   };
 
-  const handleExportProfile = (includeApiKeys: boolean) => {
+  const handleExportProfile = async (includeApiKeys: boolean) => {
     if (
       includeApiKeys &&
-      !window.confirm('私人 API 配置包会包含 API Key。只适合自己换设备迁移，不要发给别人。确认导出吗？')
+      !await askConfirm({
+        title: '导出私人 API 配置包',
+        message: '私人 API 配置包会包含 API Key。只适合自己换设备迁移，不要发给别人。确认导出吗？',
+        confirmLabel: '仍然导出',
+        tone: 'danger',
+      })
     ) {
       return;
     }
@@ -781,7 +803,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
         </div>
         <div className="grid grid-cols-3 gap-1.5 sm:flex sm:flex-shrink-0">
           <button
-            onClick={() => handleExportProfile(false)}
+            onClick={() => void handleExportProfile(false)}
             className="px-2.5 py-1.5 text-xs font-serif tracking-wider transition-all hover:opacity-90"
             style={{
               color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
@@ -792,7 +814,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
             导出安全包
           </button>
           <button
-            onClick={() => handleExportProfile(true)}
+            onClick={() => void handleExportProfile(true)}
             className="px-2.5 py-1.5 text-xs font-serif tracking-wider transition-all hover:opacity-90"
             style={{
               color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
@@ -1473,6 +1495,8 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
         )}
       </section>
       </div>
+      <ConfirmDialogHost dialog={confirmDialog} />
+      <PromptDialogHost dialog={promptDialog} />
     </div>
   );
 }

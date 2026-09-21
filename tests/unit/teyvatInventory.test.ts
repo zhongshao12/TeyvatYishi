@@ -314,6 +314,9 @@ describe('pre-turn root inventory snapshot', () => {
       set蒸汽鸟报: noop,
       set剧情: noop,
       set剧情编织: noop,
+      // A5：重掷回滚现在也会还原任务与地图（第二轮审计 A5）。
+      set任务: noop,
+      updateGameState: noop,
       setVariableBatches: noop,
       setQueueTasks: noop,
       setTurnCount: noop,
@@ -349,6 +352,9 @@ describe('pre-turn root inventory snapshot', () => {
       set蒸汽鸟报: noop,
       set剧情: noop,
       set剧情编织: noop,
+      // A5：重掷回滚现在也会还原任务与地图（第二轮审计 A5）。
+      set任务: noop,
+      updateGameState: noop,
       setVariableBatches: noop,
       setQueueTasks: noop,
       setTurnCount: noop,

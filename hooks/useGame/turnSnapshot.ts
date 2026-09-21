@@ -10,6 +10,8 @@ import { normalizeCourierSystem } from '@/models/teyvat/courier';
 import { normalizeIrminsulMemory } from '@/models/teyvat/irminsul';
 import { normalizeArchiveCodex } from '@/models/teyvat/codex';
 import { normalizeSteambirdNews } from '@/models/teyvat/steambird';
+import { normalizeTeyvatMapState } from '@/models/teyvat/map';
+import { 归一化任务系统 } from '@/models/quest';
 import { hydratePersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 
 export function restorePreTurnSnapshot(state: UseGameStateReturn, snapshot: 回合快照): 剧情编织系统 {
@@ -34,6 +36,15 @@ export function restorePreTurnSnapshot(state: UseGameStateReturn, snapshot: 回�
     state.set蒸汽鸟报(normalizeSteambirdNews(snapshot.蒸汽鸟报));
   }
   state.set剧情(snapshot.剧情 as Parameters<typeof state.set剧情>[0]);
+  // 任务与地图必须一起回滚：重掷时被丢弃回合的任务进度（applyQuest 会改 currentCount/status）
+  // 若不还原，重新生成时会再结算一遍 → 目标进度双计、任务提前完成。
+  // 地图同理：传送/解锁神像会写 地图（App.tsx 走 updateGameState，没有独立 setter）。
+  if (Object.prototype.hasOwnProperty.call(snapshot, '任务')) {
+    state.set任务(归一化任务系统(snapshot.任务));
+  }
+  if (Object.prototype.hasOwnProperty.call(snapshot, '地图')) {
+    state.updateGameState((current) => ({ ...current, 地图: normalizeTeyvatMapState(snapshot.地图) }));
+  }
   const storyWeaving = hydratePersistedStoryWeavingSystem(
     归一化剧情编织系统(snapshot.剧情编织 as UseGameStateReturn['剧情编织']),
     state.剧情编织,

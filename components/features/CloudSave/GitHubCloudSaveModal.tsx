@@ -17,7 +17,7 @@ import {
   type GitHubCloudBackupListing,
   type GitHubCloudSaveConfig,
 } from '@/services/githubCloudSave';
-import { useModalAccessibility } from '@/components/ui/Modal';
+import { ConfirmDialogHost, useConfirmDialog, useModalAccessibility } from '@/components/ui/Modal';
 
 interface Props {
   onSave: () => Promise<number>;
@@ -206,9 +206,11 @@ export function GitHubCloudSaveModal({ onSave, onClose }: Props) {
     const config = await persistCloudConfig();
     const listing = await inspectGitHubCloudBackup(config, { signal });
     if (listing.format === 'empty') throw new Error('云端还没有可下载的存档。');
-    const confirmed = window.confirm(
-      `将下载云端的 ${listing.nodeCount} 个节点并与本地存档合并。\n\n相同节点和资源会跳过；发生 ID 冲突时保留本地，并把云端冲突树作为新副本导入。本地现有存档不会被清空。确定继续吗？`,
-    );
+    const confirmed = await askConfirm({
+      title: '下载并合并云端存档',
+      message: `将下载云端的 ${listing.nodeCount} 个节点并与本地存档合并。\n\n相同节点和资源会跳过；发生 ID 冲突时保留本地，并把云端冲突树作为新副本导入。本地现有存档不会被清空。确定继续吗？`,
+      confirmLabel: '下载并合并',
+    });
     if (!confirmed) return;
 
     const updateProgress = (progress: { label: string; current: number; total: number }) => setSyncProgress({
@@ -255,6 +257,9 @@ export function GitHubCloudSaveModal({ onSave, onClose }: Props) {
     onClose();
   };
   const dialogRef = useModalAccessibility<HTMLDivElement>(handleClose);
+  // 原生 confirm 无法换主题、不能读屏标注；云端合并下载统一走样式化确认弹窗。
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
 
   return (
     <div
@@ -401,6 +406,7 @@ export function GitHubCloudSaveModal({ onSave, onClose }: Props) {
           </section>
         </div>
       </div>
+      <ConfirmDialogHost dialog={confirmDialog} />
     </div>
   );
 }

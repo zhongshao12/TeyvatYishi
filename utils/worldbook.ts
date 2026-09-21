@@ -2,7 +2,8 @@ import type { 世界书, 世界书条目, 世界书导出数据, 世界书条目
 import { 创建空世界书, 创建空世界书条目, ENTRY_TYPE_LABELS, SCOPE_LABELS } from '@/models/worldbook';
 import type { 剧情模式, 开局来源 } from '@/models/teyvat/opening';
 
-export const PROMPT_LIKE_WORLDBOOK_ENTRY_IDS = new Set([
+/** 内部使用：提示词化条目（system_rule 或名单内 id）不参与深度插入。无需导出。 */
+const PROMPT_LIKE_WORLDBOOK_ENTRY_IDS = new Set([
   'builtin_compass_overview',
   'builtin_worldview_spine',
 ]);
@@ -67,34 +68,10 @@ export function normalizeWorldbooks(books: 世界书[]): 世界书[] {
 }
 
 // ── CRUD ──
-
-export function addEntryToBook(book: 世界书, entry: 世界书条目): 世界书 {
-  return { ...book, entries: [...book.entries, entry], updatedAt: Date.now() };
-}
-
-export function removeEntryFromBook(book: 世界书, entryId: string): 世界书 {
-  return { ...book, entries: book.entries.filter((e) => e.id !== entryId), updatedAt: Date.now() };
-}
-
-export function updateEntryInBook(book: 世界书, entry: 世界书条目): 世界书 {
-  return {
-    ...book,
-    entries: book.entries.map((e) => (e.id === entry.id ? { ...entry, updatedAt: Date.now() } : e)),
-    updatedAt: Date.now(),
-  };
-}
-
-export function updateBook(book: 世界书, partial: Partial<世界书>): 世界书 {
-  return { ...book, ...partial, updatedAt: Date.now() };
-}
-
-export function addBook(books: 世界书[], book: 世界书): 世界书[] {
-  return [...books, book];
-}
-
-export function removeBook(books: 世界书[], bookId: string): 世界书[] {
-  return books.filter((b) => b.id !== bookId);
-}
+// 迁移（第二轮审计 D4）：这里原有 7 个导出（addEntryToBook / removeEntryFromBook /
+// updateEntryInBook / updateBook / addBook / removeBook / splitEntriesByInjectMode）全仓 0 引用
+// —— 而 `tsc --noUnusedLocals` **抓不到「导出了但没人 import」**，182 个回归脚本也没提到它们。
+// 调用方都走 `归一化世界书系统` 与组件内的不可变更新，因此直接删除。
 
 // ── Import / Export ──
 
@@ -440,21 +417,6 @@ export interface WorldbookInjectionSplit {
   systemPromptEntries: Array<{ entry: 世界书条目; bookTitle: string }>;
   /** 转 ChatModuleMessage 做 In-Chat 深度插入的条目（injectAtDepth=true） */
   messageEntries: Array<{ entry: 世界书条目; bookTitle: string }>;
-}
-
-export function splitEntriesByInjectMode<T extends { entry: 世界书条目; bookTitle: string }>(
-  items: T[],
-): WorldbookInjectionSplit {
-  const systemPromptEntries: WorldbookInjectionSplit['systemPromptEntries'] = [];
-  const messageEntries: WorldbookInjectionSplit['messageEntries'] = [];
-  for (const item of items) {
-    if (item.entry.injectAtDepth) {
-      messageEntries.push({ entry: item.entry, bookTitle: item.bookTitle });
-    } else {
-      systemPromptEntries.push({ entry: item.entry, bookTitle: item.bookTitle });
-    }
-  }
-  return { systemPromptEntries, messageEntries };
 }
 
 function selectEntries(books: 世界书[], ctx: FilterContext): Array<{ entry: 世界书条目; bookTitle: string }> {

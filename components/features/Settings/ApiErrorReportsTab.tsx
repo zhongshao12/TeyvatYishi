@@ -1,4 +1,5 @@
 import { CLIP_SMALL } from '@/styles/clipPaths';
+import { ConfirmDialogHost, useConfirmDialog } from '@/components/ui/Modal';
 import { useEffect, useMemo, useState } from 'react';
 import {
   clearApiErrorReports,
@@ -36,6 +37,8 @@ export function ApiErrorReportsTab() {
   const [reports, setReports] = useState<ApiErrorReport[]>([]);
   const [selectedId, setSelectedId] = useState<string>('');
   const [message, setMessage] = useState('');
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
 
   const refresh = async () => {
     const list = await loadApiErrorReports();
@@ -53,7 +56,12 @@ export function ApiErrorReportsTab() {
   );
 
   const handleClear = async () => {
-    if (!window.confirm('确定清空所有 API 错误报告吗？')) return;
+    if (!await askConfirm({
+      title: '清空 API 错误报告',
+      message: '确定清空所有 API 错误报告吗？此操作不可恢复。',
+      confirmLabel: '清空',
+      tone: 'danger',
+    })) return;
     await clearApiErrorReports();
     setReports([]);
     setSelectedId('');
@@ -137,6 +145,7 @@ export function ApiErrorReportsTab() {
           </pre>
         </div>
       )}
+      <ConfirmDialogHost dialog={confirmDialog} />
     </div>
   );
 }

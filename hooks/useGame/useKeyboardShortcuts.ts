@@ -30,6 +30,9 @@ export function useKeyboardShortcuts(
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return;
+      // 弹窗打开时全局快捷键必须让位：否则在读档/设置弹窗之上按 Alt+R 会重掷当前回合、
+      // Ctrl+K 会在弹窗之上再叠一层命令面板。`Modal` 已经在维护 body.modal-open 这个现成标志。
+      if (typeof document !== 'undefined' && document.body.classList.contains('modal-open')) return;
       for (const [action, binding] of Object.entries(bindings) as Array<[快捷键动作, 快捷键绑定]>) {
         if (matchesEvent(binding, event)) {
           const handler = handlers[action];

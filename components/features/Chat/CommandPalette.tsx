@@ -1,4 +1,5 @@
 import { CLIP_PANEL, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
+import { useModalAccessibility } from '@/components/ui/Modal';
 import { useMemo, useRef, useState } from 'react';
 import { searchCommands, type CommandItem } from '@/utils/commandRegistry';
 
@@ -14,6 +15,9 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Esc 原先只绑在输入框上：焦点一落到结果按钮就再也关不掉面板。
+  // 改用统一的弹窗可访问性钩子：role/aria-modal、Esc、Tab 圈定、初始焦点与关闭后焦点归还一次到位。
+  const dialogRef = useModalAccessibility<HTMLDivElement>(onClose);
   const results = useMemo(() => searchCommands(query).slice(0, 12), [query]);
   const run = (item: CommandItem) => {
     item.run();
@@ -21,7 +25,15 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
   };
   return (
     <div className="fixed inset-0 z-[130] flex items-start justify-center bg-black/40 px-4 pt-[14vh]" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="w-[min(560px,calc(100vw-32px))] overflow-hidden" style={{ background: "rgba(var(--tj-surface-strong),0.98)", boxShadow: "inset 0 0 0 1px rgba(var(--tj-accent-primary),0.35), 0 24px 60px rgba(0,0,0,0.4)", clipPath: CLIP_PANEL }}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="命令面板"
+        tabIndex={-1}
+        className="w-[min(560px,calc(100vw-32px))] overflow-hidden"
+        style={{ background: "rgba(var(--tj-surface-strong),0.98)", boxShadow: "inset 0 0 0 1px rgba(var(--tj-accent-primary),0.35), 0 24px 60px rgba(0,0,0,0.4)", clipPath: CLIP_PANEL }}
+      >
         <div className="px-4 py-3" style={{ background: "rgba(var(--tj-accent-primary),0.08)" }}>
           <input
             ref={inputRef}
@@ -29,7 +41,6 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
             autoFocus
             onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }}
             onKeyDown={(event) => {
-              if (event.key === "Escape") { onClose(); return; }
               if (event.key === "ArrowDown") { event.preventDefault(); setActiveIndex((index) => Math.min(results.length - 1, index + 1)); return; }
               if (event.key === "ArrowUp") { event.preventDefault(); setActiveIndex((index) => Math.max(0, index - 1)); return; }
               if (event.key === "Enter" && results[activeIndex]) { event.preventDefault(); run(results[activeIndex]); }

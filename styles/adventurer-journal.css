@@ -39,9 +39,48 @@ body {
   animation: journal-page-settle var(--journal-motion-slow) var(--journal-ease-settle) both;
 }
 
+/*
+ * 全局键盘焦点环兜底（B7）。
+ * 背景：此前只有少数控件带焦点样式（约 10/406 个按钮），键盘用户按 Tab 后无法定位当前控件。
+ * 用 outline 而不是 box-shadow：本项目的按钮普遍把 boxShadow 以内联 style 写在元素上，
+ * 内联声明优先级高于任何样式表规则，只有 outline 能作为全局兜底真正生效；
+ * outline 不占布局、不改背景，也不会改变组件已有的 clip-path 裁切形状。
+ * 放在 .journal-focus-target 之前：后者同属性同/更高优先级且书写更靠后，
+ * 因此显式声明过焦点环的控件仍保持原样（outline 颜色与偏移不被覆盖）。
+ */
+button:focus-visible,
+[role='button']:focus-visible,
+a[href]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid rgb(var(--tj-accent-primary));
+  outline-offset: 2px;
+}
+
 .journal-focus-target:focus-visible {
   outline: 2px solid var(--journal-focus-ring);
   outline-offset: 3px;
+}
+
+/*
+ * 关系图 SVG 节点（S6）的键盘焦点环。
+ * SVG <g> 上 outline 在多数浏览器不渲染，因此用「常驻但默认透明」的外圈，
+ * 只在 :focus-visible 时显形；不改变节点半径与连线，也不参与布局。
+ */
+.relationship-graph-node {
+  cursor: pointer;
+}
+
+/* 抑制全局 outline：这里改用下面的 SVG 外圈作为焦点指示，避免双重焦点环。 */
+.relationship-graph-node:focus-visible {
+  outline: none;
+}
+
+.relationship-graph-node__ring {
+  opacity: 0;
+}
+
+.relationship-graph-node:focus-visible .relationship-graph-node__ring {
+  opacity: 1;
 }
 
 @keyframes journal-page-settle {

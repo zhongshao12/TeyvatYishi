@@ -5,7 +5,9 @@ import { 创建空世界书条目, 创建空世界书, ENTRY_TYPE_LABELS } from 
 import { exportWorldbooks, explainEntry, importWorldbooks, normalizeWorldbooks } from '@/utils/worldbook';
 import { BUILTIN_BOOK_IDS } from '@/data/builtinWorldbookConfig';
 import { STORY_MODE_BOOK_IDS } from '@/data/storyModeWorldbooks';
-import { useModalAccessibility } from '@/components/ui/Modal';
+import { useModalAccessibility, ConfirmDialogHost, useConfirmDialog } from '@/components/ui/Modal';
+import { pushToast } from '@/utils/toastStore';
+import { toUserFacingError } from '@/utils/userFacingError';
 
 interface Props {
   worldbooks: 世界书[];
@@ -32,6 +34,9 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
   const [isImporting, setIsImporting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const dialogRef = useModalAccessibility<HTMLDivElement>(onClose);
+  // 原生 confirm/alert 无法换主题、不能读屏标注；这里统一走项目已有的样式化弹窗与 toast。
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
 
   useEffect(() => {
     setDraft(normalizeWorldbooks(worldbooks));
@@ -114,8 +119,14 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
     setSelectedEntryId(entry.id);
   };
 
-  const handleDeleteBook = (bookId: string) => {
-    if (!confirm('确定删除这本世界书？')) return;
+  const handleDeleteBook = async (bookId: string) => {
+    const target = draft.find((book) => book.id === bookId);
+    if (!await askConfirm({
+      title: '删除世界书',
+      message: `确定删除世界书「${target?.title || bookId}」？其中 ${target?.entries.length ?? 0} 条条目会一并移除。`,
+      confirmLabel: '删除',
+      tone: 'danger',
+    })) return;
     setDraft((prev) => prev.filter((book) => book.id !== bookId));
     setSelectedBookId(null);
   };
@@ -137,22 +148,33 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
     return LEGACY_SWEEP_TERMS.some((term) => source.includes(term));
   };
 
-  const handleSweepLegacyEntries = () => {
+  const handleSweepLegacyEntries = async () => {
     const legacyBooks = draft.filter(bookMatchesLegacyTerms);
     if (legacyBooks.length === 0) {
-      alert('没有发现旧宇宙条目，世界书是干净的。');
+      pushToast({ kind: 'info', title: '没有发现旧宇宙条目', detail: '世界书是干净的。' });
       return;
     }
     const names = legacyBooks.map((book) => `「${book.title || book.id}」(${book.entries.length} 条)`).join('、');
-    if (!confirm(`发现 ${legacyBooks.length} 本包含旧宇宙（星穹铁道）内容的书：\n${names}\n\n将整本删除并立即保存，确定？`)) return;
+    if (!await askConfirm({
+      title: '清扫旧宇宙世界书',
+      message: `发现 ${legacyBooks.length} 本包含旧宇宙（星穹铁道）内容的书：\n${names}\n\n将整本删除并立即保存。此操作不可撤销。`,
+      confirmLabel: '整本删除并保存',
+      tone: 'danger',
+    })) return;
     const next = draft.filter((book) => !bookMatchesLegacyTerms(book));
     setDraft(next);
     onSave(normalizeWorldbooks(next));
     if (selectedBookId && legacyBooks.some((book) => book.id === selectedBookId)) setSelectedBookId(null);
   };
 
-  const handleDeleteEntry = (bookId: string, entryId: string) => {
-    if (!confirm('确定删除此条目？')) return;
+  const handleDeleteEntry = async (bookId: string, entryId: string) => {
+    const target = draft.find((book) => book.id === bookId)?.entries.find((entry) => entry.id === entryId);
+    if (!await askConfirm({
+      title: '删除世界书条目',
+      message: `确定删除条目「${target?.title || entryId}」？此操作不可撤销。`,
+      confirmLabel: '删除条目',
+      tone: 'danger',
+    })) return;
     setDraft((prev) =>
       prev.map((book) =>
         book.id === bookId
@@ -174,9 +196,9 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
       try {
         const text = await file.text();
         setDraft((prev) => importWorldbooks(JSON.parse(text), prev));
-        alert('世界书导入成功。');
-      } catch {
-        alert('导入失败，文件格式无效或读取异常。');
+        pushToast({ kind: 'success', title: '世界书导入成功' });
+      } catch (err) {
+        pushToast({ kind: 'error', title: '世界书导入失败', detail: toUserFacingError(err, { fallback: '文件格式无效或读取异常。' }) });
       } finally {
         setIsImporting(false);
       }
@@ -285,7 +307,7 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
               <TabButton active={activeTab === 'user'} onClick={() => setActiveTab('user')} label="额外" />
               <button
                 type="button"
-                onClick={handleSweepLegacyEntries}
+                onClick={() => void handleSweepLegacyEntries()}
                 className="ml-auto px-2 py-1 text-[11px] tracking-[0.1em] transition-opacity hover:opacity-90"
                 style={{ color: 'rgb(var(--tj-danger))', boxShadow: 'inset 0 0 0 1px rgba(220, 120, 120, 0.35)', clipPath: CLIP_SMALL }}
                 title="扫描全部世界书，删除含旧宇宙（星穹铁道）术语的条目或整本书"
@@ -351,6 +373,7 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
           </main>
         </div>
       </div>
+      <ConfirmDialogHost dialog={confirmDialog} />
     </div>
   );
 }

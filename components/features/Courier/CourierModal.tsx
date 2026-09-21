@@ -362,7 +362,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
               <button
                 type="button"
                 onClick={() => setMobileView('list')}
-                className="shrink-0 px-2 py-1 text-xs sm:hidden"
+                className="flex min-h-11 min-w-11 shrink-0 items-center justify-center px-2 py-1 text-xs sm:hidden"
                 style={{ color: goldSoft(0.9), boxShadow: `inset 0 0 0 1px ${goldSoft(0.35)}` }}
                 aria-label="返回会话列表"
               >

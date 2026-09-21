@@ -64,6 +64,9 @@ export async function prepareSendTurn(input: SendPreparationInput): Promise<Send
     蒸汽鸟报: state.蒸汽鸟报,
     剧情: state.剧情,
     剧情编织: state.剧情编织,
+    任务: state.任务,
+    // 地图只存在于 Teyvat 根上（legacy hook state 没有该切片）。
+    地图: state.game.地图,
     variableBatches: state.variableBatches,
     queueTasks: state.queueTasks,
     turnCount: state.turnCount,

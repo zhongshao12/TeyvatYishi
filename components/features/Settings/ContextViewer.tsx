@@ -148,9 +148,10 @@ export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) 
         {copyHint ? <span className="ml-3 text-emerald-300">{copyHint}</span> : null}
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[360px_minmax(0,1fr)] gap-4">
+      {/* 窄屏单列堆叠：右栏详情必须可达；360px 侧栏只在 xl 及以上并排。 */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div
-          className="flex min-h-0 flex-col overflow-hidden"
+          className="flex max-h-[46vh] min-h-0 flex-col overflow-hidden xl:max-h-none"
           style={{ border: '1px solid rgba(var(--tj-accent-primary),0.2)', background: 'rgba(0,0,0,0.28)', clipPath: CLIP_CARD }}
         >
           <div className="flex items-center justify-between border-b border-[rgb(var(--tj-accent-primary))]/15 px-4 py-3 text-xs text-[rgb(var(--tj-text-secondary))]/75">
@@ -201,7 +202,7 @@ export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) 
         </div>
 
         <div
-          className="flex min-h-0 flex-col overflow-hidden"
+          className="flex min-h-[320px] min-w-0 flex-col overflow-hidden xl:min-h-0"
           style={{ border: '1px solid rgba(var(--tj-accent-primary),0.2)', background: 'rgba(0,0,0,0.28)', clipPath: CLIP_CARD }}
         >
           <div className="flex items-center justify-between border-b border-[rgb(var(--tj-accent-primary))]/15 px-4 py-3 text-xs text-[rgb(var(--tj-text-secondary))]/75">

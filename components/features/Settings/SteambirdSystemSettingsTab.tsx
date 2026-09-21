@@ -1,6 +1,8 @@
 import { CLIP_CARD, CLIP_MEDIUM, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
 import { useSavedFlash } from '@/hooks/useSavedFlash';
 import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
+import { pushToast } from '@/utils/toastStore';
+import { toUserFacingError } from '@/utils/userFacingError';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import type { AI提供商, API配置项, API设置, 游戏设置, 蒸汽鸟报API覆盖 } from '@/models/settings';
@@ -86,7 +88,7 @@ export function SteambirdSystemSettingsTab({ settings, onChange, apiSettings }: 
     } catch (err) {
       const text = (err as Error).message;
       setFetchMessage({ kind: 'error', text });
-      window.alert(`蒸汽鸟报获取模型失败：${text}`);
+      pushToast({ kind: 'error', title: '蒸汽鸟报获取模型失败', detail: toUserFacingError(err, { action: '获取蒸汽鸟报模型列表' }) });
     } finally {
       setLoadingModels(false);
     }

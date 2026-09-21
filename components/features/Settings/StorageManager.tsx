@@ -530,7 +530,14 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       try {
         const result = await runGuardedStorageImport(file, {
           parse: importSaveFileAsMany,
-          confirm: (message) => window.confirm(message),
+          // 统一走主题化确认弹窗（danger 语气 + 读屏标注）。服务侧文案是同步兜底，
+          // 这里给出更完整的说明：导入只新增节点，且会先下载源文件备份。
+          confirm: () => askConfirm({
+            title: '导入存档节点',
+            message: '导入只会新增节点，并会先下载所选源文件备份；是否继续？',
+            confirmLabel: '导入',
+            tone: 'danger',
+          }),
           backup: createImportSourceFileBackup,
           persist: saveGame,
         });

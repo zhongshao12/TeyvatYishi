@@ -14,7 +14,7 @@ import { ITEM_CATEGORIES, ITEM_RARITIES, normalizeTeyvatItem } from '@/models/te
 import { normalizeTeyvatNpcMatureArchive, normalizeTeyvatNpcRecords, normalizeTeyvatNpcSharedMemory } from '@/models/teyvat/character';
 import { normalizeCourierSystem } from '@/models/teyvat/courier';
 import { normalizeCanonDeviation } from '@/services/canonDeviationService';
-import { NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD, 获取NPC关系阶段, 获取NPC兼容关系, 限制NPC好感度 } from '@/models/npc';
+import { NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD, NPC_PARTY_LIMIT, 获取NPC关系阶段, 获取NPC兼容关系, 限制NPC好感度 } from '@/models/npc';
 import { isLegacyTravelerCommandPath } from '@/compat/legacy-hsr/readOnly';
 
 export interface TeyvatEvidenceContext {
@@ -275,6 +275,14 @@ function applyNpc(state: TeyvatGameState, command: TeyvatDomainCommand, index: n
     const invalidAction = validateAction(command, ['set'], index);
     if (invalidAction) return { ok: false, error: invalidAction };
     if (typeof command.value !== 'boolean') return { ok: false, error: error(index, 'INVALID_VALUE', command.root, command.path) };
+    // 队伍上限必须写在**写入层**：UI 只拦手动邀请，模型仍可通过 following 事实把第 5 人写成同行。
+    // 上限与 LeftPanel / CompanionPanel 的 4 保持一致。
+    if (field === 'travelingTogether' && command.value === true && target.travelingTogether !== true) {
+      const partySize = state.NPC.filter((item) => item.travelingTogether === true).length;
+      if (partySize >= NPC_PARTY_LIMIT) {
+        return { ok: false, error: error(index, 'INVALID_VALUE', command.root, command.path) };
+      }
+    }
     nextTarget = { ...target, [field]: command.value };
   } else if (field === 'sharedMemories') {
     if (command.action !== 'push' || !isRecord(command.value) || !isTeyvatStableId(command.value.id)
@@ -564,7 +572,7 @@ export function buildTeyvatCommandRegistryPrompt(): string {
     '旅行者：push/delete capabilities；set/add 天赋[id=稳定ID].等级（0-20，仅技能面板已登记的天赋）。禁止旧版能力列表、旅行者侧背包和整根替换。',
     '世界：set 当前地点/当前日期/当前时间/当前天气/氛围；set/add/sub 旅程天数；push/delete 世界事件。',
     'NPC：push records；用 [id=稳定ID].affinity/lastSeenTurn/relationship/playerAddress/appearance/clothing/speechStyle/intimate/travelingTogether 更新。',
-    '队伍规则：travelingTogether 表示与旅行者同行，由玩家在同伴面板主动邀请入队或请离队伍。剧情只有在明确发生加入或离开（对方正式答应同行、或正式告别离队）时才允许更新该字段；同行同伴最多 3 名，不要批量改变。',
+    `队伍规则：travelingTogether 表示与旅行者同行，由玩家在同伴面板主动邀请入队或请离队伍。剧情只有在明确发生加入或离开（对方正式答应同行、或正式告别离队）时才允许更新该字段；同行同伴最多 ${NPC_PARTY_LIMIT} 名，不要批量改变。`,
     `背包：push items（category=${ITEM_CATEGORIES.join('|')}，rarity=${ITEM_RARITIES.join('|')}，必须有稳定 id）；set/add/sub mora；set/add/sub items[id=稳定ID].quantity。`,
     '任务：push active；push active[id=稳定ID].objectives；用 active[id=稳定ID].objectives[id=稳定ID].currentCount 或 active[id=稳定ID].status 更新；push lastUpdates。',
     '信使：push contacts/deliverySeeds；set/add/sub unreadTotal。',

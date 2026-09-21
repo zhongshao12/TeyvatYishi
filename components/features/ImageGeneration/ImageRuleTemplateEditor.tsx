@@ -1,4 +1,5 @@
 import { CLIP_SMALL, insetRing } from '@/styles/clipPaths';
+import { ConfirmDialogHost, useConfirmDialog } from '@/components/ui/Modal';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { NovelAIContentMode } from '@/models/imageGeneration';
 import type { NovelAI模型族, PNG画风预设来源, 故事快照解析规则预设, 文生图NAI规则预设, 文生图PNG画风预设, 文生图画师串预设, 文生图模型规则集, 文生图规则模板, 文生图规则模板类型, 文生图规则中心设置, 文生图详细画风预设, 文生图质量增强预设, 画师串预设适用范围 } from '@/models/settings';
@@ -55,6 +56,9 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
     npc: '',
     scene: '',
   });
+  // B9：删除预设必须二次确认（原生 confirm 无法换主题/读屏标注，这里用统一样式化弹窗）。
+  const confirmDialog = useConfirmDialog();
+  const askConfirm = confirmDialog.confirm;
 
   const normalizedRules = useMemo(() => normalizeImageRules(rules), [rules]);
   const section = ruleSections.find((item) => item.id === activeSection) ?? ruleSections[0];
@@ -162,8 +166,16 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
     setEditorId(next.id);
   };
 
-  const deletePreset = () => {
+  const deletePreset = async () => {
     if (!selectedPreset) return;
+    // B9：删除预设此前零确认，误点即永久丢失；统一走样式化危险确认弹窗。
+    // 内置预设不可删，因此这里只对玩家自定义预设生效。
+    if (!await askConfirm({
+      title: '删除规则预设',
+      message: `确定删除预设「${selectedPreset.名称 || selectedPreset.id}」？此操作不可撤销。`,
+      confirmLabel: '删除预设',
+      tone: 'danger',
+    })) return;
     const remaining = normalizedRules.词组转化器提示词预设列表.filter((preset) => preset.id !== selectedPreset.id);
     const nextActive = remaining.find((preset) => preset.类型 === activeSection)?.id ?? '';
     onChange({
@@ -961,7 +973,7 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
             </div>
             <div className="flex flex-wrap gap-2">
               <TemplateButton onClick={addPreset}>新增规则</TemplateButton>
-              <TemplateButton onClick={deletePreset} disabled={!selectedPreset} danger>删除当前</TemplateButton>
+              <TemplateButton onClick={() => void deletePreset()} disabled={!selectedPreset} danger>删除当前</TemplateButton>
             </div>
           </div>
 
@@ -1040,6 +1052,7 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
         </div>
       </div>
       )}
+      <ConfirmDialogHost dialog={confirmDialog} />
     </div>
   );
 }

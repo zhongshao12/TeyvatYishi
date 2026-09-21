@@ -23,7 +23,12 @@ assert(settingsModal.includes("'extra'"), '设置弹窗必须新增额外功能 
 assert(settingsModal.includes('ExtraFeaturesSettingsTab'), '设置弹窗必须渲染额外功能页。');
 assert(extraTab.includes('污染词清理') && extraTab.includes('极其'), '额外功能页必须提供污染词清理配置。');
 assert(useGameState.includes('额外功能: 归一化额外功能设置(savedGame.额外功能)'), '启动加载旧设置时必须补齐额外功能。');
-assert(saveLoadWorkflow.includes('replaceGameState: state.replaceGameState'), '正式读档必须只替换提瓦特游戏根。');
+// 迁移: 旧 `replaceGameState: state.replaceGameState`（直接传引用）
+//   -> `replaceGameState: (next) => state.replaceGameState({ ...next, 相册: materializeAlbumRuntimePayload(next.相册) })`
+// 理由: 相册必须在**提交那一刻**物化（第二轮审计 A4：原先在 replaceGameState 之后赋值，
+//       而它会 normalize 成新对象 → 赋值写在失效对象上，base64 留在 React 状态里）。
+// 意图不变：正式读档仍然只替换提瓦特游戏根，不得用存档覆盖本地偏好（下行断言仍守住这一点）。
+assert(/replaceGameState:\s*\(next\)\s*=>\s*state\.replaceGameState\(/.test(saveLoadWorkflow), '正式读档必须只替换提瓦特游戏根。');
 assert(!saveLoadWorkflow.includes('state.setGameSettings('), '正式读档不得用存档覆盖本地额外功能偏好。');
 assert(sendWorkflow.includes('sanitizeParsedResponse(result.parsed, state.gameSettings.额外功能)'), '主回复落地前必须清理 parsedResponse。');
 assert(sendWorkflow.includes('sanitizeContaminatedText(parsedBody, state.gameSettings.额外功能)'), '正文进入历史前必须清理污染词。');

@@ -1067,12 +1067,39 @@ export async function runVariableCalibrationStep(
 ): Promise<VariableSettlementResult | null> {
   const { state, ...settlement } = params;
   const { runVariableSettlementWorkflow } = await import('./variableSettlementWorkflow');
+  const { rebaseSettlementState } = await import('@/utils/settlementRebase');
+  const { capturePostSettlementSaveToken, isSamePostSettlementSave } = await import('./postSettlementRecoveryWorkflow');
+  // 结算基线：`trueBase` 是主流程看到的真实根状态（用于判断玩家是否并发改过），
+  // `frozenBase` 是结算实际读到的快照（可能已带主流程本回合的覆盖）。两者缺一不可：
+  // frozenBase 里被主流程重建过的切片与 trueBase 不是同一引用，只比对 trueBase 会误判为"玩家改过"。
+  const trueBase = state.game;
+  const frozenBase = settlement.baseGameSnapshot ?? trueBase;
+  const saveToken = capturePostSettlementSaveToken(trueBase);
   return runVariableSettlementWorkflow({
     ...settlement,
-    currentGame: state.game,
+    currentGame: trueBase,
     settings: state.gameSettings,
     npcRecords: state.NPC,
-    commitGame: (next) => state.updateGameState(() => next),
+    // 提交必须经过 updater 拿到**提交那一刻**的活体状态：
+    // 1) 存档身份变了（等待期间读档/开新局）→ 整份拒绝，绝不把旧档的结算写进新档；
+    // 2) 否则按顶层切片做三路合并，玩家在等待期间改过的切片以玩家为准（不再静默丢弃）。
+    commitGame: (next) => {
+      state.updateGameState((current) => {
+        if (!isSamePostSettlementSave(capturePostSettlementSaveToken(current), saveToken)) {
+          pushQueueTask(state, 'variable', 'failed', {
+            detail: '结算期间存档已切换，本次变量结算未写入（已放弃，避免污染新存档）。',
+          });
+          return current;
+        }
+        const { state: merged, preservedSlices } = rebaseSettlementState({ trueBase, frozenBase, next, current });
+        if (preservedSlices.length) {
+          pushQueueTask(state, 'variable', 'pending', {
+            detail: `结算完成；你在等待期间改动的 ${preservedSlices.join('、')} 已保留（未被本次结算覆盖）。`,
+          });
+        }
+        return merged;
+      });
+    },
     onFailure: (detail) => pushQueueTask(state, 'variable', 'failed', { detail }),
   });
 }

@@ -254,6 +254,12 @@ export function buildSystemPrompt(
   const companionsSection = buildCompanionsSection(npcRecords, _turnCount);
   if (companionsSection) parts.push(companionsSection);
 
+  // ── 成人关系长期事实（仅 NSFW 开启时注入）──
+  // 这些是玩家与角色**已经确立**的私密长期事实、边界与偏好。此前它们只存在档案里、
+  // 从不进入提示词，于是「长期事实没有发生作用」。放在 NPC 区块之后，保持承接优先级。
+  const nsfwArchiveSection = buildNsfwArchiveContinuitySection(npcRecords, settings.enableNsfw === true);
+  if (nsfwArchiveSection) parts.push(nsfwArchiveSection);
+
   return {
     systemPrompt: parts.join('\n\n---\n\n'),
     chatModuleMessages: allChatMessages,
@@ -888,8 +894,63 @@ function buildNpcLedgerContinuitySection(selection: NPC账本选择结果): stri
   ].join('\n');
 }
 
-function buildNpcContinuitySection(
-  worldState: 世界状态,
+/** 档案里是否存在需要正文承接的私密长期事实。 */
+function hasDurableIntimateFacts(archive: NPC记录['NSFW档案'] | undefined): boolean {
+  if (!archive?.enabled) return false;
+  return Boolean(
+    archive.长期事实?.length
+    || archive.边界?.trim()
+    || archive.偏好?.length
+    || archive.敏感点?.length
+    || archive.禁忌?.length
+    || archive.亲密阶段?.trim(),
+  );
+}
+
+function formatNsfwArchiveContinuityLine(npc: NPC记录, archive: NonNullable<NPC记录['NSFW档案']>): string {
+  const segments = [
+    archive.亲密阶段?.trim() ? `关系阶段：${archive.亲密阶段.trim()}` : '',
+    archive.长期事实?.length ? `长期事实：${archive.长期事实.slice(-5).join('；')}` : '',
+    archive.边界?.trim() ? `边界：${archive.边界.trim()}` : '',
+    archive.偏好?.length ? `偏好：${archive.偏好.slice(0, 6).join('、')}` : '',
+    archive.敏感点?.length ? `敏感点：${archive.敏感点.slice(0, 6).join('、')}` : '',
+    archive.禁忌?.length ? `禁忌（硬约束）：${archive.禁忌.slice(0, 6).join('、')}` : '',
+  ].filter(Boolean);
+  return `- ${npc.姓名}${npc.别名 ? `（${npc.别名}）` : ''}｜${segments.join('｜')}`;
+}
+
+const NSFW_ARCHIVE_PROMPT_LIMIT = 8;
+
+/**
+ * 把「已确立的亲密长期事实」注入正文提示词。
+ *
+ * 在此之前 `matureArchive` 只在档案面板里展示，**从不进入任何提示词**，
+ * 所以玩家写进去的长期事实对剧情没有任何影响。
+ * 只在 NSFW 总开关打开时注入；每个角色的档案严格隔离，且不得违反已写明的边界与禁忌。
+ */
+function buildNsfwArchiveContinuitySection(npcRecords: NPC记录[] | undefined, enabled: boolean): string {
+  if (!enabled) return '';
+  const rows = (npcRecords ?? [])
+    .filter((npc) => Boolean(npc.姓名?.trim()) && hasDurableIntimateFacts(npc.NSFW档案))
+    .sort((a, b) => Number(b.最近回合 || 0) - Number(a.最近回合 || 0))
+    .slice(0, NSFW_ARCHIVE_PROMPT_LIMIT);
+  if (!rows.length) return '';
+  return [
+    '# 已确立的亲密长期事实（成人向档案）',
+    '',
+    '以下是当前状态下**已经确立**的私密关系事实与边界，属于状态事实而非背景设定。',
+    '- 已建立的关系、阶段、承诺与关键经历必须被承接：不得写成从未发生、初次接触或关系归零，也不得凭空推翻。',
+    '- 「边界」与「禁忌」是硬约束：正文不得违反；需要改变时，必须先在正文里写出明确的重新协商过程，而不是直接越过。',
+    '- 「偏好」与「敏感点」只作用于对应角色本人，不代表其他角色，也不得据此推断未写明的取向。',
+    '- 逐行隔离：某位角色的私密事实不是其他角色的知识；只能通过亲历、当面告知或公开事实传播。',
+    '- 不在本回合镜头内的人物只能通过回忆、通讯或旁人提及承接，不得凭空出现在当前场景。',
+    '- 与本回合玩家输入、当前地点和既有关系冲突时，以玩家输入为准并让角色做出符合人格的反应。',
+    '',
+    ...rows.map((npc) => formatNsfwArchiveContinuityLine(npc, npc.NSFW档案 as NonNullable<NPC记录['NSFW档案']>)),
+  ].join('\n');
+}
+
+function buildNpcContinuitySection(  worldState: 世界状态,
   npcRecords?: NPC记录[],
   turnCount = 0,
   explicitNpcNames: string[] = [],

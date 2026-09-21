@@ -418,6 +418,9 @@ const RAW_IDENTITY_GROUPS: readonly RawIdentityGroup[] = [
     ['JS-107', 'codex_teyvat_character_108', '卡皮塔诺'],
     ['JS-108', 'codex_teyvat_character_109', '哥伦比娅'],
     ['JS-109', 'codex_teyvat_character_110', '普契涅拉'],
+    // 影（雷电影）是从「雷电将军」拆出的独立角色：词条追加在预设末尾，
+    // 注册表也必须追加在末尾并保持同一下标（resolveBundledCodexIdentity 按 sourceIndex 对齐）。
+    ['JS-110', 'codex_teyvat_character_111', '影'],
   ]],
 ];
 

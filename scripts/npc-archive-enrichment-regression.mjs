@@ -31,7 +31,21 @@ assert(!enrichment.includes('if (!baseline) return false'), 'NSFW 保守基线�
 assert(enrichment.includes('未建立'), 'NSFW 基线必须保留亲密阶段空壳，等待后续剧情事实补充。');
 assert(enrichment.includes('基线档案只建一个干净空壳') && enrichment.includes('不再写「保守基线」'), 'NSFW 基线必须保持可更新空壳，不得恢复会阻塞后续补充的保守占位。');
 assert(enrichment.includes('return !bodyFilled && !hasPrefs && !hasSensitive && !hasExperiences'), 'NSFW 空壳档案必须仍被视为需要后续事实补充。');
-assert(!enrichment.includes('不代表已发生亲密剧情') && !enrichment.includes('未确认成人、明确同意与关系边界前，不写具体身体细节'), 'NSFW 基线不得写回旧版保守占位文案。');
+// 迁移: 原来这里是 `!enrichment.includes('不代表已发生亲密剧情')`（整文件扫描）。
+// 理由: 现在档案补全器里多了一段「只清理旧版占位文案」的逻辑，它的正则**必须**包含这些字面量，
+//       整文件扫描会把合法的清理逻辑误判成违规。改为按函数体精确检查（与 nsfw-archive-regression 一致），
+//       并补上真正要守的契约：清理必须按占位文案精确匹配，不得再按「字段非空」整体删除。
+{
+  const fnStart = enrichment.indexOf('function buildNsfwBaseline');
+  const fnEnd = enrichment.indexOf('\n}', fnStart);
+  const fnBody = enrichment.slice(fnStart, fnEnd);
+  assert(!fnBody.includes('不代表已发生亲密剧情') && !fnBody.includes('未确认成人、明确同意与关系边界前，不写具体身体细节'), 'NSFW 基线不得写回旧版保守占位文案。');
+}
+assert(enrichment.includes('LEGACY_NSFW_PLACEHOLDER_RE'), '清理旧版 NSFW 占位必须按占位文案精确匹配。');
+assert(
+  /清理旧版NSFW占位\(updated\.NSFW档案\)/.test(enrichment),
+  '补全器必须调用「按占位文案精确清理」的辅助函数，不得回到按「字段非空」整体删除。',
+);
 assert(enrichment.includes('getNsfwArchiveBlockReason'), 'NSFW 基线必须使用集中资格策略。');
 assert(nsfwPolicy.includes('派蒙') && nsfwPolicy.includes('七七') && nsfwPolicy.includes('机械') && nsfwPolicy.includes('人偶'), '集中策略必须屏蔽提瓦特幼态角色、机械和普通人偶。');
 assert(!/帕姆|史瓦罗|HERTA_IDENTITY_RE/u.test(nsfwPolicy), '集中策略不得保留旧世界角色例外。');
@@ -73,5 +87,13 @@ assert(courierService.includes('CourierSystem') && courierService.includes('appe
 
 assert(canonicalCharacters.includes("name: '空'") && canonicalCharacters.includes("name: '荧'"), '原著角色库必须覆盖空与荧。');
 assert(canonicalCharacters.includes("name: '派蒙'") && canonicalCharacters.includes("name: '安柏'"), '原著角色库必须覆盖派蒙与安柏等提瓦特核心角色。');
+
+// NSFW 长期事实必须真正影响正文：此前 matureArchive 只在面板展示、从不进入提示词。
+assert(promptBuilder.includes('buildNsfwArchiveContinuitySection'), '正文提示词必须注入已确立的亲密长期事实。');
+assert(
+  promptBuilder.includes('buildNsfwArchiveContinuitySection(npcRecords, settings.enableNsfw === true)'),
+  '亲密长期事实只能在整个 NSFW 开关打开时注入。',
+);
+assert(promptBuilder.includes('buildNsfwArchiveContinuitySection(npcRecords'), '注入点必须消费 NPC 档案。');
 
 console.log('npc archive enrichment regression ok');

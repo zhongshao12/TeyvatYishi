@@ -69,8 +69,10 @@ for (const fileName of files) {
   }
 }
 
-assert(entryCount === 385, `expected 385 formal Codex entries, got ${entryCount}`);
-assert(characterCount === 110, `expected 110 character entries, got ${characterCount}`);
+// 迁移: 385/110 -> 386/111。理由: 「影（雷电影）」从雷电将军的别名拆成独立角色，
+// 在 teyvat-characters-core.json 末尾追加了一条 character 词条（并同步 codexIdentityRegistry 的下标）。
+assert(entryCount === 386, `expected 386 formal Codex entries, got ${entryCount}`);
+assert(characterCount === 111, `expected 111 character entries, got ${characterCount}`);
 
 const auditSource = fs.readFileSync(new URL('./teyvat-runtime-language-audit.mjs', import.meta.url), 'utf8');
 assert(!auditSource.includes("path.resolve(root, '..'"), 'project audit must not traverse outside the repository');

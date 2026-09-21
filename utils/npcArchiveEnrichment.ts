@@ -212,6 +212,27 @@ function shouldBackfillFemaleNsfwDefaults(
   return archive.年龄确认 !== 'adult' || archive.是否处女 === undefined;
 }
 
+/**
+ * 旧版保守基线写进 `长期事实` / `标签` / `备注` 的占位文案。
+ * 只有命中这些文案的内容才该被清掉；真实长期事实必须原样保留。
+ */
+const LEGACY_NSFW_PLACEHOLDER_RE = /保守基线|等待剧情事实补充|不代表已发生亲密剧情/;
+
+type 归一化NSFW档案 = NonNullable<NPC记录['NSFW档案']>;
+
+function 清理旧版NSFW占位(nsfw: 归一化NSFW档案): 归一化NSFW档案 {
+  const 长期事实 = (nsfw.长期事实 ?? []).filter((item) => !LEGACY_NSFW_PLACEHOLDER_RE.test(item));
+  const 标签 = (nsfw.标签 ?? []).filter((item) => !LEGACY_NSFW_PLACEHOLDER_RE.test(item));
+  const 备注 = typeof nsfw.备注 === 'string' && LEGACY_NSFW_PLACEHOLDER_RE.test(nsfw.备注) ? undefined : nsfw.备注;
+  const unchanged = 长期事实.length === (nsfw.长期事实 ?? []).length
+    && 标签.length === (nsfw.标签 ?? []).length
+    && 备注 === nsfw.备注;
+  if (unchanged) return nsfw;
+  const next: 归一化NSFW档案 = { ...nsfw, 长期事实, 标签 };
+  if (备注 === undefined) delete next.备注;
+  return next;
+}
+
 function archiveChanged(a: NPC_NSFW档案 | undefined, b: NPC_NSFW档案): boolean {
   return JSON.stringify(a ?? null) !== JSON.stringify(b);
 }
@@ -295,13 +316,15 @@ export function enrichNpcArchives(
       }
     }
 
-    // 清理 NSFW 档案中的占位字段：这些字段只有发生实际亲密剧情后才有意义，基线阶段不应存在。
+    // 清理旧版「保守基线」留下的占位文案。
+    //
+    // 这里**只**删命中占位文案的条目。此前写成「标签/备注/长期事实 任一非空就整体删除」，
+    // 结果把玩家和模型真实写入的长期事实一起删了 —— 表现就是
+    // 「NSFW 档案里的长期事实没有发生作用」（下一回合补全时被清空）。
     if (updated.NSFW档案) {
-      const nsfw = updated.NSFW档案;
-      const hasPlaceholder = nsfw.标签?.length || nsfw.备注 || nsfw.长期事实?.length;
-      if (hasPlaceholder) {
-        const { 标签, 备注, 长期事实, ...rest } = nsfw as NPC记录['NSFW档案'] & { 标签?: unknown; 备注?: unknown; 长期事实?: unknown };
-        updated = { ...updated, NSFW档案: rest as NPC记录['NSFW档案'] };
+      const cleaned = 清理旧版NSFW占位(updated.NSFW档案);
+      if (cleaned !== updated.NSFW档案) {
+        updated = { ...updated, NSFW档案: cleaned };
       }
     }
 

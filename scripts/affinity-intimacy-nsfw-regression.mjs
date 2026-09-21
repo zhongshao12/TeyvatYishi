@@ -268,4 +268,23 @@ const [adultCanonicalEnriched] = enrichment.enrichNpcArchives(adultCanonicalReco
 assert(adultCanonicalEnriched.NSFW档案?.enabled === true, '未命中屏蔽条件的成年提瓦特角色必须能建立 NSFW 档案基线。');
 
 await fs.rm(outDir, { recursive: true, force: true });
+// NSFW 档案的长期事实必须活过补全器。
+// 此前补全器按「标签/备注/长期事实 任一非空」整体删除这三个字段，真实长期事实下一回合就消失，
+// 表现就是「长期事实没有发生作用」。注意旧断言只检查了 经历（不在被删字段里），所以一直是绿的。
+const durableLongTerm = enrichment.enrichNpcArchives([{
+  ...femaleLegacy('恋人角色'),
+  NSFW档案: {
+    enabled: true, 年龄确认: 'adult',
+    长期事实: ['保守基线', '双方约定亲密互动前先确认边界。'],
+    标签: ['等待剧情事实补充', '真心'],
+    备注: '不代表已发生亲密剧情',
+  },
+}], femaleOptions).records[0];
+assert(
+  JSON.stringify(durableLongTerm.NSFW档案?.长期事实) === JSON.stringify(['双方约定亲密互动前先确认边界。']),
+  '真实长期事实必须保留，只清掉旧版占位文案。',
+);
+assert(JSON.stringify(durableLongTerm.NSFW档案?.标签) === JSON.stringify(['真心']), '真实标签必须保留。');
+assert(durableLongTerm.NSFW档案?.备注 === undefined, '旧版占位备注必须被清掉。');
+
 console.log('affinity intimacy nsfw regression ok');

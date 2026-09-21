@@ -1118,8 +1118,15 @@ async function writeDesktopPrimarySaveBeforeIndexedDbSafely(
       deltaNodeId: delta?.nodeId,
       assetIds: assetRecords.map((record) => record.id).filter(Boolean),
     });
-    await mirrorSaveToDesktop(save, buildSaveSummary(save));
+    // C2 顺序要求：**先写 delta，再写存档记录**。
+    // 因为启用 delta-primary 后存档记录可能是"占位档"（要靠 delta 还原）：
+    // 若先写占位档、后写 delta，在这两步之间崩溃就会留下一个**没有 delta 的占位档** → 读不回来。
+    // 反过来先写 delta：崩溃只会留下一个孤儿 delta（无害，repair 会清理），存档本身要么是完整档、要么尚不存在。
     await mirrorSaveNodeDeltaToDesktop(delta);
+    await mirrorSaveToDesktop(save, buildSaveSummary(save), {
+      // C2：有增量基线时才可能只写占位档；镜像侧还会再校验「基线必须是完整档」，否则回退整档。
+      deltaPrimaryBaseSaveId: delta?.deltaPayload?.baseSaveId,
+    });
     await mirrorAssetRecordsToDesktop(assetRecords);
     await finishDesktopSaveTransaction(Number(save.id) || 0, transactionId);
     return true;

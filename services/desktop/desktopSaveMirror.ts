@@ -3,10 +3,29 @@ import type { SaveListItemSummary } from '@/services/dbService';
 import { createAppStorageAdapter } from '@/services/storage/appStorageAdapter';
 import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
 import { stripSaveAssetPayloadForStorage } from '@/utils/saveAssetStorage';
+import { buildDeltaOnlyStoredSave } from '@/utils/saveDeltaStorage';
 
 type DesktopSaveMirrorSummary = SaveListItemSummary & {
   visibility?: 'visible' | 'hidden-delta-base';
+  /**
+   * 桌面镜像里这条存档是**完整档**还是**增量占位档**（C2）。
+   * 旧版本没有这个字段；缺省按 `'full'` 处理（旧版本永远写整档）。
+   */
+  storageMode?: 'full' | 'delta';
 };
+
+export interface MirrorSaveToDesktopOptions {
+  /**
+   * delta-primary（C2）：当本次存档有增量基线、且该基线在桌面镜像里是**完整档**时，
+   * 只把「占位形态」（`saveStorage.mode = 'delta'`）写进 `saves/<id>.json`，完整数据由 base + delta 重建
+   * （读回链路已支持：`dbService` 的 `restoreDeltaSaveIfNeeded` → `restoreSaveFromDelta`，
+   * 且 `loadDeltaRecordByNodeId` 优先读桌面 delta 镜像）。
+   *
+   * **守卫**：基线不是完整档（或未知）时**一律写整档** —— 这样 delta 链深度恒为 1，
+   * 不会产生"占位档的基线也是占位档"这种读不回来的组合。
+   */
+  deltaPrimaryBaseSaveId?: number;
+}
 
 interface DesktopSaveMirrorIndex {
   version: 1;
@@ -123,11 +142,34 @@ export async function finishDesktopSaveTransaction(saveId: number, transactionId
   await adapter.remove(transactionPath(saveId, transactionId));
 }
 
-export async function mirrorSaveToDesktop(save: 存档数据, summary: SaveListItemSummary): Promise<void> {
+export async function mirrorSaveToDesktop(
+  save: 存档数据,
+  summary: SaveListItemSummary,
+  options: MirrorSaveToDesktopOptions = {},
+): Promise<void> {
   if (!isDesktopRuntime()) return;
   const adapter = createAppStorageAdapter();
   const index = await readMirrorIndex();
-  const nextSummary = { ...summary, id: Number(save.id) || summary.id };
+  const id = Number(save.id) || summary.id;
+  // C2：只有「基线是完整档」时才允许写增量占位档。缺 storageMode 的旧索引条目按完整档处理。
+  const baseSaveId = Number(options.deltaPrimaryBaseSaveId) || 0;
+  const baseIsFullSave = baseSaveId > 0
+    && index.saves.some((item) => item.id === baseSaveId && item.storageMode !== 'delta');
+
+  // 占位档构造失败（例如 legacy 存档）时回退整档：宁可多写，不可写出读不回的档。
+  let storedSave: 存档数据 | null = null;
+  if (baseIsFullSave) {
+    try {
+      storedSave = buildDeltaOnlyStoredSave(save, baseSaveId);
+    } catch {
+      storedSave = null;
+    }
+  }
+  const nextSummary: DesktopSaveMirrorSummary = {
+    ...summary,
+    id,
+    storageMode: storedSave ? 'delta' : 'full',
+  };
   const nextSaves = [
     nextSummary,
     ...index.saves.filter((item) => item.id !== nextSummary.id),
@@ -137,7 +179,7 @@ export async function mirrorSaveToDesktop(save: 存档数据, summary: SaveListI
     version: 1,
     mirroredAt: Date.now(),
     summary: nextSummary,
-    save: stripSaveAssetPayloadForStorage(save),
+    save: storedSave ?? stripSaveAssetPayloadForStorage(save),
   };
   await adapter.writeJson(savePath(nextSummary.id), record);
   await writeMirrorIndex(nextSaves);

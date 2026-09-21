@@ -16,6 +16,7 @@ import type { NPC记录 } from '@/models/npc';
 import { 创建NPC记录, 归一化NPC记录列表 } from '@/models/npc';
 import { matchCanonical } from '@/data/canonicalCharacters';
 import { readLegacyNpcKeyFromName, readLegacyNpcNameFromKey } from '@/compat/legacy-hsr/readOnly';
+import { LEGACY_NPC_ID_TO_CHINESE_NAME, normalizeLegacyNpcSelector } from '@/utils/legacyNpcIdentity';
 import type { 剧情节点 } from '@/models/plot';
 import { addInventoryItem, consumeInventoryItem } from './inventoryActions';
 import {
@@ -662,12 +663,8 @@ function 确保NPC目标存在(records: NPC记录[], rest: string, cmd: 变量�
 }
 
 function NPC选择器值转角色名(value: string): string {
-  const normalized = value.replace(/^npc[_-]/i, '').toLowerCase();
-  const map: Record<string, string> = {
-    aether: '空', lumine: '荧', paimon: '派蒙', amber: '安柏', kaeya: '凯亚',
-    lisa: '丽莎', jean: '琴', venti: '温迪', diluc: '迪卢克', barbara: '芭芭拉',
-  };
-  return map[normalized] ?? (readLegacyNpcNameFromKey(normalized) || value);
+  const normalized = normalizeLegacyNpcSelector(value);
+  return LEGACY_NPC_ID_TO_CHINESE_NAME[normalized] ?? (readLegacyNpcNameFromKey(normalized) || value);
 }
 
 function 角色名转NPCID(name: string): string {

@@ -31,6 +31,7 @@ import {
   readLegacyNpcKeyFromName,
   readLegacyNpcNameFromKey,
 } from '@/compat/legacy-hsr/readOnly';
+import { LEGACY_NPC_ID_TO_CHINESE_NAME, normalizeLegacyNpcSelector } from '@/utils/legacyNpcIdentity';
 
 const ITEM_CATEGORY_SET = new Set<ItemCategory>(ITEM_CATEGORIES);
 const NPC_RELATIONS = new Set<NPC关系类型>(['stranger', 'acquaintance', 'friend', 'close', 'rival', 'enemy']);
@@ -206,12 +207,8 @@ function 归一化年龄确认(value: unknown): 'adult' | 'unknown' | 'minor_blo
 function npcNameFromId(id: string): string {
   const canonical = matchCanonicalIdentity({ id });
   if (canonical) return canonical.name;
-  const normalized = id.replace(/^npc[_-]/i, '').toLowerCase();
-  const map: Record<string, string> = {
-    aether: '空', lumine: '荧', paimon: '派蒙', amber: '安柏', kaeya: '凯亚',
-    lisa: '丽莎', jean: '琴', venti: '温迪', diluc: '迪卢克', barbara: '芭芭拉',
-  };
-  return map[normalized] ?? readLegacyNpcNameFromKey(normalized);
+  const normalized = normalizeLegacyNpcSelector(id);
+  return LEGACY_NPC_ID_TO_CHINESE_NAME[normalized] ?? readLegacyNpcNameFromKey(normalized);
 }
 
 function inferNpcTier(fact: Extract<变量事实, { type: 'npc' }>, canonical: ReturnType<typeof matchCanonical>): 'companion' | 'extra' {

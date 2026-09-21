@@ -426,13 +426,27 @@ function normalizeNarrativeImage(value: unknown): NarrativeImageDto | null {
 
 export function normalizeConversationLog(value: unknown): ConversationLog {
   const raw = isRecord(value) ? value : {};
-  return { entries: Array.isArray(raw.entries) ? raw.entries.flatMap((entry) => {
+  const rawEntries = Array.isArray(raw.entries) ? raw.entries : [];
+  // C4（第二轮审计）：只有**最后一条**带快照的条目会被用到 —— reroll 只回滚最后一回合
+  // （`hooks/useGame.ts` 的 handleReroll 取 `lastMsg` / 最后一条 assistant），
+  // 且 aiMessageStage 本来就清掉上一条 user 快照以免存档膨胀。
+  // 而每条快照要跑 13 个子系统的深度归一化（实测约 510µs/条，600 条约 315ms/次，且每次根归一化都跑），
+  // 所以这里在归一化阶段丢弃更早的快照。
+  let lastCheckpointIndex = -1;
+  for (let index = rawEntries.length - 1; index >= 0; index -= 1) {
+    const candidate = rawEntries[index];
+    if (isRecord(candidate) && isRecord(candidate.preTurnState)) {
+      lastCheckpointIndex = index;
+      break;
+    }
+  }
+  return { entries: rawEntries.flatMap((entry, entryIndex) => {
     if (!isRecord(entry)) return [];
     const role: ConversationRole = entry.role === 'user' || entry.role === 'assistant' ? entry.role : 'system';
     const structuredResponse = normalizeStructuredResponse(entry.structuredResponse);
     const tokenUsage = normalizeTokenUsage(entry.tokenUsage);
     const debugMetadata = normalizeDebugMetadata(entry.debugMetadata);
-    const checkpoint = isRecord(entry.preTurnState) ? {
+    const checkpoint = entryIndex === lastCheckpointIndex && isRecord(entry.preTurnState) ? {
       turnCount: integer(entry.preTurnState.turnCount), pendingOpeningTrigger: typeof entry.preTurnState.pendingOpeningTrigger === 'string' ? entry.preTurnState.pendingOpeningTrigger : null,
       ...(isRecord(entry.preTurnState.traveler) ? { traveler: normalizeTravelerProfile(entry.preTurnState.traveler) } : {}),
       ...(isRecord(entry.preTurnState.world) ? { world: normalizeTeyvatWorld(entry.preTurnState.world) } : {}),
@@ -450,7 +464,7 @@ export function normalizeConversationLog(value: unknown): ConversationLog {
     } : undefined;
     const bookmark = isRecord(entry.bookmark) ? { title: text(entry.bookmark.title), ...(optionalText(entry.bookmark.note) ? { note: text(entry.bookmark.note) } : {}), createdAt: number(entry.bookmark.createdAt) } : undefined;
     return [{ id: text(entry.id), role, content: text(entry.content), timestamp: number(entry.timestamp), ...(optionalText(entry.gameTime) ? { gameTime: text(entry.gameTime) } : {}), ...(typeof entry.bookmarked === 'boolean' ? { bookmarked: entry.bookmarked } : {}), ...(structuredResponse ? { structuredResponse } : {}), ...(checkpoint ? { preTurnState: checkpoint } : {}), ...(Number.isFinite(Number(entry.inputTokens)) ? { inputTokens: number(entry.inputTokens) } : {}), ...(Number.isFinite(Number(entry.outputTokens)) ? { outputTokens: number(entry.outputTokens) } : {}), ...(tokenUsage ? { tokenUsage } : {}), ...(Number.isFinite(Number(entry.responseDurationSec)) ? { responseDurationSec: number(entry.responseDurationSec) } : {}), ...(typeof entry.streaming === 'boolean' ? { streaming: entry.streaming } : {}), ...(bookmark ? { bookmark } : {}), ...(debugMetadata ? { debugMetadata } : {}), ...(Array.isArray(entry.narrativeImages) ? { narrativeImages: entry.narrativeImages.flatMap((item) => normalizeNarrativeImage(item) ?? []) } : {}) }];
-  }) : [] };
+  }) };
 }
 
 function normalizeTurnRange(value: unknown): { start: number; end: number } { const raw = isRecord(value) ? value : {}; return { start: integer(raw.start), end: integer(raw.end) } }

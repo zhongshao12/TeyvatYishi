@@ -128,7 +128,14 @@ export async function parseOpeningArchiveWithAI(
 
 function parseOpeningArchiveJson(raw: string): Partial<开局整理档案> {
   const text = normalizeStructuredModelText(raw);
-  return parseJsonWithRepair<Partial<开局整理档案>>(text, 'object');
+  // `parseJsonWithRepair`（services 版）在「修完仍不是 JSON」时会**抛 SyntaxError**。
+  // 模型偶尔回一句自然语言（而不是 JSON），此前会让整个 AI 开局档案失败；
+  // 这里降级为 `{}`，交给 normalizeOpeningArchive 的兜底档案接手（第二轮审计 β 的发现）。
+  try {
+    return parseJsonWithRepair<Partial<开局整理档案>>(text, 'object');
+  } catch {
+    return {};
+  }
 }
 
 function normalizeOpeningArchive(

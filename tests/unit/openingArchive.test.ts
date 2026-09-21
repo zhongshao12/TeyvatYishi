@@ -130,13 +130,16 @@ describe('openingArchive: parseOpeningArchiveWithAI', () => {
     expect(archive.初始日期参考).toBeUndefined();
   });
 
-  it('rejects when the model returns text that contains no parseable JSON (current behaviour, see report)', async () => {
+  it('degrades to the fallback archive when the model returns text without parseable JSON', async () => {
     chatCompletionNonStream.mockResolvedValue('模型今天不想说话');
 
-    // 现状记录：structuredOutputRepair.parseJsonWithRepair 对不可解析的文本会直接抛 JSON.parse 的
-    // SyntaxError，而 parseOpeningArchiveJson 没有 try/catch，归一化兜底完全没有机会执行。
-    // 期望的正确行为应是「降级为兜底档案」而不是让整个开局整理失败。
-    await expect(parseOpeningArchiveWithAI(config, baseInput, 0)).rejects.toThrow(SyntaxError);
+    // 迁移: 旧断言 `rejects.toThrow(SyntaxError)`（现状记录）-> 现在应当降级为兜底档案。
+    // 理由: parseOpeningArchiveJson 补了 try/catch（第二轮审计 β 的发现），
+    //       structuredOutputRepair.parseJsonWithRepair 抛错不再让整个开局整理失败。
+    const archive = await parseOpeningArchiveWithAI(config, baseInput, 0);
+
+    expect(archive).toBeTruthy();
+    expect(archive.已认识角色).toEqual(expect.any(Array));
   });
 
   it('keeps every model-provided field instead of falling back', async () => {

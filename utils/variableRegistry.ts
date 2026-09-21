@@ -10,6 +10,7 @@ import { ARTIFACT_SLOTS, ITEM_CATEGORIES, ITEM_RARITIES, type TeyvatInventory } 
 import { matchCanonical } from '@/data/canonicalCharacters';
 import { 解析路径片段, 读取路径值 } from './variablePath';
 import { readLegacyNpcNameFromKey } from '@/compat/legacy-hsr/readOnly';
+import { LEGACY_NPC_ID_TO_CHINESE_NAME, normalizeLegacyNpcSelector } from '@/utils/legacyNpcIdentity';
 
 /** 变量命令允许操作的根路径，全部对应 useGameState 的一个 setter。 */
 export const VARIABLE_ROOT_KEYS = [
@@ -548,12 +549,8 @@ function isAutoEnsurableCanonicalNpcSelector(rest: string): boolean {
 }
 
 function npcSelectorValueToCanonicalName(value: string): string {
-  const normalized = value.replace(/^npc[_-]/i, '').toLowerCase();
-  const map: Record<string, string> = {
-    aether: '空', lumine: '荧', paimon: '派蒙', amber: '安柏', kaeya: '凯亚',
-    lisa: '丽莎', jean: '琴', venti: '温迪', diluc: '迪卢克', barbara: '芭芭拉',
-  };
-  return map[normalized] ?? (readLegacyNpcNameFromKey(normalized) || value);
+  const normalized = normalizeLegacyNpcSelector(value);
+  return LEGACY_NPC_ID_TO_CHINESE_NAME[normalized] ?? (readLegacyNpcNameFromKey(normalized) || value);
 }
 
 function validateSchemaPushValue(root: VariableRootKey, rest: string, value: unknown): string | null {

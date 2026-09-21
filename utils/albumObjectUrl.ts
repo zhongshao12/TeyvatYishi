@@ -236,9 +236,36 @@ export function pruneAlbumAssetCache(retainedAssetIds: Iterable<string>): void {
   }
 }
 
+/**
+ * 内存压力阀（第二轮审计 C3）。
+ *
+ * 为什么需要它：`enforceAlbumCacheLimit` **不能**驱逐"已经创建过 objectUrl"的条目
+ * （那是为了保护正在显示的图，避免刚插入就被自己 revoke 而变白），
+ * 而 `pruneAlbumAssetCache` 此前只在读档时被调用一次 —— 于是本次会话里滚动看过的每一张图
+ * 都会常驻内存（实测 200 张 0.5 MB = 100 MB，而声明上限是 24 条 / 64 MB）。
+ *
+ * 这里在**超过上限时**才收口，把"在屏条目"之外的释放掉；相册条目本身仍保留 `asset:` 引用，
+ * 离屏图再次进入视口时由既有的物化路径重新解码（资源随存档落盘，可再取回）。
+ *
+ * @returns 实际释放的条目数（未超限时为 0）。
+ */
+export function releaseAlbumCacheUnderPressure(keepAssetIds: Iterable<string>): number {
+  const keep = new Set(Array.from(keepAssetIds, (id) => id.trim()).filter(Boolean));
+  const stats = getAlbumAssetCacheStats();
+  // 注意：**不能**用 `size > MAX_ALBUM_CACHE_ENTRIES` 当判据 —— 插入时 `enforceAlbumCacheLimit`
+  // 已经把条目数压在上限内（实测 seed 30 条后 size 恰好是 24），所以"超限"永远不成立；
+  // 而一旦这 24 条都拿到 objectUrl，`enforceAlbumCacheLimit` 又谁都不能驱逐 → 内存只增不减。
+  // 正确判据是：**到达预算上限**且缓存里还有非在屏条目。
+  const atEntryBudget = stats.size >= MAX_ALBUM_CACHE_ENTRIES;
+  const atByteBudget = stats.totalBytes >= MAX_ALBUM_CACHE_BYTES;
+  if ((!atEntryBudget && !atByteBudget) || stats.size <= keep.size) return 0;
+  const before = assetCache.size;
+  pruneAlbumAssetCache(keep);
+  return before - assetCache.size;
+}
+
 /** Test / full teardown helper. */
-export function clearAlbumAssetObjectUrlCache(): void {
-  for (const entry of assetCache.values()) {
+export function clearAlbumAssetObjectUrlCache(): void {  for (const entry of assetCache.values()) {
     if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
   }
   assetCache.clear();

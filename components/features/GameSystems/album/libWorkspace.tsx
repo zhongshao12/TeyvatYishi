@@ -18,6 +18,7 @@ import {
 import type { CharacterLibraryEntry, CharacterLibraryRecord, SceneLibraryEntry } from './workspaces';
 import type { AlbumImportMode } from './albumArchive';
 import { 解析相册资源地址 } from '@/utils/albumActions';
+import { releaseAlbumCacheUnderPressure } from '@/utils/albumObjectUrl';
 
 type GalleryScope = 'character' | Exclude<SceneLibraryFilter, 'all'>;
 type GalleryItem = {
@@ -93,6 +94,11 @@ export function ImageLibraryWorkspace({
       .map((scene) => ({ entry: scene.entry, src: scene.src, scene }));
   }, [activeRecord, album, resourceEntries, sceneEntries, scope]);
   const visibleIds = useMemo(() => new Set(visibleItems.map((item) => item.entry.id)), [visibleItems]);
+  // C3：缓存超限时收口到"在屏条目"，避免本次会话滚动看过的图全部常驻内存
+  // （实测 200 张 0.5 MB = 100 MB，声明上限仅 24 条 / 64 MB）。离屏图再次进入视口时会重新物化。
+  useEffect(() => {
+    releaseAlbumCacheUnderPressure(visibleIds);
+  }, [visibleIds]);
   const selectedVisibleIds = selectedIds.filter((id) => visibleIds.has(id));
   const previewItem = visibleItems.find((item) => item.entry.id === activeEntryId)
     ?? (selectedVisibleIds.length === 1 ? visibleItems.find((item) => item.entry.id === selectedVisibleIds[0]) : undefined);

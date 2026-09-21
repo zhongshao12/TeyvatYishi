@@ -201,10 +201,21 @@ export const CANONICAL_CHARACTERS: CanonicalCharacterDef[] = [
   },
   {
     name: '雷电将军',
-    aliases: ['Raiden Shogun', '巴尔泽布', '影'],
+    // 「影」已拆成独立角色（见下方条目）：留着这个别名会让两个身份在
+    // 归一化时被合并成同一个人，玩家就永远见不到独立的影。
+    aliases: ['Raiden Shogun', '巴尔泽布'],
     gender: '女',
     appearance: '紫发御姐，稻妻和服与薙刀，雷光环绕。',
     personality: '威严寡言，追求永恒，内心藏着对稻妻的柔软。',
+  },
+  {
+    // 影（雷电影）：雷电将军是她以自身为原型制作的人偶，因此外貌按玩家要求复用雷电将军。
+    // 头像同样复用：public/assets/teyvat-avatars/characters/影.webp 是雷电将军头像的副本。
+    name: '影',
+    aliases: ['雷电影', 'Raiden Ei', 'Ei'],
+    gender: '女',
+    appearance: '紫发御姐，稻妻和服与薙刀，雷光环绕。',
+    personality: '沉静内省，曾被永恒与失去困住，如今愿意为愿望留出余地。',
   },
   {
     name: '八重神子',

@@ -192,6 +192,55 @@ const dailyResult = transaction.commitTeyvatTurn(intimacyState, dailyTranslated.
 assert(dailyResult.status === 'committed', '跨日结算必须提交。');
 assert(dailyResult.nextState.NPC[0].affinity === 10, '每日同行每过一天必须是 +10。');
 
+// 女角色 NSFW 档案默认值：年龄确认按原著成年，是否处女默认「是」；受保护角色不得被标成年。
+const femaleLegacy = (name, patch = {}) => ({
+  id: `npc_${name}`, 姓名: name, 阶位: 'companion', 好感度: 0, 关系: 'acquaintance',
+  亲密关系: false, 同行: false, 初见回合: 1, 最近回合: 1, 备注: [], 原著角色: true, ...patch,
+});
+const femaleOptions = { nsfwEnabled: true, maleNsfwArchiveEnabled: false };
+const amberBaseline = enrichment.enrichNpcArchives([femaleLegacy('安柏')], femaleOptions).records[0];
+assert(amberBaseline.NSFW档案?.年龄确认 === 'adult', '女角色的年龄确认必须填成 adult。');
+assert(amberBaseline.NSFW档案?.是否处女 === '是', '女角色的是否处女默认为「是」。');
+const lisaBackfill = enrichment.enrichNpcArchives(
+  [femaleLegacy('丽莎', { NSFW档案: { enabled: true, 年龄确认: 'unknown', 偏好: ['阅读'] } })],
+  femaleOptions,
+).records[0];
+assert(lisaBackfill.NSFW档案?.年龄确认 === 'adult', '老存档里年龄为 unknown 的女角色必须被补成 adult。');
+assert(lisaBackfill.NSFW档案?.是否处女 === '是', '老存档里缺少是否处女的女角色必须补成「是」。');
+const kaeyaBaseline = enrichment.enrichNpcArchives([femaleLegacy('凯亚')], femaleOptions).records[0];
+assert(kaeyaBaseline.NSFW档案?.是否处女 === undefined, '男角色不得写入是否处女。');
+const kleeBaseline = enrichment.enrichNpcArchives([femaleLegacy('可莉')], femaleOptions).records[0];
+assert(kleeBaseline.NSFW档案?.年龄确认 !== 'adult', '受保护的非成年角色绝不能被标成 adult。');
+
+// 性爱事件必须把「是否处女」翻成「否」。
+const virginState = teyvatState.normalizeTeyvatGameState({
+  ...teyvatState.createEmptyTeyvatGameState(),
+  NPC: [{
+    id: 'npc_lover', 姓名: '恋人角色', roleTier: 'companion', affinity: 0, gender: '女',
+    relationship: 'friend', intimate: false, travelingTogether: false,
+    firstSeenTurn: 1, lastSeenTurn: 1,
+    matureArchive: {
+      enabled: true, ageConfirmation: 'adult', virginityStatus: 'virgin',
+      preferences: [], sensitivePoints: [], taboos: [], experiences: [], longTermFacts: [], tags: [],
+      femaleBodyProfile: {}, maleBodyProfile: {}, partImages: {},
+    },
+  }],
+});
+const virginDerived = facts.deriveNarrativeIntimacyFacts('夜深之后，恋人角色与旅行者发生了性爱关系。', virginState.NPC, { nsfwEnabled: true });
+const virginTranslated = facts.factsToTeyvatDomainCommands(virginDerived, virginState, 4);
+const virginResult = transaction.commitTeyvatTurn(virginState, virginTranslated.commands, () => undefined, { lenientEvidence: true });
+assert(virginResult.status === 'committed', '性爱事件结算必须提交。');
+assert(virginResult.nextState.NPC[0].matureArchive?.virginityStatus === 'not_virgin', '性爱事件后是否处女必须变为「否」。');
+assert(virginResult.nextState.NPC[0].affinity === 30, '性爱事件同时给出 +30 好感度。');
+
+// 女角色的档案不再展示/挂载男性器（界面层），已有数据不删除。
+const companionPanel = await fs.readFile('components/features/GameSystems/CompanionPanel.tsx', 'utf8');
+const albumPanel = await fs.readFile('components/features/GameSystems/AlbumPanel.tsx', 'utf8');assert(
+  /npc\.性别 !== '女' && <PartImageSlot title="男性器"/.test(companionPanel),
+  '女角色的档案不得展示男性器部位图。',
+);
+assert(albumPanel.includes('女角色的 NSFW 档案不挂载男性器部位图'), '女角色的档案不得挂载男性器部位图。');
+
 const canonicalAliasRecords = npc.归一化NPC记录列表([
   { id: 'raiden-a', 姓名: '雷电将军', 阶位: 'companion', 好感度: 20, 关系: 'acquaintance', 同行: false, 初见回合: 1, 最近回合: 2, 备注: [] },
   { id: 'raiden-b', 姓名: 'Raiden Shogun', 阶位: 'companion', 好感度: 50, 关系: 'friend', 同行: false, 初见回合: 1, 最近回合: 3, 备注: [] },

@@ -199,7 +199,7 @@ export async function runVariableSettlementWorkflow(
     });
     const factsWithIntimacy = [
       ...factsWithPartyPresence.filter((fact) => fact.type !== 'npc'
-        || !intimacyFacts.some((derived) => derived.name === fact.name)
+        || !intimacyFacts.some((derived) => derived.type === 'npc' && derived.name === fact.name)
         || (typeof fact.affinityDelta !== 'number' && typeof fact.affinitySet !== 'number')),
       ...intimacyFacts,
     ];

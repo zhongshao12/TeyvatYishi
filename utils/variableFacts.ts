@@ -796,12 +796,12 @@ const 亲密事件否定模式 = /(?:没有|并未|未曾|不曾|尚未|拒绝|�
  */
 export function deriveNarrativeIntimacyFacts(
   body: string,
-  records: readonly (Pick<NPC记录, 'id' | '姓名'> & { aliases?: readonly string[] })[],
+  records: readonly (Pick<NPC记录, 'id' | '姓名'> & { aliases?: readonly string[]; gender?: string })[],
   options: { nsfwEnabled?: boolean } = {},
-): Array<Extract<变量事实, { type: 'npc' }>> {
+): 变量事实[] {
   if (!body.trim()) return [];
   const sentences = body.split(/(?<=[。！？!?\n])/u).map((item) => item.trim()).filter(Boolean);
-  const facts: Array<Extract<变量事实, { type: 'npc' }>> = [];
+  const facts: 变量事实[] = [];
   for (const record of records) {
     const name = (record.姓名 ?? '').trim();
     if (!name) continue;
@@ -815,14 +815,27 @@ export function deriveNarrativeIntimacyFacts(
       const matched = 亲密事件档位.find((tier) => tier.模式.test(sentence));
       if (!matched) continue;
       if (matched.名称 === '性爱事件' && !sexTierAllowed) continue;
+      // 证据必须够长：结算的宽松证据门槛是 8 字，太短的句子会被整条拒掉。
+      const evidence = 亲密事件证据(body, sentence, matched.名称);
       facts.push({
         type: 'npc',
         id: record.id,
         name,
         affinityDelta: matched.加成,
-        // 证据必须够长：结算的宽松证据门槛是 8 字，太短的句子会被整条拒掉。
-        evidence: 亲密事件证据(body, sentence, matched.名称),
+        evidence,
       });
+      if (matched.名称 === '性爱事件' && record.gender === '女') {
+        // 女角色的「是否处女」默认是「是」（建档案时写入），发生性爱事件后翻成「否」。
+        // 走 nsfw_archive 事实而不是直接改字段：matureArchive 的写入必须经过 registry 校验与夹取。
+        facts.push({
+          type: 'nsfw_archive',
+          npcId: record.id,
+          npcName: name,
+          ageConfirm: 'adult',
+          virginityStatus: 'not_virgin',
+          evidence,
+        });
+      }
       break;
     }
   }
@@ -1748,7 +1761,8 @@ export function factsToTeyvatDomainCommands(
         else push({ action: 'set', root: 'NPC', path: `${buildTeyvatIdSelector(existing.id)}.matureArchive`, value: {
           ...(existing.matureArchive ?? { preferences: [], sensitivePoints: [], taboos: [], femaleBodyProfile: {}, maleBodyProfile: {}, experiences: [], longTermFacts: [], tags: [], partImages: {} }),
           enabled: fact.enabled ?? existing.matureArchive?.enabled ?? true,
-          ageConfirmation: fact.ageConfirm ?? existing.matureArchive?.ageConfirmation ?? 'unknown',
+          // 女角色的年龄确认默认按原著视为成年（与 npcArchiveEnrichment 的默认值保持一致）。
+          ageConfirmation: fact.ageConfirm ?? existing.matureArchive?.ageConfirmation ?? (existing.gender === '女' ? 'adult' : 'unknown'),
           intimacyStage: fact.intimacyStage ?? existing.matureArchive?.intimacyStage,
           boundaries: fact.boundaries ?? existing.matureArchive?.boundaries,
           ...(existing.gender === '女' && (fact.ageConfirm ?? existing.matureArchive?.ageConfirmation) === 'adult' ? {

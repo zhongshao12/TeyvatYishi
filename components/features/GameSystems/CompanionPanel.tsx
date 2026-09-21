@@ -123,8 +123,8 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, turnCoun
   const promoteToCompanion = useCallback((id: string) => updateRecord(id, { 阶位: 'companion' }), [updateRecord]);
   const demoteToExtra = useCallback((id: string) => updateRecord(id, { 阶位: 'extra', 同行: false }), [updateRecord]);
   const handleInviteToggle = useCallback((npc: NPC记录) => {
-    if (!npc.同行 && companions.filter((item) => item.同行).length >= 3) {
-      setPartyHint('队伍已满（旅行者 + 3 名同伴）。请先请离一名同伴，再发出邀请。');
+    if (!npc.同行 && companions.filter((item) => item.同行).length >= 4) {
+      setPartyHint('队伍已满（最多 4 名同伴）。请先请离一名同伴，再发出邀请。');
       return;
     }
     setPartyHint('');
@@ -585,7 +585,8 @@ function NSFWArchivePanel({ npc }: { npc: NPC记录 }) {
             <BodyArchiveSection title="NSFW 部位图片">
               <PartImageSlot title="女性胸部" src={archive.部位图片.女性胸部} />
               <PartImageSlot title="女性私处" src={archive.部位图片.女性私处} />
-              <PartImageSlot title="男性器" src={archive.部位图片.男性器} />
+              {/* 女角色的档案不展示男性器（玩家要求）。已有的历史数据不删除，只是不再显示。 */}
+              {npc.性别 !== '女' && <PartImageSlot title="男性器" src={archive.部位图片.男性器} />}
               <PartImageSlot title="后庭" src={archive.部位图片.后庭} />
               <PartImageSlot title="体态参考" src={archive.部位图片.体态参考} />
             </BodyArchiveSection>

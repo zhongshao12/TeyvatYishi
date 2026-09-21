@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useTransition } from 'react';
 import { normalizeStorySnapshotRenderContext, 图片是否参考角色, 读取图片参考目标 } from '@/models/imageGeneration';
@@ -651,6 +651,11 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
     } else if (params.slot === 'nsfw_male_genital') {
       if (!gameSettings.enableMaleNsfwArchive) {
         setMessage('男性 NSFW 档案未开启，不能挂载男性器部位图。');
+        return;
+      }
+      // 女角色的档案不接收男性器部位图（玩家要求）。
+      if (npcs.find((npc) => npc.id === params.targetId)?.性别 === '女') {
+        setMessage('女角色的 NSFW 档案不挂载男性器部位图。');
         return;
       }
       onNpcChange((prev) => 挂载NPC_NSFW部位图片(prev, { npcId: params.targetId, slot: '男性器', src: mountedSrc }));

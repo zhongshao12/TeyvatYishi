@@ -51,12 +51,13 @@ export const LeftPanel = memo(function LeftPanel({
     const builtin = getDefaultTravelerBuiltinAvatar(traveler.姓名, traveler.别名);
     return builtin ? 解析相册资源引用(album, builtin) || builtin : undefined;
   })();
-  // 队伍：旅行者 + 最多 3 名同行同伴（队伍成员身份由同行状态唯一决定，阶位只影响名册分组）
+  // 队伍：最多 4 名同行同伴（不含玩家本人，玩家要求把旅行者从队伍列表里去掉）。
+  // 队伍成员身份由同行状态唯一决定，阶位只影响名册分组。
   const partyMembers = useMemo(
     () => npcRecords
       .filter((npc) => npc.同行)
       .sort((a, b) => b.最近回合 - a.最近回合)
-      .slice(0, 3),
+      .slice(0, 4),
     [npcRecords],
   );
 
@@ -164,19 +165,9 @@ export const LeftPanel = memo(function LeftPanel({
         <div className="mt-4 px-3 py-2.5" style={{ background: BOOKMARK_PANEL, boxShadow: `inset 0 0 0 1px ${BOOKMARK_BORDER}`, clipPath: CLIP_ITEM }}>
           <div className="flex items-center justify-between">
             <span className="font-serif text-[10px] font-bold tracking-[0.3em]" style={{ color: BOOKMARK_TEXT }}>◆ 队伍</span>
-            <span className="text-[10px] font-semibold" style={{ color: BOOKMARK_MUTED }}>{partyMembers.length + 1}/4</span>
+            <span className="text-[10px] font-semibold" style={{ color: BOOKMARK_MUTED }}>{partyMembers.length}/4</span>
           </div>
           <div className="mt-2 flex items-center gap-2">
-            <div className="flex flex-col items-center gap-0.5" title={traveler.姓名 || '旅行者'}>
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={traveler.姓名} className="h-9 w-9 rounded-full object-cover" style={{ boxShadow: '0 0 0 1.5px var(--journal-antique-gold)' }} />
-              ) : (
-                <span className="flex h-9 w-9 items-center justify-center rounded-full font-serif text-sm" style={{ color: 'rgb(var(--tj-accent-primary))', boxShadow: 'inset 0 0 0 1.5px var(--journal-antique-gold)' }}>
-                  {(traveler.姓名 || '旅').charAt(0)}
-                </span>
-              )}
-              <span className="max-w-[44px] truncate text-[9px] font-semibold" style={{ color: BOOKMARK_TEXT }}>{traveler.姓名 || '旅人'}</span>
-            </div>
             {partyMembers.map((member) => {
               const memberAvatar = 解析相册资源引用(album, 读取NPC头像(member, '档案'));
               return (
@@ -192,7 +183,7 @@ export const LeftPanel = memo(function LeftPanel({
                 </div>
               );
             })}
-            {Array.from({ length: Math.max(0, 3 - partyMembers.length) }).map((_, i) => (
+            {Array.from({ length: Math.max(0, 4 - partyMembers.length) }).map((_, i) => (
               <div key={`empty-${i}`} className="flex flex-col items-center gap-0.5">
                 <span className="flex h-9 w-9 items-center justify-center rounded-full text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.4)', boxShadow: 'inset 0 0 0 1px dashed rgba(var(--tj-text-secondary), 0.3)', border: '1px dashed rgba(var(--tj-text-secondary), 0.3)' }}>
                   ＋

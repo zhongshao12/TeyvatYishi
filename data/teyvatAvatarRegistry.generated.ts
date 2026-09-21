@@ -1214,6 +1214,16 @@ export const TEYVAT_AVATAR_SETS: GeneratedAvatarSet[] = [
     ]
   },
   {
+    "canonicalName": "影",
+    "candidates": [
+      {
+        "id": "影_0",
+        "title": "影 默认头像",
+        "src": "/assets/teyvat-avatars/characters/%E5%BD%B1.webp"
+      }
+    ]
+  },
+  {
     "canonicalName": "优菈",
     "candidates": [
       {

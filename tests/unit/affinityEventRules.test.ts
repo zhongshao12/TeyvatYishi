@@ -44,10 +44,16 @@ describe('亲密事件固定好感度', () => {
   ])('awards the fixed value for %s', (_tier, body, expected) => {
     const { derived, committed } = commitDerived(body, [npc()], { nsfwEnabled: true });
 
-    expect(derived).toEqual([expect.objectContaining({ name: '安柏', affinityDelta: expected })]);
+    expect(derived).toContainEqual(expect.objectContaining({ type: 'npc', name: '安柏', affinityDelta: expected }));
     expect(committed.status).toBe('committed');
     if (committed.status !== 'committed') return;
     expect(committed.nextState.NPC[0]!.affinity).toBe(expected);
+  });
+
+  it('pairs the sex tier with a virginity flip for female characters', () => {
+    const { derived } = commitDerived('夜深之后，安柏与旅行者共度了彼此交付的性爱时刻。', [npc()], { nsfwEnabled: true });
+
+    expect(derived).toContainEqual(expect.objectContaining({ type: 'nsfw_archive', npcName: '安柏', virginityStatus: 'not_virgin' }));
   });
 
   it('takes only the highest matched tier in one turn', () => {

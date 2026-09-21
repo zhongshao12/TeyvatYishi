@@ -25,7 +25,7 @@ import {
 } from '@/models/teyvat/domainCommand';
 import { extractJsonLikeText, parseJsonWithRepair } from '@/services/ai/structuredOutputRepair';
 import { 天气列表 } from '@/data/weatherRules';
-import { getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
+import { getNsfwArchiveBlockReason, isProtectedCanonicalNpc } from '@/utils/nsfwArchivePolicy';
 import {
   normalizeLegacyFactKind,
   readLegacyNpcKeyFromName,
@@ -738,6 +738,113 @@ export function derivePartyPresenceFacts(
 
 const INVENTORY_REMOVAL_VERBS = /(使用|用掉|耗掉|消耗|服用|喝下|吃下|吃掉|交给|递给|赠给|送给|交付|上交|归还|丢失|遗失|失去|损毁|毁坏)/u;
 
+/** 每日同行好感加成：每过一个自然日，队伍中的同行角色固定 +10（玩家指定值）。 */
+export const 每日同行好感加成 = 10;
+
+/**
+ * 亲密事件好感规则（玩家指定）：
+ * 亲吻 +5、性爱事件 +30、暧昧／谈情说爱 +3、肢体接触（牵手、搂抱等）+3。
+ *
+ * 同一回合同一角色**只按命中的最高档结算一次**，不逐档相加：
+ * 这几档在实践中是包含关系（性爱场景必然同时出现亲吻与拥抱），
+ * 相加会让一次剧情涨 30+5+3+3 = 41 点，与「亲吻 +5」的口径明显不符。
+ * 需要改成叠加时，只要把 deriveNarrativeIntimacyFacts 里的取最高档换成累加即可。
+ */
+export const 亲密事件好感规则 = {
+  性爱事件: 30,
+  亲吻: 5,
+  暧昧: 3,
+  肢体接触: 3,
+} as const;
+
+/** 数组顺序即优先级：命中最靠前的一档就停。 */
+const 亲密事件档位 = [
+  {
+    名称: '性爱事件',
+    加成: 亲密事件好感规则.性爱事件,
+    // 只认明确词；刻意不收「上床」（睡觉）、「高潮」（剧情高潮）、「缠绵」（雨/往事）这类歧义词。
+    模式: /(性爱|做爱|交合|性交|交欢|欢好|欢爱|云雨|巫山|鱼水之欢|春宵)/u,
+  },
+  {
+    名称: '亲吻',
+    加成: 亲密事件好感规则.亲吻,
+    模式: /(亲吻|接吻|吻了|吻上|吻住|吻别|轻吻|深吻|亲了|亲上|唇上)/u,
+  },
+  {
+    名称: '暧昧',
+    加成: 亲密事件好感规则.暧昧,
+    模式: /(暧昧|表白|告白|示爱|谈情|情话|调情|倾心|互诉衷肠|表明心意)/u,
+  },
+  {
+    名称: '肢体接触',
+    加成: 亲密事件好感规则.肢体接触,
+    // 不认单独的「抱」：抱歉/抱怨/抱负都会误命中。也不认单独的「手」：要带握/牵/拉的动作。
+    模式: /(牵手|牵起|牵住|牵着|拉手|十指相扣|握住.{0,4}手|挽住|挽着|搂住|搂着|搂在怀里|拥抱|抱住|抱紧|依偎|靠在.{0,6}(?:怀里|肩上|身上)|贴在一起)/u,
+  },
+] as const;
+
+/** 否定证据：出现这些词就不算发生过亲密事件。 */
+const 亲密事件否定模式 = /(?:没有|并未|未曾|不曾|尚未|拒绝|推开|挣脱|躲开|抽开|抽回|避开|梦见|幻想).{0,12}(?:亲吻|接吻|吻|拥抱|抱|牵手|搂|暧昧|表白|告白|性爱|做爱)/u;
+
+/**
+ * 正文里的亲密事件 → 固定好感度事实（玩家指定的 4 条规则）。
+ *
+ * 归属规则是保守的：**只有角色姓名/别名与亲密词出现在同一句时才计入**。
+ * 只用「她/他」指代时无法可靠判断是谁，宁可不加，也不给错人。
+ * 安全闸复用 NSFW 政策：受保护原著角色（派蒙/七七/可莉/瑶瑶/早柚）全档位跳过；
+ * 性爱档额外要求 NSFW 开启且未命中机械/非人形屏蔽。
+ */
+export function deriveNarrativeIntimacyFacts(
+  body: string,
+  records: readonly (Pick<NPC记录, 'id' | '姓名'> & { aliases?: readonly string[] })[],
+  options: { nsfwEnabled?: boolean } = {},
+): Array<Extract<变量事实, { type: 'npc' }>> {
+  if (!body.trim()) return [];
+  const sentences = body.split(/(?<=[。！？!?\n])/u).map((item) => item.trim()).filter(Boolean);
+  const facts: Array<Extract<变量事实, { type: 'npc' }>> = [];
+  for (const record of records) {
+    const name = (record.姓名 ?? '').trim();
+    if (!name) continue;
+    const names = [name, ...(record.aliases ?? [])].map((item) => item.trim()).filter(Boolean);
+    if (isProtectedCanonicalNpc(undefined, names)) continue;
+    const sexTierAllowed = options.nsfwEnabled !== false
+      && getNsfwArchiveBlockReason(undefined, name, names.join(' ')) === null;
+    for (const sentence of sentences) {
+      if (!names.some((candidate) => sentence.includes(candidate))) continue;
+      if (亲密事件否定模式.test(sentence)) continue;
+      const matched = 亲密事件档位.find((tier) => tier.模式.test(sentence));
+      if (!matched) continue;
+      if (matched.名称 === '性爱事件' && !sexTierAllowed) continue;
+      facts.push({
+        type: 'npc',
+        id: record.id,
+        name,
+        affinityDelta: matched.加成,
+        // 证据必须够长：结算的宽松证据门槛是 8 字，太短的句子会被整条拒掉。
+        evidence: 亲密事件证据(body, sentence, matched.名称),
+      });
+      break;
+    }
+  }
+  return facts;
+}
+
+/** 取足够长的逐字证据：句子本身太短时向外扩到正文窗口（仍是正文原文）。 */
+function 亲密事件证据(body: string, sentence: string, tierName: string): string {
+  const trimmed = sentence.trim();
+  if (trimmed.length >= 8) return trimmed.slice(0, 240);
+  const index = body.indexOf(trimmed);
+  const window = index < 0
+    ? trimmed
+    : body.slice(Math.max(0, index - 20), Math.min(body.length, index + trimmed.length + 20))
+      .replace(/\s+/g, ' ')
+      .trim();
+  if (window.length >= 8) return window.slice(0, 240);
+  // 整段正文都不足 8 字时（极短的叙事），结算的证据门槛会把命令判为 UNMATCHED_EVIDENCE 丢掉，
+  // 因此补一个档位标签凑够长度；正文本身仍是逐字引用。
+  return `${tierName}：${window}`.slice(0, 240);
+}
+
 function classifyPlayerInventoryRemoval(sentence: string, itemName: string): Extract<变量事实, { type: 'item' }>['action'] | null {
   const itemIndex = sentence.indexOf(itemName);
   const verbMatch = sentence.match(INVENTORY_REMOVAL_VERBS);
@@ -1440,7 +1547,7 @@ export function factsToTeyvatDomainCommands(
     if (dailyPartyRewardIssued) return;
     dailyPartyRewardIssued = true;
     for (const npc of state.NPC.filter((entry) => entry.travelingTogether)) {
-      push({ action: 'add', root: 'NPC', path: `${buildTeyvatIdSelector(npc.id)}.affinity`, value: 5 * Math.max(1, dayCount) }, evidence || '每日同行固定好感度');
+      push({ action: 'add', root: 'NPC', path: `${buildTeyvatIdSelector(npc.id)}.affinity`, value: 每日同行好感加成 * Math.max(1, dayCount) }, evidence || '每日同行固定好感度');
     }
   };
 

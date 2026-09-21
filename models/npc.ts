@@ -21,6 +21,11 @@ export type NPC关系阶段 = '敌对' | '陌生' | '初见' | '熟识' | '知�
 
 export const NPC_AFFINITY_MIN = -50;
 export const NPC_AFFINITY_MAX = 150;
+/**
+ * 「生死挚友」的门槛：好感度 **大于** 该值即为生死挚友。
+ * 关系阶段派生与「到该等级后不再掉好感度」的保护共用这个常量，避免两处边界漂移。
+ */
+export const NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD = 100;
 
 export type NPC同行记忆来源 = '正文' | '手机' | '蒸汽鸟报' | '变量' | '其他';
 export type NPC头像槽位 = '档案' | '正文' | '手机';
@@ -191,7 +196,7 @@ export function 获取NPC关系阶段(value: unknown): NPC关系阶段 {
   if (affinity <= -1) return '陌生';
   if (affinity <= 19) return '初见';
   if (affinity <= 49) return '熟识';
-  if (affinity <= 100) return '知己';
+  if (affinity <= NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD) return '知己';
   return '生死挚友';
 }
 

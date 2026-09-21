@@ -246,6 +246,8 @@ export function buildVariableModelPrompt(
     '- 好感度范围 -50..150；关系阶段由前端派生，禁止输出 relation/relationshipStage。',
     '- 好感变化默认只用 affinityDelta（本回合的相对增减）。affinitySet 是绝对覆盖，只在正文明确给出角色当前好感的绝对值时才用。',
     '- 禁止把提示里已经印出的当前好感值原样回填成 affinitySet 或 好感度：那是「现在是多少」，不是「本回合变了多少」；回填会覆盖掉本回合真实的 +/- 变化（系统里 affinitySet 优先于 affinityDelta）。',
+    '- 亲密事件的固定好感度由系统按正文结算：亲吻 +5、性爱事件 +30、暧昧/谈情说爱 +3、牵手搂抱等肢体接触 +3（同一角色同一回合只取最高一档）。这些事件不要重复输出 affinityDelta。',
+    '- 好感度大于 100（生死挚友）后不再下降：系统会忽略对这类角色的下调，不要安排他们掉好感。',
     '- 原著角色的长期性格不由变量模型改写；长期口吻以图鉴主体资料校准。',
     '- 单回合的沉默/紧张/冷淡不要固化为长期性格，只写进 memory / recentInteraction / openItems / unresolvedConflicts / mustRemember / doNotForget。',
     '- 重要 NPC 的低风险日常轻记忆：已入档、原著、同行、当前镜头重点或具名原创角色，只要正文写明与玩家发生了具体共同互动，就应输出 npc 事实。',

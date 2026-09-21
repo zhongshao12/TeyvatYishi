@@ -16,6 +16,7 @@ import { compactVariableBatchHistory } from '@/utils/longSessionRetention';
 import { needsNsfwBaseline } from '@/utils/npcArchiveEnrichment';
 import {
   deriveNarrativeCanonicalNpcFacts,
+  deriveNarrativeIntimacyFacts,
   deriveNarrativeInventoryRemovalFacts,
   deriveNarrativeTimeFact,
   derivePartyPresenceFacts,
@@ -189,9 +190,22 @@ export async function runVariableSettlementWorkflow(
       ...narrativeCanonicalNpcFacts,
       ...partyPresenceFacts,
     ];
+    // 亲密事件的固定好感度由系统结算（亲吻/性爱/暧昧/肢体接触），同一角色同一回合只算最高一档。
+    // 命中的角色，其模型自报的 affinityDelta/affinitySet 会被丢掉（记忆与账本字段照常保留），
+    // 否则「亲吻 +5」会变成「+5 加上模型自己给的 +3」。这与上面 following 的处理是同一套约定：
+    // 正文证据能确定的事情以系统派生为准。
+    const intimacyFacts = deriveNarrativeIntimacyFacts(params.body, stateSnapshot.NPC, {
+      nsfwEnabled: params.settings.enableNsfw,
+    });
+    const factsWithIntimacy = [
+      ...factsWithPartyPresence.filter((fact) => fact.type !== 'npc'
+        || !intimacyFacts.some((derived) => derived.name === fact.name)
+        || (typeof fact.affinityDelta !== 'number' && typeof fact.affinitySet !== 'number')),
+      ...intimacyFacts,
+    ];
     const effectiveFacts = narrativeClock
-      ? [...factsWithPartyPresence.filter((fact) => fact.type !== 'time'), narrativeClock]
-      : factsWithPartyPresence;
+      ? [...factsWithIntimacy.filter((fact) => fact.type !== 'time'), narrativeClock]
+      : factsWithIntimacy;
     const factCommands = factsToTeyvatDomainCommands(effectiveFacts, stateSnapshot, params.turnAfter - 1, {
       courierSeedsEnabled: params.settings.手机系统.enabled && params.settings.手机系统.autoGenerateSeeds,
       maxCourierSeedsPerTurn: params.settings.手机系统.maxSeedsPerTurn,

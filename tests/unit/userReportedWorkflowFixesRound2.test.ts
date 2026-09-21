@@ -35,7 +35,7 @@ const npc = (id: string, name: string, patch: Partial<NPC记录> = {}): NPC记�
 });
 
 describe('second user-reported UX regression batch', () => {
-  it('rewards each current party companion by five affinity when a new day begins', () => {
+  it('rewards each current party companion by ten affinity when a new day begins', () => {
     const state = createEmptyTeyvatGameState();
     state.NPC = normalizeTeyvatNpcRecords([
       { id: 'npc_amber', 姓名: '安柏', travelingTogether: true, affinity: 10 },
@@ -44,7 +44,7 @@ describe('second user-reported UX regression batch', () => {
     const result = factsToTeyvatDomainCommands([
       { type: 'time', mode: 'next_day', targetTime: '08:00', evidence: '第二天早晨，众人再次出发。' },
     ], state, 3);
-    expect(result.commands).toContainEqual(expect.objectContaining({ root: 'NPC', path: '[id=npc_amber].affinity', action: 'add', value: 5 }));
+    expect(result.commands).toContainEqual(expect.objectContaining({ root: 'NPC', path: '[id=npc_amber].affinity', action: 'add', value: 10 }));
     expect(result.commands).not.toContainEqual(expect.objectContaining({ path: '[id=npc_lisa].affinity' }));
   });
 

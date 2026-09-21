@@ -14,7 +14,7 @@ import { ITEM_CATEGORIES, ITEM_RARITIES, normalizeTeyvatItem } from '@/models/te
 import { normalizeTeyvatNpcMatureArchive, normalizeTeyvatNpcRecords, normalizeTeyvatNpcSharedMemory } from '@/models/teyvat/character';
 import { normalizeCourierSystem } from '@/models/teyvat/courier';
 import { normalizeCanonDeviation } from '@/services/canonDeviationService';
-import { 获取NPC关系阶段, 获取NPC兼容关系, 限制NPC好感度 } from '@/models/npc';
+import { NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD, 获取NPC关系阶段, 获取NPC兼容关系, 限制NPC好感度 } from '@/models/npc';
 import { isLegacyTravelerCommandPath } from '@/compat/legacy-hsr/readOnly';
 
 export interface TeyvatEvidenceContext {
@@ -245,7 +245,13 @@ function applyNpc(state: TeyvatGameState, command: TeyvatDomainCommand, index: n
     // 好感度是长期累计值，临近上限（或下限）时每回合的 +N 都被拒绝，
     // 玩家看到的是「一直在互动，好感度却停住」，而且回执里只有一条 INVALID_NUMERIC_RESULT。
     // 限制NPC好感度 同时负责取整，避免 add 1.5 累加出 41.49999999999999 这类值。
-    const affinity = 限制NPC好感度(next);
+    //
+    // 另外：一旦到了「生死挚友」（> NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD），下调一律按
+    // 「保持当前值」处理 —— 玩家要求「达到该等级后不会再掉好感度」。
+    // 注意这不是夹到门槛值，而是完全不掉：130 被 -20 后仍然是 130。
+    const protectedByDearestFriend = target.affinity > NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD;
+    const nextAffinity = protectedByDearestFriend ? Math.max(target.affinity, next) : next;
+    const affinity = 限制NPC好感度(nextAffinity);
     nextTarget = {
       ...target,
       affinity,

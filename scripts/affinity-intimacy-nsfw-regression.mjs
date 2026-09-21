@@ -120,7 +120,77 @@ const boundsCommit = (value) => {
 };
 assert(boundsCommit(5) === 150, '越过上限的好感增量必须夹取到 150。');
 assert(boundsCommit(1.5) === 149, '好感度必须取整，与旧路径 限制NPC好感度 保持一致。');
-assert(boundsCommit(-999) === -50, '越过下限的好感扣减必须夹取到 -50。');
+// 下限夹具必须用「尚未到生死挚友」的角色：148 已经受生死挚友保护，任何下调都会被忽略。
+const floorState = teyvatState.normalizeTeyvatGameState({
+  ...teyvatState.createEmptyTeyvatGameState(),
+  NPC: [{
+    id: 'npc_bounds', 姓名: '边界角色', roleTier: 'companion', affinity: 20,
+    relationship: 'acquaintance', intimate: false, travelingTogether: false,
+    firstSeenTurn: 1, lastSeenTurn: 1,
+  }],
+});
+const floorResult = transaction.commitTeyvatTurn(floorState, [{
+  action: 'sub', root: 'NPC', path: '[id=npc_bounds].affinity', value: 999, evidence,
+}], () => undefined, { factCandidates: [boundsFact] });
+assert(floorResult.status === 'committed', '越好感度下限的扣减命令必须提交而不是被拒绝。');
+assert(floorResult.nextState.NPC[0].affinity === -50, '越过下限的好感扣减必须夹取到 -50。');
+
+// 生死挚友（> 100）后不再掉好感度：不是夹到门槛值，而是完全不掉。
+const dearestState = teyvatState.normalizeTeyvatGameState({
+  ...teyvatState.createEmptyTeyvatGameState(),
+  NPC: [{
+    id: 'npc_dearest', 姓名: '挚友角色', roleTier: 'companion', affinity: 130,
+    relationship: 'close', intimate: false, travelingTogether: false,
+    firstSeenTurn: 1, lastSeenTurn: 1,
+  }],
+});
+const dearestEvidence = '挚友角色与旅行者之间发生了分歧';
+const dearestRun = (action, value) => {
+  const result = transaction.commitTeyvatTurn(dearestState, [{
+    action, root: 'NPC', path: '[id=npc_dearest].affinity', value, evidence: dearestEvidence,
+  }], () => undefined, { factCandidates: [{ domain: 'relationship', fact: dearestEvidence, evidence: dearestEvidence }] });
+  assert(result.status === 'committed', `生死挚友的下调命令必须提交（而不是报错），action=${action}。`);
+  return result.nextState.NPC[0].affinity;
+};
+assert(dearestRun('sub', 20) === 130, '生死挚友级别不得因为扣减而降低好感度。');
+assert(dearestRun('set', 50) === 130, '生死挚友级别不得被绝对覆盖降低好感度。');
+assert(dearestRun('add', 5) === 135, '生死挚友级别仍然可以继续增加好感度。');
+assert(npc.获取NPC关系阶段(npc.NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD) === '知己', '门槛值本身仍是知己。');
+assert(npc.获取NPC关系阶段(npc.NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD + 1) === '生死挚友', '门槛值 +1 起才是生死挚友。');
+
+// 玩家指定的亲密事件固定好感度 + 每日同行 +10。
+const intimacyState = teyvatState.normalizeTeyvatGameState({
+  ...teyvatState.createEmptyTeyvatGameState(),
+  NPC: [{
+    id: 'npc_lover', 姓名: '恋人角色', roleTier: 'companion', affinity: 0,
+    relationship: 'friend', intimate: false, travelingTogether: true,
+    firstSeenTurn: 1, lastSeenTurn: 1,
+  }],
+});
+const intimacyRun = (body, options = { nsfwEnabled: true }) => {
+  const derived = facts.deriveNarrativeIntimacyFacts(body, intimacyState.NPC, options);
+  const translated = facts.factsToTeyvatDomainCommands(derived, intimacyState, 3);
+  const result = transaction.commitTeyvatTurn(intimacyState, translated.commands, () => undefined, { lenientEvidence: true });
+  assert(result.status === 'committed', `亲密事件结算必须提交：${body}`);
+  return result.nextState.NPC[0].affinity;
+};
+assert(intimacyRun('恋人角色轻轻亲吻了旅行者。') === 5, '亲吻必须是 +5。');
+assert(intimacyRun('恋人角色与旅行者发生了性爱关系。') === 30, '性爱事件必须是 +30。');
+assert(intimacyRun('恋人角色说出了近似表白的话。') === 3, '暧昧/谈情说爱必须是 +3。');
+assert(intimacyRun('恋人角色牵起旅行者的手，一路没有松开。') === 3, '肢体接触必须是 +3。');
+assert(intimacyRun('恋人角色紧紧拥抱旅行者，随后亲吻了对方。') === 5, '同回合只能按命中的最高档结算一次。');
+assert(intimacyRun('恋人角色与旅行者发生了性爱关系。', { nsfwEnabled: false }) === 0, 'NSFW 关闭时不得结算性爱档。');
+assert(facts.deriveNarrativeIntimacyFacts('可莉亲吻了旅行者。', [
+  { id: 'npc_klee', 姓名: '可莉', aliases: [] },
+], { nsfwEnabled: true }).length === 0, '受保护的非成年角色不得结算任何亲密档位。');
+
+// 每日同行：跨过一个自然日固定 +10（与固定好感度规则同一条链路结算）。
+const dailyTranslated = facts.factsToTeyvatDomainCommands([
+  { type: 'time', mode: 'next_day', targetTime: '08:00', evidence: '第二天早晨，众人再次出发。' },
+], intimacyState, 3);
+const dailyResult = transaction.commitTeyvatTurn(intimacyState, dailyTranslated.commands, () => undefined, { lenientEvidence: true });
+assert(dailyResult.status === 'committed', '跨日结算必须提交。');
+assert(dailyResult.nextState.NPC[0].affinity === 10, '每日同行每过一天必须是 +10。');
 
 const canonicalAliasRecords = npc.归一化NPC记录列表([
   { id: 'raiden-a', 姓名: '雷电将军', 阶位: 'companion', 好感度: 20, 关系: 'acquaintance', 同行: false, 初见回合: 1, 最近回合: 2, 备注: [] },

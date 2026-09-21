@@ -115,8 +115,8 @@ describe('narrative day jumps feed the daily companion bonus', () => {
     if (committed.status !== 'committed') return;
     expect(committed.nextState.世界.旅程天数).toBe(4);
     expect(committed.nextState.世界.当前日期).toBe('旅行历 1000.03.10');
-    // 每日同行 5 × 3 天，以前因为证据里没有「等待/赶路」这类词会被压成 30 分钟而完全不发。
-    expect(committed.nextState.NPC[0]!.affinity).toBe(15);
+    // 每日同行 10 × 3 天 = 30，以前因为证据里没有「等待/赶路」这类词会被压成 30 分钟而完全不发。
+    expect(committed.nextState.NPC[0]!.affinity).toBe(30);
   });
 
   it('still advances minutes only for a same-day step', () => {

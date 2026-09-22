@@ -1,5 +1,10 @@
 import { flushSync } from 'react-dom';
-import { applyLegacyGameStateOverrides, toLegacyTurnCheckpoint, type UseGameStateReturn } from '@/hooks/useGameState';
+import {
+  applyLegacyGameStateOverrides,
+  readLiveGameState,
+  toLegacyTurnCheckpoint,
+  type UseGameStateReturn,
+} from '@/hooks/useGameState';
 import { narrativeTurnBodyText } from '@/models/teyvat/narrativeTurn';
 import { normalizeTeyvatGameState, type TeyvatGameState } from '@/models/teyvat/state';
 import { saveGame } from '@/services/dbService';
@@ -101,7 +106,9 @@ export async function runPostSettlementRecoveryWorkflow(
   if (journal.phase !== 'settlement_committed') return { committed: false };
   // 本流程唯一的长耗时 await（正文生图，可能数十秒）之前先钉住存档身份；
   // 期间的读档 / 开新局会在提交时被下文的 CAS 守卫拦下。
-  const saveToken = capturePostSettlementSaveToken(state.game);
+  // 令牌必须取自**活体根**：`state.game` 是渲染快照，可能比活体根少若干条刚落地的写入，
+  // 用它做基准会把「同一份存档」误判成「换过存档」而整体拒绝写入。
+  const saveToken = capturePostSettlementSaveToken(readLiveGameState(state));
   const committed = normalizeTeyvatGameState(committedOverride ?? journal.committedState ?? state.game);
   const committedHistory = committed.对话.entries;
   const assistant = journal.assistantMessageId

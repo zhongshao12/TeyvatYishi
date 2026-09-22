@@ -1,42 +1,42 @@
 import type { TeyvatGameState } from '@/models/teyvat/state';
 
 /**
- * 变量结算提交时的并发写保护。
+ * 变量结算提交时的并发写保护（第二轮审计 A3）。
  *
- * 背景（第二轮审计 A3）：`runVariableCalibrationStep` 的 `commitGame` 原先是
+ * 背景：`runVariableCalibrationStep` 原先的 `commitGame` 是
  * `state.updateGameState(() => next)` —— updater **忽略 current**，整根替换。
- * 而 `next` 来自变量模型调用**之前**的冻结快照（调用可能持续数十秒，含重试），
- * 这期间右侧面板仍然可写（背包/NPC/任务/相册都没有被 `pendingVariable` 禁用）。
- * 结果是玩家在等待期间做的任何操作在提交时被静默回退。
+ * 而变量模型调用可能持续数十秒（含重试），这期间右侧面板仍然可写
+ * （背包 / NPC / 任务 / 相册都没有被 `pendingVariable` 禁用），
+ * 玩家在等待期间做的操作会在提交时被静默回退。
  *
- * 这里用三路合并解决：
- * - `trueBase`：结算开始时主流程看到的真实根状态；
- * - `frozenBase`：结算实际读到的基线快照（可能已带上主流程本回合累积的覆盖）；
- * - `next`：结算产出的新根状态；
- * - `current`：提交那一刻的活体状态。
+ * 判定只做一次引用比较：`current` 与 `ancestor` 是不是同一个切片引用。
+ * - `ancestor` = 结算**开始那一刻的活体根**（`readLiveGameState` 同步探测得到）。
+ *   本仓库所有写入都是整切片替换（`state.set背包(next)` / `updateTeyvatState`），
+ *   不会就地改数组或对象，所以「引用变了」⇔「这份切片在结算期间被人写过」。
+ * - **不能用归一化过的快照当基准**（`baseGameSnapshot` / `applyLegacyGameStateOverrides` 的产物）：
+ *   `normalizeTeyvatGameState` 会重建每一个切片，引用必然不等，于是全部切片都被误判成
+ *   「并发修改」→ 结算结果整体被丢弃。
+ * - **更不能用 `state.game` 当基准**：它是渲染快照，比活体根少一条本回合 user 消息，
+ *   会让**每一次**提交都判成冲突（第一版实现的真实缺陷：settlement 全部被丢弃 →
+ *   `turnCount` 不再增长、聊天与自动存档的回合数卡住、手机回合分割线消失）。
  *
- * 判定规则（按顶层切片）：
- * - 结算改了、玩家也改了 → **以玩家为准**并记录冲突（不静默丢玩家的操作）；
- * - 只有玩家改了 → 保留玩家的值；
- * - 只有结算改了 / 都没改 → 用结算结果。
- *
- * 用引用相等判断"是否被改过"是这个仓库的既定做法：所有写入都是**整切片替换**
- * （`state.set背包(next)` / `updateTeyvatState`），不会就地修改数组或对象。
+ * 规则：
+ * - 引用没变 → 用结算结果（等价于修复前的整根替换，绝不丢结算）；
+ * - 引用变了 → 保留活体值，并记录冲突（不静默丢玩家的操作）；
+ * - `对话` 例外：见 `mergeConversation`（本回合新落的 assistant 消息只在结算结果里）。
  */
-
-/** 这些字段由结算或存档机制统一维护，不参与并发判定。 */
-const NON_SLICE_KEYS = new Set(['universe', 'schemaVersion', 'turnCount']);
-
 export interface SettlementRebaseInput {
-  trueBase: TeyvatGameState;
-  frozenBase: TeyvatGameState;
+  /** 结算开始那一刻的活体根。必须与 `current` 同一血缘（未经归一化重建），引用才可比较。 */
+  ancestor: TeyvatGameState;
+  /** 结算产出的新根状态。 */
   next: TeyvatGameState;
+  /** 提交那一刻的活体状态。 */
   current: TeyvatGameState;
 }
 
 export interface SettlementRebaseResult {
   state: TeyvatGameState;
-  /** 因玩家在结算期间改过而被保留的顶层切片名；非空时调用方必须让它可见。 */
+  /** 等待期间被改过、因而以活体值为准的顶层切片名；非空时调用方必须让它可见。 */
   preservedSlices: string[];
 }
 
@@ -55,37 +55,61 @@ function mergeVariableBatches(current: unknown, next: unknown): unknown {
   return [...currentBatches, ...appended];
 }
 
+/**
+ * 对话**不能**走「冲突就保留活体值」：本回合新落的 assistant 消息只存在于结算结果里，
+ * 一旦被活体值顶掉，玩家会看到「回复消失」。反过来，等待期间的并发对话写入
+ * （消息书签、正文生图挂图）动的都是**已有条目**，按 id 取活体版本即可两者都保住：
+ * 顺序与新增条目用结算结果，已有条目用活体版本。
+ */
+function mergeConversation(current: unknown, next: unknown): unknown {
+  const currentEntries = Array.isArray((current as { entries?: unknown[] } | undefined)?.entries)
+    ? (current as { entries: unknown[] }).entries
+    : [];
+  const nextEntries = Array.isArray((next as { entries?: unknown[] } | undefined)?.entries)
+    ? (next as { entries: unknown[] }).entries
+    : [];
+  if (!currentEntries.length || !nextEntries.length) return next;
+  const liveById = new Map<string, unknown>();
+  for (const entry of currentEntries) {
+    const id = (entry as { id?: unknown } | null | undefined)?.id;
+    if (typeof id === 'string' && id) liveById.set(id, entry);
+  }
+  return {
+    ...(next as MutableRoot),
+    entries: nextEntries.map((entry) => {
+      const id = (entry as { id?: unknown } | null | undefined)?.id;
+      const live = typeof id === 'string' && id ? liveById.get(id) : undefined;
+      return live ?? entry;
+    }),
+  };
+}
+
+/** 结算自身就是唯一合法写者、且活体值可能缺失本次产物的切片。 */
+const SETTLEMENT_MERGED_SLICES = new Set(['对话']);
+
 export function rebaseSettlementState(input: SettlementRebaseInput): SettlementRebaseResult {
-  const { trueBase, frozenBase, next, current } = input;
-  const merged: MutableRoot = { ...(next as unknown as MutableRoot) };
+  const { ancestor, next, current } = input;
+  const nextRecord = next as unknown as MutableRoot;
+  const currentRecord = current as unknown as MutableRoot;
+  const ancestorRecord = ancestor as unknown as MutableRoot;
+  const merged: MutableRoot = { ...nextRecord };
   const preservedSlices: string[] = [];
 
-  for (const key of Object.keys(next as unknown as MutableRoot)) {
-    if (NON_SLICE_KEYS.has(key)) continue;
-    const nextSlice = (next as unknown as MutableRoot)[key];
-    const frozenSlice = (frozenBase as unknown as MutableRoot)[key];
-    const currentSlice = (current as unknown as MutableRoot)[key];
-    const baseSlice = (trueBase as unknown as MutableRoot)[key];
-
-    const settlementTouched = nextSlice !== frozenSlice;
-    const playerTouched = currentSlice !== baseSlice;
-
-    if (playerTouched && settlementTouched) {
-      preservedSlices.push(key);
-      merged[key] = currentSlice;
+  for (const key of Object.keys(nextRecord)) {
+    const currentSlice = currentRecord[key];
+    if (currentSlice === ancestorRecord[key]) continue;
+    if (SETTLEMENT_MERGED_SLICES.has(key)) {
+      merged[key] = mergeConversation(currentSlice, nextRecord[key]);
       continue;
     }
-    if (playerTouched) {
-      merged[key] = currentSlice;
-      continue;
-    }
-    merged[key] = nextSlice;
+    preservedSlices.push(key);
+    merged[key] = currentSlice;
   }
 
   // 叙事冲突时，用批次并集补回本次结算的变量批次（关系图「最近好感变化」依赖它）。
   if (preservedSlices.includes('叙事')) {
-    const currentNarrative = (current as unknown as MutableRoot).叙事;
-    const nextNarrative = (next as unknown as MutableRoot).叙事;
+    const currentNarrative = currentRecord.叙事;
+    const nextNarrative = nextRecord.叙事;
     if (currentNarrative && nextNarrative) {
       merged.叙事 = {
         ...(currentNarrative as MutableRoot),

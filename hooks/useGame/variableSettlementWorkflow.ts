@@ -37,7 +37,7 @@ export interface VariableSettlementParams {
   currentGame: TeyvatGameState;
   settings: VariableSettlementSettings;
   npcRecords: NPC记录[];
-  commitGame: (next: TeyvatGameState) => void;
+  commitGame: (next: TeyvatGameState) => boolean;
   onFailure?: (detail: string) => void;
   userInput: string;
   body: string;
@@ -261,6 +261,8 @@ export async function runVariableSettlementWorkflow(
     if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
 
     let committedGame: TeyvatGameState | undefined;
+    /** 提交是否真的落到活体根上。CAS 拒绝（等待期间换存档）时为 false，此时绝不能把结算结果当已生效。 */
+    let committedApplied = false;
     const evidenceContext = {
       factCandidates: params.factCandidates ?? [],
       trustedEvidence: questSettlement.commands.length ? [questSettlement.evidence] : [],
@@ -281,7 +283,7 @@ export async function runVariableSettlementWorkflow(
           ])),
         },
       };
-      params.commitGame(committedGame);
+      committedApplied = params.commitGame(committedGame) !== false;
     };
     const transaction = dry.status === 'accepted'
       ? commitPreflightedTeyvatTurn(stateSnapshot, dry, commitGameState)
@@ -305,7 +307,12 @@ export async function runVariableSettlementWorkflow(
         ...transaction.errors.map((item) => item.code),
       ],
     });
-    if (transaction.status !== 'committed' || !committedGame) return { batch: finalBatch, npcLedgerUpdate };
+    // `committedApplied === false`：CAS 判定等待期间换了存档，提交被整体拒绝。
+    // 这里必须把 `committedGame` 一起丢掉 —— 否则上游会拿一份**没有落到活体根**的结算
+    // 去跑元素结算 / 后台任务 / 自动存档，把旧档的结算写进玩家刚读入的新档。
+    if (transaction.status !== 'committed' || !committedGame || !committedApplied) {
+      return { batch: finalBatch, npcLedgerUpdate };
+    }
     return {
       背包: committedGame.背包,
       手机: committedGame.手机,

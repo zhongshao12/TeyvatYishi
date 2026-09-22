@@ -53,24 +53,33 @@ assert(calibration.includes('factsToTeyvatDomainCommands'), 'live variable settl
 // 理由: 意图不变——live 结算仍必须走一次正式根 transaction。
 assert(calibration.includes('commitTeyvatTurn(stateSnapshot, pendingCommands, commitGameState, evidenceContext)'), 'live settlement must commit one formal root transaction.');
 // 迁移: 旧 `commitGame: (next) => state.updateGameState(() => next),`（忽略 current 的整根替换）
-//   -> 入口改为「updater 内做存档身份 CAS + 三路合并」：
-//      `commitGame: (next) => { state.updateGameState((current) => { ... rebaseSettlementState ... }) }`。
+//   -> 入口改为「同步读活体根做存档身份 CAS + 按顶层切片三路合并」：
+//      `commitGame: (next) => { const liveNow = readLiveGameState(state); ... rebaseSettlementState({ ancestor: liveBase, ... }) ... }`。
 // 理由: 旧写法会静默丢弃玩家在变量模型等待期间（可达数十秒）对背包/NPC/任务/相册的改动
 //       —— 第二轮审计 A3。意图不变且更严：accepted live 结算仍只准有一个根提交调用点，
 //       且该调用点必须经过并发保护（CAS + 合并），不得退回无条件整根替换。
+// 迁移（本轮用户回归）: CAS 基准必须来自 `readLiveGameState(state)`（活体根），
+//   不得用 `state.game` / `trueBase`（渲染快照，比活体根少本回合 user 消息 → 每次结算都被判成
+//   「等待期间换了存档」而整体丢弃，症状是 turnCount 不再增长、手机回合分割线消失）；
+//   提交结果必须如实回传（`committedApplied`），否则上游会拿没落地的结算去自动存档。
 const commitGameCalls = [...calibration.matchAll(/params\.commitGame\(/g)];
 assert(
   /commitGame:\s*\(next\)\s*=>\s*\{/.test(calibration)
-  && calibration.includes('state.updateGameState((current) =>')
-  && calibration.includes('rebaseSettlementState(')
+  && calibration.includes('readLiveGameState(state)')
+  && calibration.includes('rebaseSettlementState({ ancestor: liveBase,')
   && calibration.includes('isSamePostSettlementSave(')
-  && calibration.includes('params.commitGame(committedGame);')
+  && calibration.includes('committedApplied = params.commitGame(committedGame) !== false;')
   && commitGameCalls.length === 1,
   'accepted live settlement must perform one guarded root commit.',
 );
 assert(
   !calibration.includes('commitGame: (next) => state.updateGameState(() => next),'),
   '结算提交不得退回「忽略 current 的整根替换」：会静默丢弃玩家等待期间的改动（第二轮审计 A3）。',
+);
+assert(
+  !calibration.includes('capturePostSettlementSaveToken(state.game)')
+  && !calibration.includes('capturePostSettlementSaveToken(trueBase)'),
+  '存档身份 CAS 的基准不得是渲染快照（state.game / trueBase）：它与提交那一刻的活体根必然不等，会把每次结算都判成「换了存档」。',
 );
 assert(!calibration.includes('commitVariableState') && !calibration.includes('reduceVariableCommands'), 'live settlement must not call the legacy executor.');
 assert(!calibration.includes('state.set背包('), 'live synchronous settlement must not commit inventory through a slice setter.');

@@ -11,6 +11,7 @@
  */
 import {
   applyLegacyGameStateOverrides,
+  readLiveGameState,
   type UseGameStateReturn} from '@/hooks/useGameState';
 import type { SteambirdNews } from '@/models/teyvat/steambird';
 import {
@@ -109,17 +110,22 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
     pushQueueTask(state, 'variable', 'pending', {
       detail: '正在调用变量模型并结算回复后的状态变化。',
     });
-    const frozenSettlementState = applyLegacyGameStateOverrides(state.game, {
+    // 结算的基线必须是**活体根**：`state.game` 是本次发送开始那次渲染的快照，
+    // 连本回合的 user 消息都还没有（`prepareSendTurn` 之后写入的），
+    // 用它当基线会让变量模型看到过期状态，也会让提交时的 CAS/并发比对全部失真
+    // （每次结算都被判成「存档已切换」而丢弃 —— 见 readLiveGameState 注释）。
+    const liveBaseGame = readLiveGameState(state);
+    const frozenSettlementState = applyLegacyGameStateOverrides(liveBaseGame, {
         chatHistory: finalHistory,
         记忆: mem,
         世界: worldAfter,
         旅人: travelerAfter,
-        turnCount: state.turnCount + 1,
+        turnCount: liveBaseGame.turnCount + 1,
       });
     const frozenSettlementWithBackground = {
       ...frozenSettlementState,
       世界树: irminsulWithCompression,
-      蒸汽鸟报: openingSteambirdForSave ?? state.game.蒸汽鸟报,
+      蒸汽鸟报: openingSteambirdForSave ?? liveBaseGame.蒸汽鸟报,
     };
     const settlementVariableDraft = parsedForDisplay.factCandidates.length
       ? JSON.stringify({ facts: parsedForDisplay.factCandidates })
@@ -141,6 +147,8 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       body: displayText,
       variableDraft: settlementVariableDraft,
       turnAfter: state.turnCount + 1,
+      // 结算开始那一刻的活体根：提交时用它做存档身份 CAS 基准与并发合并的祖先（见 readLiveGameState）。
+      liveBaseGame,
       // 本回合主流程已经更新过的切片，传入保证变量模型看到最新值
       memorySystemSnapshot: mem,
       // 7/7a/7b 累积的 旅人 / 世界 也要带进去——否则校准 commit 会用旧值覆盖,
@@ -156,7 +164,10 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       questEnabled: state.gameSettings.任务系统?.enabled === true,
       settlementId: recoveryJournal.workflowId,
       });
-      if (!variableOverrides?.committedGame) throw new Error('TEYVAT_SETTLEMENT_REJECTED');
+      if (!variableOverrides?.committedGame) {
+        // 两种来源：等待期间存档已切换（CAS 拒绝）/ 流程已被取消（shouldCommit 为 false，走 abort 分支）。
+        throw new Error('TEYVAT_SETTLEMENT_REJECTED：本次变量结算未写入活体存档（等待期间存档已切换或流程已取消）。');
+      }
       const committedSettlementGame = variableOverrides.committedGame;
       const {
         applyStoryProgressNpcMemory,

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import type { 角色数据结构 } from '@/models/character';
 import { 创建空角色 } from '@/models/character';
 import type { 世界状态 } from '@/models/world';
@@ -965,6 +966,34 @@ export function applyChatHistoryAction(
   const nextChat = applyStateAction(legacyChat, action);
   if (nextChat === legacyChat) return current;
   return withLegacyChat(current, nextChat);
+}
+
+/**
+ * 同步读取**活体**根状态。
+ *
+ * 为什么需要它：`UseGameStateReturn` 是**每次渲染一份的快照** ——
+ * 长耗时流程（变量结算可能数十秒）里 `state.game` 一直是最初那次渲染的根，
+ * 主流程自己在本回合写入的内容（例如 `prepareSendTurn` 追加的 user 消息）都还不在里面。
+ * 用这份旧根做存档身份 CAS / 三路合并的基准，会得到必然错误的结论：
+ *
+ * - 拿它当 CAS 基准 → 与提交那一刻的活体根必然不等（对话少 1 条）→ 每一次结算都被误判成
+ *   「等待期间换了存档」而整体丢弃（症状：`turnCount` 不再增长，聊天徽标与自动存档的回合数卡住，
+ *   手机里所有新消息都落在同一回合、回合分割线因此全部消失）；
+ * - 拿它当合并基准 → 把主流程自己的写入误判成「玩家并发修改」。
+ *
+ * 实现：`flushSync` + 同引用返回的 updater。updater 返回同一个引用时
+ * `updateTeyvatState` 直接返回 `current`，React 跳过这次渲染，所以这是一次「只读探测」。
+ * （同一模式已用于 `commitPostSettlementBackgroundState` 的 CAS 读取。）
+ */
+export function readLiveGameState(state: UseGameStateReturn): TeyvatGameState {
+  let live: TeyvatGameState | null = null;
+  flushSync(() => {
+    state.updateGameState((current) => {
+      live = current;
+      return current;
+    });
+  });
+  return live ?? state.game;
 }
 
 export function useGameState(): UseGameStateReturn {

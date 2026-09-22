@@ -8,6 +8,7 @@
 // 它只被同样懒加载的 `mainNarrativeStreamingStage` / `apiMessagesStage` 引用，
 // 因而回到真正的异步分包；本文件不再需要（也不应再有）任何指向它的 import。
 import {
+  readLiveGameState,
   toLegacyTurnCheckpoint,
   type UseGameStateReturn} from '@/hooks/useGameState';
 import { type 聊天消息, type 回合快照 } from '@/models/chat';
@@ -1056,7 +1057,14 @@ export async function executeSendWorkflow(
 type VariableCalibrationParams = Omit<
   VariableSettlementParams,
   'currentGame' | 'settings' | 'npcRecords' | 'commitGame' | 'onFailure'
-> & { state: UseGameStateReturn };
+> & {
+  state: UseGameStateReturn;
+  /**
+   * 结算开始那一刻的活体根（由调用方 `readLiveGameState(state)` 同步探测）。
+   * 缺省时本函数自行探测，用于 recovery / 重试等不经过 `variableCalibrationStage` 的入口。
+   */
+  liveBaseGame?: TeyvatGameState;
+};
 
 /**
  * Keep React/store wiring here while loading the model, fact derivation and
@@ -1065,40 +1073,43 @@ type VariableCalibrationParams = Omit<
 export async function runVariableCalibrationStep(
   params: VariableCalibrationParams,
 ): Promise<VariableSettlementResult | null> {
-  const { state, ...settlement } = params;
+  const { state, liveBaseGame, ...settlement } = params;
   const { runVariableSettlementWorkflow } = await import('./variableSettlementWorkflow');
   const { rebaseSettlementState } = await import('@/utils/settlementRebase');
   const { capturePostSettlementSaveToken, isSamePostSettlementSave } = await import('./postSettlementRecoveryWorkflow');
-  // 结算基线：`trueBase` 是主流程看到的真实根状态（用于判断玩家是否并发改过），
-  // `frozenBase` 是结算实际读到的快照（可能已带主流程本回合的覆盖）。两者缺一不可：
-  // frozenBase 里被主流程重建过的切片与 trueBase 不是同一引用，只比对 trueBase 会误判为"玩家改过"。
-  const trueBase = state.game;
-  const frozenBase = settlement.baseGameSnapshot ?? trueBase;
-  const saveToken = capturePostSettlementSaveToken(trueBase);
+  // 结算基线必须是**活体根**，不能用 `state.game`：
+  // `UseGameStateReturn` 是每次渲染一份的快照，`state.game` 还是「本回合 user 消息入栈之前」的旧根，
+  // 拿它做 CAS 基准会与提交那一刻的活体根必然不等（对话少 1 条）→ 每一次结算都被误判成
+  // 「等待期间换了存档」而整体丢弃，症状是 turnCount 不再增长（聊天/存档回合数卡住、
+  // 手机回合分割线全部消失）。详见 `readLiveGameState` 与 `utils/settlementRebase.ts` 的注释。
+  const liveBase = liveBaseGame ?? readLiveGameState(state);
+  const saveToken = capturePostSettlementSaveToken(liveBase);
   return runVariableSettlementWorkflow({
     ...settlement,
-    currentGame: trueBase,
+    currentGame: liveBase,
     settings: state.gameSettings,
     npcRecords: state.NPC,
-    // 提交必须经过 updater 拿到**提交那一刻**的活体状态：
-    // 1) 存档身份变了（等待期间读档/开新局）→ 整份拒绝，绝不把旧档的结算写进新档；
-    // 2) 否则按顶层切片做三路合并，玩家在等待期间改过的切片以玩家为准（不再静默丢弃）。
+    // 提交分两步，都在同一个同步块里（中间没有 await，所以读到的活体根就是写入时的活体根）：
+    // 1) 先同步读活体根做 CAS：存档身份变了（等待期间读档/开新局）→ 整份拒绝并**如实上报未写入**
+    //    （返回 false，让上游丢弃 committedGame，不再拿未落地的结算去自动存档）；
+    // 2) 再按顶层切片与 `liveBase` 比对，玩家在等待期间改过的切片以玩家为准（不再静默丢弃）。
     commitGame: (next) => {
-      state.updateGameState((current) => {
-        if (!isSamePostSettlementSave(capturePostSettlementSaveToken(current), saveToken)) {
-          pushQueueTask(state, 'variable', 'failed', {
-            detail: '结算期间存档已切换，本次变量结算未写入（已放弃，避免污染新存档）。',
-          });
-          return current;
-        }
-        const { state: merged, preservedSlices } = rebaseSettlementState({ trueBase, frozenBase, next, current });
-        if (preservedSlices.length) {
-          pushQueueTask(state, 'variable', 'pending', {
-            detail: `结算完成；你在等待期间改动的 ${preservedSlices.join('、')} 已保留（未被本次结算覆盖）。`,
-          });
-        }
-        return merged;
-      });
+      const liveNow = readLiveGameState(state);
+      if (!isSamePostSettlementSave(capturePostSettlementSaveToken(liveNow), saveToken)) {
+        pushQueueTask(state, 'variable', 'failed', {
+          detail: '结算期间存档已切换，本次变量结算未写入（已放弃，避免污染新存档）。',
+        });
+        return false;
+      }
+      const { state: merged, preservedSlices } = rebaseSettlementState({ ancestor: liveBase, next, current: liveNow });
+      // 队列提示必须在根状态写入**之后**补：写入会用结算产出的 `后台队列` 覆盖这一条。
+      state.updateGameState(() => merged);
+      if (preservedSlices.length) {
+        pushQueueTask(state, 'variable', 'pending', {
+          detail: `结算完成；等待期间被改动的 ${preservedSlices.join('、')} 以最新值为准（未被本次结算覆盖）。`,
+        });
+      }
+      return true;
     },
     onFailure: (detail) => pushQueueTask(state, 'variable', 'failed', { detail }),
   });

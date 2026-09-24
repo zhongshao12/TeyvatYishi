@@ -146,6 +146,12 @@ export async function loadBuiltinTavernPreset(presetId: string): Promise<boolean
   return true;
 }
 
+/** 正文只需要当前启用的内置预设；未选用时不请求三份大型 JSON。 */
+export async function loadSelectedBuiltinTavernPreset(presetId: string | null | undefined, enabled: boolean): Promise<boolean> {
+  if (!enabled || !presetId || !isBuiltinTavernPresetId(presetId)) return false;
+  return loadBuiltinTavernPreset(presetId);
+}
+
 /** 顺序加载全部内置酒馆预设（带内存缓存与并发去重）。 */
 export async function loadAllBuiltinTavernPresets(): Promise<void> {
   if (builtinTavernPresetsLoading) return builtinTavernPresetsLoading;

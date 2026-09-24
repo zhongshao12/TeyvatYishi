@@ -89,4 +89,29 @@ describe('out-of-turn courier autosave', () => {
     await act(async () => vi.advanceTimersByTimeAsync(100));
     expect(saved).toEqual([1, 1]);
   });
+
+  it('retries a rejected write before leaving a phone change unsaved', async () => {
+    let attempts = 0;
+    function RetryHarness({ value }: { value: number }) {
+      useDebouncedCourierAutosave({
+        value, sessionId: 1, active: true, enabled: true, delayMs: 100,
+        save: async (current) => {
+          saved.push(current);
+          attempts += 1;
+          if (attempts === 1) throw new Error('temporary storage failure');
+          return true;
+        },
+        onError: () => undefined,
+      });
+      return null;
+    }
+    await act(async () => root.render(createElement(RetryHarness, { value: 0 })));
+    await act(async () => root.render(createElement(RetryHarness, { value: 1 })));
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    expect(saved).toEqual([1, 1]);
+    const beforeUnload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(beforeUnload);
+    expect(beforeUnload.defaultPrevented).toBe(false);
+  });
 });

@@ -49,6 +49,7 @@ it('lets the player publish, edit, and delete a phone Moment without fake NPC po
   await act(async () => typeInto(composer!, '今天的风很温柔'));
   await act(async () => button('发布').click());
   expect(host.textContent).toContain('今天的风很温柔');
+  expect(host.textContent).toContain('现实发布时间');
   expect(onRequestMomentComments).toHaveBeenCalledTimes(1);
   await act(async () => button('编辑').click());
   expect(host.textContent).toContain('保存修改将清空旧评论，并按新内容重新生成');

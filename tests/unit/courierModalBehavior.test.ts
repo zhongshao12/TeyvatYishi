@@ -38,6 +38,12 @@ function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   textarea.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+function setInputValue(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function findButton(label: string): HTMLButtonElement {
   const button = Array.from(document.querySelectorAll('button')).find((candidate) => candidate.textContent?.trim() === label);
   if (!(button instanceof HTMLButtonElement)) throw new Error(`找不到按钮：${label}`);
@@ -191,6 +197,21 @@ describe('CourierModal behavior', () => {
     expect(list?.style.maxHeight).toBe('13rem');
   });
 
+  it('filters contacts by name and explains empty search results', async () => {
+    await act(async () => root.render(createElement(CourierModal, {
+      courier: baseCourier, onCourierChange: vi.fn(), onClose: vi.fn(),
+    })));
+    await act(async () => findButton('▸ 联系人管理（2）').click());
+    const search = host.querySelector<HTMLInputElement>('input[aria-label="搜索联系人"]');
+    expect(search).not.toBeNull();
+    await act(async () => setInputValue(search!, '丽'));
+    const list = host.querySelector<HTMLElement>('[aria-label="联系人列表"]')!;
+    expect(list.textContent).toContain('丽莎');
+    expect(list.textContent).not.toContain('安柏');
+    await act(async () => setInputValue(search!, '不存在'));
+    expect(list.textContent).toContain('没有匹配的联系人');
+  });
+
   it('constrains group member selection to its own vertical scroll area', async () => {
     const manyContacts = Array.from({ length: 30 }, (_, index) => ({
       id: `contact-${index}`,
@@ -212,6 +233,22 @@ describe('CourierModal behavior', () => {
     expect(list).not.toBeNull();
     expect(list?.style.overflowY).toBe('auto');
     expect(list?.style.maxHeight).toBe('13rem');
+  });
+
+  it('searches group members without losing people already selected', async () => {
+    await act(async () => root.render(createElement(CourierModal, {
+      courier: baseCourier, onCourierChange: vi.fn(), onClose: vi.fn(),
+    })));
+    await act(async () => findButton('▸ 组建群组').click());
+    await act(async () => host.querySelector<HTMLInputElement>('input[aria-label="选择群成员 安柏"]')!.click());
+    const search = host.querySelector<HTMLInputElement>('input[aria-label="搜索群成员"]');
+    expect(search).not.toBeNull();
+    await act(async () => setInputValue(search!, '丽'));
+    const list = host.querySelector<HTMLElement>('[aria-label="群聊成员列表"]')!;
+    expect(list.textContent).toContain('丽莎');
+    expect(list.textContent).not.toContain('安柏');
+    await act(async () => host.querySelector<HTMLInputElement>('input[aria-label="选择群成员 丽莎"]')!.click());
+    expect(host.textContent).toContain('组建群组（已选 2 人）');
   });
 
   it('creates a named group from the isolated contact tools', async () => {

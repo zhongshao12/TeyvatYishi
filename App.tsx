@@ -3,7 +3,6 @@ import { useGame } from '@/hooks/useGame';
 import { applyLegacyGameStateOverrides, mapTeyvatNpcsToLegacy, readLiveGameState } from '@/hooks/useGameState';
 import { useKeyboardShortcuts } from '@/hooks/useGame/useKeyboardShortcuts';
 import { KEYBOARD_SHORTCUT_DEFAULTS } from '@/data/keyboardShortcutDefaults';
-import { loadAllBuiltinTavernPresets } from '@/data/builtinPresets';
 import { RecoveryBanner } from '@/components/layout/RecoveryBanner';
 import {
   canAutoResume,
@@ -271,11 +270,6 @@ export default function App() {
       if (!cancelled) setRecoveryJournal(journal);
     });
     return () => { cancelled = true; };
-  }, []);
-
-  // 启动即后台预热内置酒馆预设（约 3MB，按需 fetch + 缓存），避免首回合发送时的加载延迟。
-  useEffect(() => {
-    void loadAllBuiltinTavernPresets();
   }, []);
 
   const [courierReplyErrors, setCourierReplyErrors] = useState<Record<string, string>>({});

@@ -49,7 +49,7 @@ export function CourierMomentsPanel({ moments, travelerName, eligibleCommenterCo
           <article key={post.id} className="rounded-lg border border-[rgba(var(--tj-accent-primary),0.28)] bg-[rgba(255,252,240,0.38)] p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
               <strong className="font-serif text-sm">{travelerName || '旅行者'}</strong>
-              <time className="text-xs text-[rgb(var(--tj-text-secondary))]">第 {post.turn} 回合 · {new Date(post.createdAt).toLocaleString('zh-CN')}</time>
+              <time dateTime={new Date(post.createdAt).toISOString()} title="现实设备时间，与游戏内时间不同" className="text-xs text-[rgb(var(--tj-text-secondary))]">第 {post.turn} 回合 · 现实发布时间：{new Date(post.createdAt).toLocaleString('zh-CN')}</time>
             </div>
             {editingId === post.id ? (
               <div>

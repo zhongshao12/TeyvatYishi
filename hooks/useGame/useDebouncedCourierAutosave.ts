@@ -50,19 +50,23 @@ export function useDebouncedCourierAutosave<T>({
     if (!dirtyRef.current || !active || !enabled) return;
 
     const timer = setTimeout(() => {
+      const retryOrReport = (error: Error) => {
+        if (seenRef.current?.sessionId !== sessionId || seenRef.current.value !== value) return;
+        if (staleAttemptsRef.current < 2) {
+          staleAttemptsRef.current += 1;
+          setRetryTick((tick) => tick + 1);
+        } else {
+          errorRef.current(error);
+        }
+      };
       void saveRef.current(value, sessionId).then((saved) => {
         if (saved && seenRef.current?.sessionId === sessionId && seenRef.current.value === value) {
           dirtyRef.current = false;
           staleAttemptsRef.current = 0;
-        } else if (!saved && seenRef.current?.sessionId === sessionId && seenRef.current.value === value) {
-          if (staleAttemptsRef.current < 2) {
-            staleAttemptsRef.current += 1;
-            setRetryTick((tick) => tick + 1);
-          } else {
-            errorRef.current(new Error('手机变更尚未写入存档，请手动保存后再退出。'));
-          }
+        } else if (!saved) {
+          retryOrReport(new Error('手机变更尚未写入存档，请手动保存后再退出。'));
         }
-      }).catch((error: unknown) => errorRef.current(error));
+      }).catch((error: unknown) => retryOrReport(error instanceof Error ? error : new Error(String(error))));
     }, delayMs);
     return () => clearTimeout(timer);
   }, [value, sessionId, active, enabled, delayMs, retryTick]);

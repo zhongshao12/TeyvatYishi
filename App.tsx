@@ -54,8 +54,8 @@ import type { 世界状态 } from '@/models/world';
 import type { NPC记录 } from '@/models/npc';
 import type { QuestJournal, TeyvatInventory } from '@/models/teyvat';
 import type { 记忆失败草稿 } from '@/models/memory';
+import type { 世界书 } from '@/models/worldbook';
 import { lazyWithRetry, preloadAll } from '@/utils/lazyWithRetry';
-import { setStreamingMessage } from '@/utils/streamingMessageStore';
 import { buildManuallyEditedNarrativeTurn } from '@/services/ai/narrativeTurnParser';
 import {
   BookOpenOverlay,
@@ -92,7 +92,6 @@ import type { 剧情节点 } from '@/models/plot';
 import type { 记忆系统 } from '@/models/memory';
 import type { ElementId } from '@/models/teyvat/elements';
 import { createEmptyCourierSystem, createEmptyIrminsulMemory, createEmptySteambirdNews } from '@/models/teyvat';
-import type { 队列任务ID } from '@/models/queueTask';
 import { 创建默认记忆系统设置 } from '@/models/settings';
 import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem, loadAllBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
 import { getCurrentStoryChapterLabel } from '@/services/storyProgressService';
@@ -114,15 +113,6 @@ const HOME_JOURNEY_VIEW_SWITCH_MS = 520;
 const SAVE_LOAD_ANIMATION_MS = 1040;
 const SAVE_LOAD_VIEW_SWITCH_MS = 430;
 const BOOK_OPEN_ANIMATION_MS = 1080;
-const CANCELLABLE_TASK_TITLES: Partial<Record<队列任务ID, string>> = {
-  main_story: '主剧情生成',
-  memory: '记忆整理',
-  variable: '变量生成',
-  steambird: '蒸汽鸟报',
-  irminsul: '世界树召回',
-  codex: '北陆图书馆检索',
-  courier: '手机消息',
-};
 const BOOK_OPEN_VIEW_SWITCH_MS = 460;
 const JOURNEY_LAUNCH_REDUCED_MOTION_MS = 320;
 const HOME_JOURNEY_REDUCED_MOTION_MS = 260;
@@ -143,6 +133,16 @@ const getBookOpenViewSwitchDelay = () => prefersReducedMotion() ? BOOK_OPEN_REDU
 
 export default function App() {
   const { state, actions } = useGame();
+  const setWorldbooks = state.setWorldbooks;
+  const persistWorldbooks = useCallback(async (books: 世界书[]) => {
+    await saveSetting('worldbooks', books);
+    setWorldbooks(books);
+  }, [setWorldbooks]);
+  const persistWorldbooksWithFeedback = useCallback((books: 世界书[]) => {
+    void persistWorldbooks(books).catch((error: unknown) => {
+      pushToast({ kind: 'error', title: '世界书保存失败', detail: error instanceof Error ? error.message : String(error) });
+    });
+  }, [persistWorldbooks]);
   const canGenerateMomentComments = useMemo(() => {
     const main = state.apiSettings.configs.find((config) => config.id === state.apiSettings.activeConfigId)
       ?? state.apiSettings.configs[0] ?? null;
@@ -199,6 +199,23 @@ export default function App() {
   const onCourierAutosaveError = useCallback((error: unknown) => {
     pushToast({ kind: 'error', title: '手机自动存档失败', detail: error instanceof Error ? error.message : String(error) });
   }, []);
+  const [companionSaveRevision, setCompanionSaveRevision] = useState(0);
+  const requestCompanionSave = useCallback(() => setCompanionSaveRevision((revision) => revision + 1), []);
+  const saveCompanionOutsideTurn = useCallback(async (_revision: number, sessionId: number): Promise<boolean> => {
+    const live = latestStateRef.current;
+    if (live.getGameSessionId() !== sessionId || live.view !== 'game' || live.loading || live.pendingVariable) return false;
+    const saveSnapshot = saveStatusStore.getSnapshot();
+    if (saveSnapshot.sessionId === sessionId && saveSnapshot.phase === 'saved') return true;
+    return saveCourierOutsideTurn(live.game.手机, sessionId);
+  }, [saveCourierOutsideTurn]);
+  useDebouncedCourierAutosave({
+    value: companionSaveRevision,
+    sessionId: state.getGameSessionId(),
+    active: state.view === 'game' && !state.loading && !state.pendingVariable,
+    enabled: true,
+    save: saveCompanionOutsideTurn,
+    onError: (error) => pushToast({ kind: 'error', title: '同伴资料自动存档失败', detail: error instanceof Error ? error.message : String(error) }),
+  });
   useDebouncedCourierAutosave({
     value: state.game.手机,
     sessionId: state.getGameSessionId(),
@@ -627,33 +644,6 @@ export default function App() {
       }),
     );
   }, [state.setChatHistory]);
-  const handleCancelTask = useCallback((id: 队列任务ID) => {
-    const title = CANCELLABLE_TASK_TITLES[id];
-    if (!title) return;
-
-    state.abortControllerRef.current?.abort();
-    state.setQueueTasks((prev) => [
-      ...prev,
-      {
-        id,
-        title,
-        turn: state.turnCount,
-        timestamp: Date.now(),
-        status: 'cancelled',
-        detail: '玩家已取消本次任务。',
-        cancelled: true,
-      },
-    ]);
-    state.setPendingVariable(false);
-    state.setLoading(false);
-    setStreamingMessage('');
-  }, [
-    state.abortControllerRef,
-    state.setQueueTasks,
-    state.turnCount,
-    state.setPendingVariable,
-    state.setLoading,
-  ]);
   const handleElementalEchoTrigger = useCallback(() => {
     void actions.handleSend('[系统] 踏入元素回响');
   }, [actions]);
@@ -873,7 +863,7 @@ export default function App() {
         tasks={state.queueTasks}
         pending={state.pendingVariable}
         onRetryTask={actions.handleRetryQueueTask}
-        onCancelTask={handleCancelTask}
+        onCancelTask={actions.handleAbort}
       />
       <ChatList
         messages={state.chatHistory}
@@ -942,6 +932,7 @@ export default function App() {
             onUnlockedElement: handleUnlockedElement,
             npcRecords: state.NPC,
             onNpcRecordsChange: state.setNPC,
+            onCompanionProfileSaved: requestCompanionSave,
             courier: state.game.手机,
             onCourierChange: (update) => state.set手机(update),
             variableBatches: state.variableBatches,
@@ -1047,10 +1038,7 @@ export default function App() {
           <Suspense fallback={<LazySurfaceFallback label="提瓦特之书载入中" />}>
             <WorldbookManagerModal
               worldbooks={state.worldbooks}
-              onSave={(books) => {
-                state.setWorldbooks(books);
-                saveSetting('worldbooks', books);
-              }}
+              onSave={persistWorldbooks}
               onClose={() => setShowWorldbookManager(false)}
             />
           </Suspense>
@@ -1127,13 +1115,7 @@ export default function App() {
 
               worldbooks={state.worldbooks}
 
-              onWorldbooksChange={(books) => {
-
-                state.setWorldbooks(books);
-
-                saveSetting('worldbooks', books);
-
-              }}
+              onWorldbooksChange={persistWorldbooksWithFeedback}
               chatHistory={state.chatHistory}
               variableSetters={{
                 set旅人: state.set旅人,
@@ -1253,10 +1235,7 @@ export default function App() {
               on剧情编织Change={state.set剧情编织}
               getContextSnapshot={actions.getContextSnapshot}
               worldbooks={state.worldbooks}
-              onWorldbooksChange={(books) => {
-                state.setWorldbooks(books);
-                void saveSetting('worldbooks', books);
-              }}
+              onWorldbooksChange={persistWorldbooksWithFeedback}
               chatHistory={state.chatHistory}
               variableSetters={{
                 set旅人: state.set旅人,
@@ -1335,10 +1314,7 @@ export default function App() {
             on剧情编织Change={state.set剧情编织}
             getContextSnapshot={actions.getContextSnapshot}
             worldbooks={state.worldbooks}
-            onWorldbooksChange={(books) => {
-              state.setWorldbooks(books);
-              saveSetting('worldbooks', books);
-            }}
+            onWorldbooksChange={persistWorldbooksWithFeedback}
             chatHistory={state.chatHistory}
             variableSetters={{
               set旅人: state.set旅人,
@@ -1400,10 +1376,7 @@ export default function App() {
         <Suspense fallback={<LazySurfaceFallback label="提瓦特之书载入中" />}>
           <WorldbookManagerModal
             worldbooks={state.worldbooks}
-            onSave={(books) => {
-              state.setWorldbooks(books);
-              saveSetting('worldbooks', books);
-            }}
+            onSave={persistWorldbooks}
             onClose={() => setShowWorldbookManager(false)}
           />
         </Suspense>
@@ -1464,6 +1437,7 @@ function renderSystemPanel(
     onUnlockedElement: (id: ElementId) => void;
     npcRecords: NPC记录[];
     onNpcRecordsChange: React.Dispatch<React.SetStateAction<NPC记录[]>>;
+    onCompanionProfileSaved: () => void;
     courier: import('@/models/teyvat').CourierSystem;
     onCourierChange: (update: import('@/models/teyvat').CourierSystem | ((previous: import('@/models/teyvat').CourierSystem) => import('@/models/teyvat').CourierSystem)) => void;
     quest: QuestJournal;
@@ -1534,6 +1508,7 @@ function renderSystemPanel(
         <CompanionPanel
           npcRecords={ctx.npcRecords}
           onNpcRecordsChange={ctx.onNpcRecordsChange}
+          onProfileSaved={ctx.onCompanionProfileSaved}
           album={ctx.album}
           turnCount={ctx.turnCount}
           nsfwEnabled={ctx.gameSettings.enableNsfw}

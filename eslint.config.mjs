@@ -11,6 +11,8 @@ export default [
       '.tmp/**',
       '.tmp-*/**',
       '.audit/**',
+      '.triage/**',
+      'coverage/**',
       '.storybook/**',
       'stories/**',
       'public/**',

@@ -46,6 +46,23 @@ export interface WorkflowQueueTaskPatch {
   cancelled?: boolean;
 }
 
+/** 一个回合共用中止信号；停止时不能把结果伪装成仅取消了被点击的任务。 */
+export function cancelPendingWorkflowTasks(tasks: 队列任务记录[], turn: number): 队列任务记录[] {
+  const latestIndexById = new Map<队列任务ID, number>();
+  tasks.forEach((task, index) => {
+    if (task.turn === turn) latestIndexById.set(task.id, index);
+  });
+  return tasks.map((task, index) => task.turn === turn && latestIndexById.get(task.id) === index && task.status === 'pending'
+    ? {
+        ...task,
+        status: 'cancelled' as const,
+        cancelled: true,
+        cancellable: false,
+        detail: '玩家已停止本回合，进行中的任务随回合中止。',
+      }
+    : task);
+}
+
 export function pushWorkflowQueueTask(
   state: UseGameStateReturn,
   id: 队列任务ID,

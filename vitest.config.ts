@@ -10,6 +10,7 @@ export default defineConfig({
       provider: 'v8',
       exclude: [
         '.audit/**',
+        '.triage/**',
         '.storybook/**',
         '.tmp*/**',
         'coverage/**',

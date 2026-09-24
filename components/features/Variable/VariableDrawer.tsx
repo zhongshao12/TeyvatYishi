@@ -347,6 +347,7 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
             <button
               type="button"
               onClick={() => onCancel(task.id)}
+              title="停止本回合及其进行中的任务"
               className="px-2 py-1 text-[10px] font-serif tracking-[0.16em] transition-all hover:opacity-90"
               style={{
                 color: 'rgba(var(--tj-accent-secondary),0.96)',
@@ -355,7 +356,7 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
                 clipPath: CLIP_SMALL,
               }}
             >
-              取消
+              停止本回合
             </button>
           )}
           <StatusIcon status={status} />

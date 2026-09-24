@@ -41,6 +41,8 @@ import { saveSetting } from '@/services/dbService';
 import type { 世界书 } from '@/models/worldbook';
 import type { 聊天消息 } from '@/models/chat';
 import { useModalAccessibility } from '@/components/ui/Modal';
+import { pushToast } from '@/utils/toastStore';
+import { toUserFacingError } from '@/utils/userFacingError';
 
 export type SettingsTab = Tab;
 
@@ -130,12 +132,16 @@ export function SettingsModal({
   const dialogRef = useModalAccessibility<HTMLDivElement>(onClose);
   const persistGameSettingsChange = useCallback((next: 游戏设置) => {
     onGameSettingsChange(next);
-    void saveSetting('gameSettings', next);
+    void saveSetting('gameSettings', next).catch((error: unknown) => {
+      pushToast({ kind: 'error', title: '游戏设置保存失败', detail: toUserFacingError(error) });
+    });
   }, [onGameSettingsChange]);
 
   const persistThemeChange = useCallback((next: 主题预设) => {
     onThemeChange(next);
-    void saveSetting('theme', next);
+    void saveSetting('theme', next).catch((error: unknown) => {
+      pushToast({ kind: 'error', title: '主题保存失败', detail: toUserFacingError(error) });
+    });
   }, [onThemeChange]);
 
   const renderTab = (): ReactNode => {

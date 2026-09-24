@@ -24,6 +24,7 @@ import {
 interface CompanionPanelProps {
   npcRecords: NPC记录[];
   onNpcRecordsChange: React.Dispatch<React.SetStateAction<NPC记录[]>>;
+  onProfileSaved?: () => void;
   album?: 相册系统;
   turnCount: number;
   nsfwEnabled: boolean;
@@ -78,7 +79,7 @@ const activeSurface = 'linear-gradient(90deg, rgba(var(--tj-btn-primary-start), 
 const quietSurface = 'linear-gradient(135deg, rgba(var(--tj-ui-panel), 0.62), rgba(var(--tj-ui-panel-strong), 0.72))';
 const ROSTER_PAGE_SIZE = 60;
 
-export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, turnCount, nsfwEnabled, maleNsfwArchiveEnabled = false, codex, devMode = false, variableBatches, courier, onCourierChange, travelerName }: CompanionPanelProps) {
+export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved, album, turnCount, nsfwEnabled, maleNsfwArchiveEnabled = false, codex, devMode = false, variableBatches, courier, onCourierChange, travelerName }: CompanionPanelProps) {
   const [tab, setTab] = useState<NPC阶位 | 'graph'>('companion');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [correctionDraft, setCorrectionDraft] = useState('');
@@ -189,8 +190,9 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, turnCoun
         return contacts.some((contact, index) => contact !== current.contacts[index]) ? { ...current, contacts } : current;
       });
     }
+    onProfileSaved?.();
     return null;
-  }, [normalizedRecords, updateRecord, courier, onCourierChange]);
+  }, [normalizedRecords, updateRecord, courier, onCourierChange, onProfileSaved]);
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overflow-x-hidden md:flex-row md:gap-4 md:overflow-hidden">
       <CompanionRosterSidebar

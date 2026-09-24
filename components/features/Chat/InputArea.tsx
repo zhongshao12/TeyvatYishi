@@ -245,7 +245,7 @@ export const InputArea = memo(function InputArea({
               />
             </span>
           )}
-          {workflowStatus !== 'done' && onCancelWorkflow && (
+          {loading && workflowStatus !== 'done' && onCancelWorkflow && (
             <button
               type="button"
               onClick={onCancelWorkflow}
@@ -257,7 +257,7 @@ export const InputArea = memo(function InputArea({
                 clipPath: iconClip,
               }}
             >
-              取消
+              停止本回合
             </button>
           )}
           </span>

@@ -51,7 +51,7 @@ import type { CodexEntry } from '@/models/teyvat/codex';
 
 import { pushToast } from '@/utils/toastStore';
 
-import { pushWorkflowQueueTask as pushQueueTask } from './workflowQueue';
+import { cancelPendingWorkflowTasks, pushWorkflowQueueTask as pushQueueTask } from './workflowQueue';
 import { getActiveSaveTreeNodeId } from './saveLoadWorkflow';
 import type {
   VariableSettlementParams,
@@ -998,6 +998,7 @@ export async function executeSendWorkflow(
         },
         clearJournal: () => clearWorkflowRecoveryJournal(recoveryJournal.workflowId),
       });
+      state.setQueueTasks((previous) => cancelPendingWorkflowTasks(previous, state.turnCount));
       if (abortDisposition === 'rolled_back') {
         state.setWorkflowHint('已停止生成，本次输入已回到输入框，可修改后重新发送。');
       } else {

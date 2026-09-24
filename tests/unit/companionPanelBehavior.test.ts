@@ -136,9 +136,10 @@ describe('CompanionPanel behavior', () => {
   it('saves basic profile fields and derives relationship from bounded affinity', async () => {
     const record = 创建NPC记录({ 姓名: '路人甲', 阶位: 'extra', 初见回合: 1 });
     const onNpcRecordsChange = vi.fn();
+    const onProfileSaved = vi.fn();
     await act(async () => {
       root.render(createElement(CompanionPanel, {
-        npcRecords: [record], onNpcRecordsChange, turnCount: 1, nsfwEnabled: false,
+        npcRecords: [record], onNpcRecordsChange, onProfileSaved, turnCount: 1, nsfwEnabled: false,
       }));
     });
     onNpcRecordsChange.mockClear();
@@ -167,6 +168,7 @@ describe('CompanionPanel behavior', () => {
       好感度: 150, 关系: 'close', id: record.id,
     });
     expect(host.querySelector('input[aria-label="别名"]')).toBeNull();
+    expect(onProfileSaved).toHaveBeenCalledTimes(1);
   });
 
   it('locks canonical names and rejects a duplicate name for an extra NPC', async () => {

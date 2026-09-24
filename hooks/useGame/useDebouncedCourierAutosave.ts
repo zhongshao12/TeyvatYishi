@@ -64,7 +64,7 @@ export function useDebouncedCourierAutosave<T>({
           dirtyRef.current = false;
           staleAttemptsRef.current = 0;
         } else if (!saved) {
-          retryOrReport(new Error('手机变更尚未写入存档，请手动保存后再退出。'));
+          retryOrReport(new Error('数据变更尚未写入存档，请手动保存后再退出。'));
         }
       }).catch((error: unknown) => retryOrReport(error instanceof Error ? error : new Error(String(error))));
     }, delayMs);

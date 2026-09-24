@@ -11,7 +11,7 @@ import { toUserFacingError } from '@/utils/userFacingError';
 
 interface Props {
   worldbooks: 世界书[];
-  onSave: (books: 世界书[]) => void;
+  onSave: (books: 世界书[]) => Promise<void>;
   onClose: () => void;
 }
 
@@ -162,8 +162,12 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
       tone: 'danger',
     })) return;
     const next = draft.filter((book) => !bookMatchesLegacyTerms(book));
-    setDraft(next);
-    onSave(normalizeWorldbooks(next));
+    try {
+      await onSave(normalizeWorldbooks(next));
+      setDraft(next);
+    } catch (err) {
+      pushToast({ kind: 'error', title: '世界书保存失败', detail: toUserFacingError(err) });
+    }
     if (selectedBookId && legacyBooks.some((book) => book.id === selectedBookId)) setSelectedBookId(null);
   };
 
@@ -217,11 +221,13 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
     URL.revokeObjectURL(url);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true);
     try {
-      onSave(normalizeWorldbooks(draft));
+      await onSave(normalizeWorldbooks(draft));
       onClose();
+    } catch (err) {
+      pushToast({ kind: 'error', title: '世界书保存失败', detail: toUserFacingError(err) });
     } finally {
       setIsSaving(false);
     }
@@ -331,7 +337,7 @@ export function WorldbookManagerModal({ worldbooks, onSave, onClose }: Props) {
 
             <div className="flex gap-2 p-3" style={{ borderTop: '1px solid rgba(var(--tj-accent-primary), 0.2)' }}>
               <button
-                onClick={handleSave}
+                onClick={() => void handleSave()}
                 disabled={isSaving || isImporting}
                 className="teyvat-btn teyvat-btn-primary flex-1 cursor-pointer py-1.5 text-sm transition-all duration-200 hover:opacity-90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[rgba(var(--tj-accent-primary),0.6)] disabled:cursor-not-allowed disabled:opacity-60"
               >

@@ -133,9 +133,19 @@ describe('live progress announcements', () => {
       }));
     });
 
-    const cancel = Array.from(host.querySelectorAll('button')).find((button) => button.textContent?.trim() === '取消');
+    const cancel = Array.from(host.querySelectorAll('button')).find((button) => button.textContent?.trim() === '停止本回合');
     expect(cancel).toBeTruthy();
     await act(async () => cancel!.click());
     expect(onCancelWorkflow).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer to stop a turn after loading has ended', async () => {
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend: vi.fn(), onAbort: vi.fn(), loading: false,
+        workflowHint: '主流程失败，请重试。', workflowStatus: '', onCancelWorkflow: vi.fn(),
+      }));
+    });
+    expect([...host.querySelectorAll('button')].some((button) => button.textContent?.trim() === '停止本回合')).toBe(false);
   });
 });

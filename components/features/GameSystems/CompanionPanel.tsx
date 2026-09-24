@@ -3,7 +3,8 @@ import { CLIP_ITEM, CLIP_SECTION, gradientAccent, insetRing } from '@/styles/cli
 import type { CSSProperties, ReactNode } from 'react';
 import { memo } from 'react';
 import type { NPC记录, NPC阶位, NPC_NSFW年龄确认 } from '@/models/npc';
-import { buildNpcMemoryLedgerView, 格式化NPC关系, 提取NPC同行记忆文本列表, 读取NPC头像 } from '@/models/npc';
+import { buildNpcMemoryLedgerView, 获取NPC兼容关系, 格式化NPC关系, 提取NPC同行记忆文本列表, 限制NPC好感度, 读取NPC头像 } from '@/models/npc';
+import { matchCanonical } from '@/data/canonicalCharacters';
 import type { 相册系统 } from '@/models/imageGeneration';
 import type { ArchiveCodex } from '@/models/teyvat/codex';
 import { buildNpcRelationshipPlanning, type NPC关系规划条目 } from '@/services/npcRelationshipPlanning';
@@ -31,11 +32,32 @@ interface CompanionPanelProps {
   devMode?: boolean;
   variableBatches?: 变量命令批次[];
   courier?: CourierSystem;
-  onCourierChange?: (next: CourierSystem) => void;
+  onCourierChange?: React.Dispatch<React.SetStateAction<CourierSystem>>;
   travelerName?: string;
 }
 
 type DetailTab = 'archive' | 'planning' | 'memory' | 'nsfw';
+
+type NpcProfileDraft = {
+  姓名: string;
+  别名: string;
+  介绍: string;
+  外貌: string;
+  穿着: string;
+  性格: string;
+  说话方式: string;
+  对玩家称呼: string;
+  装备摘要: string;
+  好感度: string;
+};
+
+function makeNpcProfileDraft(npc: NPC记录): NpcProfileDraft {
+  return {
+    姓名: npc.姓名, 别名: npc.别名 ?? '', 介绍: npc.介绍 ?? '', 外貌: npc.外貌 ?? '',
+    穿着: npc.穿着 ?? '', 性格: npc.性格 ?? '', 说话方式: npc.说话方式 ?? '',
+    对玩家称呼: npc.对玩家称呼 ?? '', 装备摘要: npc.装备摘要 ?? '', 好感度: String(npc.好感度),
+  };
+}
 
 
 
@@ -142,6 +164,33 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, turnCoun
     setSelectedId(id);
     setTab(normalizedRecords.find((npc) => npc.id === id)?.阶位 === 'extra' ? 'extra' : 'companion');
   }, [normalizedRecords]);
+  const handleSaveProfile = useCallback((npc: NPC记录, draft: NpcProfileDraft): string | null => {
+    const name = npc.原著角色 ? npc.姓名 : draft.姓名.trim();
+    const alias = draft.别名.trim();
+    if (!name) return '姓名不能为空';
+    if (normalizedRecords.some((other) => other.id !== npc.id && other.姓名.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) {
+      return '姓名已被其他角色使用';
+    }
+    if (!npc.原著角色 && matchCanonical(name)) return '原著角色姓名已保留，请换一个路人姓名';
+    const aliasCanon = alias ? matchCanonical(alias) : null;
+    if (aliasCanon && aliasCanon.name !== matchCanonical(name)?.name) return '别名不能指向另一位原著角色';
+    if (!draft.好感度.trim() || !Number.isFinite(Number(draft.好感度))) return '请输入有效的好感度数值';
+
+    const affinity = 限制NPC好感度(draft.好感度);
+    updateRecord(npc.id, {
+      姓名: name, 别名: alias, 介绍: draft.介绍.trim(), 外貌: draft.外貌.trim(),
+      穿着: draft.穿着.trim(), 性格: draft.性格.trim(), 说话方式: draft.说话方式.trim(),
+      对玩家称呼: draft.对玩家称呼.trim(), 装备摘要: draft.装备摘要.trim(),
+      好感度: affinity, 关系: 获取NPC兼容关系(affinity),
+    });
+    if (name !== npc.姓名 && courier?.contacts.some((contact) => contact.npcId === npc.id) && onCourierChange) {
+      onCourierChange((current) => {
+        const contacts = current.contacts.map((contact) => contact.npcId === npc.id ? { ...contact, name } : contact);
+        return contacts.some((contact, index) => contact !== current.contacts[index]) ? { ...current, contacts } : current;
+      });
+    }
+    return null;
+  }, [normalizedRecords, updateRecord, courier, onCourierChange]);
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overflow-x-hidden md:flex-row md:gap-4 md:overflow-hidden">
       <CompanionRosterSidebar
@@ -195,6 +244,7 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, turnCoun
             <p className="px-3 py-1.5 text-[11px]" style={{ color: 'var(--tj-danger)' }}>{partyHint}</p>
           )}
           <NpcDetail
+            key={selected.id}
             npc={selected}
             album={album}
             nsfwEnabled={nsfwEnabled}
@@ -205,6 +255,7 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, turnCoun
             devMode={devMode}
             isPhoneContact={Boolean(courier?.contacts.some((contact) => contact.npcId === selected.id || contact.name === selected.姓名))}
             onAddPhoneContact={courier && onCourierChange ? handleAddPhoneContact : undefined}
+            onSaveProfile={handleSaveProfile}
           />
           </>
         ) : (
@@ -264,6 +315,7 @@ const NpcDetail = memo(function NpcDetail({
   devMode,
   isPhoneContact,
   onAddPhoneContact,
+  onSaveProfile,
 }: {
   npc: NPC记录;
   album?: 相册系统;
@@ -275,9 +327,26 @@ const NpcDetail = memo(function NpcDetail({
   devMode: boolean;
   isPhoneContact: boolean;
   onAddPhoneContact?: (npc: NPC记录) => void;
+  onSaveProfile: (npc: NPC记录, draft: NpcProfileDraft) => string | null;
 }) {
   const isCompanion = npc.阶位 === 'companion';
   const [detailTab, setDetailTab] = useState<DetailTab>('archive');
+  const [isEditing, setIsEditing] = useState(false);
+  const [profileDraft, setProfileDraft] = useState<NpcProfileDraft>(() => makeNpcProfileDraft(npc));
+  const [profileError, setProfileError] = useState('');
+  const updateProfileDraft = (field: keyof NpcProfileDraft, value: string) => {
+    setProfileDraft((draft) => ({ ...draft, [field]: value }));
+    setProfileError('');
+  };
+  const saveProfile = () => {
+    const error = onSaveProfile(npc, profileDraft);
+    if (error) {
+      setProfileError(error);
+      return;
+    }
+    setProfileError('');
+    setIsEditing(false);
+  };
 
   useEffect(() => {
     if (!nsfwEnabled && detailTab === 'nsfw') setDetailTab('archive');
@@ -330,6 +399,13 @@ const NpcDetail = memo(function NpcDetail({
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
+              <ActionChip active={isEditing} onClick={() => {
+                setProfileDraft(makeNpcProfileDraft(npc));
+                setProfileError('');
+                setIsEditing(true);
+              }}>
+                编辑资料
+              </ActionChip>
               <ActionChip active={isPhoneContact} onClick={() => onAddPhoneContact?.(npc)}>
                 {isPhoneContact ? '已在手机联系人' : '添加到手机联系人'}
               </ActionChip>
@@ -392,6 +468,47 @@ const NpcDetail = memo(function NpcDetail({
           </div>
         </div>
       </section>
+
+      {isEditing && (
+        <section className="px-4 py-3" style={panelStyle} aria-label="编辑同伴资料">
+          <div className="mb-3 font-serif text-sm tracking-[0.18em]" style={{ color: titleColor }}>编辑伙伴档案</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(['姓名', '别名', '对玩家称呼', '好感度'] as const).map((field) => (
+              <label key={field} className="flex min-w-0 flex-col gap-1 text-xs" style={{ color: bodyColor }}>
+                {field}
+                <input
+                  aria-label={field}
+                  type={field === '好感度' ? 'number' : 'text'}
+                  min={field === '好感度' ? -50 : undefined}
+                  max={field === '好感度' ? 150 : undefined}
+                  disabled={field === '姓名' && npc.原著角色}
+                  className="teyvat-input min-w-0 px-3 py-2 disabled:opacity-60"
+                  value={profileDraft[field]}
+                  onChange={(event) => updateProfileDraft(field, event.target.value)}
+                />
+              </label>
+            ))}
+            {(['介绍', '外貌', '穿着', '性格', '说话方式', '装备摘要'] as const).map((field) => (
+              <label key={field} className="flex min-w-0 flex-col gap-1 text-xs" style={{ color: bodyColor }}>
+                {field}
+                <textarea
+                  aria-label={field}
+                  rows={field === '介绍' ? 3 : 2}
+                  className="teyvat-input min-w-0 resize-y px-3 py-2"
+                  value={profileDraft[field]}
+                  onChange={(event) => updateProfileDraft(field, event.target.value)}
+                />
+              </label>
+            ))}
+          </div>
+          {npc.原著角色 && <p className="mt-2 text-xs" style={{ color: mutedColor }}>原著角色姓名锁定，避免档案与剧情身份错配。</p>}
+          {profileError && <p className="mt-2 text-xs" role="alert" style={{ color: 'rgb(var(--tj-ui-nsfw))' }}>{profileError}</p>}
+          <div className="mt-3 flex justify-end gap-2">
+            <ActionChip active={false} onClick={() => setIsEditing(false)}>取消编辑</ActionChip>
+            <ActionChip active onClick={saveProfile}>保存资料</ActionChip>
+          </div>
+        </section>
+      )}
 
       {planning && detailTab === 'planning' && (
         <section className="px-4 py-3 text-xs leading-relaxed" style={panelStyle}>

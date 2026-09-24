@@ -1,6 +1,6 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useGame } from '@/hooks/useGame';
-import { applyLegacyGameStateOverrides } from '@/hooks/useGameState';
+import { applyLegacyGameStateOverrides, mapTeyvatNpcsToLegacy, readLiveGameState } from '@/hooks/useGameState';
 import { useKeyboardShortcuts } from '@/hooks/useGame/useKeyboardShortcuts';
 import { KEYBOARD_SHORTCUT_DEFAULTS } from '@/data/keyboardShortcutDefaults';
 import { loadAllBuiltinTavernPresets } from '@/data/builtinPresets';
@@ -35,13 +35,18 @@ import { OFFLINE_HINT, useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { LazySurfaceFallback, MemoryRebuildModal } from '@/components/layout/AppPanels';
 import { TravelerProfileModal } from '@/components/features/Character/TravelerProfileModal';
 import { GAME_MENU_ITEMS, type GameSystemId } from '@/data/gameMenu';
-import { saveSetting } from '@/services/dbService';
+import { deleteSave as deleteStoredSave, saveGame, saveSetting } from '@/services/dbService';
 import { runStartupStorageMaintenance } from '@/services/storage/startupStorageMaintenance';
 import { resolveActiveApiConfig } from '@/services/ai/activeApiConfig';
-import { handleLoadById } from '@/hooks/useGame/saveLoadWorkflow';
+import { buildSavePayload, clearActiveSaveTreeMetaIfMatches, commitActiveSaveTreeMeta, getActiveSaveTreeNodeId, handleLoadById } from '@/hooks/useGame/saveLoadWorkflow';
+import { runPostTurnAutosaveTask } from '@/hooks/useGame/postTurnAutosaveTask';
+import { useDebouncedCourierAutosave } from '@/hooks/useGame/useDebouncedCourierAutosave';
+import { pushToast } from '@/utils/toastStore';
+import { runTrackedSave, saveStatusStore } from '@/utils/saveStatus';
 import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
 import type { 角色数据结构 } from '@/models/character';
 import { 切换剧情书签 } from '@/utils/storyBookmarks';
+import { mergeNpcWriteBack } from '@/utils/npcWriteBack';
 import { 累计Token用量 } from '@/utils/tokenUsageStats';
 import { TokenMeter } from '@/components/features/Chat/TokenMeter';
 import { CommandPalette } from '@/components/features/Chat/CommandPalette';
@@ -93,11 +98,16 @@ import { 创建默认记忆系统设置 } from '@/models/settings';
 import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem, loadAllBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
 import { getCurrentStoryChapterLabel } from '@/services/storyProgressService';
 import { generateTravelerTemplate, type TravelerTemplateContext, type TravelerTemplateDraft } from '@/services/ai/travelerTemplate';
-import { revealCourierMessages, runCourierReplyPass } from '@/hooks/useGame/courierBackgroundJobs';
+import { revealCourierMessages, runCourierReplyPass, type CourierReplyPassResult } from '@/hooks/useGame/courierBackgroundJobs';
+import { createCourierReplyQueue, type CourierReplyBatchIntent, type CourierReplyDispatchResult } from '@/hooks/useGame/courierReplyQueue';
 import { resolveCourierApiConfig } from '@/services/ai/courierLetterModel';
-import { appendCourierMessage, beginCourierReply, endCourierReply, selectGroupReplyMembers } from '@/services/ai/courierService';
+import { beginCourierReply, endCourierReply, selectGroupReplyMembers } from '@/services/ai/courierService';
+import { buildCourierPlayerBatch } from '@/utils/courierReplyBatch';
+import { applyCourierReplyMessageIfLive, isCourierReplyTargetLive } from '@/utils/courierReplyCommit';
 import { 天气列表 } from '@/data/weatherRules';
 import { normalizeCourierSystem, type CourierSystem } from '@/models/teyvat/courier';
+import { runMomentComments } from '@/hooks/useGame/courierMomentWorkflow';
+import { generateMomentComment } from '@/services/ai/courierMomentComments';
 
 const JOURNEY_LAUNCH_ANIMATION_MS = 1680;
 const HOME_JOURNEY_ANIMATION_MS = 1180;
@@ -134,6 +144,101 @@ const getBookOpenViewSwitchDelay = () => prefersReducedMotion() ? BOOK_OPEN_REDU
 
 export default function App() {
   const { state, actions } = useGame();
+  const canGenerateMomentComments = useMemo(() => {
+    const main = state.apiSettings.configs.find((config) => config.id === state.apiSettings.activeConfigId)
+      ?? state.apiSettings.configs[0] ?? null;
+    const config = resolveCourierApiConfig(state.gameSettings.手机系统?.api, main);
+    if (!config?.apiKey.trim() || !config.model.trim()) return false;
+    try {
+      const url = new URL(config.baseUrl);
+      return (url.protocol === 'http:' || url.protocol === 'https:') && Boolean(url.hostname);
+    } catch {
+      return false;
+    }
+  }, [state.apiSettings, state.gameSettings.手机系统?.api]);
+  const saveStatus = useSyncExternalStore(saveStatusStore.subscribe, saveStatusStore.getSnapshot);
+  const saveSessionId = state.getGameSessionId();
+  useEffect(() => {
+    saveStatusStore.observeGame(saveSessionId, state.game);
+  }, [saveSessionId, state.game]);
+  const retryFailedSave = useCallback(() => {
+    void actions.handleSave().catch(() => {
+      pushToast({ kind: 'error', title: '存档仍未写入', detail: '请检查可用存储空间后重试。' });
+    });
+  }, [actions.handleSave]);
+  const latestStateRef = useRef(state);
+  latestStateRef.current = state;
+  const saveCourierOutsideTurn = useCallback(async (courier: CourierSystem, sessionId: number): Promise<boolean> => {
+    const live = latestStateRef.current;
+    if (live.getGameSessionId() !== sessionId || live.view !== 'game' || live.loading || live.pendingVariable) return false;
+    const root = readLiveGameState(live);
+    if (root.手机 !== courier) return false;
+    const parentNodeId = getActiveSaveTreeNodeId();
+    const payload = buildSavePayload(live, 'auto', undefined, root);
+    const result = await runTrackedSave(saveStatusStore, sessionId, root, 'auto', () => runPostTurnAutosaveTask({
+      enabled: true,
+      build: () => payload,
+      assertActive: () => undefined,
+      isCurrent: () => {
+        const current = latestStateRef.current;
+        return current.getGameSessionId() === sessionId
+          && current.view === 'game'
+          && !current.loading
+          && !current.pendingVariable
+          && current.game === root
+          && getActiveSaveTreeNodeId() === parentNodeId;
+      },
+      persist: saveGame,
+      discardStale: async (id) => {
+        if (typeof id === 'number' && Number.isInteger(id) && id > 0) await deleteStoredSave(id);
+      },
+      commit: commitActiveSaveTreeMeta,
+      markSaved: () => latestStateRef.current.setHasSave(true),
+    }), () => readLiveGameState(latestStateRef.current), (value) => value.status === 'saved');
+    return result.status === 'saved';
+  }, []);
+  const onCourierAutosaveError = useCallback((error: unknown) => {
+    pushToast({ kind: 'error', title: '手机自动存档失败', detail: error instanceof Error ? error.message : String(error) });
+  }, []);
+  useDebouncedCourierAutosave({
+    value: state.game.手机,
+    sessionId: state.getGameSessionId(),
+    active: state.view === 'game' && !state.loading && !state.pendingVariable,
+    enabled: state.gameSettings.enableAutoSaveEveryTurn,
+    save: saveCourierOutsideTurn,
+    onError: onCourierAutosaveError,
+  });
+  const pendingMomentCommentsRef = useRef(new Map<string, { postId: string; revision: number; npcId?: string; sessionId: number }>());
+  const [momentRequestVersion, setMomentRequestVersion] = useState(0);
+  const handleMomentCommentRequest = useCallback((postId: string, revision: number, npcId?: string) => {
+    const key = JSON.stringify([postId, revision, npcId ?? null]);
+    pendingMomentCommentsRef.current.set(key, { postId, revision, npcId, sessionId: latestStateRef.current.getGameSessionId() });
+    // A retry does not itself change the post; wake the dispatch effect explicitly.
+    setMomentRequestVersion((version) => version + 1);
+  }, []);
+  useEffect(() => {
+    for (const [key, pending] of pendingMomentCommentsRef.current) {
+      if (pending.sessionId !== latestStateRef.current.getGameSessionId()) {
+        pendingMomentCommentsRef.current.delete(key);
+        continue;
+      }
+      if (!latestStateRef.current.game.手机.moments?.some((post) => post.id === pending.postId && post.revision === pending.revision)) continue;
+      pendingMomentCommentsRef.current.delete(key);
+      void runMomentComments({
+        getSessionId: () => latestStateRef.current.getGameSessionId(),
+        getCourier: () => latestStateRef.current.game.手机,
+        setCourier: (update) => latestStateRef.current.set手机(update),
+        getNpcs: () => latestStateRef.current.NPC,
+        getApiConfig: () => {
+          const live = latestStateRef.current;
+          const main = live.apiSettings.configs.find((item) => item.id === live.apiSettings.activeConfigId)
+            ?? live.apiSettings.configs[0] ?? null;
+          return resolveCourierApiConfig(live.gameSettings.手机系统?.api, main);
+        },
+        generateComment: generateMomentComment,
+      }, pending.postId, pending.revision, pending.npcId);
+    }
+  }, [state.game.手机.moments, state.getGameSessionId, momentRequestVersion]);
   const networkStatus = useNetworkStatus();
   const pendingMemoryDraftCount = (state.记忆.失败草稿 ?? []).filter(
     (draft) => draft.status === 'pending' || draft.status === 'retrying',
@@ -173,134 +278,177 @@ export default function App() {
     void loadAllBuiltinTavernPresets();
   }, []);
 
-  // 信使即时回信：玩家在信使里一投递，立刻生成联系人回信（AI 优先、本地兜底），
-  // 生成期间会话显示"正在写回信"。同一时间只处理一封，避免并发竞争。
-  const courierReplyBusyRef = useRef(false);
-  const courierReplyPendingRef = useRef(new Map<string, CourierSystem>());
-  const courierReplyHandlerRef = useRef<(conversationId: string, courierSnapshot: CourierSystem) => void>(() => undefined);
-  const handleCourierReplyRequest = useCallback((conversationId: string, courierSnapshot: CourierSystem) => {
-    if (courierReplyBusyRef.current) {
-      courierReplyPendingRef.current.set(conversationId, courierSnapshot);
-      return;
-    }
-    if (state.gameSettings.手机系统.enabled === false) return;
-    const conversation = courierSnapshot.conversations.find((item) => item.id === conversationId);
-    if (!conversation || conversation.type === 'system') return;
-    const lastMessage = conversation.messages.at(-1);
-    if (!lastMessage || lastMessage.senderId !== 'player') return;
-    // 群聊由选中成员跟帖、打字指示对应多人；私聊仍是单一联系人回信。
-    let typingIds: string[];
-    if (conversation.type === 'group') {
-      typingIds = selectGroupReplyMembers(conversation, lastMessage, 3, courierSnapshot.contacts);
-    } else {
-      const contactId = [...conversation.messages].reverse().find((message) => message.senderId !== 'player')?.senderId
-        ?? conversation.participantIds.find((id) => id !== 'player');
-      typingIds = contactId ? [contactId] : [];
-    }
-    if (!typingIds.length) return;
-    if (!beginCourierReply(conversationId)) {
-      courierReplyPendingRef.current.set(conversationId, courierSnapshot);
-      globalThis.setTimeout(() => {
-        const pending = courierReplyPendingRef.current.get(conversationId);
-        if (!pending || courierReplyBusyRef.current) return;
-        courierReplyPendingRef.current.delete(conversationId);
-        courierReplyHandlerRef.current(conversationId, pending);
-      }, 500);
-      return;
-    }
-
-    courierReplyBusyRef.current = true;
-    // 打字指示：会话标记正在输入的成员（群聊为多位）。
-    state.updateGameState((current) => ({
-      ...current,
-      手机: {
-        ...current.手机,
-        conversations: current.手机.conversations.map((item) => item.id === conversationId
-          ? { ...item, typingMemberIds: typingIds }
-          : item),
-      },
-    }));
-
-    const mainApiConfig = state.apiSettings.configs.find((item) => item.id === state.apiSettings.activeConfigId)
-      ?? state.apiSettings.configs[0]
-      ?? null;
-    const letterApiConfig = resolveCourierApiConfig(state.gameSettings.手机系统?.api, mainApiConfig);
-    const weatherName = 天气列表.find((item) => item.id === state.game.世界.当前天气)?.name;
-
-    void runCourierReplyPass({
-      courier: courierSnapshot,
-      npcs: state.NPC,
-      environment: {
-        location: state.game.世界.当前地点 || undefined,
-        timeText: state.game.世界.当前时间 || undefined,
-        ...(weatherName ? { weather: weatherName } : {}),
-      },
-      travelerName: state.旅人.姓名 || undefined,
-      letterApiConfig,
-      turn: state.game.turnCount,
-      maxReplies: 1,
-      preclaimedConversationIds: [conversationId],
-    }).then(async (result) => {
-      state.setNPC(result.npcs);
-      const snapshotConversation = courierSnapshot.conversations.find((item) => item.id === conversationId);
-      const resultConversation = result.courier.conversations.find((item) => item.id === conversationId);
-      const newMessages = resultConversation && snapshotConversation
-        ? resultConversation.messages.slice(snapshotConversation.messages.length)
-        : [];
-
-      // 先同步可能由回复作业补建的联系人，但保留“正在输入”；随后每 0.5 秒提交一个气泡。
-      state.updateGameState((current) => {
-        return {
-          ...current,
-          手机: {
-            ...current.手机,
-            contacts: normalizeCourierSystem({ contacts: [...current.手机.contacts, ...result.courier.contacts] }).contacts,
-          },
-        };
-      });
-
-      await revealCourierMessages(newMessages, (message) => {
-        state.updateGameState((current) => ({
-          ...current,
-          手机: appendCourierMessage(current.手机, conversationId, { ...message, timestamp: Date.now() }),
-        }));
-      });
-
-      state.updateGameState((current) => ({
-        ...current,
-        手机: {
-          ...current.手机,
-          conversations: current.手机.conversations.map((item) => item.id === conversationId
-            ? { ...item, typingMemberIds: [] }
-            : item),
-        },
-      }));
-    }).catch((error) => {
-      console.warn('[courier] 即时回信失败：', error);
-      state.updateGameState((current) => ({
-        ...current,
-        手机: {
-          ...current.手机,
-          conversations: current.手机.conversations.map((item) => item.id === conversationId
-            ? { ...item, typingMemberIds: [] }
-            : item),
-        },
-      }));
-    }).finally(() => {
-      endCourierReply(conversationId);
-      courierReplyBusyRef.current = false;
-      const pending = courierReplyPendingRef.current.entries().next().value as [string, CourierSystem] | undefined;
-      if (pending) {
-        courierReplyPendingRef.current.delete(pending[0]);
-        queueMicrotask(() => courierReplyHandlerRef.current(pending[0], pending[1]));
-      }
-    });
-  }, [state]);
-  // 渲染期写 ref 在 React 19 并发渲染下可能指向被丢弃的那次渲染闭包（该渲染永远不会提交），
-  // 之后从 ref 取到的就是错误的处理器；这里挪到提交后的 effect 里同步。
+  const [courierReplyErrors, setCourierReplyErrors] = useState<Record<string, string>>({});
+  const courierDispatchRef = useRef<(batch: CourierReplyBatchIntent) => Promise<CourierReplyDispatchResult>>(async () => 'retry');
+  const [courierReplyQueue] = useState(() => createCourierReplyQueue({
+    getSessionId: () => latestStateRef.current.getGameSessionId(),
+    dispatch: (batch) => courierDispatchRef.current(batch),
+  }));
+  const activeCourierSessionId = state.getGameSessionId();
   useEffect(() => {
-    courierReplyHandlerRef.current = handleCourierReplyRequest;
-  }, [handleCourierReplyRequest]);
+    courierReplyQueue.invalidateSession();
+    setCourierReplyErrors({});
+  }, [activeCourierSessionId, courierReplyQueue]);
+  useEffect(() => () => courierReplyQueue.dispose(), [courierReplyQueue]);
+
+  const commitAndRevealCourierReply = useCallback(async (
+    result: CourierReplyPassResult,
+    batch: CourierReplyBatchIntent,
+    startCourier: CourierSystem,
+    npcWriteBackBase: NPC记录[],
+  ): Promise<void> => {
+    const resultConversation = result.courier.conversations.find((item) => item.id === batch.conversationId);
+    const startConversation = startCourier.conversations.find((item) => item.id === batch.conversationId);
+    const newMessages = resultConversation && startConversation
+      ? resultConversation.messages.slice(startConversation.messages.length)
+      : [];
+    const live = latestStateRef.current;
+    if (live.getGameSessionId() !== batch.sessionId
+      || !isCourierReplyTargetLive(readLiveGameState(live).手机, batch.conversationId, batch.messageIds)) return;
+
+    live.updateGameState((current) => {
+      if (live.getGameSessionId() !== batch.sessionId
+        || !isCourierReplyTargetLive(current.手机, batch.conversationId, batch.messageIds)) return current;
+      return {
+        ...current,
+        手机: {
+          ...current.手机,
+          contacts: normalizeCourierSystem({ contacts: [...current.手机.contacts, ...result.courier.contacts] }).contacts,
+        },
+      };
+    });
+
+    await revealCourierMessages(newMessages, (message) => {
+      const currentLive = latestStateRef.current;
+      currentLive.updateGameState((current) => {
+        const nextCourier = applyCourierReplyMessageIfLive({
+          current: current.手机,
+          currentSessionId: currentLive.getGameSessionId(),
+          expectedSessionId: batch.sessionId,
+          conversationId: batch.conversationId,
+          messageIds: batch.messageIds,
+          message: { ...message, timestamp: Date.now() },
+        });
+        return nextCourier === current.手机 ? current : { ...current, 手机: nextCourier };
+      });
+    });
+
+    const afterReveal = latestStateRef.current;
+    if (afterReveal.getGameSessionId() !== batch.sessionId
+      || !isCourierReplyTargetLive(readLiveGameState(afterReveal).手机, batch.conversationId, batch.messageIds)) return;
+    afterReveal.setNPC((previous) => mergeNpcWriteBack({
+      start: npcWriteBackBase,
+      next: result.npcs,
+      current: previous,
+      expectedSessionId: batch.sessionId,
+      currentSessionId: afterReveal.getGameSessionId(),
+    }).records);
+  }, []);
+
+  const dispatchCourierReply = useCallback(async (batch: CourierReplyBatchIntent): Promise<CourierReplyDispatchResult> => {
+    const live = latestStateRef.current;
+    if (live.getGameSessionId() !== batch.sessionId || live.gameSettings.手机系统.enabled === false) return 'sent';
+    const root = readLiveGameState(live);
+    if (!isCourierReplyTargetLive(root.手机, batch.conversationId, batch.messageIds)) return 'sent';
+    const conversation = root.手机.conversations.find((item) => item.id === batch.conversationId);
+    const playerMessage = conversation && buildCourierPlayerBatch(conversation, batch.messageIds);
+    if (!conversation || !playerMessage) return 'sent';
+    if (!beginCourierReply(batch.conversationId, batch.sessionId)) return 'defer';
+
+    const typingIds = conversation.type === 'group'
+      ? selectGroupReplyMembers(conversation, playerMessage, 3, root.手机.contacts)
+      : [([...conversation.messages].reverse().find((message) => message.senderId !== 'player')?.senderId
+        ?? conversation.participantIds.find((id) => id !== 'player'))].filter((id): id is string => Boolean(id));
+    if (!typingIds.length) {
+      endCourierReply(batch.conversationId, batch.sessionId);
+      return 'sent';
+    }
+    const npcWriteBackBase = mapTeyvatNpcsToLegacy(root);
+    live.updateGameState((current) => live.getGameSessionId() !== batch.sessionId
+      || !isCourierReplyTargetLive(current.手机, batch.conversationId, batch.messageIds) ? current : ({
+        ...current,
+        手机: {
+          ...current.手机,
+          conversations: current.手机.conversations.map((item) => item.id === batch.conversationId
+            ? { ...item, typingMemberIds: typingIds }
+            : item),
+        },
+      }));
+
+    try {
+      const mainApiConfig = live.apiSettings.configs.find((item) => item.id === live.apiSettings.activeConfigId)
+        ?? live.apiSettings.configs[0] ?? null;
+      const letterApiConfig = resolveCourierApiConfig(live.gameSettings.手机系统?.api, mainApiConfig);
+      const weatherName = 天气列表.find((item) => item.id === root.世界.当前天气)?.name;
+      const result = await runCourierReplyPass({
+        courier: root.手机,
+        npcs: npcWriteBackBase,
+        environment: {
+          location: root.世界.当前地点 || undefined,
+          timeText: root.世界.当前时间 || undefined,
+          ...(weatherName ? { weather: weatherName } : {}),
+        },
+        travelerName: root.旅行者.姓名 || undefined,
+        letterApiConfig,
+        turn: root.turnCount,
+        maxReplies: 1,
+        replyBatch: batch,
+        fallbackPolicy: 'error',
+        sessionId: batch.sessionId,
+        preclaimedConversationIds: [batch.conversationId],
+      });
+      const currentLive = latestStateRef.current;
+      if (currentLive.getGameSessionId() !== batch.sessionId
+        || !isCourierReplyTargetLive(readLiveGameState(currentLive).手机, batch.conversationId, batch.messageIds)) return 'sent';
+      await commitAndRevealCourierReply(result, batch, root.手机, npcWriteBackBase);
+      if (latestStateRef.current.getGameSessionId() !== batch.sessionId) return 'sent';
+      setCourierReplyErrors((previous) => {
+        if (!previous[batch.conversationId]) return previous;
+        const next = { ...previous };
+        delete next[batch.conversationId];
+        return next;
+      });
+      return result.replied > 0 ? 'sent' : 'retry';
+    } catch (error) {
+      const currentLive = latestStateRef.current;
+      if (currentLive.getGameSessionId() !== batch.sessionId
+        || !isCourierReplyTargetLive(readLiveGameState(currentLive).手机, batch.conversationId, batch.messageIds)) return 'sent';
+      setCourierReplyErrors((previous) => ({
+        ...previous,
+        [batch.conversationId]: error instanceof Error && error.message === 'PHONE_REPLY_API_UNAVAILABLE'
+          ? 'api_unavailable' : 'reply_failed',
+      }));
+      return 'retry';
+    } finally {
+      const currentLive = latestStateRef.current;
+      currentLive.updateGameState((current) => currentLive.getGameSessionId() !== batch.sessionId ? current : ({
+        ...current,
+        手机: {
+          ...current.手机,
+          conversations: current.手机.conversations.map((item) => item.id === batch.conversationId
+            ? { ...item, typingMemberIds: [] }
+            : item),
+        },
+      }));
+      endCourierReply(batch.conversationId, batch.sessionId);
+    }
+  }, [commitAndRevealCourierReply]);
+  useEffect(() => {
+    courierDispatchRef.current = dispatchCourierReply;
+  }, [dispatchCourierReply]);
+
+  const handleCourierReplyRequest = useCallback((conversationId: string, messageId: string) => {
+    courierReplyQueue.enqueue({ conversationId, messageId, sessionId: latestStateRef.current.getGameSessionId() });
+  }, [courierReplyQueue]);
+  const handleCourierReplyRetry = useCallback((conversationId: string) => {
+    setCourierReplyErrors((previous) => {
+      if (!previous[conversationId]) return previous;
+      const next = { ...previous };
+      delete next[conversationId];
+      return next;
+    });
+    courierReplyQueue.retry(conversationId);
+  }, [courierReplyQueue]);
 
   const handleResumeRecovery = useCallback(async () => {
     if (!recoveryJournal) return;
@@ -385,7 +533,10 @@ export default function App() {
   const recoveryBannerElement = recoveryJournal ? (
     <RecoveryBanner
       journal={recoveryJournal}
-      resumable={canAutoResume(recoveryJournal, state.game)}
+      resumable={canAutoResume(recoveryJournal, state.game, {
+        allowPristineRoot: state.getGameSessionId() === 0,
+        currentSaveTreeNodeId: getActiveSaveTreeNodeId(),
+      })}
       onResume={() => void handleResumeRecovery()}
       onDismiss={() => void handleDismissRecovery()}
     />
@@ -691,6 +842,8 @@ export default function App() {
       onOpenSteambird={handleOpenSteambird}
       apiSettings={state.apiSettings}
       onApiSettingsChange={state.setApiSettings}
+      saveStatus={saveStatus}
+      onRetrySave={retryFailedSave}
     />
   );
 
@@ -730,6 +883,7 @@ export default function App() {
       />
       <ChatList
         messages={state.chatHistory}
+        variableBatches={state.variableBatches}
         loading={state.loading}
         scrollRef={state.scrollRef}
         npcRecords={state.NPC}
@@ -790,6 +944,7 @@ export default function App() {
             world: state.世界,
             onTravelerChange: state.set旅人,
             onInventoryChange: state.set背包,
+            getGameSessionId: state.getGameSessionId,
             onUnlockedElement: handleUnlockedElement,
             npcRecords: state.NPC,
             onNpcRecordsChange: state.setNPC,
@@ -1023,11 +1178,6 @@ export default function App() {
     };
 
     const handleStartGame = async (traveler: 角色数据结构, worldState: 世界状态, initialNpcRecords: NPC记录[] = []) => {
-      // 预检 API：configs 为空时给出明确提示，不切换 view，避免玩家被困在空白游戏页。
-      if (state.apiSettings.configs.length === 0) {
-        alert('请先在设置中配置至少一个 API 接口，再开始旅途。');
-        return;
-      }
       let nextStoryWeaving = state.剧情编织;
       try {
         nextStoryWeaving = alignStoryWeavingToOpeningArchive(
@@ -1038,6 +1188,8 @@ export default function App() {
       } catch (err) {
         console.warn('[story-weaving] 新开局加载内置原著剧情失败，保留当前剧情编织状态:', err);
       }
+      state.invalidateGameSession();
+      clearActiveSaveTreeMetaIfMatches();
       state.updateGameState((current) => ({
         ...applyLegacyGameStateOverrides(current, {
           旅人: traveler,
@@ -1071,10 +1223,63 @@ export default function App() {
             currentTheme={state.currentTheme}
             gameSettings={state.gameSettings}
             onGameSettingsChange={state.setGameSettings}
+            apiSettings={state.apiSettings}
+            onOpenApiSettings={() => {
+              setSettingsInitialTab('api');
+              setShowSettings(true);
+            }}
             openingArchiveApiConfig={getActiveApiConfig()}
             onGenerateTravelerTemplate={handleGenerateTravelerTemplate}
           />
         </Suspense>
+        {showSettings && (
+          <Suspense fallback={<LazySurfaceFallback label="设置载入中" />}>
+            <SettingsModal
+              onClose={() => setShowSettings(false)}
+              apiSettings={state.apiSettings}
+              onApiSettingsChange={state.setApiSettings}
+              gameSettings={state.gameSettings}
+              onGameSettingsChange={state.setGameSettings}
+              currentTheme={state.currentTheme}
+              onThemeChange={state.setCurrentTheme}
+              onSave={actions.handleSave}
+              onContinue={actions.handleContinue}
+              onLoadSave={(id) => handleLoadById(id, state)}
+              initialTab={settingsInitialTab}
+              旅人={state.旅人}
+              世界={state.世界}
+              on世界Change={state.set世界}
+              记忆={state.记忆}
+              世界树={state.世界树}
+              图鉴={state.图鉴}
+              手机={state.手机}
+              NPC={state.NPC}
+              蒸汽鸟报={state.蒸汽鸟报}
+              剧情编织={state.剧情编织}
+              on剧情编织Change={state.set剧情编织}
+              getContextSnapshot={actions.getContextSnapshot}
+              worldbooks={state.worldbooks}
+              onWorldbooksChange={(books) => {
+                state.setWorldbooks(books);
+                void saveSetting('worldbooks', books);
+              }}
+              chatHistory={state.chatHistory}
+              variableSetters={{
+                set旅人: state.set旅人,
+                set背包: state.set背包,
+                set世界: state.set世界,
+                set记忆: state.set记忆,
+                set世界树: state.set世界树,
+                set图鉴: state.set图鉴,
+                set手机: state.set手机,
+                setNPC: state.setNPC,
+                set蒸汽鸟报: state.set蒸汽鸟报,
+                set剧情: state.set剧情,
+              }}
+              variableEditingLocked
+            />
+          </Suspense>
+        )}
         {homeJourneyTransitioning ? <HomeJourneyOverlay /> : null}
         {launchingJourney ? <JourneyLaunchOverlay /> : null}
         <ToastHost />
@@ -1177,7 +1382,12 @@ export default function App() {
             travelerAvatar={state.旅人.头像}
             currentTurn={state.game.turnCount}
             onCourierChange={state.set手机}
+            getGameSessionId={state.getGameSessionId}
             onRequestReply={handleCourierReplyRequest}
+            replyErrorByConversationId={courierReplyErrors}
+            onRetryReply={handleCourierReplyRetry}
+            onRequestMomentComments={handleMomentCommentRequest}
+            canGenerateMomentComments={canGenerateMomentComments}
             onClose={handleCloseCourier}
           />
         </Suspense>
@@ -1256,6 +1466,7 @@ function renderSystemPanel(
     world: 世界状态;
     onTravelerChange: React.Dispatch<React.SetStateAction<角色数据结构>>;
     onInventoryChange: React.Dispatch<React.SetStateAction<TeyvatInventory>>;
+    getGameSessionId: () => number;
     onUnlockedElement: (id: ElementId) => void;
     npcRecords: NPC记录[];
     onNpcRecordsChange: React.Dispatch<React.SetStateAction<NPC记录[]>>;
@@ -1320,6 +1531,7 @@ function renderSystemPanel(
         <InventoryPanel
           inventory={ctx.inventory}
           onInventoryChange={ctx.onInventoryChange}
+          getGameSessionId={ctx.getGameSessionId}
           turnCount={ctx.turnCount}
         />
       );
@@ -1389,6 +1601,7 @@ function renderSystemPanel(
         <MemoryPanel
           memorySystem={ctx.memorySystem}
           onMemorySystemChange={ctx.onMemorySystemChange}
+          getGameSessionId={ctx.getGameSessionId}
           turnCount={ctx.turnCount}
           settings={ctx.memorySettings}
           failedDrafts={ctx.failedDrafts}

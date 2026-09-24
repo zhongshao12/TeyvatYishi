@@ -95,6 +95,31 @@ export interface CourierDeliverySeed {
   status: 'pending' | 'generated' | 'dismissed' | 'expired';
 }
 
+export interface CourierMomentComment {
+  id: string;
+  npcId: string;
+  npcName: string;
+  content: string;
+  createdAt: number;
+}
+
+export interface CourierMomentTarget {
+  npcId: string;
+  status: 'generating' | 'done' | 'failed';
+}
+
+export interface CourierMoment {
+  id: string;
+  authorId: 'player';
+  content: string;
+  turn: number;
+  createdAt: number;
+  updatedAt: number;
+  revision: number;
+  targets: CourierMomentTarget[];
+  comments: CourierMomentComment[];
+}
+
 export interface CourierSystem {
   contacts: CourierContact[];
   letters: CourierLetter[];
@@ -102,12 +127,14 @@ export interface CourierSystem {
   deliverySeeds: CourierDeliverySeed[];
   unreadTotal: number;
   wallpapers: { home?: string; conversation?: string };
+  /** Optional for older in-memory fixtures; all normalized saves contain an array. */
+  moments?: CourierMoment[];
 }
 
 export const MAX_COURIER_MESSAGES_PER_CONVERSATION = 400;
 
 export function createEmptyCourierSystem(): CourierSystem {
-  return { contacts: [], letters: [], conversations: [], deliverySeeds: [], unreadTotal: 0, wallpapers: {} };
+  return { contacts: [], letters: [], conversations: [], deliverySeeds: [], unreadTotal: 0, wallpapers: {}, moments: [] };
 }
 
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
@@ -232,8 +259,48 @@ function normalizeSeed(value: unknown): CourierDeliverySeed | null {
   };
 }
 
+function normalizeMoment(value: unknown): CourierMoment | null {
+  if (!isRecord(value) || value.authorId !== 'player') return null;
+  const id = text(value.id).trim();
+  const content = text(value.content).trim();
+  if (!id || !content || content.length > 500) return null;
+  const seenComments = new Set<string>();
+  const comments: CourierMomentComment[] = (Array.isArray(value.comments) ? value.comments : []).flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const npcId = text(entry.npcId).trim();
+    const comment = text(entry.content).trim();
+    if (!npcId || !comment || comment.length > 120 || seenComments.has(npcId) || seenComments.size >= 3) return [];
+    seenComments.add(npcId);
+    return [{ id: text(entry.id), npcId, npcName: text(entry.npcName), content: comment, createdAt: Number(entry.createdAt) || 0 }];
+  });
+  const seenTargets = new Set<string>();
+  const targets: CourierMomentTarget[] = (Array.isArray(value.targets) ? value.targets : []).flatMap((target) => {
+    if (!isRecord(target)) return [];
+    const npcId = text(target.npcId).trim();
+    if (!npcId || seenTargets.has(npcId) || seenTargets.size >= 3) return [];
+    seenTargets.add(npcId);
+    const status: CourierMomentTarget['status'] = target.status === 'done' && comments.some((comment) => comment.npcId === npcId)
+      ? 'done' : 'failed';
+    return [{ npcId, status }];
+  });
+  return {
+    id, authorId: 'player', content, turn: integer(value.turn),
+    createdAt: Number(value.createdAt) || 0,
+    updatedAt: Number(value.updatedAt) || 0,
+    revision: Math.max(1, integer(value.revision)),
+    targets, comments,
+  };
+}
+
 export function normalizeCourierSystem(value: unknown): CourierSystem {
   const raw = isRecord(value) ? value : {};
+  const seenMomentIds = new Set<string>();
+  const moments = (Array.isArray(raw.moments) ? raw.moments : []).flatMap((item) => {
+    const moment = normalizeMoment(item);
+    if (!moment || seenMomentIds.has(moment.id)) return [];
+    seenMomentIds.add(moment.id);
+    return [moment];
+  });
   const wallpapers = isRecord(raw.wallpapers) ? raw.wallpapers : {};
   const normalizedContacts = Array.isArray(raw.contacts) ? raw.contacts.flatMap((item) => normalizeContact(item) ?? []) : [];
   const idAliases = new Map<string, string>();
@@ -291,6 +358,7 @@ export function normalizeCourierSystem(value: unknown): CourierSystem {
     letters,
     conversations,
     deliverySeeds,
+    moments,
     unreadTotal: integer(raw.unreadTotal), wallpapers: { home: optionalText(wallpapers.home), conversation: optionalText(wallpapers.conversation) },
   };
 }

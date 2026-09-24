@@ -42,7 +42,7 @@ import { buildCodexModelLookupConfig } from '@/components/features/Settings/Code
 describe('Teyvat extension systems', () => {
   it('creates and normalizes a Courier system without old runtime keys or input mutation', () => {
     const empty = createEmptyCourierSystem();
-    expect(empty).toEqual({ contacts: [], letters: [], conversations: [], deliverySeeds: [], unreadTotal: 0, wallpapers: {} });
+    expect(empty).toEqual({ contacts: [], letters: [], conversations: [], deliverySeeds: [], unreadTotal: 0, wallpapers: {}, moments: [] });
     expect(JSON.stringify(empty)).not.toMatch(/手机|phone/iu);
 
     const dirty = { conversations: [{ id: 'c-1', title: '安柏', participantIds: ['amber'], messages: [], unread: 1, type: 'private', typingMemberIds: [], updatedAt: 1, unknown: true }], unknown: true };

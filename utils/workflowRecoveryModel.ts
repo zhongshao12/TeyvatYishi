@@ -16,6 +16,8 @@ export interface WorkflowRecoveryJournal {
   updatedAt: number;
   input: string;
   turnAtStart: number;
+  /** Save-tree node active when this workflow began; null means an unsaved new journey. */
+  originSaveTreeNodeId?: string | null;
   phase: WorkflowRecoveryPhase;
   userMessageId?: string;
   assistantMessageId?: string;
@@ -58,7 +60,7 @@ function createWorkflowId(): string {
   return uuid ? `workflow_${uuid}` : `workflow_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function createWorkflowRecoveryJournal(input: string, turnAtStart: number): WorkflowRecoveryJournal {
+export function createWorkflowRecoveryJournal(input: string, turnAtStart: number, originSaveTreeNodeId?: string | null): WorkflowRecoveryJournal {
   const now = Date.now();
   return {
     version: 3,
@@ -67,6 +69,7 @@ export function createWorkflowRecoveryJournal(input: string, turnAtStart: number
     updatedAt: now,
     input: input.slice(0, 100_000),
     turnAtStart: Math.max(1, Math.trunc(turnAtStart) || 1),
+    ...(originSaveTreeNodeId !== undefined ? { originSaveTreeNodeId } : {}),
     phase: 'narrative_received',
     phaseStartedAt: now,
   };
@@ -131,6 +134,9 @@ export function parseWorkflowRecoveryJournal(value: unknown): WorkflowRecoveryJo
     updatedAt,
     input: raw.input,
     turnAtStart: Math.max(1, Math.trunc(turnAtStart)),
+    ...(raw.originSaveTreeNodeId === null || typeof raw.originSaveTreeNodeId === 'string'
+      ? { originSaveTreeNodeId: raw.originSaveTreeNodeId as string | null }
+      : {}),
     phase: normalizedPhase as WorkflowRecoveryPhase,
     userMessageId: typeof raw.userMessageId === 'string' ? raw.userMessageId : undefined,
     assistantMessageId: typeof raw.assistantMessageId === 'string' ? raw.assistantMessageId : undefined,

@@ -79,6 +79,7 @@ export const CourierMessageTimeline = memo(function CourierMessageTimeline({
 }: CourierMessageTimelineProps) {
   return (
     <div
+      data-testid="phone-message-timeline"
       className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
       style={conversationWallpaper ? {
         backgroundImage: `linear-gradient(rgba(239, 227, 201, 0.88), rgba(239, 227, 201, 0.92)), url(${conversationWallpaper})`,

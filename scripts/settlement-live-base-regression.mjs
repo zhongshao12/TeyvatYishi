@@ -45,7 +45,7 @@ assertIncludes(gameState, 'export function readLiveGameState(', '必须导出 re
 const liveReader = gameState.slice(gameState.indexOf('export function readLiveGameState('));
 const liveReaderBody = liveReader.slice(0, liveReader.indexOf('\n}\n') + 1);
 assertIncludes(liveReaderBody, 'flushSync(', 'readLiveGameState 必须用 flushSync 同步拿到活体根（渲染快照可能落后于未刷新的写入）。');
-assertIncludes(liveReaderBody, 'return current;', 'readLiveGameState 必须同引用返回，否则会把一次只读探测变成真实渲染。');
+assertIncludes(liveReaderBody, 'return current;', 'readLiveGameState 必须同引用返回：这次更新不得改变状态（代价是 flushSync 会真的渲染一次，见该函数注释与 tests/unit/liveGameStateRead.test.ts）。');
 
 // ── B) CAS 基准 / 合并祖先 / 快照基线 ──
 const entryStart = sendWorkflow.indexOf('export async function runVariableCalibrationStep');
@@ -96,7 +96,7 @@ assertIncludes(
 // ── D) 对话切片按 id 合并 ──
 assertIncludes(rebase, 'ancestor: TeyvatGameState;', '并发判定基准必须叫 ancestor（活体根）。');
 assert(
-  !rebase.includes('trueBase') && !rebase.includes('frozenBase') && !rebase.includes('NON_SLICE_KEYS'),
+  !rebase.includes('trueBase') && !rebase.includes('frozenBase'),
   'settlementRebase 不得再引用渲染快照/归一化快照当基准（引用必然不等 → 全部切片被误判成冲突）。',
 );
 assertIncludes(rebase, 'if (currentSlice === ancestorRecord[key]) continue;', '只有「引用变了」才算等待期间的并发写入。');

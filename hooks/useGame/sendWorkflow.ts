@@ -52,6 +52,7 @@ import type { CodexEntry } from '@/models/teyvat/codex';
 import { pushToast } from '@/utils/toastStore';
 
 import { pushWorkflowQueueTask as pushQueueTask } from './workflowQueue';
+import { getActiveSaveTreeNodeId } from './saveLoadWorkflow';
 import type {
   VariableSettlementParams,
   VariableSettlementResult} from './variableSettlementWorkflow';
@@ -334,7 +335,9 @@ export async function resumeCommittedSettlementWorkflow(
 ): Promise<WorkflowResumeResult> {
   return runCommittedSettlementRecovery({
     journal,
-    currentState: state.game,
+    currentState: readLiveGameState(state),
+    allowPristineRoot: state.getGameSessionId() === 0,
+    currentSaveTreeNodeId: getActiveSaveTreeNodeId(),
     persist: persistWorkflowRecoveryJournal,
     runPostSettlement: async (committed, committedJournal) => {
       const result = await resumePostSettlementWorkflow(state, committedJournal, committed);
@@ -350,7 +353,11 @@ export async function resumePendingSettlementWorkflow(
 ): Promise<WorkflowResumeResult> {
   return runPendingSettlementRecovery({
     journal,
-    currentState: state.game,
+    allowPristineRoot: state.getGameSessionId() === 0,
+    currentSaveTreeNodeId: getActiveSaveTreeNodeId(),
+    // 必须是**活体根**：待恢复回合的身份校验（回合数 + 对话时间线归属）与提交时的 CAS
+    // 都以它为基准；用 `state.game`（本次渲染的快照）会把同一份存档误判成「已换档」。
+    currentState: readLiveGameState(state),
     persist: persistWorkflowRecoveryJournal,
     settle: async (source, settlementId) => {
       if (!journal.pendingNarrative || !journal.pendingSettlement) return null;
@@ -638,9 +645,10 @@ export async function executeSendWorkflow(
   state.abortControllerRef.current?.abort();
   const abortController = new AbortController();
   state.abortControllerRef.current = abortController;
+  const workflowSessionId = state.getGameSessionId();
   const isCurrentWorkflow = () => state.abortControllerRef.current === abortController;
   const assertWorkflowActive = () => {
-    if (abortController.signal.aborted || !isCurrentWorkflow()) {
+    if (abortController.signal.aborted || !isCurrentWorkflow() || state.getGameSessionId() !== workflowSessionId) {
       throw new DOMException('Workflow aborted', 'AbortError');
     }
   };
@@ -663,7 +671,7 @@ export async function executeSendWorkflow(
   // Declared outside the stream setup so finally can always cancel a pending rAF commit.
   const streamMessageSetter = createRafCoalescedSetter(setStreamingMessage);
   const streamDelayController = createStreamingPreviewDelayController(abortController.signal);
-  let recoveryJournal = createWorkflowRecoveryJournal(userInput, state.turnCount);
+  let recoveryJournal = createWorkflowRecoveryJournal(userInput, state.turnCount, getActiveSaveTreeNodeId());
 
   const startTime = Date.now();
 
@@ -975,9 +983,12 @@ export async function executeSendWorkflow(
       },
     });
   } catch (err: unknown) {
-    if ((err as Error).name === 'AbortError' || abortController.signal.aborted) {
+    if (state.getGameSessionId() !== workflowSessionId) {
+      // 读档/新开局已让旧工作流失效：不能把旧回合快照回滚进新档，也不能写入旧任务提示。
+    } else if ((err as Error).name === 'AbortError' || abortController.signal.aborted) {
       const abortDisposition = await applyAbortedWorkflowPolicy({
         phase: recoveryJournal.phase,
+        sessionStillCurrent: () => state.getGameSessionId() === workflowSessionId,
         rollback: async () => {
           state.setChatHistory(rollbackHistoryOnAbort);
           if (rollbackSnapshotOnAbort) {
@@ -1035,12 +1046,12 @@ export async function executeSendWorkflow(
     if (isCurrentWorkflow()) {
       state.setLoading(false);
       setStreamingMessage('');
-      if (!keepWorkflowHint) {
+      if (!keepWorkflowHint && state.getGameSessionId() === workflowSessionId) {
         state.setWorkflowHint('');
         state.setWorkflowStatus('');
       }
       state.setPendingVariable(false);
-      if (!pendingVariableStarted) {
+      if (!pendingVariableStarted && state.getGameSessionId() === workflowSessionId) {
         pushQueueTask(state, 'memory', 'idle', { detail: '主剧情未完成，本轮后台任务未启动。' });
         pushQueueTask(state, 'variable', 'idle', { detail: '主剧情未完成，本轮后台任务未启动。' });
         pushQueueTask(state, 'steambird', 'idle', { detail: '主剧情未完成，本轮后台任务未启动。' });
@@ -1075,7 +1086,7 @@ export async function runVariableCalibrationStep(
 ): Promise<VariableSettlementResult | null> {
   const { state, liveBaseGame, ...settlement } = params;
   const { runVariableSettlementWorkflow } = await import('./variableSettlementWorkflow');
-  const { rebaseSettlementState } = await import('@/utils/settlementRebase');
+  const { rebaseSettlementState, isSettlementBaseCompatibleWithLiveRoot } = await import('@/utils/settlementRebase');
   const { capturePostSettlementSaveToken, isSamePostSettlementSave } = await import('./postSettlementRecoveryWorkflow');
   // 结算基线必须是**活体根**，不能用 `state.game`：
   // `UseGameStateReturn` 是每次渲染一份的快照，`state.game` 还是「本回合 user 消息入栈之前」的旧根，
@@ -1083,6 +1094,15 @@ export async function runVariableCalibrationStep(
   // 「等待期间换了存档」而整体丢弃，症状是 turnCount 不再增长（聊天/存档回合数卡住、
   // 手机回合分割线全部消失）。详见 `readLiveGameState` 与 `utils/settlementRebase.ts` 的注释。
   const liveBase = liveBaseGame ?? readLiveGameState(state);
+  // 结算基线必须属于**当前活体存档**：恢复路径会把 journal 里那一回合的冻结快照当基线传进来，
+  // 而它属于「当时那份存档」。玩家若已读入别的存档，CAS（活体 vs 活体）拦不住 ——
+  // 于是旧档整根被写进新档。这里在调用模型**之前**就拒绝，既省一次付费调用也守住数据。
+  if (settlement.baseGameSnapshot && !isSettlementBaseCompatibleWithLiveRoot(settlement.baseGameSnapshot, liveBase)) {
+    pushQueueTask(state, 'variable', 'failed', {
+      detail: '本次变量结算的基线来自另一份存档（等待期间已切换存档），已放弃，未写入任何内容。',
+    });
+    return null;
+  }
   const saveToken = capturePostSettlementSaveToken(liveBase);
   return runVariableSettlementWorkflow({
     ...settlement,

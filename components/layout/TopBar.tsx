@@ -5,6 +5,7 @@ import type { 主题预设, API设置 } from '@/models/settings';
 import type { SteambirdNews } from '@/models/teyvat';
 import { 天气Emoji映射, 天气名映射 } from '@/data/weatherRules';
 import { parseGameClock } from '@/utils/gameClock';
+import type { SaveStatusSnapshot } from '@/utils/saveStatus';
 
 interface TopBarProps {
   worldState: 世界状态;
@@ -14,6 +15,8 @@ interface TopBarProps {
   onOpenSteambird?: () => void;
   apiSettings: API设置;
   onApiSettingsChange: (s: API设置) => void;
+  saveStatus: SaveStatusSnapshot;
+  onRetrySave?: () => void;
 }
 
 const clip10 =
@@ -22,13 +25,17 @@ const clip10 =
 const clip12 =
   CLIP_SECTION;
 
-export const TopBar = memo(function TopBar({ worldState, onHome, steambird }: TopBarProps) {
+export const TopBar = memo(function TopBar({ worldState, onHome, steambird, saveStatus, onRetrySave }: TopBarProps) {
   const [mobileCollapsed, setMobileCollapsed] = useState(false);
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const dateText = worldState.当前日期?.trim() || '日期未设定';
   const timeText = formatClock(worldState.当前时间) || '时间未设定';
   const locationText = worldState.当前地点?.trim() || '地点未设定';
   const dayText = `第 ${Math.max(1, worldState.旅程天数 || 1).toString().padStart(2, '0')} 日`;
+  const saveText = formatSaveStatus(saveStatus);
+  const saveTone = saveStatus.phase === 'failed' || saveStatus.hadFailure
+    ? 'var(--journal-antique-gold-soft)'
+    : saveStatus.phase === 'saved' ? 'var(--journal-travel-green)' : 'rgba(var(--tj-text-secondary), 0.92)';
 
   const weatherId = worldState.当前天气;
   const weatherDisplay = weatherId ? (
@@ -88,6 +95,7 @@ export const TopBar = memo(function TopBar({ worldState, onHome, steambird }: To
                   {locationText}
                 </span>
               </div>
+              <span className="block truncate text-xs" style={{ color: saveTone }} aria-live="polite">{saveText}</span>
             </button>
 
             {mobileExpanded && (
@@ -104,6 +112,12 @@ export const TopBar = memo(function TopBar({ worldState, onHome, steambird }: To
                 <MobileDetail label="时间" value={timeText} />
                 <MobileDetail label="地点" value={locationText} />
                 <MobileDetail label="旅途" value={dayText} />
+                <MobileDetail label="存档" value={saveText} />
+                {saveStatus.phase === 'failed' && onRetrySave && (
+                  <button type="button" onClick={onRetrySave} className="journal-focus-target min-h-11 w-full px-3 py-2 text-left" style={{ color: saveTone, boxShadow: insetRing(0.28) }}>
+                    重试保存
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onHome}
@@ -171,7 +185,7 @@ export const TopBar = memo(function TopBar({ worldState, onHome, steambird }: To
         </div>
 
         {/* ── 上层：右列旅途日数徽章 ── */}
-        <div className="relative z-10 justify-self-end">
+        <div className="relative z-10 flex flex-col items-end gap-1 justify-self-end">
           <div
             className="flex items-baseline gap-2 px-3 py-1"
             style={{
@@ -188,11 +202,30 @@ export const TopBar = memo(function TopBar({ worldState, onHome, steambird }: To
               {dayText}
             </span>
           </div>
+          <div className="flex items-center gap-2 text-xs" style={{ color: saveTone }} aria-live="polite" aria-label="存档状态">
+            <span>{saveText}</span>
+            {saveStatus.phase === 'failed' && onRetrySave && (
+              <button type="button" onClick={onRetrySave} className="journal-focus-target min-h-8 px-2 underline underline-offset-2">
+                重试保存
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </>
   );
 });
+
+function formatSaveStatus(status: SaveStatusSnapshot): string {
+  const kind = status.source === 'manual' ? '手动' : status.source === 'auto' ? '自动' : '';
+  if (status.phase === 'unsaved') return '有未保存更改';
+  if (status.phase === 'failed') return `${kind}保存失败`;
+  if (status.phase === 'saving') return status.hadFailure ? '保存失败 · 正在重试' : `正在${kind}保存`;
+  const time = status.savedAt && Number.isFinite(status.savedAt)
+    ? ` · ${new Date(status.savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+    : '';
+  return status.source === 'loaded' ? `已读取存档${time}` : `${kind}存档已保存${time}`;
+}
 
 // ---- helpers ----
 

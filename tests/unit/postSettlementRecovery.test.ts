@@ -86,6 +86,8 @@ describe('committed restart post-settlement tail', () => {
         live.current = next;
         replaced.push(next);
       },
+      getGameSessionId: () => 0,
+      invalidateGameSession: () => undefined,
       setHasSave: vi.fn(),
     } as unknown as UseGameStateReturn;
 

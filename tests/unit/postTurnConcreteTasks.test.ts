@@ -128,6 +128,6 @@ describe('post-turn concrete tasks', () => {
     });
 
     expect(output.status).toBe('saved');
-    expect(order).toEqual(['assert', 'persist:save-1', 'commit:save-1', 'assert', 'mark']);
+    expect(order).toEqual(['assert', 'persist:save-1', 'assert', 'commit:save-1', 'mark']);
   });
 });

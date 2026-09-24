@@ -1,11 +1,30 @@
 import type { API配置项 } from '@/models/settings';
 import { chatCompletion } from './chatCompletionClient';
-import { composeCourierLetterLocally, type CourierGroupReplyContext, type CourierLetterContext, type CourierReplyContext } from './courierService';
+import { composeCourierLetterLocally, extractCourierSpeechEvent, type CourierGroupReplyContext, type CourierLetterContext, type CourierReplyContext, type CourierSenderProfile } from './courierService';
 import type { 手机API覆盖 } from '@/models/settings';
 
 /** 手机消息独立模型：按上下文、人设、关系与同行记忆生成即时聊天。 */
 
 const META_PATTERN = /deliverySeed|triggerType|seed\.context|系统提示|以下是?消息[:：]|如下是?消息[:：]|(?:API|提示词|记忆库)(?:参数|内容|字段|数据)?/i;
+const META_NARRATIVE_PATTERN = /关于.{0,30}对.*(?:印象|好感)|可能会有后续联络|可低频投递|已发生事实|玩家一行人|对了，.*我还记着/u;
+
+function speechSafeSender(sender: CourierSenderProfile | undefined): CourierSenderProfile | undefined {
+  if (!sender) return undefined;
+  const line = (value: string | undefined) => value && !META_NARRATIVE_PATTERN.test(value) ? value : undefined;
+  const lines = (value: string[] | undefined) => value?.filter((item) => !META_NARRATIVE_PATTERN.test(item));
+  return {
+    ...sender,
+    recentInteraction: line(sender.recentInteraction),
+    longTermImpression: line(sender.longTermImpression),
+    sharedExperiences: lines(sender.sharedExperiences),
+    unfinishedBusiness: lines(sender.unfinishedBusiness),
+    unresolvedConflicts: lines(sender.unresolvedConflicts),
+    mustRemember: lines(sender.mustRemember),
+    summaryMemories: lines(sender.summaryMemories),
+    recentMemories: lines(sender.recentMemories),
+    recentMessages: lines(sender.recentMessages),
+  };
+}
 
 function cleanLetterText(raw: string): string {
   return raw
@@ -52,8 +71,10 @@ async function requestCourierText(config: API配置项, prompt: string): Promise
 }
 
 export function buildCourierLetterPrompt(context: CourierLetterContext): string {
-  const { seed, sender, environment } = context;
+  const { seed, environment } = context;
+  const sender = speechSafeSender(context.sender);
   const senderName = sender?.name || seed.senderId;
+  const event = extractCourierSpeechEvent(seed.context);
   return [
     '你正在为《原神》文字冒险生成角色主动发来的手机消息。请完全进入该角色，以第一人称自然联系旅行者。',
     '要求：',
@@ -84,8 +105,7 @@ export function buildCourierLetterPrompt(context: CourierLetterContext): string 
     environment?.location ? `当前地点：${environment.location}` : '',
     environment?.timeText ? `当前时间：${environment.timeText}` : '',
     environment?.weather ? `当前天气：${environment.weather}` : '',
-    `主动联系原因：${seed.reason || seed.triggerType}`,
-    `最近发生的事：${seed.context}`,
+    event ? `寄件人可知的近期事件：${event}` : '',
     `旅行者名字：${context.travelerName || '旅行者'}`,
   ].filter(Boolean).join('\n');
 }
@@ -94,7 +114,7 @@ export async function generateCourierLetter(config: API配置项, context: Couri
   const prompt = buildCourierLetterPrompt(context);
   const letter = cleanLetterText(await requestCourierText(config, prompt));
   if (!letter || letter.length < 6) throw new Error('EMPTY_LETTER');
-  if (META_PATTERN.test(letter)) throw new Error('LETTER_CONTAINS_META_TEXT');
+  if (META_PATTERN.test(letter) || META_NARRATIVE_PATTERN.test(letter)) throw new Error('LETTER_CONTAINS_META_TEXT');
   return letter.slice(0, 600);
 }
 
@@ -141,13 +161,16 @@ export function composeCourierLetter(context: CourierLetterContext): string {
  * 失败时抛错，由调用方回退到 composeCourierReplyLocally 的本地聊天。
  */
 export function buildCourierReplyPrompt(context: CourierReplyContext): string {
-  const { playerMessage, sender, environment } = context;
+  const { playerMessage, environment } = context;
+  const sender = speechSafeSender(context.sender);
+  const isConsecutiveBatch = /^1\. [\s\S]*\n2\. /u.test(playerMessage.content);
   return [
     '你正在为《原神》文字冒险生成角色的手机回复。旅行者刚发来消息，请完全进入该角色，用第一人称接话。',
     '要求：',
     '- 只输出 1~3 条短消息，每条单独一行；不要标题、解释、引号、书信腔或旁白。',
     '- 像真实即时聊天：不要写落款，不要每条重复称呼，不要说“来信收到”。',
     '- 要回应旅行者消息里的内容，体现联系人的性格、心情与说话习惯，语气自然有温度。',
+    isConsecutiveBatch ? '- 旅行者连续发了多条消息；按顺序回应整段意思，不要逐条机械复读。' : '',
     '- 语气温度要符合与旅行者的关系亲疏：越亲近越亲切挂念，越生疏越克制有礼。',
     '- 若给了说话方式/口癖，要让回复读起来就是这个人发的，避免千人一面的套话。',
     '- 不要照抄旅行者原文，用联系人自己的口吻回应。',
@@ -182,7 +205,7 @@ export async function generateCourierReply(config: API配置项, context: Courie
   const prompt = buildCourierReplyPrompt(context);
   const letter = cleanLetterText(await requestCourierText(config, prompt));
   if (!letter || letter.length < 4) throw new Error('EMPTY_REPLY');
-  if (META_PATTERN.test(letter)) throw new Error('REPLY_CONTAINS_META_TEXT');
+  if (META_PATTERN.test(letter) || META_NARRATIVE_PATTERN.test(letter)) throw new Error('REPLY_CONTAINS_META_TEXT');
   return letter.slice(0, 600);
 }
 
@@ -191,7 +214,9 @@ export async function generateCourierReply(config: API配置项, context: Courie
  * 失败时抛错，由调用方回退到 composeCourierGroupReplyLocally。
  */
 export function buildCourierGroupReplyPrompt(context: CourierGroupReplyContext): string {
-  const { playerMessage, sender } = context;
+  const { playerMessage } = context;
+  const sender = speechSafeSender(context.sender);
+  const isConsecutiveBatch = /^1\. [\s\S]*\n2\. /u.test(playerMessage.content);
   return [
     '你是《原神》文字冒险手机群聊中的一位成员。旅行者刚在群里说了一句话，请以这位成员的身份跟帖回应。',
     '要求：',
@@ -199,6 +224,7 @@ export function buildCourierGroupReplyPrompt(context: CourierGroupReplyContext):
     '- 要像真实群聊里随口接话：简短、口语、自然，长度 10~45 字。',
     '- 必须从该成员独有的性格、身份、口癖和与旅行者的关系出发作答，让人遮住名字也能辨认角色。',
     '- 必须回应旅行者这句话的核心含义；涉及恋爱、承诺、冲突或请求时，要给出该角色自己的明确态度。',
+    isConsecutiveBatch ? '- 旅行者连续发了多条消息；按顺序回应整段意思，不要逐条机械复读。' : '',
     '- 自然承接一项最相关的同行记忆、近期互动或未完成约定（若有），但不要逐项复述档案。',
     '- 禁止使用“这事我记下了”“你展开讲讲”“我也在想这个”“待会儿聊”一类万能敷衍句。',
     '- 不要照抄旅行者的原话，可以顺着话题接、调侃、关心或补充。',
@@ -228,6 +254,6 @@ export async function generateCourierGroupReply(config: API配置项, context: C
   const prompt = buildCourierGroupReplyPrompt(context);
   const reply = cleanLetterText(await requestCourierText(config, prompt)).replace(/^——.*$/gm, '').trim();
   if (!reply || reply.length < 4) throw new Error('EMPTY_GROUP_REPLY');
-  if (META_PATTERN.test(reply)) throw new Error('GROUP_REPLY_CONTAINS_META_TEXT');
+  if (META_PATTERN.test(reply) || META_NARRATIVE_PATTERN.test(reply)) throw new Error('GROUP_REPLY_CONTAINS_META_TEXT');
   return reply.slice(0, 160);
 }

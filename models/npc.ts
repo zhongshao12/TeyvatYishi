@@ -63,6 +63,8 @@ export interface NPC同行记忆条目 {
   原文?: string;
   来源?: NPC同行记忆来源;
   关联NPCID?: string[];
+  /** 手机交流对好感度的确定性增量；并发写回时随记忆 id 一起去重。 */
+  好感变动?: number;
 }
 
 export interface NPC总结记忆条目 {
@@ -739,7 +741,7 @@ function 合并NPC总结记忆(a: NPC总结记忆条目[], b: NPC总结记忆条
 function 归一化同行记忆列表(raw: unknown): NPC同行记忆条目[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((item, index) => {
+    .map((item, index): NPC同行记忆条目 | null => {
       if (typeof item === 'string') {
         const text = item.trim();
         if (!text) return null;
@@ -774,6 +776,9 @@ function 归一化同行记忆列表(raw: unknown): NPC同行记忆条目[] {
         原文: typeof obj.原文 === 'string' ? obj.原文.trim() : undefined,
         来源: normalizeMemorySource(obj.来源),
         关联NPCID: related.length ? related : undefined,
+        好感变动: Number.isFinite(Number(obj.好感变动))
+          ? Math.max(-2, Math.min(2, Math.trunc(Number(obj.好感变动))))
+          : undefined,
       };
     })
     .filter((item): item is NPC同行记忆条目 => Boolean(item))

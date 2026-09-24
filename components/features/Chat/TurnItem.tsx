@@ -13,9 +13,12 @@ import { 解析相册资源引用 } from '@/utils/albumActions';
 import { rewriteBody } from '@/services/ai/rewriteService';
 import { 改写模式选项, type 改写模式 } from '@/prompts/cot/rewriteCot';
 import { narrativeTurnBodyText } from '@/models/teyvat/narrativeTurn';
+import type { TurnSettlementReceiptModel } from '@/utils/turnSettlementReceipt';
+import { TurnSettlementReceipt } from './TurnSettlementReceipt';
 
 interface TurnItemProps {
   message: 聊天消息;
+  settlementReceipt?: TurnSettlementReceiptModel | null;
   isStreaming?: boolean;
   deferOffscreen?: boolean;
   onEditBody?: (id: string, newBody: string) => void;
@@ -83,7 +86,7 @@ function resolveTurnPlaceholderStyle(
   };
 }
 
-function TurnItemImpl({ message, isStreaming, deferOffscreen = false, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, fallbackElementId, previousUserInput, visualTextSettings, rewriteConfig }: TurnItemProps) {
+function TurnItemImpl({ message, settlementReceipt, isStreaming, deferOffscreen = false, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, fallbackElementId, previousUserInput, visualTextSettings, rewriteConfig }: TurnItemProps) {
   const isUser = message.role === 'user';
   const parsed = message.parsedResponse;
   const shouldDeferOffscreen = deferOffscreen && !isStreaming && !message.isStreaming;
@@ -103,6 +106,7 @@ function TurnItemImpl({ message, isStreaming, deferOffscreen = false, onEditBody
         <AiTurnCard
           message={message}
           parsed={parsed}
+          settlementReceipt={!isStreaming && !message.isStreaming && message.role === 'assistant' ? settlementReceipt : null}
           isStreaming={isStreaming}
           deferOffscreen={shouldDeferOffscreen}
           onEditBody={onEditBody}
@@ -181,6 +185,7 @@ export function UserTurnBubble({ content, traveler, album, fontSize = 14 }: { co
 interface AiTurnCardProps {
   message: 聊天消息;
   parsed: NonNullable<聊天消息['parsedResponse']>;
+  settlementReceipt?: TurnSettlementReceiptModel | null;
   isStreaming?: boolean;
   deferOffscreen?: boolean;
   onEditBody?: (id: string, newBody: string) => void;
@@ -197,7 +202,7 @@ interface AiTurnCardProps {
   rewriteConfig?: API配置项;
 }
 
-function AiTurnCard({ message, parsed, isStreaming, deferOffscreen = false, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, fallbackElementId, previousUserInput, visualTextSettings, rewriteConfig }: AiTurnCardProps) {
+function AiTurnCard({ message, parsed, settlementReceipt, isStreaming, deferOffscreen = false, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, fallbackElementId, previousUserInput, visualTextSettings, rewriteConfig }: AiTurnCardProps) {
   const bodyText = narrativeTurnBodyText(parsed);
   const [openTool, setOpenTool] = useState<ToolKey | null>(null);
   const [draft, setDraft] = useState(bodyText);
@@ -370,6 +375,8 @@ function AiTurnCard({ message, parsed, isStreaming, deferOffscreen = false, onEd
           />
         )}
       </div>
+
+      {settlementReceipt ? <TurnSettlementReceipt receipt={settlementReceipt} /> : null}
 
       {parsed.choices.length > 0 && (
         <div className="px-1 pb-2" aria-label="玩家可选行动">

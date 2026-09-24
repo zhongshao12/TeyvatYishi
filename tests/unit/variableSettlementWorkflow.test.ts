@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { API配置项, 变量API覆盖 } from '@/models/settings';
 import {
   excludeRejectedSettlementCommands,
+  markRejectedSettlementResults,
   resolveVariableSettlementApiConfig,
 } from '@/hooks/useGame/variableSettlementWorkflow';
 
@@ -58,5 +59,15 @@ describe('variable settlement workflow boundaries', () => {
 
     expect(filtered).toEqual([{ id: 'keep-a' }, { id: 'keep-c' }]);
     expect(commands).toHaveLength(4);
+  });
+
+  it('records rejected preflight commands as failures instead of claiming they committed', () => {
+    const accepted = { command: { action: 'add' as const, key: '背包.mora', value: 1 }, ok: true, kind: 'command' as const };
+    const rejected = { command: { action: 'add' as const, key: '背包.mora', value: 999 }, ok: true, kind: 'command' as const };
+    const results = markRejectedSettlementResults([accepted, rejected], [{ index: 1, code: 'INVALID_NUMERIC_RESULT' }]);
+
+    expect(results[0]).toEqual(accepted);
+    expect(results[1]).toMatchObject({ ok: false, kind: 'rejected', reason: 'INVALID_NUMERIC_RESULT' });
+    expect(rejected.ok).toBe(true);
   });
 });

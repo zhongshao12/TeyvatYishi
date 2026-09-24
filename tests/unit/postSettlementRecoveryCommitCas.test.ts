@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement, useEffect, useMemo, useState } from 'react';
+import { act, createElement, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createEmptyTeyvatGameState, normalizeTeyvatGameState, type TeyvatGameState } from '@/models/teyvat';
@@ -23,9 +23,13 @@ describe('post-settlement recovery CAS commit', () => {
   let initialState: TeyvatGameState;
   let stateApi: UseGameStateReturn | null;
   let replaceLive: ((next: TeyvatGameState) => void) | null;
+  let readLive: (() => TeyvatGameState) | null;
 
   function Harness() {
     const [game, setGame] = useState<TeyvatGameState>(() => initialState);
+    // 渲染期同步记录当前活体根：提交后 act 会冲刷渲染，读到的就是提交结果。
+    const latest = useRef(game);
+    latest.current = game;
     stateApi = useMemo(
       () => ({
         updateGameState: (updater: (current: TeyvatGameState) => TeyvatGameState) =>
@@ -35,6 +39,7 @@ describe('post-settlement recovery CAS commit', () => {
     );
     useEffect(() => {
       replaceLive = (next: TeyvatGameState) => setGame(next);
+      readLive = () => latest.current;
     }, []);
     return createElement('span', null, `turn:${game.turnCount}`);
   }
@@ -58,6 +63,7 @@ describe('post-settlement recovery CAS commit', () => {
     initialState = buildSave(2, '去清泉镇');
     stateApi = null;
     replaceLive = null;
+    readLive = null;
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
@@ -76,14 +82,39 @@ describe('post-settlement recovery CAS commit', () => {
     const token = capturePostSettlementSaveToken(initialState);
     const next = normalizeTeyvatGameState({ ...initialState, turnCount: 3 });
 
-    let committed: boolean | null = null;
+    let committed: TeyvatGameState | null = null;
     act(() => {
-      committed = commitPostSettlementBackgroundState(stateApi!, token, next);
+      committed = commitPostSettlementBackgroundState(stateApi!, token, next, initialState);
     });
 
-    expect(committed).toBe(true);
+    expect((committed as TeyvatGameState | null)?.turnCount).toBe(3);
     // flushSync 已同步提交：DOM 立刻反映新状态，落盘才不会写到过期快照。
     expect(host.textContent).toBe('turn:3');
+  });
+
+  it('keeps a player edit made while the tail was awaiting (A3 class)', async () => {
+    const token = capturePostSettlementSaveToken(initialState);
+    const next = normalizeTeyvatGameState({ ...initialState, turnCount: 3, 世界: { ...initialState.世界, 当前地点: '蒙德城' } });
+    // 正文生图等待期间玩家在右侧面板改了背包（活体根换了背包切片引用）
+    const playerInventory = { ...initialState.背包, mora: 999 };
+    await act(async () => {
+      replaceLive!({ ...initialState, 背包: playerInventory });
+    });
+
+    let committed: TeyvatGameState | null = null;
+    act(() => {
+      committed = commitPostSettlementBackgroundState(stateApi!, token, next, initialState);
+    });
+
+    expect((committed as TeyvatGameState | null)?.turnCount).toBe(3);
+    // 结算尾流程的结果要落地，玩家的并发改动也不能被整根替换静默回退。
+    expect(host.textContent).toBe('turn:3');
+    expect(readLive!().世界.当前地点).toBe('蒙德城');
+    expect(readLive!().背包.mora).toBe(999);
+    // 自动存档必须使用这份实际提交的合并根，而不是生图前计算的 next。
+    expect(committed && typeof committed === 'object'
+      ? (committed as TeyvatGameState).背包.mora
+      : undefined).toBe(999);
   });
 
   it('writes nothing when another save was loaded while the tail was awaiting', async () => {
@@ -95,12 +126,12 @@ describe('post-settlement recovery CAS commit', () => {
     expect(host.textContent).toBe('turn:7');
 
     const staleBackground = normalizeTeyvatGameState({ ...initialState, turnCount: 3 });
-    let committed: boolean | null = null;
+    let committed: TeyvatGameState | null = null;
     act(() => {
-      committed = commitPostSettlementBackgroundState(stateApi!, token, staleBackground);
+      committed = commitPostSettlementBackgroundState(stateApi!, token, staleBackground, initialState);
     });
 
-    expect(committed).toBe(false);
+    expect(committed).toBeNull();
     expect(host.textContent).toBe('turn:7');
   });
 
@@ -111,16 +142,17 @@ describe('post-settlement recovery CAS commit', () => {
       replaceLive!(otherSave);
     });
 
-    let committed: boolean | null = null;
+    let committed: TeyvatGameState | null = null;
     act(() => {
       committed = commitPostSettlementBackgroundState(
         stateApi!,
         token,
         normalizeTeyvatGameState({ ...initialState, turnCount: 3 }),
+        initialState,
       );
     });
 
-    expect(committed).toBe(false);
+    expect(committed).toBeNull();
     expect(host.textContent).toBe('turn:2');
   });
 });

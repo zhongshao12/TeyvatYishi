@@ -84,7 +84,7 @@ assert(
 assert(!calibration.includes('commitVariableState') && !calibration.includes('reduceVariableCommands'), 'live settlement must not call the legacy executor.');
 assert(!calibration.includes('state.set背包('), 'live synchronous settlement must not commit inventory through a slice setter.');
 assert(sendWorkflow.includes('背包: state.背包'), 'pre-turn snapshot must carry the formal inventory root.');
-assert(sendWorkflow.includes('背包: committedSettlementGame.背包'), 'autosave must consume committed inventory, not a pre-commit slice.');
+assert(sendWorkflow.includes("buildSavePayload(state, 'auto', undefined, readLiveGameState(state))"), 'autosave must consume live committed inventory, not a pre-commit slice.');
 
 assert(items.includes("['weapon', 'artifact', 'food', 'material', 'gadget', 'quest', 'furnishing']"), '物品模型必须声明七类提瓦特分类。');
 assert(items.includes('[1, 2, 3, 4, 5]') && items.includes("['flower', 'plume', 'sands', 'goblet', 'circlet']"), '物品模型必须声明 1-5 星和圣遗物五部位。');

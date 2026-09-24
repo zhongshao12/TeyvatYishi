@@ -20,8 +20,8 @@ assert(resume.includes("{ kind: 'pending_settlement' }"), 'settlement_pending mu
 assert(resume.includes('runPendingSettlementRecovery'), 'pending recovery must expose explicit settlement/post-tail orchestration.');
 assert(resume.includes('runCommittedSettlementRecovery'), 'committed restart must resume without settlement replay.');
 assert(resume.includes('resolveCommittedRecoveryState'), 'UI eligibility and committed execution must share one historical identity validator.');
-assert(resume.includes('return resolveCommittedRecoveryState(journal, currentState).ok'), 'canAutoResume must use the shared committed-state validator.');
-assert(resume.includes('const resolved = resolveCommittedRecoveryState(journal, input.currentState)'), 'committed orchestration must use the same validator as UI eligibility.');
+assert(resume.includes('return resolveCommittedRecoveryState(journal, currentState, options).ok'), 'canAutoResume must use the shared committed-state validator and identity context.');
+assert(resume.includes('const resolved = resolveCommittedRecoveryState(journal, input.currentState, {'), 'committed orchestration must use the same validator and identity context as UI eligibility.');
 assert(app.includes('resumePendingSettlementWorkflow'), 'App must directly resume pending settlement instead of retrying a nonexistent failed batch.');
 assert(app.includes('resumeCommittedSettlementWorkflow'), 'App must resume committed journals from their durable root.');
 assert(!app.includes("title: '变量结算'"), 'App pending recovery must not synthesize a failed variable queue task.');

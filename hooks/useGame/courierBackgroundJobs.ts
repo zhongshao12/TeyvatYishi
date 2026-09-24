@@ -13,6 +13,7 @@ import {
   ensureCourierContactNpcRecord,
   endCourierReply,
   findCourierReplyCandidates,
+  type CourierReplyCandidate,
   selectGroupReplyMembers,
   splitLetterIntoLines,
   type CourierGroupReplyContext,
@@ -22,6 +23,7 @@ import {
 import { generateCourierGroupReply, generateCourierLetter, generateCourierReply } from '@/services/ai/courierLetterModel';
 import { appendApiErrorReport } from '@/services/ai/apiErrorReportService';
 import { processScheduledCourierSeeds } from './courierWorkflow';
+import { buildCourierPlayerBatch } from '@/utils/courierReplyBatch';
 
 /**
  * 信使回信纯逻辑：找出最后一条仍是玩家消息的会话，为每个会话生成一封联系人回信
@@ -31,6 +33,8 @@ import { processScheduledCourierSeeds } from './courierWorkflow';
 export interface CourierReplyPassInput {
   courier: CourierSystem;
   npcs: NPC记录[];
+  /** Save identity: old requests must not block or release a new save's claim. */
+  sessionId?: number;
   environment?: CourierLetterEnvironment;
   travelerName?: string;
   letterApiConfig: API配置项 | null;
@@ -42,6 +46,10 @@ export interface CourierReplyPassInput {
   groupReplyGenerator?: typeof generateCourierGroupReply;
   /** IDs already claimed by the caller (the UI keeps its claim through bubble reveal). */
   preclaimedConversationIds?: readonly string[];
+  /** A specific committed player-message range for immediate replies. */
+  replyBatch?: { conversationId: string; messageIds: readonly string[] };
+  /** Immediate UI replies fail visibly; background jobs retain their local fallback. */
+  fallbackPolicy?: 'local' | 'error';
 }
 
 export interface CourierReplyPassResult {
@@ -337,14 +345,32 @@ export async function revealCourierMessages<T>(
 export async function runCourierReplyPass(input: CourierReplyPassInput): Promise<CourierReplyPassResult> {
   const preclaimed = new Set(input.preclaimedConversationIds ?? []);
   const ownedClaims: string[] = [];
-  const candidates = findCourierReplyCandidates(input.courier, input.maxReplies ?? 2, preclaimed)
+  let requestedCandidates: CourierReplyCandidate[];
+  if (input.replyBatch) {
+    const conversation = input.courier.conversations.find((item) => item.id === input.replyBatch?.conversationId);
+    const playerMessage = conversation && conversation.type !== 'system'
+      ? buildCourierPlayerBatch(conversation, input.replyBatch.messageIds)
+      : null;
+    if (!conversation || !playerMessage) throw new Error('PHONE_REPLY_BATCH_STALE');
+    const contactId = [...conversation.messages].reverse().find((message) => message.senderId !== 'player')?.senderId
+      ?? conversation.participantIds.find((id) => id !== 'player');
+    if (!contactId) throw new Error('PHONE_REPLY_CONTACT_MISSING');
+    requestedCandidates = [{ conversation, playerMessage, contactId }];
+  } else {
+    requestedCandidates = findCourierReplyCandidates(input.courier, input.maxReplies ?? 2, preclaimed);
+  }
+  const candidates = requestedCandidates
     .filter((candidate) => {
       if (preclaimed.has(candidate.conversation.id)) return true;
-      if (!beginCourierReply(candidate.conversation.id)) return false;
+      if (!beginCourierReply(candidate.conversation.id, input.sessionId)) return false;
       ownedClaims.push(candidate.conversation.id);
       return true;
     });
   if (!candidates.length) return { courier: input.courier, npcs: input.npcs, replied: 0 };
+  if (input.fallbackPolicy === 'error' && !input.letterApiConfig) {
+    for (const conversationId of ownedClaims) endCourierReply(conversationId, input.sessionId);
+    throw new Error('PHONE_REPLY_API_UNAVAILABLE');
+  }
 
   let updated = input.courier;
   let updatedNpcs = input.npcs;
@@ -382,6 +408,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
           try {
             text = await (input.groupReplyGenerator ?? generateCourierGroupReply)(input.letterApiConfig, groupContext);
           } catch (error) {
+            if (input.fallbackPolicy === 'error') throw error;
             console.warn('[phone-message] 群聊 AI 回复失败，已使用本地回复：', error instanceof Error ? error.message : String(error));
             void appendApiErrorReport({
               source: '手机消息群聊',
@@ -448,6 +475,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
       try {
         letter = await generateCourierReply(input.letterApiConfig, replyContext);
       } catch (error) {
+        if (input.fallbackPolicy === 'error') throw error;
         console.warn('[phone-message] 私聊 AI 回复失败，已使用本地回复：', error instanceof Error ? error.message : String(error));
         void appendApiErrorReport({
           source: '手机消息私聊',
@@ -492,6 +520,6 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
     }
     return { courier: updated, npcs: updatedNpcs, replied };
   } finally {
-    for (const conversationId of ownedClaims) endCourierReply(conversationId);
+    for (const conversationId of ownedClaims) endCourierReply(conversationId, input.sessionId);
   }
 }

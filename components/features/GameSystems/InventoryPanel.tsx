@@ -12,7 +12,7 @@ import {
   type TeyvatInventory,
   type TeyvatItem,
 } from '@/models/teyvat/items';
-import { consumeInventoryItem, discardInventoryItem } from '@/utils/inventoryActions';
+import { consumeInventoryItem, discardInventoryItem, undoDiscardInventoryItem } from '@/utils/inventoryActions';
 import { pushToast } from '@/utils/toastStore';
 import { toUserFacingError } from '@/utils/userFacingError';
 
@@ -20,6 +20,7 @@ interface InventoryPanelProps {
   inventory: TeyvatInventory;
   onInventoryChange: React.Dispatch<React.SetStateAction<TeyvatInventory>>;
   turnCount: number;
+  getGameSessionId?: () => number;
 }
 
 type 标签 = ItemCategory | '全部';
@@ -62,7 +63,7 @@ const panelStyle = {
   clipPath: CLIP_SECTION,
 };
 
-export function InventoryPanel({ inventory, onInventoryChange, turnCount }: InventoryPanelProps) {
+export function InventoryPanel({ inventory, onInventoryChange, turnCount, getGameSessionId }: InventoryPanelProps) {
   const items = inventory.items;
   const [tab, setTab] = useState<标签>('全部');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -136,10 +137,11 @@ export function InventoryPanel({ inventory, onInventoryChange, turnCount }: Inve
   const handleDrop = (itemId: string, count?: number) => {
     const item = inventory.items.find((it) => it.id === itemId);
     if (!item) return;
-    // 破坏性操作改为「立即执行 + 撤销窗口」：不再经过原生 confirm，
-    // 丢档风险由撤销提示兜底（背包是纯内存状态，可以完整回滚）。
+    // 破坏性操作采用「立即执行 + 撤销窗口」，撤销时只还原目标物品。
     const previousInventory = inventory;
+    const actionSessionId = getGameSessionId?.();
     const amount = count ?? item.quantity;
+    const afterInventory = discardInventoryItem(previousInventory, itemId, amount);
     let willEmpty = false;
     onInventoryChange((prev) => {
       const cur = prev.items.find((it) => it.id === itemId);
@@ -164,7 +166,8 @@ export function InventoryPanel({ inventory, onInventoryChange, turnCount }: Inve
       action: {
         label: '撤销',
         run: () => {
-          onInventoryChange(previousInventory);
+          if (getGameSessionId && getGameSessionId() !== actionSessionId) return;
+          onInventoryChange((current) => undoDiscardInventoryItem(current, previousInventory, afterInventory, itemId));
           setSelectedId(itemId);
           showFlash('已撤销丢弃。');
         },

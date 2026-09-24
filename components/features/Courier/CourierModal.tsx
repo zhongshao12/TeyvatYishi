@@ -12,6 +12,9 @@ import { pushToast } from '@/utils/toastStore';
 import { CourierConversationList } from './CourierConversationList';
 import { CourierMessageTimeline } from './CourierMessageTimeline';
 import { CourierContactTools } from './CourierContactTools';
+import { CourierMomentsPanel } from './CourierMomentsPanel';
+import { countEligibleMomentCommenters, createMoment, deleteMoment, editMoment, restoreMoment } from '@/services/courierMoments';
+import { createCourierPlayerMessageId } from '@/utils/courierReplyBatch';
 
 export interface CourierModalProps {
   courier: CourierSystem;
@@ -22,8 +25,13 @@ export interface CourierModalProps {
   /** 当前主叙事回合；用于把本次手机消息与上一主回合可靠分隔。 */
   currentTurn?: number;
   onCourierChange: (update: CourierSystem | ((previous: CourierSystem) => CourierSystem)) => void;
-  /** 玩家发送后立即触发消息生成。参数：会话 id + 含玩家新消息的手机快照。 */
-  onRequestReply?: (conversationId: string, courierSnapshot: CourierSystem) => void;
+  /** 玩家发送后请求回信；第二个参数是刚提交的玩家消息 ID。 */
+  onRequestReply?: (conversationId: string, messageId: string) => void;
+  replyErrorByConversationId?: Record<string, string>;
+  onRetryReply?: (conversationId: string) => void;
+  getGameSessionId?: () => number;
+  onRequestMomentComments?: (postId: string, revision: number, npcId?: string) => void;
+  canGenerateMomentComments?: boolean;
   onClose: () => void;
 }
 
@@ -51,11 +59,12 @@ function formatWallTime(timestamp: number): string {
   return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-export const CourierModal = memo(function CourierModal({ courier, album, npcRecords = [], travelerName, travelerAvatar, currentTurn = 0, onCourierChange, onRequestReply, onClose }: CourierModalProps) {
+export const CourierModal = memo(function CourierModal({ courier, album, npcRecords = [], travelerName, travelerAvatar, currentTurn = 0, onCourierChange, onRequestReply, replyErrorByConversationId, onRetryReply, getGameSessionId, onRequestMomentComments, canGenerateMomentComments = false, onClose }: CourierModalProps) {
   const [selectedId, setSelectedId] = useState(courier.conversations[0]?.id ?? '');
   const [draft, setDraft] = useState('');
   const [filter, setFilter] = useState<ConversationFilter>('all');
   const [mobileView, setMobileView] = useState<MobileView>('list');
+  const [phoneSection, setPhoneSection] = useState<'chats' | 'moments'>('chats');
   const [showGroupEditor, setShowGroupEditor] = useState(false);
   const [editGroupName, setEditGroupName] = useState('');
   const [editGroupMemberIds, setEditGroupMemberIds] = useState<string[]>([]);
@@ -69,6 +78,16 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
     for (const record of npcRecords) map.set(record.id, record);
     return map;
   }, [npcRecords]);
+  const eligibleMomentCommenterCount = useMemo(
+    () => countEligibleMomentCommenters(courier.contacts, npcRecords),
+    [courier.contacts, npcRecords],
+  );
+  const momentCommenterNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const contact of courier.contacts) if (contact.npcId) names.set(contact.npcId, contact.name);
+    for (const npc of npcRecords) names.set(npc.id, npc.姓名);
+    return names;
+  }, [courier.contacts, npcRecords]);
 
   const resolveAlbumValue = useMemo(() => {
     const cache = new Map<string, string | undefined>();
@@ -97,6 +116,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
 
   const handleSelectConversation = useCallback((conversationId: string) => {
     setSelectedId(conversationId);
+    setPhoneSection('chats');
     setMobileView('chat');
   }, []);
   const handleShowMoreConversations = useCallback(() => {
@@ -204,9 +224,10 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
 
   const dissolveSelectedGroup = () => {
     if (!selected || selected.type !== 'group') return;
-    // 破坏性操作改为「立即执行 + 撤销窗口」：手机系统是纯状态更新，
-    // 解散前的完整快照可以在撤销窗口内原样写回，所以不再需要原生 confirm。
-    const snapshot = courier;
+    const group = selected;
+    const originalIndex = courier.conversations.findIndex((conversation) => conversation.id === group.id);
+    const removedSeeds = courier.deliverySeeds.filter((seed) => seed.targetId === group.id);
+    const actionSessionId = getGameSessionId?.();
     const dissolvedTitle = selected.title || '未命名群聊';
     const nextSelectedId = courier.conversations.find((conversation) => conversation.id !== selected.id)?.id ?? '';
     commit((previous) => dissolveCourierGroupConversation(previous, selected.id));
@@ -221,7 +242,15 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
       action: {
         label: '撤销',
         run: () => {
-          onCourierChange(() => snapshot);
+          if (getGameSessionId && getGameSessionId() !== actionSessionId) return;
+          onCourierChange((current) => {
+            if (current.conversations.some((conversation) => conversation.id === group.id)) return current;
+            const conversations = [...current.conversations];
+            conversations.splice(Math.min(originalIndex, conversations.length), 0, group);
+            const existingSeedIds = new Set(current.deliverySeeds.map((seed) => seed.id));
+            const deliverySeeds = [...current.deliverySeeds, ...removedSeeds.filter((seed) => !existingSeedIds.has(seed.id))];
+            return { ...current, conversations, deliverySeeds, unreadTotal: calculateCourierUnread({ conversations, deliverySeeds }) };
+          });
           setSelectedId(selected.id);
           setMobileView('chat');
         },
@@ -233,23 +262,10 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
     const content = draft.trim();
     if (!selected || !content || selected.type === 'system') return;
     const timestamp = Date.now();
-    const appended = appendCourierMessage(courier, selected.id, {
-      id: `courier_player_${timestamp}`,
-      senderId: 'player',
-      senderName: travelerName?.trim() || '旅人',
-      role: 'user',
-      content,
-      turn: resolveCourierMessageTurn(currentTurn, selected.messages),
-      timestamp,
-      readBy: ['player'],
-    });
-    const conversations = appended.conversations.map((conversation) => conversation.id === selected.id
-      ? { ...conversation, unread: selected.unread, updatedAt: timestamp }
-      : conversation);
-    const nextCourier = { ...appended, conversations, unreadTotal: calculateCourierUnread({ conversations, deliverySeeds: appended.deliverySeeds }) };
+    const messageId = createCourierPlayerMessageId();
     onCourierChange((previous) => {
       const next = appendCourierMessage(previous, selected.id, {
-        id: `courier_player_${timestamp}`,
+        id: messageId,
         senderId: 'player',
         senderName: travelerName?.trim() || '旅人',
         role: 'user',
@@ -265,7 +281,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
     });
     setDraft('');
     // 即时回复：玩家一发送就触发生成，不用等下一回合。
-    onRequestReply?.(selected.id, nextCourier);
+    onRequestReply?.(selected.id, messageId);
   };
 
   const resolveSenderAvatar = useCallback((message: CourierMessage): string | undefined => {
@@ -293,6 +309,37 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
     { id: 'group', label: '群组' },
     { id: 'system', label: '系统' },
   ];
+
+  const publishMoment = (content: string) => {
+    if ((courier.moments?.length ?? 0) >= 500) {
+      pushToast({ kind: 'info', title: '朋友圈已满', detail: '最多保存 500 条动态；删除旧动态后可继续发布。' });
+      return false;
+    }
+    const id = `moment_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const now = Date.now();
+    commit((previous) => (previous.moments?.length ?? 0) >= 500 ? previous : createMoment(previous, { id, content, turn: currentTurn, now }));
+    onRequestMomentComments?.(id, 1);
+    return true;
+  };
+  const reviseMoment = (id: string, content: string) => {
+    const post = courier.moments?.find((item) => item.id === id);
+    if (!post) return;
+    commit((previous) => editMoment(previous, id, content, Date.now()));
+    onRequestMomentComments?.(id, post.revision + 1);
+  };
+  const removeMoment = (id: string) => {
+    const post = courier.moments?.find((item) => item.id === id);
+    if (!post) return;
+    const actionSessionId = getGameSessionId?.();
+    commit((previous) => deleteMoment(previous, id));
+    pushToast({
+      kind: 'info', title: '动态已删除', detail: '可在短时间内撤销。', durationMs: UNDO_WINDOW_MS,
+      action: { label: '撤销', run: () => {
+        if (getGameSessionId && getGameSessionId() !== actionSessionId) return;
+        commit((previous) => restoreMoment(previous, post));
+      } },
+    });
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-0 sm:p-4">
@@ -323,6 +370,13 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
               </span>
             )}
           </header>
+          <div className="flex gap-1 px-3 pb-2">
+            <button type="button" onClick={() => { setPhoneSection('moments'); setMobileView('chat'); }}
+              className="min-h-11 px-3 text-xs tracking-[0.1em]"
+              style={{ color: phoneSection === 'moments' ? 'rgb(var(--tj-on-accent))' : muted(0.9), background: phoneSection === 'moments' ? goldSoft(0.8) : goldSoft(0.08), clipPath: CLIP_ITEM }}>
+              朋友圈
+            </button>
+          </div>
           <div className="flex gap-1 px-3 pb-2">
             {filters.map((item) => (
               <button
@@ -369,8 +423,8 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
                 ←
               </button>
               <div className="min-w-0">
-                <h3 className="truncate font-serif text-lg tracking-wide">{selected?.title ?? '消息'}</h3>
-                {selected?.type === 'group' && (
+                <h3 className="truncate font-serif text-lg tracking-wide">{phoneSection === 'moments' ? '朋友圈' : selected?.title ?? '消息'}</h3>
+                {phoneSection === 'chats' && selected?.type === 'group' && (
                   <p className="break-words text-[12px]" style={{ color: muted(0.75) }}>
                     {selected.participantIds.map(memberName).join('、')}
                   </p>
@@ -378,7 +432,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-               {selected && (
+               {phoneSection === 'chats' && selected && (
                  selected.type === 'group' && (
                    <button
                      type="button"
@@ -391,7 +445,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
                    </button>
                  )
                )}
-               {selected && (
+               {phoneSection === 'chats' && selected && (
                  <button
                   type="button"
                   onClick={() => togglePinned(selected.id)}
@@ -413,6 +467,16 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
             </div>
           </header>
 
+           {phoneSection === 'moments' && (
+             <CourierMomentsPanel
+               moments={courier.moments ?? []} travelerName={travelerName ?? '旅行者'}
+               eligibleCommenterCount={eligibleMomentCommenterCount} canGenerateComments={canGenerateMomentComments}
+               commenterNames={momentCommenterNames}
+               onPublish={publishMoment} onEdit={reviseMoment} onDelete={removeMoment}
+               onRetry={(id, revision, npcId) => onRequestMomentComments?.(id, revision, npcId)}
+             />
+           )}
+           <div className={`min-h-0 flex-1 flex-col ${phoneSection === 'moments' ? 'hidden' : 'flex'}`}>
            {selected?.announcement && (
             <p className="border-b border-[rgba(var(--tj-accent-primary),0.14)] px-4 py-2 text-[12px] leading-5" style={{ color: goldSoft(0.9), background: goldSoft(0.05) }}>
               📜 群公告：{selected.announcement}
@@ -469,6 +533,13 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
             onShowEarlier={handleShowEarlierMessages}
           />
 
+          {selected && replyErrorByConversationId?.[selected.id] && (
+            <div role="alert" className="mx-3 flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs" style={{ color: ink(0.92), background: 'rgba(160,63,52,0.12)', clipPath: CLIP_ITEM }}>
+              <span>回信失败，消息已保留。{replyErrorByConversationId[selected.id] === 'api_unavailable' ? '请检查手机或主模型 API 设置。' : '请稍后重试。'}</span>
+              <button type="button" className="min-h-11 px-3 underline" onClick={() => onRetryReply?.(selected.id)}>重试回信</button>
+            </div>
+          )}
+
           {selected && selected.type !== 'system' ? (
             <div className="flex items-end gap-2 border-t border-[rgba(var(--tj-accent-primary),0.2)] p-3">
               <div className="min-w-0 flex-1">
@@ -516,6 +587,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
               系统通知为只读会话
             </p>
           ) : null}
+          </div>
         </main>
       </section>
     </div>

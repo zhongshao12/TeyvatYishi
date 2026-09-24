@@ -129,7 +129,7 @@ describe('CourierModal behavior', () => {
     const sent = next.conversations[0]!.messages.at(-1);
     expect(sent).toMatchObject({ senderId: 'player', senderName: '云', content: '@丽莎  晚上好', turn: 8 });
     expect(textarea?.value).toBe('');
-    expect(onRequestReply).toHaveBeenCalledWith('mondstadt-group', next);
+    expect(onRequestReply).toHaveBeenCalledWith('mondstadt-group', sent?.id);
   });
 
   it('keeps Shift+Enter as a draft instead of sending', async () => {
@@ -149,6 +149,23 @@ describe('CourierModal behavior', () => {
 
     expect(onCourierChange).not.toHaveBeenCalled();
     expect(textarea.value).toBe('继续调查');
+  });
+
+  it('shows a retry action only for the current conversation after a model failure', async () => {
+    const onRetryReply = vi.fn();
+    await act(async () => {
+      root.render(createElement(CourierModal, {
+        courier: baseCourier,
+        onCourierChange: vi.fn(),
+        onClose: vi.fn(),
+        replyErrorByConversationId: { 'mondstadt-group': 'api_unavailable' },
+        onRetryReply,
+      }));
+    });
+    expect(host.textContent).toContain('回信失败，消息已保留');
+    expect(host.textContent).toContain('手机或主模型');
+    await act(async () => findButton('重试回信').click());
+    expect(onRetryReply).toHaveBeenCalledWith('mondstadt-group');
   });
 
   it('constrains contact management to its own vertical scroll area', async () => {

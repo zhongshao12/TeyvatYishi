@@ -43,7 +43,7 @@ assert(resumeBody.includes('runSteambirdGenerationStep') && resumeBody.includes(
 assert(resumeBody.includes('generateNarrativeImagesForMessage') && resumeBody.includes("buildSavePayload(state, 'auto'"), 'recovery tail must continue image work and autosave.');
 assert(resumeBody.includes('journal.committedState') && resumeBody.includes('committed.对话.entries'), 'recovery tail must consume the durable committed root and its formal history.');
 assert(!resumeBody.includes('state.chatHistory') && !resumeBody.includes('state.NPC'), 'recovery tail must not read stale React history or NPC domain state.');
-assert(resumeBody.includes("buildSavePayload(state, 'auto', undefined, backgroundState)"), 'recovery autosave must use the exact background root as its base game.');
+assert(resumeBody.includes("buildSavePayload(state, 'auto', undefined, savedRoot)"), 'recovery autosave must use the actual merged committed root as its base game.');
 assert(!resumeBody.includes('commitTeyvatTurn') && !resumeBody.includes('reduceTeyvatTurn') && !resumeBody.includes('factsToTeyvatDomainCommands'), 'settlement_committed recovery must never replay commands.');
 assert(sendWorkflow.includes('clearWorkflowRecoveryJournal(recoveryJournal.workflowId)'), 'sendWorkflow must clear the journal only after the final phase.');
 assert(recoveryModel.includes('WORKFLOW_RECOVERY_STALE_MS'), 'recovery model must export a stale threshold.');

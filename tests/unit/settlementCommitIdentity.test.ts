@@ -174,6 +174,55 @@ describe('settlement commit must land on the live root', () => {
     expect(harness.readQueueTasks().some((task) => task.detail?.includes('背包'))).toBe(true);
   });
 
+  it('refuses a settlement whose base snapshot belongs to another save (recovery wiring)', async () => {
+    // 对抗审查 2026-09-20 的 B 项：恢复路径的 settle 回调会把 journal 里那一回合的冻结快照当基线
+    // 传进来（`baseGameSnapshot: source`），而那份快照属于**旧档**。玩家若已读入新档，
+    // CAS（活体 vs 活体）必然通过 —— 所以必须在调用模型之前就按「基线是否属于当前存档」拒绝。
+    const otherSave = buildRoot({ turnCount: 9, conversationId: 'other', location: '稻妻城', playerId: '另一个人' });
+    const harness = buildStateHarness(otherSave, otherSave);
+    const foreignBase = buildRoot({ turnCount: 5, conversationId: 'stale', location: '清泉镇', playerId: '旧档旅行者' });
+
+    const result = await runVariableCalibrationStep({
+      ...calibrationParams(harness.state),
+      baseGameSnapshot: foreignBase,
+    });
+
+    expect(spies.runVariableSettlementWorkflow).not.toHaveBeenCalled();
+    expect(result).toBeNull();
+    expect(harness.writes).toHaveLength(0);
+    expect(harness.live.current).toBe(otherSave);
+    expect(harness.live.current.世界.当前地点).toBe('稻妻城');
+    expect(harness.readQueueTasks().some((task) => task.status === 'failed')).toBe(true);
+  });
+
+  it('still settles when the base snapshot is this save\'s own frozen turn snapshot', async () => {
+    const staleSnapshot = buildRoot({ turnCount: 1, conversationId: 'turn-1', location: '清泉镇', playerId: '旅行者' });
+    const liveAfterPrepare = normalizeTeyvatGameState({
+      ...staleSnapshot,
+      对话: {
+        entries: [...staleSnapshot.对话.entries, { id: 'turn-2-user', role: 'user' as const, content: '继续走', timestamp: 3, gameTime: '1' }],
+      },
+    });
+    const harness = buildStateHarness(staleSnapshot, liveAfterPrepare);
+    const ownFrozenBase = normalizeTeyvatGameState({
+      ...liveAfterPrepare,
+      turnCount: 2,
+      对话: {
+        entries: [...liveAfterPrepare.对话.entries, { id: 'turn-2-assistant', role: 'assistant' as const, content: '风起了。', timestamp: 4, gameTime: '1' }],
+      },
+    });
+    spies.runVariableSettlementWorkflow.mockImplementation(settlementThatProduces(2, '蒙德城'));
+
+    const result = await runVariableCalibrationStep({
+      ...calibrationParams(harness.state),
+      baseGameSnapshot: ownFrozenBase,
+    });
+
+    expect(spies.runVariableSettlementWorkflow).toHaveBeenCalledTimes(1);
+    expect(result?.committedGame).toBeDefined();
+    expect(harness.live.current.turnCount).toBe(2);
+  });
+
   it('discards the settlement and reports no committedGame when another save was loaded mid-wait', async () => {
     const staleSnapshot = buildRoot({ turnCount: 1, conversationId: 'turn-1', location: '清泉镇', playerId: '旅行者' });
     const liveAfterPrepare = normalizeTeyvatGameState({

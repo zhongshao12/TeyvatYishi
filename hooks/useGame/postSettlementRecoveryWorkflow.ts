@@ -5,6 +5,7 @@ import {
   toLegacyTurnCheckpoint,
   type UseGameStateReturn,
 } from '@/hooks/useGameState';
+import { rebaseSettlementState } from '@/utils/settlementRebase';
 import { narrativeTurnBodyText } from '@/models/teyvat/narrativeTurn';
 import { normalizeTeyvatGameState, type TeyvatGameState } from '@/models/teyvat/state';
 import { saveGame } from '@/services/dbService';
@@ -16,6 +17,7 @@ import { buildFallbackCourierSeed } from './courierBackgroundJobs';
 import { processScheduledCourierSeeds } from './courierWorkflow';
 import { mergeIrminsulMemories } from './postTurnIrminsulTask';
 import { buildSavePayload, commitActiveSaveTreeMeta } from './saveLoadWorkflow';
+import { runTrackedSave, saveStatusStore } from '@/utils/saveStatus';
 import { runSteambirdGenerationStep } from './steambirdWorkflow';
 
 /**
@@ -76,19 +78,27 @@ export function isSamePostSettlementSave(
  * 所以这里用 updater 做 CAS；`flushSync` 用来同步拿到 CAS 结果，
  * 避免出现「状态没写、却把旧快照落盘」的二次损坏（落盘会挂到新存档的存档树节点下）。
  *
- * @returns 是否真的把 backgroundState 写回了根状态。
+ * 通过 CAS 之后也**不能整根替换**（对抗审查 2026-09-20 的 C 项）：本流程前面有长达数十秒的
+ * 正文生图 await，玩家在此期间对背包 / NPC / 任务 / 相册的改动会随整根替换被静默回退
+ * —— 与第二轮审计 A3 在变量结算提交处修掉的是同一类缺陷。这里复用同一套并发规则：
+ * 以开始恢复时的活体根（`ancestor`）为祖先，等待期间被改过的切片以活体值为准。
+ *
+ * @returns 真正提交的合并根；身份失效时为 null。自动存档必须用这份根。
  */
 export function commitPostSettlementBackgroundState(
   state: UseGameStateReturn,
   token: PostSettlementSaveToken,
   next: TeyvatGameState,
-): boolean {
-  let committed = false;
+  ancestor: TeyvatGameState,
+  expectedSessionId?: number,
+): TeyvatGameState | null {
+  let committed: TeyvatGameState | null = null;
   flushSync(() => {
     state.updateGameState((current) => {
+      if (expectedSessionId !== undefined && state.getGameSessionId() !== expectedSessionId) return current;
       if (!isSamePostSettlementSave(capturePostSettlementSaveToken(current), token)) return current;
-      committed = true;
-      return next;
+      committed = rebaseSettlementState({ ancestor, next, current }).state;
+      return committed;
     });
   });
   return committed;
@@ -104,11 +114,12 @@ export async function runPostSettlementRecoveryWorkflow(
   committedOverride?: TeyvatGameState,
 ): Promise<{ committed: boolean }> {
   if (journal.phase !== 'settlement_committed') return { committed: false };
-  // 本流程唯一的长耗时 await（正文生图，可能数十秒）之前先钉住存档身份；
-  // 期间的读档 / 开新局会在提交时被下文的 CAS 守卫拦下。
-  // 令牌必须取自**活体根**：`state.game` 是渲染快照，可能比活体根少若干条刚落地的写入，
-  // 用它做基准会把「同一份存档」误判成「换过存档」而整体拒绝写入。
-  const saveToken = capturePostSettlementSaveToken(readLiveGameState(state));
+  // 本流程唯一的长耗时 await（正文生图，可能数十秒）之前先钉住存档身份与**活体根**；
+  // 期间的读档 / 开新局会在提交时被下文的 CAS 守卫拦下，
+  // 期间的其它改动（玩家在背包 / NPC / 任务面板上的操作）会在提交时按切片合并保留。
+  const liveBase = readLiveGameState(state);
+  const sessionId = state.getGameSessionId();
+  const saveToken = capturePostSettlementSaveToken(liveBase);
   const committed = normalizeTeyvatGameState(committedOverride ?? journal.committedState ?? state.game);
   const committedHistory = committed.对话.entries;
   const assistant = journal.assistantMessageId
@@ -247,11 +258,16 @@ export async function runPostSettlementRecoveryWorkflow(
   }, { 相册: album });
   // 守卫：正文生图等待期间若玩家读档 / 开新局，活体存档已经不是这份 journal 的存档，
   // 旧快照绝不能写回去（也绝不落盘），直接放弃本次恢复尾流程。
-  if (!commitPostSettlementBackgroundState(state, saveToken, backgroundState)) return { committed: false };
+  const savedRoot = commitPostSettlementBackgroundState(state, saveToken, backgroundState, liveBase, sessionId);
+  if (!savedRoot) return { committed: false };
 
-  const saveData = buildSavePayload(state, 'auto', undefined, backgroundState);
-  await saveGame(saveData);
-  commitActiveSaveTreeMeta(saveData);
-  state.setHasSave(true);
-  return { committed: true };
+  const saveData = buildSavePayload(state, 'auto', undefined, savedRoot);
+  const writeCommitted = await runTrackedSave(saveStatusStore, sessionId, savedRoot, 'auto', async () => {
+    await saveGame(saveData);
+    if (state.getGameSessionId() !== sessionId) return false;
+    commitActiveSaveTreeMeta(saveData);
+    state.setHasSave(true);
+    return true;
+  }, () => readLiveGameState(state), Boolean);
+  return { committed: writeCommitted };
 }

@@ -23,7 +23,8 @@ import type { TeyvatGameState } from '@/models/teyvat/state';
  * 规则：
  * - 引用没变 → 用结算结果（等价于修复前的整根替换，绝不丢结算）；
  * - 引用变了 → 保留活体值，并记录冲突（不静默丢玩家的操作）；
- * - `对话` 例外：见 `mergeConversation`（本回合新落的 assistant 消息只在结算结果里）。
+ * - `对话` 例外：见 `mergeConversation`（本回合新落的 assistant 消息只在结算结果里）；
+ * - `universe` / `schemaVersion` / `turnCount` 例外：见 `NON_SLICE_KEYS`。
  */
 export interface SettlementRebaseInput {
   /** 结算开始那一刻的活体根。必须与 `current` 同一血缘（未经归一化重建），引用才可比较。 */
@@ -38,6 +39,30 @@ export interface SettlementRebaseResult {
   state: TeyvatGameState;
   /** 等待期间被改过、因而以活体值为准的顶层切片名；非空时调用方必须让它可见。 */
   preservedSlices: string[];
+}
+
+/**
+ * 结算基线是否属于**当前活体存档**。
+ *
+ * `baseGameSnapshot` 可能是另一份存档的冻结根：恢复路径会把 journal 里那一回合的快照传进来，
+ * 而那份快照属于**它当时那份存档**。若玩家在这之后已经读入别的存档，
+ * 只比较「活体根 vs 活体根」的 CAS 是拦不住的（两次读取都是新档，必然相等）→
+ * 旧档整根被写进新档（跨存档数据损坏，对抗审查 2026-09-20 的 B 项）。
+ *
+ * 判定：同一份存档的时间线 ⇒ 活体对话的最后一条必须仍出现在基线对话里。
+ * 用「最后一条」而不是「严格前缀」，是因为长会话会裁剪最早的消息：
+ * 严格前缀会把合法恢复判成不合法（假阴性 → 玩家丢掉本可恢复的回合）。
+ * 活体对话为空（新局开场）时不设限；基线对话为空则一律不兼容（fail-closed）。
+ */
+export function isSettlementBaseCompatibleWithLiveRoot(base: TeyvatGameState, live: TeyvatGameState): boolean {
+  const baseEntries = base.对话.entries;
+  if (baseEntries.length === 0) return false;
+  // 结算基线必然是「这一回合的冻结根」：两条合法路径都满足回合数 = 活体 + 1
+  // （正常流程的 frozenSettlementState，与恢复流程 journal 里的 source）。
+  if (base.turnCount !== live.turnCount + 1) return false;
+  const lastLiveId = live.对话.entries.at(-1)?.id;
+  if (!lastLiveId) return true;
+  return baseEntries.some((entry) => entry.id === lastLiveId);
 }
 
 type MutableRoot = Record<string, unknown>;
@@ -68,7 +93,16 @@ function mergeConversation(current: unknown, next: unknown): unknown {
   const nextEntries = Array.isArray((next as { entries?: unknown[] } | undefined)?.entries)
     ? (next as { entries: unknown[] }).entries
     : [];
-  if (!currentEntries.length || !nextEntries.length) return next;
+  if (!nextEntries.length) return next;
+  const seenNextIds = new Set<string>();
+  const uniqueNextEntries = nextEntries.filter((entry) => {
+    const id = (entry as { id?: unknown } | null | undefined)?.id;
+    if (typeof id !== 'string' || !id) return true;
+    if (seenNextIds.has(id)) return false;
+    seenNextIds.add(id);
+    return true;
+  });
+  if (!currentEntries.length) return { ...(next as MutableRoot), entries: uniqueNextEntries };
   const liveById = new Map<string, unknown>();
   for (const entry of currentEntries) {
     const id = (entry as { id?: unknown } | null | undefined)?.id;
@@ -76,7 +110,7 @@ function mergeConversation(current: unknown, next: unknown): unknown {
   }
   return {
     ...(next as MutableRoot),
-    entries: nextEntries.map((entry) => {
+    entries: uniqueNextEntries.map((entry) => {
       const id = (entry as { id?: unknown } | null | undefined)?.id;
       const live = typeof id === 'string' && id ? liveById.get(id) : undefined;
       return live ?? entry;
@@ -87,6 +121,14 @@ function mergeConversation(current: unknown, next: unknown): unknown {
 /** 结算自身就是唯一合法写者、且活体值可能缺失本次产物的切片。 */
 const SETTLEMENT_MERGED_SLICES = new Set(['对话']);
 
+/**
+ * 这三个由存档 / 结算机制统一维护，不参与「等待期间被改过」判定，一律取结算结果：
+ * 结算提交的 CAS 已经把这些字段纳入令牌（任一不等即整体拒绝），所以走到合并时它们必然未被改过；
+ * 万一将来多出别的写者，也不该让「等待期间被改动的 turnCount」把本回合的 +1 丢掉，
+ * 更不该把内部键名当成切片名弹给玩家（对抗审查 2026-09-20 的疑点 1）。
+ */
+const NON_SLICE_KEYS = new Set(['universe', 'schemaVersion', 'turnCount']);
+
 export function rebaseSettlementState(input: SettlementRebaseInput): SettlementRebaseResult {
   const { ancestor, next, current } = input;
   const nextRecord = next as unknown as MutableRoot;
@@ -96,6 +138,7 @@ export function rebaseSettlementState(input: SettlementRebaseInput): SettlementR
   const preservedSlices: string[] = [];
 
   for (const key of Object.keys(nextRecord)) {
+    if (NON_SLICE_KEYS.has(key)) continue;
     const currentSlice = currentRecord[key];
     if (currentSlice === ancestorRecord[key]) continue;
     if (SETTLEMENT_MERGED_SLICES.has(key)) {

@@ -5,7 +5,7 @@ import { 创建空角色 } from '@/models/character';
 import type { 世界状态 } from '@/models/world';
 import { 创建空世界状态, 根据官方开局预设创建开局档案 } from '@/models/world';
 import type { NPC记录 } from '@/models/npc';
-import type { API配置项, 游戏设置, 主题预设 } from '@/models/settings';
+import { 创建默认游戏设置, type API配置项, type API设置, type 游戏设置, type 主题预设 } from '@/models/settings';
 import type { Talent, TalentCategory } from '@/models/teyvat/character';
 import { ELEMENT_IDS, type ElementId } from '@/models/teyvat/elements';
 import { OFFICIAL_OPENING_PRESETS, type OfficialOpeningPresetId, type 剧情模式 } from '@/models/teyvat/opening';
@@ -16,6 +16,7 @@ import type { TravelerTemplateContext, TravelerTemplateDraft } from '@/services/
 import { ELEMENT_NAMES as ELEMENT_LABELS } from '@/styles/elementTokens';
 import { buildCanonicalElementTalents, buildCanonicalTravelerPreset, type CanonicalTravelerChoice } from '@/data/canonicalTravelerPresets';
 import { LUMINE_COMPANION_OPENING_TEXT } from '@/data/openingCompanionScenes';
+import { evaluateNewGameApiReadiness } from '@/utils/newGameApiReadiness';
 
 interface NewGameWizardProps {
   onStart: (traveler: 角色数据结构, worldState: 世界状态, initialNpcRecords?: NPC记录[]) => void | Promise<void>;
@@ -24,6 +25,8 @@ interface NewGameWizardProps {
   gameSettings?: 游戏设置;
   onGameSettingsChange?: React.Dispatch<React.SetStateAction<游戏设置>>;
   openingArchiveApiConfig?: API配置项 | null;
+  apiSettings?: API设置;
+  onOpenApiSettings?: () => void;
   onGenerateTravelerTemplate?: (context: TravelerTemplateContext) => Promise<TravelerTemplateDraft>;
 }
 
@@ -114,7 +117,7 @@ export function buildNewGameOpeningPayload(input: NewGameOpeningPayloadInput): {
   return { traveler, world };
 }
 
-export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate }: NewGameWizardProps) {
+export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate, apiSettings, gameSettings, onOpenApiSettings }: NewGameWizardProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [name, setName] = useState('');
   const [alias, setAlias] = useState('');
@@ -141,6 +144,10 @@ export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate }: N
   const [canonicalPresetChoice, setCanonicalPresetChoice] = useState<CanonicalTravelerChoice | null>(null);
 
   const selectedPreset = useMemo(() => OFFICIAL_OPENING_PRESETS.find((preset) => preset.id === presetId)!, [presetId]);
+  const apiReadiness = evaluateNewGameApiReadiness(
+    apiSettings ?? { activeConfigId: null, configs: [] },
+    gameSettings ?? 创建默认游戏设置(),
+  );
 
   const addTalent = () => {
     if (!talentName.trim() || !talentDescription.trim()) return;
@@ -448,6 +455,23 @@ export function NewGameWizard({ onStart, onBack, onGenerateTravelerTemplate }: N
       {/* ── 步骤 4：总览确认 ── */}
       {step === 4 && (
         <PaperSection title="总览确认" subtitle="确认档案无误后，翻开来旅的第一页。">
+          <section
+            aria-label="开局 API 就绪检查"
+            className="mb-4 space-y-2 px-3 py-3 text-xs leading-5"
+            style={{ background: 'rgba(70,98,78,0.08)', boxShadow: `inset 0 0 0 1px ${PAPER_BORDER}`, clipPath: CLIP_ITEM }}
+          >
+            <h4 className="font-serif text-sm" style={{ color: INK }}>开局 API 就绪检查</h4>
+            {[apiReadiness.main, apiReadiness.variable, apiReadiness.image].map((entry) => (
+              <p key={entry.label} className="break-words" style={{ color: INK }}>
+                <span className="font-semibold">{entry.label}{entry.status === 'ready' ? '已配置（尚未测试连接）' : entry.status === 'disabled' ? '未开启' : '未就绪'}</span>
+                <span className="ml-2" style={{ color: INK_MUTED }}>{entry.detail}</span>
+              </p>
+            ))}
+            {apiReadiness.main.status !== 'ready' && (
+              <p style={{ color: INK_MUTED }}>可以继续建档；开始游戏前配置主模型，才能生成正文。</p>
+            )}
+            {onOpenApiSettings && <PaperButton onClick={onOpenApiSettings}>打开 API 设置</PaperButton>}
+          </section>
           <div className="grid gap-3 sm:grid-cols-2">
             <SummaryBlock label="旅行者">
               <p className="font-serif text-base" style={{ color: 'var(--journal-antique-gold)' }}>{name}</p>

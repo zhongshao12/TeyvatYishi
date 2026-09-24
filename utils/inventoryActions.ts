@@ -74,3 +74,32 @@ export function discardInventoryItem(
     discardedItemIds: Array.from(new Set([...(inventory.discardedItemIds ?? []), item.id, `name:${item.name.trim()}`])),
   };
 }
+
+/** 只撤销这次丢弃；目标物品若已再次变化，则拒绝覆盖玩家的新操作。 */
+export function undoDiscardInventoryItem(
+  current: TeyvatInventory,
+  before: TeyvatInventory,
+  after: TeyvatInventory,
+  itemId: string,
+): TeyvatInventory {
+  const beforeItem = before.items.find((item) => item.id === itemId);
+  const afterItem = after.items.find((item) => item.id === itemId);
+  const currentItem = current.items.find((item) => item.id === itemId);
+  if (!beforeItem || JSON.stringify(currentItem) !== JSON.stringify(afterItem)) return current;
+
+  const items = [...current.items];
+  if (afterItem) {
+    const index = items.findIndex((item) => item.id === itemId);
+    if (index < 0) return current;
+    items[index] = beforeItem;
+  } else {
+    const index = before.items.findIndex((item) => item.id === itemId);
+    items.splice(Math.min(index, items.length), 0, beforeItem);
+  }
+  const newlyDiscarded = new Set((after.discardedItemIds ?? []).filter((id) => !(before.discardedItemIds ?? []).includes(id)));
+  return {
+    ...current,
+    items,
+    discardedItemIds: (current.discardedItemIds ?? []).filter((id) => !newlyDiscarded.has(id)),
+  };
+}

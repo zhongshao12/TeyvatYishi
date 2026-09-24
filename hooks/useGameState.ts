@@ -829,6 +829,8 @@ export interface UseGameStateReturn {
   game: TeyvatGameState;
   replaceGameState: (next: TeyvatGameState) => void;
   updateGameState: (updater: (current: TeyvatGameState) => TeyvatGameState) => void;
+  getGameSessionId: () => number;
+  invalidateGameSession: () => void;
   buildTeyvatSavePayload: () => TeyvatSaveData;
   view: ViewState;
   setView: React.Dispatch<React.SetStateAction<ViewState>>;
@@ -981,8 +983,13 @@ export function applyChatHistoryAction(
  *   手机里所有新消息都落在同一回合、回合分割线因此全部消失）；
  * - 拿它当合并基准 → 把主流程自己的写入误判成「玩家并发修改」。
  *
- * 实现：`flushSync` + 同引用返回的 updater。updater 返回同一个引用时
- * `updateTeyvatState` 直接返回 `current`，React 跳过这次渲染，所以这是一次「只读探测」。
+ * 实现与代价（对抗审查 2026-09-20 已实测更正）：
+ * `flushSync` + **同引用返回**的 updater —— `updateTeyvatState` 直接返回 `current`，
+ * 所以这次更新**不改变状态**（这一点由 `tests/unit/liveGameStateRead.test.ts` 用真 React 断言）。
+ * 但**不能**据此说「React 跳过渲染」：`flushSync` 会绕过 React 的同引用 bailout，
+ * 每次探测真的会渲染一次（同一 harness 实测：普通同引用更新 2→2 次渲染；
+ * 包进 flushSync 的同一次更新 2→3 次；裸 `flushSync(() => {})` 2→2）。
+ * 一次正常结算用 2 次探测、恢复起点 1 次 —— 这是「同步读到活体根」的代价，属可接受成本。
  * （同一模式已用于 `commitPostSettlementBackgroundState` 的 CAS 读取。）
  */
 export function readLiveGameState(state: UseGameStateReturn): TeyvatGameState {
@@ -998,7 +1005,7 @@ export function readLiveGameState(state: UseGameStateReturn): TeyvatGameState {
 
 export function useGameState(): UseGameStateReturn {
   const [view, setView] = useState<ViewState>('home');
-  const { game, replaceGameState, updateGameState, buildTeyvatSavePayload } = useTeyvatRuntime();
+  const { game, replaceGameState, updateGameState, getGameSessionId, invalidateGameSession, buildTeyvatSavePayload } = useTeyvatRuntime();
   // Legacy 适配层转换必须按 game 引用缓存：否则任何一次 setState（哪怕只是 loading）
   // 都会在渲染期重建这些对象，导致传给子组件的 props 引用全变、React.memo 全部失效。
   const selectLegacyGameView = useMemo(createLegacyGameViewSelector, []);
@@ -1290,7 +1297,7 @@ export function useGameState(): UseGameStateReturn {
   }, []);
 
   return {
-    game, replaceGameState, updateGameState, buildTeyvatSavePayload,
+    game, replaceGameState, updateGameState, getGameSessionId, invalidateGameSession, buildTeyvatSavePayload,
     view, setView,
     旅人, set旅人,
     背包, set背包,

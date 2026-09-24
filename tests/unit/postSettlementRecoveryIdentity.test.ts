@@ -34,6 +34,7 @@ function buildCommittedRoot(): TeyvatGameState {
   committed.turnCount = 3;
   committed.世界.当前地点 = '蒙德城';
   committed.对话.entries.push(
+    { id: 'user-2', role: 'user', content: '去清泉镇', timestamp: 9, gameTime: '1' },
     { id: 'user-3', role: 'user', content: '去蒙德城', timestamp: 10, gameTime: '2' },
     {
       id: 'assistant-3', role: 'assistant', content: '蒙德城的钟声响起。', timestamp: 11, gameTime: '2',
@@ -83,6 +84,7 @@ function buildJournal(committed: TeyvatGameState) {
  */
 function buildStateHarness(staleRoot: TeyvatGameState, initialLive: TeyvatGameState) {
   const live = { current: initialLive };
+  const session = { current: 0 };
   const writes: TeyvatGameState[] = [];
   const setHasSave = vi.fn();
   const state = {
@@ -95,6 +97,7 @@ function buildStateHarness(staleRoot: TeyvatGameState, initialLive: TeyvatGameSt
     gameSettings: 创建默认游戏设置(),
     apiSettings: { activeConfigId: '', configs: [] },
     replaceGameState: (next: TeyvatGameState) => {
+      session.current += 1;
       live.current = normalizeTeyvatGameState(next);
       writes.push(live.current);
     },
@@ -105,9 +108,11 @@ function buildStateHarness(staleRoot: TeyvatGameState, initialLive: TeyvatGameSt
         writes.push(next);
       }
     },
+    getGameSessionId: () => session.current,
+    invalidateGameSession: () => { session.current += 1; },
     setHasSave,
   } as unknown as UseGameStateReturn;
-  return { state, live, writes, setHasSave };
+  return { state, live, session, writes, setHasSave };
 }
 
 function enableNarrativeImages(state: UseGameStateReturn): void {
@@ -132,6 +137,7 @@ describe('post-settlement recovery must not overwrite a save loaded during its l
     // 正文生图期间玩家读入另一份存档（真实路径：SaveLoadModal → handleLoadById → replaceGameState）。
     spies.generateImages.mockImplementation(async () => {
       harness.live.current = otherSave;
+      harness.session.current += 1;
       return [];
     });
 
@@ -184,6 +190,7 @@ describe('post-settlement recovery must not overwrite a save loaded during its l
     enableNarrativeImages(harness.state);
     spies.generateImages.mockImplementation(async () => {
       harness.live.current = otherSave;
+      harness.session.current += 1;
       return [];
     });
 

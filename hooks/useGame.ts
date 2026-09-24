@@ -3,8 +3,7 @@ import { applyLegacyGameStateOverrides, useGameState, type UseGameStateReturn } 
 import { executeSendWorkflow, regenerateNarrativeImagesForMessage, retryQueueTask } from '@/hooks/useGame/sendWorkflow';
 import type { ContextSnapshot, ContextSnapshotKind } from '@/hooks/useGame/contextSnapshotTypes';
 import {
-  buildSavePayload,
-  commitActiveSaveTreeMeta,
+  clearActiveSaveTreeMetaIfMatches,
   handleLoadLatest,
   handleManualSave,
 } from '@/hooks/useGame/saveLoadWorkflow';
@@ -22,7 +21,7 @@ import type { API配置项, 记忆系统设置 } from '@/models/settings';
 import { resolveActiveApiConfig } from '@/services/ai/activeApiConfig';
 import type { 队列任务记录 } from '@/models/queueTask';
 import { 根据开局档案创建初始NPC记录, 生成开局已成立事实, 归一化开局档案 } from '@/models/world';
-import { saveGame, saveSetting } from '@/services/dbService';
+import { saveSetting } from '@/services/dbService';
 import { summarizeMemoryBatch } from '@/services/memoryCompression';
 import {
   commitMemoryRebuildTask,
@@ -35,6 +34,7 @@ import {
 import { clearWorkflowRecoveryJournal } from '@/services/workflowRecovery';
 import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 import { setStreamingMessage } from '@/utils/streamingMessageStore';
+import { persistMemorySnapshot } from '@/hooks/useGame/memorySaveTask';
 
 export interface UseGameReturn {
   state: UseGameStateReturn;
@@ -105,6 +105,8 @@ export function useGame(): UseGameReturn {
 
   const handleNewGame = useCallback(() => {
     const s = stateRef.current;
+    s.invalidateGameSession();
+    clearActiveSaveTreeMetaIfMatches();
     void clearWorkflowRecoveryJournal(s.interruptedWorkflow?.workflowId);
     s.setInterruptedWorkflow(null);
     s.setView('new_game');
@@ -217,12 +219,8 @@ export function useGame(): UseGameReturn {
     await retryQueueTask(stateRef.current, getActiveConfig, task, mode);
   }, [getActiveConfig]);
 
-  const persistMemorySnapshot = useCallback(async (memory: 记忆系统): Promise<void> => {
-    const s = stateRef.current;
-    const payload = buildSavePayload(s, 'auto', { 记忆: memory });
-    await saveGame(payload);
-    commitActiveSaveTreeMeta(payload);
-    s.setHasSave(true);
+  const persistCurrentMemorySnapshot = useCallback(async (memory: 记忆系统): Promise<void> => {
+    await persistMemorySnapshot(stateRef.current, memory);
   }, []);
 
   const getMemoryCompressionConfig = useCallback((settings: 记忆系统设置): API配置项 | null => {
@@ -275,7 +273,7 @@ export function useGame(): UseGameReturn {
       const result = await retryMemoryFailureDraft(retryingMemory, draftId, settings, config);
       s.set记忆(result.memory);
       try {
-        await persistMemorySnapshot(result.memory);
+        await persistCurrentMemorySnapshot(result.memory);
       } catch (persistError) {
         s.setWorkflowHint(`记忆已在当前页面更新，但自动保存失败：${persistError instanceof Error ? persistError.message : String(persistError)}`);
         return;
@@ -300,7 +298,7 @@ export function useGame(): UseGameReturn {
       s.set记忆(failedMemory);
       s.setWorkflowHint(message);
     }
-  }, [getMemoryCompressionConfig, persistMemorySnapshot]);
+  }, [getMemoryCompressionConfig, persistCurrentMemorySnapshot]);
 
   const handleIgnoreMemoryFailureDraft = useCallback(async (draftId: string): Promise<void> => {
     const s = stateRef.current;
@@ -318,13 +316,13 @@ export function useGame(): UseGameReturn {
     };
     s.set记忆(memory);
     try {
-      await persistMemorySnapshot(memory);
+      await persistCurrentMemorySnapshot(memory);
     } catch (error) {
       s.setWorkflowHint(`失败草稿已在当前页面忽略，但自动保存失败：${error instanceof Error ? error.message : String(error)}`);
       return;
     }
     s.setWorkflowHint('失败草稿已忽略，本地 fallback 仍保留在记忆中。');
-  }, [persistMemorySnapshot]);
+  }, [persistCurrentMemorySnapshot]);
 
   const handleBatchMemoryRebuild = useCallback(async (options: {
     batchSize: number;
@@ -406,7 +404,7 @@ export function useGame(): UseGameReturn {
               : draft),
         };
         s.set记忆(memory);
-        await persistMemorySnapshot(memory);
+        await persistCurrentMemorySnapshot(memory);
         s.setWorkflowHint(`记忆重建完成，已原子替换第 ${completedTask.range.start}-${completedTask.range.end} 回合对应的四层记忆。`);
       }
       return completedTask;
@@ -444,7 +442,7 @@ export function useGame(): UseGameReturn {
           失败草稿: [...(s.记忆.失败草稿 ?? []), draft],
         };
         s.set记忆(memory);
-        await persistMemorySnapshot(memory);
+        await persistCurrentMemorySnapshot(memory);
       } else {
         const memory: 记忆系统 = {
           ...s.记忆,
@@ -462,7 +460,7 @@ export function useGame(): UseGameReturn {
             : draft),
         };
         s.set记忆(memory);
-        await persistMemorySnapshot(memory);
+        await persistCurrentMemorySnapshot(memory);
       }
       s.setWorkflowHint(`批量重建在第 ${failed.sourceTurns.start}-${failed.sourceTurns.end} 回合暂停，原记忆未改动，失败批次已保留。`);
     } else if (completedTask.status === 'blocked') {
@@ -471,13 +469,15 @@ export function useGame(): UseGameReturn {
       s.setWorkflowHint('批量重建已取消，原记忆未改动。');
     }
     return completedTask;
-  }, [getMemoryCompressionConfig, persistMemorySnapshot]);
+  }, [getMemoryCompressionConfig, persistCurrentMemorySnapshot]);
 
       // 重新开局：清掉所有运行时累积的变量切片，保留创角设定（名字 / 元素 / 世界周期等）。
   // 不这样做的话，老的 NPC / 蒸汽鸟报 / 剧情节点 / variableBatches / 全局事件
   // 会留在状态里和新开局叠加，下次重开就是双份甚至 N 份数据。
   const handleRestartOpening = useCallback(() => {
     const s = stateRef.current;
+    s.invalidateGameSession();
+    clearActiveSaveTreeMetaIfMatches();
     if (s.loading) {
       s.abortControllerRef.current?.abort();
     }

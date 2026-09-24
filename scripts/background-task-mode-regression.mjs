@@ -72,6 +72,6 @@ assert(
     sendWorkflow.includes('jobs.narrativeImage(),'),
   'parallel mode must launch every independent background job in the same batch.',
 );
-assert(sendWorkflow.includes('chatHistory: finalHistoryForSave'), 'auto-save must use the final chat history after narrative images finish.');
+assert(sendWorkflow.includes('buildPostTurnAutosavePayload(state)') && sendWorkflow.includes("buildSavePayload(state, 'auto', undefined, readLiveGameState(state))"), 'auto-save must read the final live root after narrative images finish.');
 
 console.log('[background-task-mode] ok');

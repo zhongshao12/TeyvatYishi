@@ -14,6 +14,18 @@ import { rebaseSettlementState } from '@/utils/settlementRebase';
 const base = () => createEmptyTeyvatGameState();
 
 describe('rebaseSettlementState', () => {
+  it('keeps distinct assistant turns while collapsing a replayed assistant ID', () => {
+    const ancestor = base();
+    const a2 = { id: 'a-2', role: 'assistant' as const, content: '相同文字', timestamp: 2, gameTime: '2' };
+    const a3 = { id: 'a-3', role: 'assistant' as const, content: '相同文字', timestamp: 3, gameTime: '3' };
+    const current = { ...ancestor, 对话: { ...ancestor.对话, entries: [a2] } };
+    const next = { ...ancestor, 对话: { ...ancestor.对话, entries: [a2, a2, a3] } };
+
+    const result = rebaseSettlementState({ ancestor, current, next });
+
+    expect(result.state.对话.entries.map((message) => message.id)).toEqual(['a-2', 'a-3']);
+  });
+
   it('takes the settlement result for slices nobody touched during the wait', () => {
     const ancestor = base();
     const next = { ...ancestor, turnCount: ancestor.turnCount + 1, 世界: { ...ancestor.世界, 当前地点: '璃月港' } };

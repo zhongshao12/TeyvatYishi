@@ -9,19 +9,21 @@ import type { NPC记录 } from '@/models/npc';
 import type { NarrativeTurn } from '@/models/teyvat/narrativeTurn';
 import type { TeyvatGameState } from '@/models/teyvat/state';
 import type { API配置项, 游戏设置, 变量API覆盖 } from '@/models/settings';
-import type { 变量事实, 变量命令批次 } from '@/models/variableCommand';
+import type { 变量事实, 变量命令批次, 变量命令结果 } from '@/models/variableCommand';
 import { callVariableModel, type NsfwBaselineCandidate } from '@/services/ai/variableModel';
 import { commitPreflightedTeyvatTurn, commitTeyvatTurn, preflightTeyvatTurn } from '@/services/teyvatTurnTransaction';
 import { compactVariableBatchHistory } from '@/utils/longSessionRetention';
 import { needsNsfwBaseline } from '@/utils/npcArchiveEnrichment';
 import {
   deriveNarrativeCanonicalNpcFacts,
+  deriveNarrativeInventoryGainFacts,
   deriveNarrativeIntimacyFacts,
   deriveNarrativeInventoryRemovalFacts,
   deriveNarrativeTimeFact,
   derivePartyPresenceFacts,
   deriveResolvedNpcLedgerFacts,
   factsToTeyvatDomainCommands,
+  mergeNarrativeInventoryFacts,
   parseVariableFacts,
 } from '@/utils/variableFacts';
 import { composeQuestSettlementCommands } from './questWorkflow';
@@ -106,6 +108,18 @@ export function excludeRejectedSettlementCommands<T>(
   return commands.filter((_, index) => !rejectedIndexes.has(index));
 }
 
+/** Keep the persisted diagnostic batch aligned with commands actually accepted by preflight. */
+export function markRejectedSettlementResults(
+  results: readonly 变量命令结果[],
+  errors: readonly { index: number; code: string }[],
+): 变量命令结果[] {
+  const rejectedByIndex = new Map(errors.map((error) => [error.index, error.code]));
+  return results.map((result, index) => {
+    const code = rejectedByIndex.get(index);
+    return code ? { ...result, ok: false, kind: 'rejected', reason: code } : result;
+  });
+}
+
 function collectNsfwBaselineCandidates(
   npcRecords: readonly NPC记录[],
   settings: VariableSettlementSettings,
@@ -168,10 +182,11 @@ export async function runVariableSettlementWorkflow(
       .reverse()
       .find((fact): fact is Extract<变量事实, { type: 'time' }> => fact.type === 'time');
     const narrativeClock = deriveNarrativeTimeFact(params.body, stateSnapshot.世界.当前时间, modelClock);
-    const inventoryRemovalFacts = deriveNarrativeInventoryRemovalFacts(params.body, stateSnapshot.背包.items)
-      .filter((derived) => !allowedFacts.some((fact) => fact.type === 'item'
-        && fact.action === derived.action
-        && fact.name === derived.name));
+    const derivedGains = deriveNarrativeInventoryGainFacts(params.body, stateSnapshot.背包.items);
+    const inventoryFacts = mergeNarrativeInventoryFacts(allowedFacts, [
+      ...derivedGains.facts,
+      ...deriveNarrativeInventoryRemovalFacts(params.body, stateSnapshot.背包.items),
+    ]);
     const resolvedNpcFacts = deriveResolvedNpcLedgerFacts(params.body, stateSnapshot.NPC)
       .filter((derived) => !allowedFacts.some((fact) => fact.type === 'npc'
         && (fact.id === derived.id || fact.name === derived.name)
@@ -182,10 +197,9 @@ export async function runVariableSettlementWorkflow(
     const partyPresenceFacts = derivePartyPresenceFacts(params.body, stateSnapshot.NPC);
     const presenceNames = new Set(partyPresenceFacts.map((fact) => fact.name));
     const factsWithPartyPresence = [
-      ...allowedFacts.filter((fact) => fact.type !== 'npc'
+      ...inventoryFacts.filter((fact) => fact.type !== 'npc'
         || !presenceNames.has(fact.name)
         || typeof fact.following !== 'boolean'),
-      ...inventoryRemovalFacts,
       ...resolvedNpcFacts,
       ...narrativeCanonicalNpcFacts,
       ...partyPresenceFacts,
@@ -229,7 +243,8 @@ export async function runVariableSettlementWorkflow(
       kind: 'error' as const,
       reason,
     }));
-    const warningResults = factCommands.warnings.map((reason) => ({
+    const allWarnings = [...derivedGains.warnings, ...factCommands.warnings];
+    const warningResults = allWarnings.map((reason) => ({
       command: { action: 'set' as const, key: '(事实忽略)', value: null },
       ok: false,
       kind: 'warning' as const,
@@ -241,7 +256,7 @@ export async function runVariableSettlementWorkflow(
       kind: 'command' as const,
       ...(item.evidence ? { evidence: item.evidence } : {}),
     }));
-    const batch: 变量命令批次 = {
+    let batch: 变量命令批次 = {
       id: params.settlementId
         ? `vbatch_${params.settlementId}`
         : `vbatch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -253,7 +268,7 @@ export async function runVariableSettlementWorkflow(
       report: [
         `变量事实：${effectiveFacts.length} 条，生成正式领域命令 ${factCommands.commands.length} 条；任务命令 ${questSettlement.commands.length} 条。`,
         '兼容旧命令：0 条（新回合只接受正式领域命令）。',
-        factCommands.warnings.length ? `事实警告：${factCommands.warnings.length} 条。` : '事实警告：0 条。',
+        allWarnings.length ? `事实警告：${allWarnings.length} 条。` : '事实警告：0 条。',
         ...factCommands.notes,
       ].filter(Boolean).join('\n'),
       rawText,
@@ -269,6 +284,12 @@ export async function runVariableSettlementWorkflow(
       lenientEvidence: true,
     };
     const dry = preflightTeyvatTurn(stateSnapshot, commands, evidenceContext);
+    if (dry.status === 'rejected') {
+      batch = {
+        ...batch,
+        results: [...errResults, ...warningResults, ...markRejectedSettlementResults(commandResults, dry.errors)],
+      };
+    }
     const pendingCommands = dry.status === 'rejected'
       ? excludeRejectedSettlementCommands(commands, dry.errors)
       : [...commands];
@@ -299,11 +320,11 @@ export async function runVariableSettlementWorkflow(
       : { ...batch, results: [...errResults, ...warningResults, ...transactionErrorResults] };
     const npcLedgerUpdate = buildNpcLedgerUpdateDebug({
       facts: effectiveFacts,
-      commands: transaction.status === 'committed' ? commandResults.map((item) => item.command) : [],
+      commands: transaction.status === 'committed' ? batch.results.filter((item) => item.ok).map((item) => item.command) : [],
       results: finalBatch.results,
       warnings: [
         ...parseErrors,
-        ...factCommands.warnings,
+        ...allWarnings,
         ...transaction.errors.map((item) => item.code),
       ],
     });

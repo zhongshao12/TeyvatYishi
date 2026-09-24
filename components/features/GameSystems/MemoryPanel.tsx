@@ -21,6 +21,7 @@ interface MemoryPanelProps {
   onMemorySystemChange: React.Dispatch<React.SetStateAction<记忆系统>>;
   turnCount: number;
   settings: 记忆系统设置;
+  getGameSessionId?: () => number;
 }
 
 type MemoryLayer = 'immediate' | 'short' | 'middle' | 'long' | 'failed';
@@ -52,6 +53,7 @@ export function MemoryPanel({
   onMemorySystemChange,
   turnCount,
   settings,
+  getGameSessionId,
   failedDrafts: failedDraftsProp,
   onRetryFailedDraft,
   onIgnoreFailedDraft,
@@ -65,21 +67,31 @@ export function MemoryPanel({
   const [activeLayer, setActiveLayer] = useState<MemoryLayer>('immediate');
   const failedDrafts = failedDraftsProp ?? memorySystem.失败草稿 ?? [];
 
-  /**
-   * 执行一次记忆压缩，并保留压缩前的完整快照供撤销。
-   * 记忆系统是纯内存状态（onMemorySystemChange 是 setState），因此可以无损回滚。
-   */
+  /** 只还原本次压缩碰过的层级，其他层级上的后续记忆保持原样。 */
   const applyMemoryUpdate = (compute: () => 记忆系统) => {
     const snapshot = memorySystem;
-    onMemorySystemChange(() => compute());
+    const compressed = compute();
+    const sessionId = getGameSessionId?.();
+    const layers = (['即时记忆', '短期记忆', '中期记忆', '长期记忆'] as const)
+      .filter((layer) => JSON.stringify(snapshot[layer]) !== JSON.stringify(compressed[layer]));
+    if (!layers.length) return;
+    onMemorySystemChange(compressed);
     pushToast({
       kind: 'info',
       title: '记忆已整理',
-      detail: '覆盖了原始条目。点「撤销」可以回到整理前的状态。',
+      detail: '点「撤销」可恢复本次整理的条目，不会覆盖其他层级的新记忆。',
       durationMs: UNDO_WINDOW_MS,
       action: {
         label: '撤销',
-        run: () => onMemorySystemChange(snapshot),
+        run: () => {
+          if (getGameSessionId && getGameSessionId() !== sessionId) return;
+          onMemorySystemChange((current) => {
+            if (layers.some((layer) => JSON.stringify(current[layer]) !== JSON.stringify(compressed[layer]))) return current;
+            const restored = { ...current };
+            for (const layer of layers) restored[layer] = snapshot[layer];
+            return restored;
+          });
+        },
       },
     });
   };

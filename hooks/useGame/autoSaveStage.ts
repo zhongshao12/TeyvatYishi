@@ -15,9 +15,9 @@ import {
   type WorkflowRecoveryJournal} from '@/services/workflowRecovery';
 import { buildSavePayload, commitActiveSaveTreeMeta } from './saveLoadWorkflow';
 import { runPostTurnAutosaveTask } from './postTurnAutosaveTask';
-import { compactVariableBatchHistory } from '@/utils/longSessionRetention';
 import { pushWorkflowQueueTask as pushQueueTask } from './workflowQueue';
-import type { UseGameStateReturn } from '@/hooks/useGameState';
+import { readLiveGameState, type UseGameStateReturn } from '@/hooks/useGameState';
+import { runTrackedSave, saveStatusStore } from '@/utils/saveStatus';
 import type { VariableCalibrationResult } from './variableCalibrationStage';
 
 export interface RunAutoSaveStageDeps {
@@ -39,21 +39,15 @@ export interface RunAutoSaveStageDeps {
   onJournalUpdated: (journal: WorkflowRecoveryJournal) => void;
 }
 
+/** 后台任务结束时从活体根取快照，绝不重放结算前捕获的固定切片。 */
+export function buildPostTurnAutosavePayload(state: UseGameStateReturn) {
+  return buildSavePayload(state, 'auto', undefined, readLiveGameState(state));
+}
+
 export async function runAutoSaveStage(deps: RunAutoSaveStageDeps) {
   const {
     state,
     assertWorkflowActive,
-    committedSettlementGame,
-    variableOverrides,
-    steambirdAfterGeneration,
-    travelerAfterMastery,
-    finalHistoryForSave,
-    memoryAfterStoryProgress,
-    irminsulAfterTurnRecall,
-    courierAfterFallbackSeed,
-    npcAfterCompression,
-    storyWeavingForSave,
-    codexAfterRuntimeUnlock,
   } = deps;
   let recoveryJournal = deps.recoveryJournal;
 
@@ -61,30 +55,9 @@ export async function runAutoSaveStage(deps: RunAutoSaveStageDeps) {
       if (state.gameSettings.enableAutoSaveEveryTurn) {
         pushQueueTask(state, 'autosave', 'pending', { detail: '正在写入本回合自动存档。' });
       }
-      await runPostTurnAutosaveTask({
+      const saveTask = () => runPostTurnAutosaveTask({
         enabled: state.gameSettings.enableAutoSaveEveryTurn,
-        build: () => {
-          const variableBatchesForSave = compactVariableBatchHistory(variableOverrides?.batch
-            ? [...state.variableBatches, variableOverrides.batch]
-            : state.variableBatches);
-          return buildSavePayload(state, 'auto', {
-            chatHistory: finalHistoryForSave,
-            记忆: memoryAfterStoryProgress,
-            世界树: irminsulAfterTurnRecall,
-            手机: courierAfterFallbackSeed,
-            背包: committedSettlementGame.背包,
-            旅人: travelerAfterMastery ?? variableOverrides?.旅人,
-            世界: variableOverrides?.世界,
-            NPC: npcAfterCompression,
-            蒸汽鸟报: steambirdAfterGeneration ?? variableOverrides?.蒸汽鸟报,
-            剧情: variableOverrides?.剧情,
-            剧情编织: storyWeavingForSave,
-            图鉴: codexAfterRuntimeUnlock,
-            variableBatches: variableBatchesForSave,
-            queueTasks: state.queueTasks,
-            turnCount: state.turnCount + 1,
-          }, committedSettlementGame);
-        },
+        build: () => buildPostTurnAutosavePayload(state),
         assertActive: assertWorkflowActive,
         persist: saveGame,
         commit: commitActiveSaveTreeMeta,
@@ -93,6 +66,14 @@ export async function runAutoSaveStage(deps: RunAutoSaveStageDeps) {
           state.setHasSave(true);
         },
       });
+      if (state.gameSettings.enableAutoSaveEveryTurn) {
+        await runTrackedSave(
+          saveStatusStore, state.getGameSessionId(), readLiveGameState(state), 'auto',
+          saveTask, () => readLiveGameState(state), (result) => result.status === 'saved',
+        );
+      } else {
+        await saveTask();
+      }
 
       recoveryJournal = updateWorkflowRecoveryJournal(recoveryJournal, { phase: 'autosave_committed' });
       deps.onJournalUpdated(recoveryJournal);

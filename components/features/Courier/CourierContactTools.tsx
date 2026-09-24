@@ -30,6 +30,7 @@ export const CourierContactTools = memo(function CourierContactTools({
     () => new Map(courier.contacts.map((contact) => [contact.id, contact])),
     [courier.contacts],
   );
+  const validGroupMemberIds = groupMemberIds.filter((id) => contactById.has(id));
 
   const commit = (update: CourierSystem | ((previous: CourierSystem) => CourierSystem)) => {
     onCourierChange((previous) => {
@@ -77,8 +78,8 @@ export const CourierContactTools = memo(function CourierContactTools({
   };
 
   const createGroup = () => {
-    if (groupMemberIds.length < 2) return;
-    const memberNames = groupMemberIds
+    if (validGroupMemberIds.length < 2) return;
+    const memberNames = validGroupMemberIds
       .map((id) => contactById.get(id)?.name?.trim())
       .filter((name): name is string => Boolean(name));
     const title = groupDraftName.trim() || memberNames.join('、');
@@ -87,7 +88,7 @@ export const CourierContactTools = memo(function CourierContactTools({
     const groupConversation: CourierConversation = {
       id: `courier_group_${now}`,
       title,
-      participantIds: ['player', ...groupMemberIds],
+      participantIds: ['player', ...validGroupMemberIds],
       messages: [],
       unread: 0,
       type: 'group',
@@ -95,7 +96,12 @@ export const CourierContactTools = memo(function CourierContactTools({
       creatorId: 'player',
       updatedAt: now,
     };
-    commit((previous) => ({ ...previous, conversations: [...previous.conversations, groupConversation] }));
+    commit((previous) => {
+      const liveContactIds = new Set(previous.contacts.map((contact) => contact.id));
+      const participantIds = validGroupMemberIds.filter((id) => liveContactIds.has(id));
+      if (participantIds.length < 2) return previous;
+      return { ...previous, conversations: [...previous.conversations, { ...groupConversation, participantIds: ['player', ...participantIds] }] };
+    });
     onOpenConversation(groupConversation.id);
     setShowGroupCreator(false);
     setGroupDraftName('');
@@ -178,7 +184,7 @@ export const CourierContactTools = memo(function CourierContactTools({
                 <input
                   type="checkbox"
                   checked={groupMemberIds.includes(contact.id)}
-                  onChange={() => toggleGroupMember(contact.id)}
+                onChange={() => toggleGroupMember(contact.id)}
                   aria-label={`选择群成员 ${contact.name}`}
                   className="h-3.5 w-3.5 accent-[rgb(var(--tj-accent-primary))]"
                 />
@@ -197,11 +203,11 @@ export const CourierContactTools = memo(function CourierContactTools({
           <button
             type="button"
             onClick={createGroup}
-            disabled={groupMemberIds.length < 2}
+            disabled={validGroupMemberIds.length < 2}
             className="w-full px-2 py-1 text-[11px] disabled:opacity-40"
-            style={{ color: 'rgb(var(--tj-on-accent))', background: groupMemberIds.length >= 2 ? goldSoft(0.85) : goldSoft(0.3), clipPath: CLIP_ITEM }}
+            style={{ color: 'rgb(var(--tj-on-accent))', background: validGroupMemberIds.length >= 2 ? goldSoft(0.85) : goldSoft(0.3), clipPath: CLIP_ITEM }}
           >
-            组建群组（已选 {groupMemberIds.length} 人）
+            组建群组（已选 {validGroupMemberIds.length} 人）
           </button>
         </div>
       )}

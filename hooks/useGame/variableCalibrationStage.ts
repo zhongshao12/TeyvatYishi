@@ -27,6 +27,7 @@ import {
 import { resolveCourierApiConfig } from '@/services/ai/courierLetterModel';
 import { mergeCourierSystemUpdates } from '@/services/ai/courierService';
 import { runCourierDeliveryTask, runCourierReplyTask } from './courierBackgroundJobs';
+import { mergeNpcWriteBack } from '@/utils/npcWriteBack';
 import { applyStoryArchiveCodexRuntimeUnlock } from '@/services/codexRuntimeUnlock';
 import { buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 import { runPostTurnBackgroundTasks, runSteambirdPostTurnTask } from './postTurnBackgroundTasks';
@@ -383,11 +384,13 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
 
       const runCourierFallbackJob = async (): Promise<void> => {
         const taskBaseCourier = courierAfterFallbackSeed;
+        const taskBaseNpc = npcAfterCompression;
+        const taskSessionId = state.getGameSessionId();
         const taskResult = await runCourierDeliveryTask({
           enabled: state.gameSettings.手机系统.enabled,
           autoGenerateSeeds: state.gameSettings.手机系统.autoGenerateSeeds,
           courier: courierAfterFallbackSeed,
-          npcs: npcAfterCompression,
+          npcs: taskBaseNpc,
           turn: state.turnCount + 1,
           now: Date.now(),
           userInput,
@@ -398,6 +401,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
           travelerName: courierTravelerName,
           letterApiConfig: courierLetterApiConfig,
         });
+        assertWorkflowActive();
         courierAfterFallbackSeed = taskResult.courier;
         npcAfterCompression = taskResult.npcs;
         if (taskResult.newNpcNames.length) {
@@ -407,8 +411,13 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         }
         pushQueueTask(state, 'courier', taskResult.status, { detail: taskResult.detail });
         if (taskResult.status === 'success') {
-          state.setNPC(taskResult.npcs);
-          state.set手机((current) => mergeCourierSystemUpdates(current, taskBaseCourier, taskResult.courier));
+          state.setNPC((current) => mergeNpcWriteBack({
+            start: taskBaseNpc, next: taskResult.npcs, current,
+            expectedSessionId: taskSessionId, currentSessionId: state.getGameSessionId(),
+          }).records);
+          state.set手机((current) => state.getGameSessionId() === taskSessionId
+            ? mergeCourierSystemUpdates(current, taskBaseCourier, taskResult.courier)
+            : current);
           notifyEvent(state.gameSettings.notificationSettings ?? DEFAULT_NOTIFICATION_SETTINGS, 'courier', '手机新消息', `收到 ${taskResult.delivered} 条新消息`);
           if ((state.gameSettings.notificationSettings?.events.courier) !== false) {
             pushToast({ kind: 'info', title: '手机新消息', detail: `收到 ${taskResult.delivered} 条新消息` });
@@ -418,21 +427,32 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
 
       const runCourierReplyJob = async (): Promise<void> => {
         const taskBaseCourier = courierAfterFallbackSeed;
+        const taskBaseNpc = npcAfterCompression;
+        const taskSessionId = state.getGameSessionId();
         const taskResult = await runCourierReplyTask({
           enabled: state.gameSettings.手机系统.enabled,
+          sessionId: taskSessionId,
           courier: courierAfterFallbackSeed,
-          npcs: npcAfterCompression,
+          npcs: taskBaseNpc,
           environment: courierEnvironment,
           travelerName: courierTravelerName,
           letterApiConfig: courierLetterApiConfig,
           turn: state.turnCount + 1,
-          onPending: (detail) => { pushQueueTask(state, 'courier', 'pending', { detail }); },
+          onPending: (detail) => {
+            if (state.getGameSessionId() === taskSessionId) pushQueueTask(state, 'courier', 'pending', { detail });
+          },
         });
+        assertWorkflowActive();
         if (taskResult.status !== 'success') return;
         courierAfterFallbackSeed = taskResult.courier;
         npcAfterCompression = taskResult.npcs;
-        state.set手机((current) => mergeCourierSystemUpdates(current, taskBaseCourier, taskResult.courier));
-        state.setNPC(taskResult.npcs);
+        state.set手机((current) => state.getGameSessionId() === taskSessionId
+          ? mergeCourierSystemUpdates(current, taskBaseCourier, taskResult.courier)
+          : current);
+        state.setNPC((current) => mergeNpcWriteBack({
+          start: taskBaseNpc, next: taskResult.npcs, current,
+          expectedSessionId: taskSessionId, currentSessionId: state.getGameSessionId(),
+        }).records);
         pushQueueTask(state, 'courier', 'success', { detail: taskResult.detail });
         notifyEvent(state.gameSettings.notificationSettings ?? DEFAULT_NOTIFICATION_SETTINGS, 'courier', '手机回复', `收到 ${taskResult.replied} 个会话回复`);
         if ((state.gameSettings.notificationSettings?.events.courier) !== false) {

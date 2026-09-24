@@ -30,17 +30,23 @@ export function appendCourierMessage(system: CourierSystem, conversationId: stri
   return { ...system, conversations, unreadTotal: calculateCourierUnread({ conversations, deliverySeeds: system.deliverySeeds }) };
 }
 
-const courierReplyInFlight = new Set<string>();
+const courierReplyInFlight = new Map<string, number | undefined>();
 
 /** Prevent the immediate UI path and the post-turn background path from replying to the same snapshot. */
-export function beginCourierReply(conversationId: string): boolean {
-  if (!conversationId || courierReplyInFlight.has(conversationId)) return false;
-  courierReplyInFlight.add(conversationId);
+export function beginCourierReply(conversationId: string, sessionId?: number): boolean {
+  if (!conversationId) return false;
+  if (courierReplyInFlight.has(conversationId)) {
+    const owner = courierReplyInFlight.get(conversationId);
+    if (owner === sessionId || (owner !== undefined && (sessionId === undefined || sessionId < owner))) return false;
+  }
+  courierReplyInFlight.set(conversationId, sessionId);
   return true;
 }
 
-export function endCourierReply(conversationId: string): void {
-  courierReplyInFlight.delete(conversationId);
+export function endCourierReply(conversationId: string, sessionId?: number): void {
+  if (courierReplyInFlight.has(conversationId) && courierReplyInFlight.get(conversationId) === sessionId) {
+    courierReplyInFlight.delete(conversationId);
+  }
 }
 
 export function isCourierReplyInFlight(conversationId: string): boolean {
@@ -336,6 +342,7 @@ export function appendPhoneExchangeMemory(npcs: NPC记录[], input: PhoneExchang
           摘要: summary,
           ...(original ? { 原文: original } : {}),
           来源: '手机',
+          好感变动: affinityDelta,
           ...(input.relatedNpcIds?.length ? { 关联NPCID: Array.from(new Set(input.relatedNpcIds)) } : {}),
         },
       ],
@@ -416,15 +423,19 @@ function extractEventBasis(context: string): string {
   const raw = context.trim();
   if (!raw) return '';
   const factMark = raw.lastIndexOf('已发生事实');
-  if (factMark >= 0) {
-    const tail = raw.slice(factMark).replace(/^已发生事实[:：]?/, '').trim();
-    if (tail) return tail;
-  }
+  const source = factMark >= 0 ? raw.slice(factMark).replace(/^已发生事实[:：]?/, '').trim() : raw;
   // 逐句剥离元指令（提到投递/来信/种子/生成的句子都不是事件本身）。
-  const sentences = raw.split(/(?<=[。！？!?；;])/).map((item) => item.trim()).filter(Boolean);
-  const eventSentences = sentences.filter((item) => !/投递|来信|信件|种子|低频|生成|汇报|跟进|确认状况|window|seed|deliver/i.test(item));
-  const merged = (eventSentences.length ? eventSentences : sentences).join('');
+  const sentences = source.split(/(?<=[。！？!?；;])/).map((item) => item.trim()).filter(Boolean);
+  const eventSentences = sentences.filter((item) => !/投递|来信|信件|种子|低频|生成|根据记忆|写信|汇报|跟进|确认状况|window|seed|deliver/i.test(item));
+  const merged = eventSentences.join('');
   return merged.replace(/^[:：、,，\s]+/, '').trim();
+}
+
+/** Only concrete events may be paraphrased into dialogue; delivery instructions and ledger summaries are not speech. */
+export function extractCourierSpeechEvent(context: string): string | null {
+  const event = extractEventBasis(context).trim();
+  if (!event || /关于.{0,30}对.*(?:印象|好感)|可能会有后续|可低频投递|玩家一行人|已发生事实/u.test(event)) return null;
+  return event.slice(0, 90);
 }
 
 function hashText(value: string): number {
@@ -521,7 +532,7 @@ export function composeCourierLetterLocally(context: CourierLetterContext): stri
     ? `${address}，`
     : tone === 'close' || tone === 'devoted' ? `${travelerName}，` : '';
 
-  const event = extractEventBasis(seed.context);
+  const event = extractCourierSpeechEvent(seed.context);
   const templates = TRIGGER_BODY_TEMPLATES[seed.triggerType] ?? TRIGGER_BODY_TEMPLATES.custom;
   const body = event
     ? pick(templates, `${seed.id}:${event}`).replace('{event}', event.length > 90 ? `${event.slice(0, 89)}…` : event)
@@ -537,14 +548,7 @@ export function composeCourierLetterLocally(context: CourierLetterContext): stri
   const personalLine = tone === 'warm' || tone === 'close' || tone === 'devoted'
     ? pick(STAGE_PERSONAL_LINES[tone], `${seed.id}:personal`)
     : '';
-  const memoryAnchor = sender?.unfinishedBusiness?.[0]
-    || sender?.recentInteraction
-    || sender?.sharedExperiences?.at(-1);
-  const memoryLine = memoryAnchor && !bodyWithEnv.includes(memoryAnchor)
-    ? `对了，${memoryAnchor.replace(/[。！？!?]+$/u, '')}，我还记着。`
-    : '';
-
-  return [greeting, personalLine, bodyWithEnv, memoryLine]
+  return [greeting, personalLine, bodyWithEnv]
     .filter(Boolean)
     .join('\n');
 }
@@ -638,13 +642,7 @@ export function composeCourierReplyLocally(context: CourierReplyContext): string
   const personalLine = tone === 'close' || tone === 'devoted'
     ? pick(STAGE_PERSONAL_LINES[tone], `${seedText}:personal`)
     : '';
-  const memoryAnchor = context.sender?.unfinishedBusiness?.[0]
-    || context.sender?.recentInteraction
-    || context.sender?.sharedExperiences?.at(-1);
-  const memoryLine = memoryAnchor
-    ? `还有，${memoryAnchor.replace(/[。！？!?]+$/u, '')}这件事，我可没忘。`
-    : '';
-  return [greeting, body, personalLine, memoryLine]
+  return [greeting, body, personalLine]
     .filter(Boolean)
     .join('\n');
 }
@@ -727,13 +725,7 @@ export function composeCourierGroupReplyLocally(context: CourierGroupReplyContex
   const body = relationshipTopic
     ? pick(GROUP_RELATIONSHIP_BODIES, seedText)
     : (quote ? pick(GROUP_REPLY_BODIES, seedText) : '我在听，也会认真回应大家正在聊的事。');
-  const memoryAnchor = context.sender?.unfinishedBusiness?.[0]
-    || context.sender?.recentInteraction
-    || context.sender?.sharedExperiences?.at(-1);
-  const memoryTail = memoryAnchor
-    ? ` 至于${memoryAnchor.replace(/[。！？!?]+$/u, '')}，我也没有忘。`
-    : '';
-  return `${opener}${body.replace('{quote}', quote).replace('{traveler}', travelerName)}${memoryTail}`.trim();
+  return `${opener}${body.replace('{quote}', quote).replace('{traveler}', travelerName)}`.trim();
 }
 
 // ── 手机消息拆条：一句一句话 ─────────────────────────────────

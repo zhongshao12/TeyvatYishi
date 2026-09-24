@@ -1,6 +1,8 @@
 import { CLIP_MEDIUM } from '@/styles/clipPaths';
 import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState, memo } from 'react';
 import type { 聊天消息 } from '@/models/chat';
+import type { 变量命令批次 } from '@/models/variableCommand';
+import { buildTurnSettlementReceipt, type TurnSettlementReceiptModel } from '@/utils/turnSettlementReceipt';
 import type { NPC记录 } from '@/models/npc';
 import type { 角色数据结构 } from '@/models/character';
 import type { API配置项, VisualTextSettings } from '@/models/settings';
@@ -10,6 +12,7 @@ import { TurnItem } from './TurnItem';
 
 interface ChatListProps {
   messages: 聊天消息[];
+  variableBatches?: readonly 变量命令批次[];
   loading: boolean;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onEditBody?: (id: string, newBody: string) => void;
@@ -57,6 +60,7 @@ function findHistoryWindowStart(messages: 聊天消息[], turnLimit: number): nu
 
 interface ChatHistoryListProps {
   messages: 聊天消息[];
+  settlementReceipts: ReadonlyMap<string, TurnSettlementReceiptModel>;
   neighborMeta: NeighborMeta[];
   onEditBody?: (id: string, newBody: string) => void;
   onToggleBookmark?: (messageId: string) => void;
@@ -73,6 +77,7 @@ interface ChatHistoryListProps {
 /** Isolated history list: scroll chrome (nearBottom / FAB) must not remap TurnItems. */
 const ChatHistoryList = memo(function ChatHistoryList({
   messages,
+  settlementReceipts,
   neighborMeta,
   onEditBody,
   onToggleBookmark,
@@ -93,6 +98,7 @@ const ChatHistoryList = memo(function ChatHistoryList({
           <div key={msg.id} id={`chat-msg-${msg.id}`}>
           <TurnItem
             message={msg}
+            settlementReceipt={settlementReceipts.get(msg.id)}
             deferOffscreen
             onEditBody={onEditBody}
             onToggleBookmark={onToggleBookmark}
@@ -137,15 +143,16 @@ function buildNeighborMeta(messages: 聊天消息[]): NeighborMeta[] {
   return meta;
 }
 
-export function ChatList({ messages, loading, scrollRef, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, visualTextSettings, rewriteConfig }: ChatListProps) {
+export function ChatList({ messages, variableBatches, loading, scrollRef, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, visualTextSettings, rewriteConfig }: ChatListProps) {
   const streamingMessage = useStreamingMessage();
+  const showStreamingPreview = Boolean(loading && streamingMessage && messages.at(-1)?.role !== 'assistant');
   const bottomRef = useRef<HTMLDivElement>(null);
   const [nearBottom, setNearBottom] = useState(true);
   const nearBottomRef = useRef(true);
   const scrollStateRafRef = useRef<number | null>(null);
   // 读屏播报：唯一一个 polite 进度区，文本已按桶节流，不会随 chunk 抖动。
   const liveStatus = loading
-    ? (streamingMessage ? buildStreamAnnouncement(streamingMessage) : '正在沉思……')
+    ? (showStreamingPreview ? buildStreamAnnouncement(streamingMessage) : '正在沉思……')
     : '';
 
   const handleScroll = useCallback(() => {
@@ -209,6 +216,16 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onToggleBoo
     () => visibleMessages.slice(renderedStartIndex),
     [renderedStartIndex, visibleMessages],
   );
+  const settlementReceipts = useMemo(() => {
+    const receipts = new Map<string, TurnSettlementReceiptModel>();
+    if (!variableBatches?.length) return receipts;
+    for (const message of renderedMessages) {
+      if (message.role !== 'assistant' || message.isStreaming) continue;
+      const receipt = buildTurnSettlementReceipt(message, variableBatches);
+      if (receipt) receipts.set(message.id, receipt);
+    }
+    return receipts;
+  }, [renderedMessages, variableBatches]);
   const hasEarlierMessages = renderedStartIndex > 0;
 
   const allNeighborMeta = useMemo(
@@ -301,6 +318,7 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onToggleBoo
       {/* Historical messages — isolated from nearBottom / FAB re-renders */}
       <ChatHistoryList
         messages={renderedMessages}
+        settlementReceipts={settlementReceipts}
         neighborMeta={neighborMeta}
         onEditBody={onEditBody}
         onToggleBookmark={onToggleBookmark}
@@ -315,7 +333,7 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onToggleBoo
       />
 
       {/* Streaming preview — lives in parent so stream text does not remap history */}
-      {streamingMessage && (
+      {showStreamingPreview && (
         <div data-testid="chat-streaming-preview" aria-busy="true">
           <TurnItem
             message={{

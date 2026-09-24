@@ -54,7 +54,7 @@ assert(source.includes('shouldCommit: isCurrentWorkflow'), '新闻/变量等子�
 //   闸门仍紧贴在归档调用之前，且在归档返回后再次检查（见 runIrminsulArchiveJob）。
 //   断言意图不变：世界树归档前必须检查当前工作流，避免重roll后旧纪要写回。
 assert(/assertWorkflowActive\(\);\s*const taskResult = runPostTurnIrminsulArchiveTask\(\{/.test(source), '世界树归档前必须检查当前工作流，避免重roll后旧纪要写回。');
-assert(source.includes('turnCount: state.turnCount + 1'), '自动存档必须保存真实 turnCount。');
+assert(source.includes("buildSavePayload(state, 'auto', undefined, readLiveGameState(state))"), '自动存档必须从活体根保存真实 turnCount。');
 assert(source.includes('# 重roll生成约束'), '重roll请求必须注入避重复约束。');
 assert(source.includes('重roll nonce'), '重roll请求必须带 nonce，避免同上下文确定性复刻。');
 // 迁移: 这四个纯函数从 sendWorkflow.ts 搬到 hooks/useGame/mainNarrativeRequestStage.ts（只搬运，未改行为），

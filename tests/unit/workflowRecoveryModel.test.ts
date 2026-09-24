@@ -151,7 +151,7 @@ describe('workflowRecoveryModel completion and resume branches', () => {
   it('never maps settlement_committed to variable replay and marks autosave_committed complete', () => {
     const durableRoot = createEmptyTeyvatGameState();
     const committed = journal({ phase: 'settlement_committed', assistantMessageId: 'assistant-1', committedState: durableRoot });
-    expect(canAutoResume(committed, createEmptyTeyvatGameState())).toBe(true);
+    expect(canAutoResume(committed, createEmptyTeyvatGameState(), { allowPristineRoot: true })).toBe(true);
     expect(resolveRecoveryTarget(committed)).toEqual({ kind: 'post_settlement' });
     expect(resolveRecoveryTarget(committed)).not.toEqual({ kind: 'pending_settlement' });
 
@@ -166,7 +166,59 @@ describe('workflowRecoveryModel completion and resume branches', () => {
     committedState.turnCount = 6;
     committedState.对话.entries.push({ id: 'assistant-6', role: 'assistant', content: '已提交', timestamp: 1, gameTime: '5' });
     const committed = journal({ phase: 'settlement_committed', assistantMessageId: 'assistant-6', committedState });
-    expect(canAutoResume(committed, createEmptyTeyvatGameState())).toBe(true);
+    expect(canAutoResume(committed, createEmptyTeyvatGameState(), { allowPristineRoot: true })).toBe(true);
+  });
+
+  it('rejects a durable committed journal when another populated save is active', async () => {
+    const committedState = createEmptyTeyvatGameState();
+    committedState.turnCount = 6;
+    committedState.对话.entries.push({ id: 'old-assistant', role: 'assistant', content: '旧档正文', timestamp: 1, gameTime: '5' });
+    const committed = journal({ phase: 'settlement_committed', assistantMessageId: 'old-assistant', turnAtStart: 5, committedState });
+    const otherSave = createEmptyTeyvatGameState();
+    otherSave.turnCount = 5;
+    otherSave.对话.entries.push({ id: 'other-save-user', role: 'user', content: '另一份存档', timestamp: 2, gameTime: '5' });
+    const post = vi.fn(async () => ({ ok: true as const }));
+    const persist = vi.fn(async () => undefined);
+
+    expect(canAutoResume(committed, otherSave)).toBe(false);
+    const result = await recoveryResume.runCommittedSettlementRecovery({
+      journal: committed,
+      currentState: otherSave,
+      runPostSettlement: post,
+      persist,
+    });
+    expect(result).toMatchObject({ ok: false, error: 'RECOVERY_COMMITTED_IDENTITY_MISMATCH' });
+    expect(post).not.toHaveBeenCalled();
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a newly loaded empty save as the untouched startup root', () => {
+    const committedState = createEmptyTeyvatGameState();
+    committedState.turnCount = 6;
+    committedState.对话.entries.push({ id: 'assistant-6', role: 'assistant', content: '旧档正文', timestamp: 1, gameTime: '5' });
+    const committed = journal({ phase: 'settlement_committed', assistantMessageId: 'assistant-6', turnAtStart: 5, committedState });
+    const empty = createEmptyTeyvatGameState();
+
+    expect(canAutoResume(committed, empty, { allowPristineRoot: false })).toBe(false);
+    expect(canAutoResume(committed, empty, { allowPristineRoot: true })).toBe(true);
+  });
+
+  it('rejects a different save-tree branch even when its conversation prefix matches', () => {
+    const base = createEmptyTeyvatGameState();
+    base.turnCount = 5;
+    base.对话.entries.push({ id: 'shared-user', role: 'user', content: '共同历史', timestamp: 1, gameTime: '5' });
+    const committedState = normalizeTeyvatGameState({
+      ...base,
+      turnCount: 6,
+      对话: { entries: [...base.对话.entries, { id: 'assistant-6', role: 'assistant' as const, content: '旧分支', timestamp: 2, gameTime: '5' }] },
+    });
+    const committed = journal({
+      phase: 'settlement_committed', assistantMessageId: 'assistant-6', turnAtStart: 5,
+      committedState, originSaveTreeNodeId: 'branch-a',
+    });
+
+    expect(canAutoResume(committed!, base, { currentSaveTreeNodeId: 'branch-b' })).toBe(false);
+    expect(canAutoResume(committed!, base, { currentSaveTreeNodeId: 'branch-a' })).toBe(true);
   });
 
   it('uses one exact identity policy for historical committed UI eligibility and direct recovery', async () => {
@@ -249,7 +301,7 @@ describe('workflowRecoveryModel completion and resume branches', () => {
     expect(parsed?.pendingSettlement?.source.turnCount).toBe(7);
     expect(parsed?.pendingSettlement?.source).not.toHaveProperty('unknownRoot');
     expect(resolveRecoveryTarget(parsed!)).toEqual({ kind: 'pending_settlement' });
-    expect(canAutoResume(parsed!, createEmptyTeyvatGameState())).toBe(true);
+    expect(canAutoResume(parsed!, createEmptyTeyvatGameState())).toBe(false);
   });
 
   it('persists a normalized cloned exact committed root for crash recovery', () => {
@@ -288,6 +340,20 @@ describe('workflowRecoveryModel completion and resume branches', () => {
     expect(shouldRollbackAbortedWorkflow('settlement_pending')).toBe(true);
     expect(shouldRollbackAbortedWorkflow('settlement_committed')).toBe(false);
     expect(shouldRollbackAbortedWorkflow('autosave_committed')).toBe(false);
+  });
+
+  it('never rolls back an old workflow into a save loaded while it was awaiting', async () => {
+    const rollback = vi.fn(async () => undefined);
+    const clearJournal = vi.fn(async () => undefined);
+    const result = await applyAbortedWorkflowPolicy({
+      phase: 'settlement_pending',
+      sessionStillCurrent: () => false,
+      rollback,
+      clearJournal,
+    });
+    expect(result).toBe('preserved');
+    expect(rollback).not.toHaveBeenCalled();
+    expect(clearJournal).not.toHaveBeenCalled();
   });
 
   it('preserves the committed root and journal on a post-commit AbortError disposition', async () => {
@@ -331,7 +397,10 @@ describe('workflowRecoveryModel completion and resume branches', () => {
     });
     const phases: string[] = [];
     const result = await runPendingSettlementRecovery({
-      journal: pending, currentState: source, settle, runPostSettlement: post,
+      journal: pending,
+      currentState: normalizeTeyvatGameState({ ...source, turnCount: 7, 对话: { entries: [] } }),
+      allowPristineRoot: true,
+      settle, runPostSettlement: post,
       persist: async (next) => { phases.push(next.phase); },
     });
     expect(result.ok).toBe(true);
@@ -375,6 +444,7 @@ describe('workflowRecoveryModel completion and resume branches', () => {
       runCommittedSettlementRecovery?: (input: {
         journal: WorkflowRecoveryJournal;
         currentState: ReturnType<typeof createEmptyTeyvatGameState>;
+        allowPristineRoot?: boolean;
         runPostSettlement: (state: ReturnType<typeof createEmptyTeyvatGameState>, journal: WorkflowRecoveryJournal) => Promise<{ ok: true } | { ok: false; error: string }>;
         persist: (journal: WorkflowRecoveryJournal) => Promise<void>;
       }) => Promise<{ ok: boolean; journal: WorkflowRecoveryJournal; error?: string }>;
@@ -397,6 +467,7 @@ describe('workflowRecoveryModel completion and resume branches', () => {
     const first = await runCommitted({
       journal: durable,
       currentState: createEmptyTeyvatGameState(),
+      allowPristineRoot: true,
       runPostSettlement: async (state) => {
         expect(state).toEqual(normalizeTeyvatGameState(committed));
         return { ok: false, error: 'archive offline' };
@@ -410,6 +481,7 @@ describe('workflowRecoveryModel completion and resume branches', () => {
     const retry = () => runCommitted({
       journal: first.journal,
       currentState: createEmptyTeyvatGameState(),
+      allowPristineRoot: true,
       runPostSettlement: async (state) => {
         archive = buildCommittedQuestArchive(archive, state, [{ questId: 'quest_archive', title: '归档任务', summary: '完成归档' }], 10);
         return { ok: true };

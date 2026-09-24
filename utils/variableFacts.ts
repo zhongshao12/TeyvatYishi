@@ -889,14 +889,25 @@ function classifyPlayerInventoryRemoval(sentence: string, itemName: string): Ext
   const itemIndex = sentence.indexOf(itemName);
   const verbMatch = sentence.match(INVENTORY_REMOVAL_VERBS);
   if (itemIndex < 0 || !verbMatch || verbMatch.index === undefined) return null;
-  const playerIndexes = ['你', '旅行者', '玩家'].map((token) => sentence.indexOf(token)).filter((index) => index >= 0);
+  if (inventoryActionIsUnrealized(sentence.slice(0, verbMatch.index))) return null;
+  const playerIndexes = ['我', '你', '旅行者', '玩家'].map((token) => sentence.indexOf(token)).filter((index) => index >= 0);
   const playerIndex = playerIndexes.length ? Math.min(...playerIndexes) : -1;
   if (playerIndex < 0 || playerIndex > Math.max(itemIndex, verbMatch.index)) return null;
   const actorSpan = sentence.slice(playerIndex, Math.max(itemIndex, verbMatch.index) + verbMatch[0].length);
+  if (/(?:看着|看见|目睹|望着).{0,20}(?:使用|服用|喝下|吃下|吃掉|交给|递给)/u.test(actorSpan)) return null;
   if (/(?:接过|收到|看见|发现|目睹).{0,20}(?:交给|递给|赠给|送给)/u.test(actorSpan)) return null;
   if (/(交给|递给|赠给|送给|交付|上交|归还)/u.test(verbMatch[0])) return 'give';
   if (/(丢失|遗失|失去|损毁|毁坏)/u.test(verbMatch[0])) return 'lose';
   return 'consume';
+}
+
+const INVENTORY_UNREALIZED_PREFIX = /(?:如果|假如|倘若|要是|假设|可能|或许|也许|打算|准备|计划|想要|试图|没有|并未|未曾|不曾|尚未|拒绝)/u;
+function inventoryActionIsUnrealized(prefix: string): boolean {
+  return INVENTORY_UNREALIZED_PREFIX.test(prefix.slice(-28));
+}
+
+function inventoryClauses(text: string): string[] {
+  return text.split(/(?<=[。！？!?；;，,\n])/u).map((part) => part.trim()).filter(Boolean);
 }
 
 function parseNarrativeQuantity(text: string, itemName: string): number {
@@ -909,25 +920,87 @@ function parseNarrativeQuantity(text: string, itemName: string): number {
   return values[quantityText] ?? 1;
 }
 
+const KNOWN_NARRATIVE_ITEMS = new Map<string, Pick<TeyvatItem, 'category' | 'rarity'>>([
+  ['日落果', { category: 'food', rarity: 1 }],
+  ['苹果', { category: 'food', rarity: 1 }],
+  ['甜甜花', { category: 'material', rarity: 1 }],
+]);
+
+/** A narrow fallback when the variable model omits an unambiguous player receipt. */
+export function deriveNarrativeInventoryGainFacts(
+  body: string,
+  items: readonly TeyvatItem[],
+): { facts: Array<Extract<变量事实, { type: 'item' }>>; warnings: string[] } {
+  const facts: Array<Extract<变量事实, { type: 'item' }>> = [];
+  const warnings: string[] = [];
+  const known = new Map(KNOWN_NARRATIVE_ITEMS);
+  for (const item of items) known.set(item.name, { category: item.category, rarity: item.rarity });
+  const sentences = body.split(/(?<=[。！？!?\n])/u).map((part) => part.trim()).filter(Boolean);
+  for (const sentence of sentences) {
+    // A later explicit refusal cancels a handoff mentioned earlier in the same sentence.
+    if (/(?:但|然而|却).{0,10}(?:没有|并未|未曾|拒绝).{0,8}(?:接过|收下|接受|拿走)/u.test(sentence)) continue;
+    for (const clause of inventoryClauses(sentence)) {
+      const receipt = clause.match(/(?:递给|交给|送给)(?:了)?(?:你|我)|(?:你|我|旅行者|玩家)(?:接过|收下|捡起|拾起|获得)/u);
+      if (!receipt || receipt.index === undefined || inventoryActionIsUnrealized(clause.slice(0, receipt.index))) continue;
+      const receivedText = clause.slice(receipt.index + receipt[0].length);
+      const receivedNames = [...known.keys()]
+        .filter((candidate) => receivedText.includes(candidate))
+        .sort((left, right) => receivedText.indexOf(left) - receivedText.indexOf(right));
+      if (!receivedNames.length) {
+        const unknown = receivedText.match(/^\s*一[把件枚个瓶份]\s*([^，。！？\s]{2,12})/u)?.[1];
+        if (unknown) warnings.push(`背包结算待确认：${unknown}缺少可靠分类或星级`);
+        continue;
+      }
+      for (const name of receivedNames) {
+        const item = known.get(name);
+        if (!item) continue;
+        facts.push({ type: 'item', action: 'gain', name, category: item.category, rarity: item.rarity, quantity: parseNarrativeQuantity(receivedText, name), evidence: clause });
+      }
+    }
+  }
+  return { facts, warnings };
+}
+
+/** The model owns an action when it reported it; prose fallback fills only missing action/name pairs. */
+export function mergeNarrativeInventoryFacts(
+  modelFacts: 变量事实[],
+  derived: Array<Extract<变量事实, { type: 'item' }>>,
+): 变量事实[] {
+  const key = (fact: Extract<变量事实, { type: 'item' }>) => `${fact.action}:${fact.name.trim().toLocaleLowerCase('zh-CN')}`;
+  const seen = new Set(modelFacts.filter((fact): fact is Extract<变量事实, { type: 'item' }> => fact.type === 'item').map(key));
+  const added = derived.filter((fact) => {
+    const identity = key(fact);
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+  return [...modelFacts, ...added];
+}
+
 /** 变量模型漏报时，只对正文中“物品名 + 明确扣除动词”做保守兜底。 */
 export function deriveNarrativeInventoryRemovalFacts(
   body: string,
   items: readonly TeyvatItem[],
 ): Array<Extract<变量事实, { type: 'item' }>> {
   const sentences = body.split(/(?<=[。！？!?\n])/u).map((item) => item.trim()).filter(Boolean);
+  // Prefer a single clause, but retain a whole-sentence fallback for omitted subjects/objects:
+  // “旅行者取出日落果，交给安柏” states the item only before the comma.
+  const evidenceCandidates = [...inventoryClauses(body), ...sentences];
   const facts: Array<Extract<变量事实, { type: 'item' }>> = [];
   for (const item of items) {
-    const evidence = sentences.find((sentence) => sentence.includes(item.name) && INVENTORY_REMOVAL_VERBS.test(sentence));
-    if (!evidence || /(?:没有|并未|未曾|不曾|尚未).{0,8}(?:使用|消耗|服用|喝下|吃下|吃掉|交给|递给|赠给|送给|交付|上交|归还|丢失|遗失|失去|损毁|毁坏)/u.test(evidence)) continue;
-    const action = classifyPlayerInventoryRemoval(evidence, item.name);
-    if (!action) continue;
+    const matched = evidenceCandidates.flatMap((evidence) => {
+      if (!evidence.includes(item.name) || !INVENTORY_REMOVAL_VERBS.test(evidence)) return [];
+      const action = classifyPlayerInventoryRemoval(evidence, item.name);
+      return action ? [{ evidence, action }] : [];
+    })[0];
+    if (!matched) continue;
     facts.push({
       type: 'item',
-      action,
+      action: matched.action,
       category: item.category,
       name: item.name,
-      quantity: Math.min(item.quantity, parseNarrativeQuantity(evidence, item.name)),
-      evidence,
+      quantity: Math.min(item.quantity, parseNarrativeQuantity(matched.evidence, item.name)),
+      evidence: matched.evidence,
     });
   }
   return facts;

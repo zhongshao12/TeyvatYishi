@@ -1,5 +1,5 @@
 import type { UseGameStateReturn } from '@/hooks/useGameState';
-import { applyLegacyGameStateOverrides, fromLegacyStoryWeaving, migratePromptModules, migrateStPresetOrders, toLegacyStoryWeaving, type LegacyGameStateOverrides } from '@/hooks/useGameState';
+import { applyLegacyGameStateOverrides, fromLegacyStoryWeaving, migratePromptModules, migrateStPresetOrders, readLiveGameState, toLegacyStoryWeaving, type LegacyGameStateOverrides } from '@/hooks/useGameState';
 import { normalizeTeyvatGameState, type TeyvatGameState, type TeyvatSaveData } from '@/models/teyvat';
 import { classifyAndMigrateDbSaveRecord } from '@/compat/legacy-hsr/migrate';
 import type { 存档数据, 存档类型, 游戏设置 } from '@/models/settings';
@@ -37,8 +37,13 @@ import { materializeAlbumRuntimePayload, pruneAlbumAssetCache } from '@/utils/al
 import { compactDuplicatedSaveImages } from '@/utils/saveImageCompactor';
 import { attachSaveTreeMeta, buildNextSaveTreeMeta, getSaveTreeMeta, type 存档树元信息 } from '@/utils/saveTree';
 import { compactChatHistoryForLongSession, compactVariableBatchHistory } from '@/utils/longSessionRetention';
+import { runTrackedSave, saveStatusStore } from '@/utils/saveStatus';
 
 let activeSaveTreeMeta: 存档树元信息 | null = null;
+
+export function getActiveSaveTreeNodeId(): string | null {
+  return activeSaveTreeMeta?.nodeId ?? null;
+}
 
 export function clearActiveSaveTreeMetaIfMatches(target?: { rootId?: string; nodeId?: string } | null): void {
   if (!activeSaveTreeMeta) return;
@@ -235,10 +240,17 @@ export async function handleLoadById(
 }
 
 export async function handleManualSave(state: UseGameStateReturn): Promise<number> {
-  const payload = buildSavePayload(state, 'manual');
-  const id = await saveGame(payload);
-  commitActiveSaveTreeMeta(payload);
-  return id;
+  const sessionId = state.getGameSessionId();
+  const liveRoot = readLiveGameState(state);
+  const payload = buildSavePayload(state, 'manual', undefined, liveRoot);
+  return runTrackedSave(saveStatusStore, sessionId, liveRoot, 'manual', async () => {
+    const id = await saveGame(payload);
+    if (state.getGameSessionId() === sessionId) {
+      commitActiveSaveTreeMeta(payload);
+      state.setHasSave(true);
+    }
+    return id;
+  }, () => readLiveGameState(state), () => state.getGameSessionId() === sessionId);
 }
 
 export async function handleDeleteSave(id: number): Promise<void> {
@@ -362,6 +374,8 @@ export async function applySaveToState(
   activeSaveTreeMeta = nextTreeMeta;
   state.setHasSave(true);
   state.setView('game');
+  const loadedTimestamp = Number((rawSave as { timestamp?: unknown } | null)?.timestamp);
+  saveStatusStore.markLoaded(state.getGameSessionId(), Number.isFinite(loadedTimestamp) && loadedTimestamp > 0 ? loadedTimestamp : null);
 
   if (state.interruptedWorkflow) {
     if (recoveryWasCleared) {

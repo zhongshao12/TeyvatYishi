@@ -11,6 +11,8 @@ export function resolveManualChunk(rawId: string): string | undefined {
     if (/\/data\/(?:storyWeavingCanonDecomposed|teyvatAvatarRegistry\.generated|canonicalCharacters|courierWorldbook|companionArchiveWorldbook|variableWorldbook|weatherRules|nsfwWorldbook|steambirdWorldbook|modelRecommendations|openingCompanionScenes|keyboardShortcutDefaults|teyvatAvatarNameOverrides|gameMenu|homeBackgrounds|questWorldbook|storyWeavingWorldbook|characterPresets|releaseAnnouncements|journeyPresets|builtinPromptModules|codexPreset|builtinWorldbookConfig|codexIdentityRegistry|storyModeWorldbooks|codexCustomGovernance)\.(?:ts|json)$/.test(id)) {
       return 'app-content';
     }
+    // 内容数据直接使用的运行时工具与其调用方同包，避免 app-content 反向导入 app-core。
+    if (/\/(?:models\/(?:prompts|codexArchive|codexGovernance|teyvat\/elements)|services\/elementalAttunementService|compat\/legacy-hsr\/readOnly|utils\/valueGuards)\.ts$/.test(id)) return 'app-content';
     if (id.includes('/services/') || id.includes('/hooks/') || id.includes('/models/')) return 'app-core';
     return undefined;
   }

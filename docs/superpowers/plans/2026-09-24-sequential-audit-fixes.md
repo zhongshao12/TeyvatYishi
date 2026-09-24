@@ -38,3 +38,8 @@
 - `pnpm test` 最终门禁通过：174 个单测文件 / 1041 项单测、190 个脚本回归、发布回归与包体门禁；`pnpm lint` 为 0 error、146 条存量 warning。
 - Vitest 覆盖率原先包含 `.triage` 临时诊断文件，排除后真实语句覆盖率 33.07%。风险较高的 `sendWorkflow.ts`、`dbService.ts`、`chatCompletionClient.ts` 分别仅约 10.16%、6.49%、5.62%，下一批应补集成/失败路径测试。
 - 构建仍提示 `app-content → app-core → app-content` 循环分包，但包体门禁通过；因涉及多个数据模块的运行时依赖，需独立拆依赖并测冷启动，不在本轮盲改 chunk 归属。
+
+## 下一批：内容分包循环依赖
+
+- 通过 sourcemap 与运行时导入图定位内容模块反向依赖：世界书配置、提示词模块、图鉴数据以及其运行时工具。为这些内容依赖补充 `manualChunkStrategy` 测试，再将提供方归入同一 `app-content` 分包；源码 API 与存档格式未改。
+- `pnpm build` 不再报告 `app-content ↔ app-core` 循环；`pnpm test:bundle-size` 通过（总 gzip 811.2 KB，预算 1024 KB）。该修复仅验证静态构建与体积，实际浏览器冷启动仍需单独测量。

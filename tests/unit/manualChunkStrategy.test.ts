@@ -37,4 +37,21 @@ describe('manual chunk strategy', () => {
     expect(resolveManualChunk('/repo/data/canonicalCharacters.ts')).toBe('app-content');
     expect(resolveManualChunk('/repo/data/storyWeavingCanonDecomposed.json')).toBe('app-content');
   });
+
+  it('keeps content data and its runtime providers in the same chunk to avoid a core-content cycle', () => {
+    const edges = [
+      ['/repo/data/builtinWorldbookConfig.ts', '/repo/services/elementalAttunementService.ts'],
+      ['/repo/data/builtinPromptModules.ts', '/repo/models/prompts.ts'],
+      ['/repo/data/codexCustomGovernance.ts', '/repo/models/codexArchive.ts'],
+      ['/repo/data/codexIdentityRegistry.ts', '/repo/models/codexGovernance.ts'],
+      ['/repo/data/codexPreset.ts', '/repo/models/codexArchive.ts'],
+      ['/repo/services/elementalAttunementService.ts', '/repo/models/teyvat/elements.ts'],
+      ['/repo/models/codexArchive.ts', '/repo/compat/legacy-hsr/readOnly.ts'],
+      ['/repo/data/codexPreset.ts', '/repo/compat/legacy-hsr/readOnly.ts'],
+      ['/repo/data/keyboardShortcutDefaults.ts', '/repo/utils/valueGuards.ts'],
+    ] as const;
+    for (const [consumer, provider] of edges) {
+      expect(resolveManualChunk(provider), `${consumer} imports ${provider}`).toBe(resolveManualChunk(consumer));
+    }
+  });
 });

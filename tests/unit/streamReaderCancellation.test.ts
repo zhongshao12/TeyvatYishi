@@ -60,4 +60,37 @@ describe('stream reader cancellation', () => {
     )).rejects.toMatchObject({ name: 'StreamTimeoutError' });
     expect(cancelled).toBe(true);
   });
+
+  it('propagates a consumer failure instead of treating it as a malformed SSE frame', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"delta":"甲"}\n\ndata: {"delta":"乙"}\n\n'));
+        controller.close();
+      },
+    });
+    const onData = vi.fn(() => { throw new Error('consumer failed'); });
+
+    await expect(chatCompletionClient.readSseStream(new Response(stream), undefined, onData))
+      .rejects.toThrow('consumer failed');
+    expect(onData).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops dispatching frames already buffered when the consumer aborts', async () => {
+    const encoder = new TextEncoder();
+    const controller = new AbortController();
+    const stream = new ReadableStream<Uint8Array>({
+      start(target) {
+        target.enqueue(encoder.encode('data: {"delta":"甲"}\n\ndata: {"delta":"乙"}\n\n'));
+        target.close();
+      },
+    });
+    const received: string[] = [];
+
+    await expect(chatCompletionClient.readSseStream(new Response(stream), controller.signal, (data) => {
+      received.push(data.delta);
+      controller.abort();
+    })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(received).toEqual(['甲']);
+  });
 });

@@ -124,11 +124,14 @@ export async function readSseStream(
     if (!trimmed.startsWith('data:')) return;
     const data = trimmed.slice(5).trim();
     if (!data || data === '[DONE]') return;
+    let parsed: unknown;
     try {
-      onData(JSON.parse(data));
+      parsed = JSON.parse(data);
     } catch {
       // A malformed provider frame must not discard later valid frames.
+      return;
     }
+    onData(parsed);
   };
   const readWithWatchdog = (
     timeoutMs: number,
@@ -169,7 +172,10 @@ export async function readSseStream(
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
-      for (const line of lines) consumeLine(line);
+      for (const line of lines) {
+        if (signal?.aborted) throw signal.reason ?? new DOMException('请求已取消。', 'AbortError');
+        consumeLine(line);
+      }
     }
     buffer += decoder.decode();
     if (buffer) consumeLine(buffer);

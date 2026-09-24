@@ -540,6 +540,7 @@ export async function deleteCloudMergeStagedRecord(
     tx.objectStore(SETTINGS_STORE).delete(cloudMergeStageKey(transferId, recordKey));
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error('清理云备份暂存条目失败。'));
+    tx.onabort = () => reject(tx.error ?? new Error('清理云备份暂存条目已中止。'));
   });
 }
 
@@ -571,6 +572,7 @@ export async function clearCloudMergeStaging(transferId: string): Promise<void> 
     request.onerror = () => reject(request.error);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error('清理云备份合并暂存区失败。'));
+    tx.onabort = () => reject(tx.error ?? new Error('清理云备份合并暂存区已中止。'));
   });
 }
 

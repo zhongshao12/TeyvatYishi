@@ -43,3 +43,7 @@
 
 - 通过 sourcemap 与运行时导入图定位内容模块反向依赖：世界书配置、提示词模块、图鉴数据以及其运行时工具。为这些内容依赖补充 `manualChunkStrategy` 测试，再将提供方归入同一 `app-content` 分包；源码 API 与存档格式未改。
 - `pnpm build` 不再报告 `app-content ↔ app-core` 循环；`pnpm test:bundle-size` 通过（总 gzip 811.2 KB，预算 1024 KB）。该修复仅验证静态构建与体积，实际浏览器冷启动仍需单独测量。
+
+## 下一批：云备份暂存清理中止路径
+
+- `deleteCloudMergeStagedRecord` 与 `clearCloudMergeStaging` 原先没有监听 IndexedDB 事务的 `abort` 事件；仅触发中止时，调用方的 Promise 会一直等待。补充失败路径测试后，增加中止时的明确拒绝，沿用各操作现有的错误文案。

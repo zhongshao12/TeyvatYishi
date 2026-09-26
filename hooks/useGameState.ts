@@ -50,6 +50,7 @@ import {
 import type { 提示词模块 } from '@/models/prompts';
 import type { STPresetEntry } from '@/models/stTypes';
 import { migrateSTPresetsV1ToV2 } from '@/utils/stPresetMigration';
+import { normalizeRetiredTavernSelection } from '@/utils/retiredTavernPresets';
 import { BUILTIN_NARRATIVE_MODULE_IDS, BUILTIN_PROMPT_MODULE_IDS, LEGACY_BUILTIN_COT_ID, getDefaultModuleFields } from '@/models/prompts';
 import { isSTImportedModule } from '@/utils/stPresetParser';
 import { createBuiltinPromptModules } from '@/data/builtinPromptModules';
@@ -1070,7 +1071,10 @@ export function useGameState(): UseGameStateReturn {
     updateGameState((current) => withLegacyQuest(current, applyStateAction(toLegacyQuest(current), action)));
   }, [updateGameState]);
   const [apiSettings, setApiSettings] = useState<API设置>(创建空API设置);
-  const [gameSettings, setGameSettings] = useState<游戏设置>(创建默认游戏设置);
+  const [gameSettings, setGameSettingsState] = useState<游戏设置>(创建默认游戏设置);
+  const setGameSettings = useCallback<React.Dispatch<React.SetStateAction<游戏设置>>>((action) => {
+    setGameSettingsState((current) => normalizeRetiredTavernSelection(applyStateAction(current, action)));
+  }, []);
   const [currentTheme, setCurrentTheme] = useState<主题预设>('mondstadt');
   const [worldbooks, setWorldbooks] = useState<世界书[]>([]);
   const [hasSave, setHasSave] = useState(false);

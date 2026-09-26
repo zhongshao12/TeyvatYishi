@@ -1290,7 +1290,7 @@ export function 创建默认游戏设置(): 游戏设置 {
     cotLanguage: 'zh',
     enableStPreset: true,
     stPresets: [],
-    currentStPresetId: 'builtin_preset',
+    currentStPresetId: null,
     promptModuleOrderVersion: 1,
     stWorldInfos: [],
     macroGlobalVars: {},

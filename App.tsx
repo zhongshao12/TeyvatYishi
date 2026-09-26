@@ -1,6 +1,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useGame } from '@/hooks/useGame';
-import { applyLegacyGameStateOverrides, mapTeyvatNpcsToLegacy, readLiveGameState } from '@/hooks/useGameState';
+import { mapTeyvatNpcsToLegacy, readLiveGameState } from '@/hooks/useGameState';
+import { prepareNewGameState } from '@/hooks/useGame/newGameOpening';
 import { useKeyboardShortcuts } from '@/hooks/useGame/useKeyboardShortcuts';
 import { KEYBOARD_SHORTCUT_DEFAULTS } from '@/data/keyboardShortcutDefaults';
 import { RecoveryBanner } from '@/components/layout/RecoveryBanner';
@@ -91,9 +92,8 @@ import type { 相册系统 } from '@/models/imageGeneration';
 import type { 剧情节点 } from '@/models/plot';
 import type { 记忆系统 } from '@/models/memory';
 import type { ElementId } from '@/models/teyvat/elements';
-import { createEmptyCourierSystem, createEmptyIrminsulMemory, createEmptySteambirdNews } from '@/models/teyvat';
 import { 创建默认记忆系统设置 } from '@/models/settings';
-import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem, loadAllBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
+import { buildPersistedStoryWeavingSystem, loadAllBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
 import { getCurrentStoryChapterLabel } from '@/services/storyProgressService';
 import { generateTravelerTemplate, type TravelerTemplateContext, type TravelerTemplateDraft } from '@/services/ai/travelerTemplate';
 import { revealCourierMessages, runCourierReplyPass, type CourierReplyPassResult } from '@/hooks/useGame/courierBackgroundJobs';
@@ -1154,38 +1154,32 @@ export default function App() {
     };
 
     const handleStartGame = async (traveler: 角色数据结构, worldState: 世界状态, initialNpcRecords: NPC记录[] = []) => {
-      let nextStoryWeaving = state.剧情编织;
-      try {
-        nextStoryWeaving = alignStoryWeavingToOpeningArchive(
-          await loadAllBundledStoryWeavingPresets(),
-          worldState.开局档案,
-        );
-        await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(nextStoryWeaving));
-      } catch (err) {
-        console.warn('[story-weaving] 新开局加载内置原著剧情失败，保留当前剧情编织状态:', err);
-      }
       state.invalidateGameSession();
+      const openingSessionId = state.getGameSessionId();
+      const { game, storyWeaving } = await prepareNewGameState({
+        traveler,
+        world: worldState,
+        initialNpcs: initialNpcRecords,
+        codexCatalog: state.图鉴,
+        loadStoryWeaving: loadAllBundledStoryWeavingPresets,
+      });
+      if (state.getGameSessionId() !== openingSessionId) return;
+      try {
+        await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(storyWeaving));
+      } catch (err) {
+        console.warn('[story-weaving] 新开局剧情目录保存失败，继续使用本局状态:', err);
+      }
+      if (state.getGameSessionId() !== openingSessionId) return;
       clearActiveSaveTreeMetaIfMatches();
-      state.updateGameState((current) => ({
-        ...applyLegacyGameStateOverrides(current, {
-          旅人: traveler,
-          世界: worldState,
-          chatHistory: [],
-          turnCount: 1,
-          记忆: { 即时记忆: [], 短期记忆: [], 中期记忆: [], 长期记忆: [] },
-          NPC: initialNpcRecords,
-          剧情: [],
-          剧情编织: nextStoryWeaving,
-          variableBatches: [],
-          queueTasks: [],
-        }),
-        世界树: createEmptyIrminsulMemory(),
-        手机: createEmptyCourierSystem(),
-        蒸汽鸟报: createEmptySteambirdNews(),
-      }));
+      state.replaceGameState(game);
+      const launchedSessionId = state.getGameSessionId();
       state.setPendingOpeningTrigger('[系统] 开启第 0 回合');
       setLaunchingJourney(true);
       await wait(getJourneyLaunchDelay());
+      if (state.getGameSessionId() !== launchedSessionId) {
+        setLaunchingJourney(false);
+        return;
+      }
       state.setView('game');
       setLaunchingJourney(false);
     };

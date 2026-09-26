@@ -43,6 +43,9 @@ for (const file of WORKFLOW_FILES) {
 // 拼接必须真的包含每个文件的内容（防止读到空文件而断言空转）
 const sources = readWorkflowSources(root);
 const spans = workflowFileSpans(root);
+if (sources.includes('\r')) {
+  fail('工作流源码视图必须将 Windows CRLF 归一化为 LF，供多行行为断言稳定匹配');
+}
 if (sources.length !== spans[spans.length - 1].end) {
   fail('拼接文本长度与 workflowFileSpans 不一致（区间计算与实际读取不同步）');
 }

@@ -9,8 +9,8 @@ function readSource(path) {
 // 理由: 断言保护的是「重roll 行为」，不是「代码在哪个文件」。原先手工追加新归属文件的做法
 //       （mainNarrativeRequestStage.ts / mainNarrativeRetryPolicy.ts 等）每次搬迁都要再来一遍，
 //       故改用统一登记表；WORKFLOW_FILES 已含这些文件，断言范围不会被搬迁悄悄缩小。
-// 等价性: readWorkflowSources() 不做换行归一化，而 readSource() 会把 CRLF 归一为 LF；
-//       已核实 WORKFLOW_FILES 全部 38 个文件均为纯 LF，故两者对本视图语义等价。
+// 等价性: readWorkflowSources() 与 readSource() 均把 CRLF 归一为 LF，
+//       Windows 检出后多行断言仍使用相同的换行约定。
 // 保留显式读取的非视图文件：useGame.ts / chat.ts / TurnItem.tsx / saveLoadWorkflow.ts / steambirdWorkflow.ts
 //       （其中 steambirdWorkflow.ts 已登记但也在此精确读取）/ settings.ts / dbService.ts / saveRuntimeCompactor.ts。
 const source = readWorkflowSources();

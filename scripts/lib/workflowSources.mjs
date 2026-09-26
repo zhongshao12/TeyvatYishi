@@ -115,7 +115,7 @@ function readRequired(relativePath, root) {
       `workflowSources: 缺少工作流源文件 ${relativePath}（WORKFLOW_FILES 与实际文件不同步）`,
     );
   }
-  return fs.readFileSync(absolutePath, 'utf8');
+  return fs.readFileSync(absolutePath, 'utf8').replace(/\r\n?/g, '\n');
 }
 
 /**

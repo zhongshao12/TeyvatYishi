@@ -1,5 +1,5 @@
 import { CLIP_CARD, CLIP_MEDIUM, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
-import { ConfirmDialogHost, Modal, useConfirmDialog } from '@/components/ui/Modal';
+import { ConfirmDialogHost, Modal, useConfirmDialog, type ConfirmDialogRequest } from '@/components/ui/Modal';
 import { pushToast } from '@/utils/toastStore';
 import { toUserFacingError } from '@/utils/userFacingError';
 import { useEffect, useMemo, useState } from 'react';
@@ -120,6 +120,8 @@ const CATEGORY_COLOR_VAR: Record<提示词模块类目, string> = {
 interface Props {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
+  onSaveImportedPreset?: (s: 游戏设置) => Promise<void>;
+  onImportedPresetDirtyChange?: (dirty: boolean) => void;
   mode?: 'modules' | 'tavern';
   /** Phase 7.2：世界书数组（ST 预设导入时注入 ST 世界书条目）。 */
   worldbooks: 世界书[];
@@ -373,7 +375,7 @@ function TogglePill({
   );
 }
 
-export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbooks, onWorldbooksChange, apiSettings, onApiSettingsChange }: Props) {
+export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onImportedPresetDirtyChange, mode = 'modules', worldbooks, onWorldbooksChange, apiSettings, onApiSettingsChange }: Props) {
   const isTavernMode = mode === 'tavern';
   const modules = settings.promptModules;
   // 原生 confirm/alert 无法换主题、不能读屏标注；提示词模块页统一走样式化确认弹窗与 toast。
@@ -931,6 +933,20 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
     onChange({ ...settings, stPresetsV2: nextPresets });
   };
 
+  const saveImportedPreset = async (presetId: string, preset: STPresetEntryV2['preset']) => {
+    const editablePresets = settings.stPresetsV2 ?? [];
+    if (!editablePresets.some((entry) => entry.id === presetId && !entry.isBuiltin)) {
+      throw new Error('导入预设已不存在，无法保存修改');
+    }
+    const now = Date.now();
+    const next = {
+      ...settings,
+      stPresetsV2: editablePresets.map((entry) => entry.id === presetId ? { ...entry, preset, updatedAt: now } : entry),
+    };
+    if (onSaveImportedPreset) await onSaveImportedPreset(next);
+    else onChange(next);
+  };
+
   const exportV2Preset = (preset: STPresetEntryV2) => {
     const blob = new Blob([JSON.stringify(preset.preset, null, 2)], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -1153,6 +1169,9 @@ export function PromptModulesTab({ settings, onChange, mode = 'modules', worldbo
                 onCharacterChange={setV2CharacterId}
                 onRuntimeChange={patchV2RuntimeSettings}
                 onPresetChange={patchV2Preset}
+                onSaveImportedPreset={saveImportedPreset}
+                onDirtyChange={onImportedPresetDirtyChange}
+                confirmDiscard={askConfirm}
                 onExport={exportV2Preset}
                 onDelete={deletePresetV2}
               />
@@ -1362,6 +1381,9 @@ function V2PresetSwitcher({
   onCharacterChange,
   onRuntimeChange,
   onPresetChange,
+  onSaveImportedPreset,
+  onDirtyChange,
+  confirmDiscard,
   onExport,
   onDelete,
 }: {
@@ -1374,10 +1396,20 @@ function V2PresetSwitcher({
   onCharacterChange: (characterId: number | null) => void;
   onRuntimeChange: (partial: Pick<游戏设置, 'stPostProcessMode'>) => void;
   onPresetChange: (presetId: string, preset: STPresetEntryV2['preset']) => void;
+  onSaveImportedPreset: (presetId: string, preset: STPresetEntryV2['preset']) => Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void;
+  confirmDiscard: (request: ConfirmDialogRequest) => Promise<boolean>;
   onExport: (preset: STPresetEntryV2) => void;
   onDelete: (presetId: string) => void;
 }) {
-  const current = presets.find((p) => p.id === currentId) ?? null;
+  const persistedCurrent = presets.find((p) => p.id === currentId) ?? null;
+  const [draft, setDraft] = useState<{ presetId: string; preset: STPresetEntryV2['preset'] } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const dirty = Boolean(persistedCurrent && !persistedCurrent.isBuiltin && draft?.presetId === persistedCurrent.id);
+  const current = dirty && persistedCurrent && draft
+    ? { ...persistedCurrent, preset: draft.preset }
+    : persistedCurrent;
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const characterIds = current?.preset.prompt_order.map((item) => item.character_id) ?? [];
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
   const [slotFilter, setSlotFilter] = useState<'all' | 'enabled' | 'disabled' | 'runtime' | 'missing' | 'macro'>('all');
@@ -1448,7 +1480,38 @@ function V2PresetSwitcher({
 
   const patchCurrentPreset = (nextPreset: STPresetEntryV2['preset']) => {
     if (!current) return;
+    if (!current.isBuiltin) {
+      setDraft({ presetId: current.id, preset: nextPreset });
+      return;
+    }
     onPresetChange(current.id, nextPreset);
+  };
+
+  const saveDraft = async () => {
+    if (!current || !dirty || saving) return;
+    const savedPreset = current.preset;
+    setSaving(true);
+    try {
+      await onSaveImportedPreset(current.id, savedPreset);
+      setDraft((pending) => pending?.preset === savedPreset ? null : pending);
+      pushToast({ kind: 'success', title: '酒馆预设修改已保存' });
+    } catch (error) {
+      pushToast({ kind: 'error', title: '酒馆预设保存失败', detail: toUserFacingError(error) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const switchWithDraftCheck = async (nextId: string | null) => {
+    if (nextId === currentId || saving) return;
+    if (dirty && !await confirmDiscard({
+      title: '未保存修改',
+      message: '当前酒馆预设有未保存的修改。切换后这些修改会丢失。',
+      confirmLabel: '放弃修改',
+      tone: 'danger',
+    })) return;
+    setDraft(null);
+    onSwitch(nextId);
   };
 
   const patchOrderSlot = (identifier: string, partial: Partial<NonNullable<typeof selectedSlot>>) => {
@@ -1562,11 +1625,18 @@ function V2PresetSwitcher({
         <span className="ml-auto text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>
           {canEdit ? '导入预设可编辑' : '内置正文只读 · 条目可配置'}
         </span>
+        {canEdit && (
+          <button type="button" onClick={() => { void saveDraft(); }} disabled={!dirty || saving}
+            className="px-3 py-1.5 text-xs disabled:opacity-50"
+            style={{ color: 'rgb(var(--tj-text-primary))', background: 'rgba(var(--tj-accent-primary), 0.25)', boxShadow: insetRing(0.25), clipPath: CLIP_SMALL }}>
+            {saving ? '保存中…' : '保存修改'}
+          </button>
+        )}
       </div>
       <div className="grid gap-2 xl:grid-cols-[minmax(220px,1.3fr)_minmax(140px,0.7fr)_minmax(140px,0.7fr)_auto_auto]">
         <select
           value={currentId ?? ''}
-          onChange={(e) => onSwitch(e.target.value || null)}
+          onChange={(e) => { void switchWithDraftCheck(e.target.value || null); }}
           className="min-w-0 px-3 py-2 text-sm"
           style={{
             background: 'rgba(var(--tj-bg-primary), 0.6)',
@@ -1740,10 +1810,8 @@ function V2PresetSwitcher({
                 const active = selectedSlot?.identifier === slot.identifier;
                 const contentPreview = prompt?.content?.replace(/\s+/g, ' ').trim().slice(0, 80);
                 return (
-                  <button
+                  <div
                     key={`${slot.identifier}_${index}`}
-                    type="button"
-                    onClick={() => setSelectedSlotId(slot.identifier)}
                     className="grid items-start gap-2 px-3 py-2 text-left text-sm transition-all"
                     style={{
                       gridTemplateColumns: '2.25rem minmax(0, 1fr) auto',
@@ -1752,6 +1820,9 @@ function V2PresetSwitcher({
                       clipPath: CLIP_SMALL,
                     }}
                   >
+                    <button type="button" onClick={() => setSelectedSlotId(slot.identifier)}
+                      className="col-span-2 grid min-w-0 items-start gap-2 text-left"
+                      style={{ gridTemplateColumns: '2.25rem minmax(0, 1fr)' }}>
                     <span style={{ color: slot.enabled === false ? 'rgba(var(--tj-text-secondary), 0.42)' : 'rgba(var(--tj-ui-nsfw), 0.82)' }}>
                       #{index + 1}
                     </span>
@@ -1777,13 +1848,14 @@ function V2PresetSwitcher({
                         </span>
                       )}
                     </span>
+                    </button>
                     <span className="flex flex-col items-end gap-1 text-xs">
                       <span style={{ color: 'rgba(var(--tj-text-secondary), 0.52)' }}>
                         {isRuntime ? 'runtime' : (isMissing ? 'missing' : (prompt?.role ?? 'system'))}
                       </span>
                       <TogglePill checked={slot.enabled !== false} disabled={!canToggleOrderSlot} onChange={(next) => patchOrderSlot(slot.identifier, { enabled: next })} />
                     </span>
-                  </button>
+                  </div>
                 );
               })}
               {shownOrderSlots.length === 0 && (

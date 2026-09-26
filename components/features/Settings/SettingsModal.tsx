@@ -40,7 +40,7 @@ import type { VariableSetters } from '@/utils/variableExecutor';
 import { saveSetting } from '@/services/dbService';
 import type { 世界书 } from '@/models/worldbook';
 import type { 聊天消息 } from '@/models/chat';
-import { useModalAccessibility } from '@/components/ui/Modal';
+import { ConfirmDialogHost, useConfirmDialog, useModalAccessibility } from '@/components/ui/Modal';
 import { pushToast } from '@/utils/toastStore';
 import { toUserFacingError } from '@/utils/userFacingError';
 
@@ -129,12 +129,35 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [contextRefreshKey, setContextRefreshKey] = useState(0);
-  const dialogRef = useModalAccessibility<HTMLDivElement>(onClose);
+  const [importedPresetDirty, setImportedPresetDirty] = useState(false);
+  const confirmDialog = useConfirmDialog();
+  const confirmLeaveDraft = async () => !importedPresetDirty || await confirmDialog.confirm({
+    title: '未保存修改',
+    message: '导入的酒馆预设有未保存的修改。离开后这些修改会丢失。',
+    confirmLabel: '放弃修改',
+    tone: 'danger',
+  });
+  const requestClose = () => {
+    void confirmLeaveDraft().then((confirmed) => { if (confirmed) onClose(); });
+  };
+  const requestTabChange = (next: Tab) => {
+    if (next === activeTab) return;
+    void confirmLeaveDraft().then((confirmed) => {
+      if (!confirmed) return;
+      setImportedPresetDirty(false);
+      setActiveTab(next);
+    });
+  };
+  const dialogRef = useModalAccessibility<HTMLDivElement>(requestClose);
   const persistGameSettingsChange = useCallback((next: 游戏设置) => {
     onGameSettingsChange(next);
     void saveSetting('gameSettings', next).catch((error: unknown) => {
       pushToast({ kind: 'error', title: '游戏设置保存失败', detail: toUserFacingError(error) });
     });
+  }, [onGameSettingsChange]);
+  const saveImportedPreset = useCallback(async (next: 游戏设置) => {
+    await saveSetting('gameSettings', next);
+    onGameSettingsChange(next);
   }, [onGameSettingsChange]);
 
   const persistThemeChange = useCallback((next: 主题预设) => {
@@ -195,6 +218,8 @@ export function SettingsModal({
           <TavernPresetsSettingsTab
             settings={gameSettings}
             onChange={persistGameSettingsChange}
+            onSaveImportedPreset={saveImportedPreset}
+            onImportedPresetDirtyChange={setImportedPresetDirty}
             worldbooks={worldbooks}
             onWorldbooksChange={onWorldbooksChange}
             apiSettings={apiSettings}
@@ -234,7 +259,7 @@ export function SettingsModal({
     <div
       className="teyvat-modal-overlay fixed inset-0 z-50 flex items-stretch justify-center p-0 md:items-center md:p-4"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) requestClose();
       }}
     >
       <div
@@ -277,7 +302,7 @@ export function SettingsModal({
                 }}
               />
             </div>
-            <button onClick={onClose} className="teyvat-close-btn text-xl md:hidden" aria-label="关闭">
+            <button onClick={requestClose} className="teyvat-close-btn text-xl md:hidden" aria-label="关闭">
               X
             </button>
           </div>
@@ -290,7 +315,7 @@ export function SettingsModal({
               return (
                 <button
                   key={t.key}
-                  onClick={() => setActiveTab(t.key)}
+                  onClick={() => requestTabChange(t.key)}
                   className={`teyvat-settings-nav-item group flex w-[148px] flex-shrink-0 items-center gap-2 px-3 py-2 text-left transition-all md:w-full md:gap-3 md:px-5 md:py-3 ${active ? 'active' : ''}`}
                   style={{
                     background: active
@@ -378,7 +403,7 @@ export function SettingsModal({
                 {activeMeta.subtitle}
               </p>
             </div>
-            <button onClick={onClose} className="teyvat-close-btn" aria-label="关闭">
+            <button onClick={requestClose} className="teyvat-close-btn" aria-label="关闭">
               ✕
             </button>
           </header>
@@ -391,6 +416,7 @@ export function SettingsModal({
           </div>
         </section>
       </div>
+      <ConfirmDialogHost dialog={confirmDialog} />
     </div>
   );
 }

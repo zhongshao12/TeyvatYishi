@@ -5,6 +5,8 @@ import type { 世界书 } from '@/models/worldbook';
 interface TavernPresetsSettingsTabProps {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
+  onSaveImportedPreset?: (s: 游戏设置) => Promise<void>;
+  onImportedPresetDirtyChange?: (dirty: boolean) => void;
   worldbooks: 世界书[];
   onWorldbooksChange: (books: 世界书[]) => void;
   apiSettings: API设置;

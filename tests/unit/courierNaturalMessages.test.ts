@@ -70,6 +70,13 @@ it('rejects meta-shaped model output in letters, private replies and group repli
   await expect(generateCourierGroupReply(config, { conversation: { ...conversation, type: 'group' }, playerMessage, sender })).rejects.toThrow('GROUP_REPLY_CONTAINS_META_TEXT');
 });
 
+it('accepts a natural private reminder instead of dropping the character reply', async () => {
+  const reply = '对了，你说的巡逻路线我还记着。明天我带你走一遍。';
+  vi.mocked(chatCompletion).mockResolvedValue(reply);
+
+  await expect(generateCourierReply(config, { conversation, playerMessage, sender })).resolves.toBe(reply);
+});
+
 it.each([
   '根据记忆生成一封跟进来信。',
   '已发生事实：请根据记忆生成一封跟进来信。',

@@ -12,7 +12,6 @@ import type { SteambirdNews } from '@/models/teyvat/steambird';
 import { buildOpeningSystemPrompt, buildSystemPrompt } from './systemPromptBuilder';
 import { buildTavernMessageChain } from './tavernMessageChainBuilder';
 import { getCurrentSTPresetV2 } from '@/utils/stSettingsNormalizer';
-import { getBuiltinPresetsV2, loadSelectedBuiltinTavernPreset } from '@/data/builtinPresets';
 import { evaluateStoryWeavingGate, getStoryWeavingInjectionDiagnostics } from '@/services/storyWeaving';
 import { selectNpcLedgersForTurn} from '@/models/npc';
 import {
@@ -321,9 +320,7 @@ export async function runMainPromptAssembly(deps: MainPromptAssemblyDeps) {
     }
     // Phase 4: In-Chat depth 注入。非 system 角色的模块消息按 depth 插入聊天历史。
     const moduleChatMessages = builtPrompt.chatModuleMessages;
-    // 仅加载本回合真正启用的内置预设；玩家自定义预设已经在设置中。
-    await loadSelectedBuiltinTavernPreset(state.gameSettings.currentStPresetIdV2, state.gameSettings.enableStPreset !== false);
-    const currentPresetV2 = getCurrentSTPresetV2(state.gameSettings, getBuiltinPresetsV2());
+    const currentPresetV2 = getCurrentSTPresetV2(state.gameSettings);
     const shouldTryTavernV2 =
       state.gameSettings.enableStPreset !== false &&
       Boolean(currentPresetV2?.preset?.prompts?.length) &&

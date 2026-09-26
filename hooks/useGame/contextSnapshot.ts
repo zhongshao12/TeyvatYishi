@@ -9,7 +9,6 @@ import { estimateTextTokens } from '@/utils/tokenEstimate';
 import { createMacroContext } from '@/utils/macroEngine';
 import { 格式化开局档案上下文 } from '@/models/world';
 import { NPC_MEMORY_WRITE_RULE_PROMPT } from '@/data/variableWorldbook';
-import { getBuiltinPresetsV2, loadSelectedBuiltinTavernPreset } from '@/data/builtinPresets';
 import { getCurrentSTPresetV2 } from '@/utils/stSettingsNormalizer';
 import { selectNpcLedgersForTurn } from '@/models/npc';
 import { buildTavernMessageChain } from './tavernMessageChainBuilder';
@@ -149,9 +148,7 @@ function buildMainContextSnapshot(state: UseGameStateReturn): ContextSnapshot {
   const tavernHistory = recentHistory.filter((msg, index) => {
     return index !== currentUserIndex;
   });
-  const currentPresetV2 = getCurrentSTPresetV2(state.gameSettings, getBuiltinPresetsV2());
-  // 内置酒馆预设按需加载：预览为同步快照，这里触发后台加载，下次快照即可带上完整预设。
-  void loadSelectedBuiltinTavernPreset(state.gameSettings.currentStPresetIdV2, state.gameSettings.enableStPreset !== false);
+  const currentPresetV2 = getCurrentSTPresetV2(state.gameSettings);
   const shouldTryTavernV2 =
     state.gameSettings.enableStPreset !== false &&
     Boolean(currentPresetV2?.preset?.prompts?.length) &&

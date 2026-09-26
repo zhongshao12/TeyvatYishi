@@ -16,7 +16,6 @@ import type { 聊天消息 } from '@/models/chat';
 import { 创建聊天消息 } from '@/models/chat';
 import type { CodexEntry } from '@/models/teyvat/codex';
 import type { MainPromptAssemblyResult } from './mainPromptAssembly';
-import { getBuiltinPresets } from '@/data/builtinPresets';
 
 export interface RunApiMessagesStageDeps {
   state: UseGameStateReturn;
@@ -84,14 +83,6 @@ export async function runApiMessagesStage(deps: RunApiMessagesStageDeps) {
 
     // Phase 4/7：从当前激活预设读取 assistant prefill
     // 正式 JSON 合同不使用 DeepSeek assistant prefill，避免缺少 JSON 起始字符。
-    const currentPresetId = state.gameSettings.currentStPresetId;
-    const allPresets = [
-      ...getBuiltinPresets(),
-      ...(state.gameSettings.stPresets ?? []),
-    ];
-    const currentPreset = currentPresetId
-      ? allPresets.find((p) => p.id === currentPresetId)
-      : undefined;
     // 注意：下面这行看起来是"死代码"（tsc --noUnusedLocals 会说它从未被读取），但它是
     // 被 scripts/deepseek-format-stability-regression.mjs:73 刻意钉住的**决定**：
     // 「正式主剧情不得使用预设 assistant prefill 截断 JSON」。删掉它会打红该回归门禁，

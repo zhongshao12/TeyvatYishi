@@ -22,9 +22,7 @@ import {
   BUILTIN_RESPONSE_FORMAT_ID,
 } from '@/utils/stPresetParser';
 import type { STPresetEntry, STPresetEntryV2, STSamplingParams, STWorldInfoEntry } from '@/models/stTypes';
-import { getBuiltinPresets, getBuiltinPresetsV2, loadAllBuiltinTavernPresets } from '@/data/builtinPresets';
 import { extractSTPresetSamplingParams } from '@/utils/stSettingsNormalizer';
-import { BUILTIN_PRESET_ID } from '@/data/builtinPresets/builtinPreset';
 import type { 世界书 } from '@/models/worldbook';
 import { analyzeTavernRegexScript, dryRunTavernRegexScript, extractTavernRegexScripts } from '@/hooks/useGame/tavernRegexProcessor';
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core';
@@ -381,35 +379,20 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
   // 原生 confirm/alert 无法换主题、不能读屏标注；提示词模块页统一走样式化确认弹窗与 toast。
   const confirmDialog = useConfirmDialog();
   const askConfirm = confirmDialog.confirm;
-  /** 内置酒馆预设按需加载：挂载时触发加载，完成后 bump 版本号让下方 useMemo 重算。 */
-  const [builtinPresetVersion, setBuiltinPresetVersion] = useState(0);
-  useEffect(() => {
-    let active = true;
-    void loadAllBuiltinTavernPresets().then(() => {
-      if (active) setBuiltinPresetVersion((version) => version + 1);
-    });
-    return () => { active = false; };
-  }, []);
-  /** 全部可选预设：内置预设（原生 / 二创成品）+ 玩家导入预设。切换 UI 与 switchPreset 统一用此数组查找。
-   *  去重：若玩家导入预设与内置预设同名（如早期测试导入的双人成行），只保留内置版本。 */
-  const allPresets = useMemo<STPresetEntry[]>(() => {
-    const builtins = getBuiltinPresets();
-    const builtinNames = new Set(builtins.map((p) => p.name));
-    const userPresets = (settings.stPresets ?? []).filter((p) => !builtinNames.has(p.name));
-    return [...builtins, ...userPresets];
-  }, [settings.stPresets]);
+  /** 酒馆预设只来自玩家导入；原生提示词模块仍单独管理。 */
+  const allPresets = useMemo<STPresetEntry[]>(() => settings.stPresets ?? [], [settings.stPresets]);
   /** 当前激活预设的显示名（用于 header 显示"当前使用预设：XXX"） */
   const currentPresetName = useMemo(() => {
-    const id = settings.currentStPresetId ?? BUILTIN_PRESET_ID;
+    const id = settings.currentStPresetId;
     return allPresets.find((p) => p.id === id)?.name ?? null;
   }, [allPresets, settings.currentStPresetId]);
   const currentV2Preset = useMemo(() => {
     const id = settings.currentStPresetIdV2 ?? null;
-    return [...getBuiltinPresetsV2(), ...(settings.stPresetsV2 ?? [])].find((p) => p.id === id) ?? null;
-  }, [settings.currentStPresetIdV2, settings.stPresetsV2, builtinPresetVersion]);
+    return (settings.stPresetsV2 ?? []).find((p) => p.id === id) ?? null;
+  }, [settings.currentStPresetIdV2, settings.stPresetsV2]);
   const allPresetsV2 = useMemo<STPresetEntryV2[]>(
-    () => [...getBuiltinPresetsV2(), ...(settings.stPresetsV2 ?? [])],
-    [settings.stPresetsV2, builtinPresetVersion],
+    () => settings.stPresetsV2 ?? [],
+    [settings.stPresetsV2],
   );
   const sorted = useMemo(
     () => [...modules].sort((a, b) => a.order - b.order),
@@ -748,10 +731,10 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
 
   /** 切换激活预设：用目标预设的 modules 替换当前 promptModules 中的 st_import_* 段。
    *  当前预设已修改的 st_import_* 模块会随 currentPreset.modules 持久化，切换不丢。
-   *  内置预设（getBuiltinPresets）与玩家导入预设（settings.stPresets）统一在 allPresets 中查找。
+   *  玩家导入预设（settings.stPresets）在 allPresets 中查找。
    *  冲突处理：
    *   - 切到非空预设（adapted/imported）：识别 ST 模块的 CoT/格式，自动禁用内置 main_plot_cot/response_format
-   *   - 切到 null 或原生内置预设（presetType='native'）：恢复内置 main_plot_cot/response_format 到启用状态，
+   *   - 切到 null 或原生类型预设（presetType='native'）：恢复内置 main_plot_cot/response_format 到启用状态，
    *     因为玩家清空预设/选原生大概率是想回到原生体验（玩家手动禁用的也会被恢复，可再次手动关闭）。
    *  采样参数同步：
    *   - 切到带 samplingParams 的预设：首次备份当前 API 参数，应用预设参数
@@ -979,10 +962,8 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
     })();
   };
 
-  /** 删除预设。内置预设不可删。若删除的是当前激活预设，需先切走（恢复参数）。 */
+  /** 删除玩家导入的预设。若删除的是当前激活预设，需先切走（恢复参数）。 */
   const deletePreset = async (presetId: string) => {
-    // 内置预设（原生 / 二创成品）不可删
-    if (getBuiltinPresets().some((p) => p.id === presetId)) return;
     const target = (settings.stPresets ?? []).find((p) => p.id === presetId);
     if (!target) return;
     if (!await askConfirm({
@@ -1013,7 +994,7 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
       onChange({
         ...settings,
         stPresets: presets,
-        currentStPresetId: BUILTIN_PRESET_ID,
+        currentStPresetId: null,
         promptModules: preserved,
         stPresetApiBackup: nextBackup,
       });
@@ -1623,7 +1604,7 @@ function V2PresetSwitcher({
         </span>
         <TogglePill checked={enabled} disabled onChange={() => undefined} label={enabled ? '总开关已启用' : '总开关关闭'} />
         <span className="ml-auto text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>
-          {canEdit ? '导入预设可编辑' : '内置正文只读 · 条目可配置'}
+          {canEdit ? '导入预设可编辑' : presets.length === 0 ? '尚未导入酒馆预设' : '未选择预设 · 使用原生正文'}
         </span>
         {canEdit && (
           <button type="button" onClick={() => { void saveDraft(); }} disabled={!dirty || saving}

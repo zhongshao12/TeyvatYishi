@@ -78,7 +78,6 @@ const bannedPatterns = [
   /智库/gu,
   // ── 崩铁专名补漏 ──
   // 「星轨」是星穹铁道英文名（Star Rail）直译，且在提瓦特语境无必要保留；
-  // data/builtinPresets/（酒馆预设用户数据）在白名单中豁免，不受影响。
   /星轨/gu,
   /匹诺康尼/gu,
   /模拟宇宙/gu,

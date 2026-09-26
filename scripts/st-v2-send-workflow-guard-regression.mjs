@@ -24,7 +24,8 @@ function assert(condition, message) {
 
 assert(sendWorkflow.includes("import { buildTavernMessageChain } from './tavernMessageChainBuilder';"), 'sendWorkflow 应显式导入 ST V2 消息链构建器');
 assert(sendWorkflow.includes("import { getCurrentSTPresetV2 } from '@/utils/stSettingsNormalizer';"), 'sendWorkflow 应通过 helper 派生当前 V2 预设');
-assert(sendWorkflow.includes('const currentPresetV2 = getCurrentSTPresetV2(state.gameSettings, getBuiltinPresetsV2());'), 'sendWorkflow 应在运行时派生当前 V2 预设并包含内置 V2 副本');
+assert(sendWorkflow.includes('const currentPresetV2 = getCurrentSTPresetV2(state.gameSettings);'), 'sendWorkflow 应只从玩家导入的设置派生当前 V2 预设');
+assert(!sendWorkflow.includes('getBuiltinPresetsV2'), 'sendWorkflow 不得重新引入内置酒馆预设');
 assert(sendWorkflow.includes('state.gameSettings.enableStPreset !== false'), 'ST V2 分流必须与 UI 一致：旧存档缺省视为开启，只有显式 false 才关闭');
 assert(sendWorkflow.includes('currentPresetV2?.preset?.prompts?.length'), 'ST V2 分流必须要求有效 prompts');
 assert(sendWorkflow.includes('currentPresetV2?.preset?.prompt_order?.length'), 'ST V2 分流必须要求有效 prompt_order');
@@ -77,7 +78,8 @@ assert(
 );
 assert(contextSnapshot.includes("import { buildTavernMessageChain } from './tavernMessageChainBuilder';"), '主剧情上下文快照必须复用 Tavern V2 消息链构建器');
 assert(contextSnapshot.includes("import { getCurrentSTPresetV2 } from '@/utils/stSettingsNormalizer';"), '主剧情上下文快照必须通过 helper 派生当前 V2 预设');
-assert(contextSnapshot.includes('const currentPresetV2 = getCurrentSTPresetV2(state.gameSettings, getBuiltinPresetsV2());'), '主剧情上下文快照必须包含内置 V2 预设副本');
+assert(contextSnapshot.includes('const currentPresetV2 = getCurrentSTPresetV2(state.gameSettings);'), '主剧情上下文快照应只预览玩家导入的 V2 预设');
+assert(!contextSnapshot.includes('getBuiltinPresetsV2'), '主剧情上下文快照不得重新引入内置酒馆预设');
 assert(contextSnapshot.includes('state.gameSettings.enableStPreset !== false'), '主剧情上下文快照必须与真实发送保持相同的 V2 开关语义');
 assert(contextSnapshot.includes('const recentHistory = getMainHistoryWindow(state.chatHistory, state.gameSettings, state.记忆);'), '主剧情上下文快照中的 Tavern V2 也必须复用原生近期历史窗口');
 assert(contextSnapshot.includes('const tavernHistory = recentHistory.filter((msg, index) => {'), '主剧情上下文快照必须排除当前用户输入，避免 Tavern 预览重复');

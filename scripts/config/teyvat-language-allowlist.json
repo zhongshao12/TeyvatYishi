@@ -1,8 +1,6 @@
 {
   "pathPrefixes": [
-    "compat/legacy-hsr/",
-    "data/builtinPresets/",
-    "public/data/builtin-presets/"
+    "compat/legacy-hsr/"
   ],
   "files": [
     "原神化改造计划.md",

@@ -1,6 +1,5 @@
 /** 不符合 *-regression.mjs 命名规则但必须进入全量回归的脚本。 */
 export const EXTRA_REGRESSION_SCRIPTS = [
-  'builtin-tavern-preset-surface-audit.mjs',
   'check-node-version.mjs',
   'npc-ledger-variable-facts-behavior.mjs',
   'teyvat-runtime-language-audit.mjs',

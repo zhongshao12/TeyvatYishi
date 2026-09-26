@@ -13,6 +13,17 @@ import { pathToFileURL } from 'node:url';
 import { readWorkflowSources, sliceWorkflowFile, sliceWorkflowMarker } from './lib/workflowSources.mjs';
 
 const root = process.cwd();
+const retiredAssetDir = path.join(root, 'dist/data/builtin-presets');
+assertNoBundledTavernAssets();
+
+function assertNoBundledTavernAssets() {
+  const bundledJson = fs.existsSync(retiredAssetDir)
+    ? fs.readdirSync(retiredAssetDir).filter((name) => name.endsWith('.json'))
+    : [];
+  if (bundledJson.length > 0) {
+    throw new Error(`Retired built-in Tavern presets remain in build output: ${bundledJson.join(', ')}`);
+  }
+}
 // 子脚本同样需要 `@/` 别名解析钩子；否则直接 import 生产 .ts 的子脚本会 ERR_MODULE_NOT_FOUND。
 const aliasLoader = ['--import', pathToFileURL(path.join(root, 'scripts/lib/tsAliasRegister.mjs')).href];
 const node = process.execPath;
@@ -40,12 +51,8 @@ const focusedRegressions = [
   'scripts/tavern-message-chain-regression.mjs',
   'scripts/tavern-regex-processor-regression.mjs',
   'scripts/response-parser-surface-cleanup-regression.mjs',
-  'scripts/builtin-tavern-preset-surface-audit.mjs',
   'scripts/st-v2-ui-edit-export-regression.mjs',
   'scripts/st-v2-send-workflow-guard-regression.mjs',
-  'scripts/builtin-presets-v2-regression.mjs',
-  'scripts/builtin-tavern-v2-message-chain-regression.mjs',
-  'scripts/builtin-shuangrenchenghang-format-guard-regression.mjs',
 ];
 
 for (const script of focusedRegressions) {

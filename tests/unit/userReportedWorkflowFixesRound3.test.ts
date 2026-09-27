@@ -57,17 +57,18 @@ describe('third user-reported UX regression batch', () => {
     expect(normalized.map((npc) => npc.姓名)).toEqual(['安柏']);
   });
 
-  it('gives female companions the adult + virginity baseline, including unknown-age saves', () => {
+  it('gives trusted adults a baseline without promoting unknown-age saves', () => {
     const adult = enrichNpcArchives([
       legacyNpc('丽莎', { 性别: '女', NSFW档案: { enabled: true, 年龄确认: 'adult' } }),
     ], { nsfwEnabled: true, maleNsfwArchiveEnabled: false }).records[0];
     expect(adult!.NSFW档案).toMatchObject({ 是否处女: '是', 首次性行为对象: '无' });
 
-    // 玩家要求「女角色的年龄确认全部填上」：老存档里的 unknown 必须补成成年并给出处女基线。
+    // 未确认年龄的旧档不能仅因角色为女性就自动解锁私密字段。
     const unknownAge = enrichNpcArchives([
       legacyNpc('原创女性旅人', { 性别: '女', NSFW档案: { enabled: true, 年龄确认: 'unknown' } }),
     ], { nsfwEnabled: true, maleNsfwArchiveEnabled: false }).records[0];
-    expect(unknownAge!.NSFW档案).toMatchObject({ 年龄确认: 'adult', 是否处女: '是' });
+    expect(unknownAge!.NSFW档案?.年龄确认).toBe('unknown');
+    expect(unknownAge!.NSFW档案?.是否处女).toBeUndefined();
 
     // 安全边界：受保护的非成年角色永远拿不到成年标记与处女基线。
     const protectedMinor = enrichNpcArchives([

@@ -117,6 +117,7 @@ export interface NPC账本选择结果 {
 export interface NPC_NSFW档案 {
   enabled?: boolean;
   年龄确认?: NPC_NSFW年龄确认;
+  年龄确认来源?: 'canonical' | 'manual' | 'legacy_unverified';
   /** 仅对已确认成年女性角色记录。 */
   是否处女?: '是' | '否' | '未知';
   /** 仅对已确认成年女性角色记录；尚无经历时为“无”。 */
@@ -831,6 +832,8 @@ function 归一化NSFW档案(raw: unknown): NPC记录['NSFW档案'] {
   const note = typeof obj.备注 === 'string' ? obj.备注.trim() : undefined;
   const enabled = Boolean(obj.enabled);
   const age = normalizeNsfwAge(obj.年龄确认);
+  const ageSource = obj.年龄确认来源 === 'canonical' || obj.年龄确认来源 === 'manual'
+    ? obj.年龄确认来源 : age ? 'legacy_unverified' : undefined;
   const stage = typeof obj.亲密阶段 === 'string' ? obj.亲密阶段.trim() : undefined;
   const boundary = typeof obj.边界 === 'string' ? obj.边界.trim() : undefined;
   const virginity = obj.是否处女 === '是' || obj.是否处女 === '否' || obj.是否处女 === '未知' ? obj.是否处女 : undefined;
@@ -862,6 +865,7 @@ function 归一化NSFW档案(raw: unknown): NPC记录['NSFW档案'] {
   return {
     enabled,
     年龄确认: age,
+    年龄确认来源: ageSource,
     是否处女: age === 'adult' ? virginity : undefined,
     首次性行为对象: age === 'adult' ? firstPartner : undefined,
     亲密阶段: stage,

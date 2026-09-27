@@ -542,7 +542,7 @@ export function mapTeyvatNpcsToLegacy(game: TeyvatGameState): NPC记录[] {
     总结记忆: npc.relationshipLedger.summaries.map((memory) => ({ id: memory.id, 回合范围: memory.turnRange, 条数: memory.itemCount, 摘要: memory.summary, 保留事实: [...memory.retainedFacts], 关系变化: [...memory.relationshipChanges], 未完成事项: [...memory.unfinishedBusiness] })),
     备注: npc.notes, 玩家纠正记录: npc.playerCorrections, 原著角色: npc.canonical,
     NSFW档案: npc.matureArchive ? {
-      enabled: npc.matureArchive.enabled, 年龄确认: npc.matureArchive.ageConfirmation, 亲密阶段: npc.matureArchive.intimacyStage,
+      enabled: npc.matureArchive.enabled, 年龄确认: npc.matureArchive.ageConfirmation, 年龄确认来源: npc.matureArchive.ageConfirmationSource, 亲密阶段: npc.matureArchive.intimacyStage,
       是否处女: npc.gender === '女' && npc.matureArchive.ageConfirmation === 'adult' ? (npc.matureArchive.virginityStatus === 'virgin' ? '是' : npc.matureArchive.virginityStatus === 'not_virgin' ? '否' : npc.matureArchive.virginityStatus === 'unknown' ? '未知' : undefined) : undefined,
       首次性行为对象: npc.gender === '女' && npc.matureArchive.ageConfirmation === 'adult' ? npc.matureArchive.firstSexualPartner : undefined,
       边界: npc.matureArchive.boundaries, 偏好: [...npc.matureArchive.preferences], 敏感点: [...npc.matureArchive.sensitivePoints], 禁忌: [...npc.matureArchive.taboos],
@@ -583,7 +583,7 @@ export function applyLegacyNpcRecords(game: TeyvatGameState, records: NPC记录[
       source: ({ 手动: 'manual', 原著: 'canon', 文生图: 'generated', 占位: 'placeholder' } as const)[npc.图像档案.来源 ?? '手动'],
     } : { slotImages: {} },
     matureArchive: npc.NSFW档案 ? {
-      enabled: npc.NSFW档案.enabled, ageConfirmation: npc.NSFW档案.年龄确认, intimacyStage: npc.NSFW档案.亲密阶段,
+      enabled: npc.NSFW档案.enabled, ageConfirmation: npc.NSFW档案.年龄确认, ageConfirmationSource: npc.NSFW档案.年龄确认来源, intimacyStage: npc.NSFW档案.亲密阶段,
       virginityStatus: npc.性别 === '女' && npc.NSFW档案.年龄确认 === 'adult' ? (npc.NSFW档案.是否处女 === '是' ? 'virgin' : npc.NSFW档案.是否处女 === '否' ? 'not_virgin' : npc.NSFW档案.是否处女 === '未知' ? 'unknown' : undefined) : undefined,
       firstSexualPartner: npc.性别 === '女' && npc.NSFW档案.年龄确认 === 'adult' ? npc.NSFW档案.首次性行为对象 : undefined,
       boundaries: npc.NSFW档案.边界, preferences: [...(npc.NSFW档案.偏好 ?? [])], sensitivePoints: [...(npc.NSFW档案.敏感点 ?? [])], taboos: [...(npc.NSFW档案.禁忌 ?? [])],

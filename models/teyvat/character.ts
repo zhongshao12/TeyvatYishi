@@ -126,6 +126,7 @@ export interface TeyvatNpcVisualArchive {
 export interface TeyvatNpcMatureArchive {
   enabled?: boolean;
   ageConfirmation?: 'adult' | 'unknown' | 'minor_blocked';
+  ageConfirmationSource?: 'canonical' | 'manual' | 'legacy_unverified';
   /** Adult-confirmed female characters only. */
   virginityStatus?: 'virgin' | 'not_virgin' | 'unknown';
   firstSexualPartner?: string;
@@ -266,11 +267,15 @@ export function normalizeTeyvatNpcMatureArchive(value: unknown): TeyvatNpcMature
   const age = ['adult', 'unknown', 'minor_blocked'].includes(text(value.ageConfirmation))
     ? text(value.ageConfirmation) as TeyvatNpcMatureArchive['ageConfirmation']
     : undefined;
+  const ageSource = ['canonical', 'manual'].includes(text(value.ageConfirmationSource))
+    ? text(value.ageConfirmationSource) as TeyvatNpcMatureArchive['ageConfirmationSource']
+    : age ? 'legacy_unverified' : undefined;
   const virginityStatus = age === 'adult' && ['virgin', 'not_virgin', 'unknown'].includes(text(value.virginityStatus))
     ? text(value.virginityStatus) as NonNullable<TeyvatNpcMatureArchive['virginityStatus']>
     : undefined;
   return {
     ...(typeof value.enabled === 'boolean' ? { enabled: value.enabled } : {}), ...(age ? { ageConfirmation: age } : {}),
+    ...(ageSource ? { ageConfirmationSource: ageSource } : {}),
     ...(virginityStatus ? { virginityStatus } : {}),
     ...(age === 'adult' && optionalText(value.firstSexualPartner) ? { firstSexualPartner: text(value.firstSexualPartner) } : {}),
     ...(optionalText(value.intimacyStage) ? { intimacyStage: text(value.intimacyStage) } : {}),

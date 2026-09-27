@@ -146,7 +146,7 @@ describe('user reported workflow regressions', () => {
     const state = createEmptyTeyvatGameState();
     state.NPC = normalizeTeyvatNpcRecords([{
       id: 'npc_adult', 姓名: '成年原创角色', roleTier: 'companion', gender: '女',
-      matureArchive: { enabled: true, ageConfirmation: 'adult' },
+      matureArchive: { enabled: true, ageConfirmation: 'adult', ageConfirmationSource: 'manual' },
     }]);
     const translated = factsToTeyvatDomainCommands([{
       type: 'nsfw_archive', npcName: '成年原创角色', enabled: true, ageConfirm: 'adult',

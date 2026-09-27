@@ -26,6 +26,8 @@ import {
 import { extractJsonLikeText, parseJsonWithRepair } from '@/services/ai/structuredOutputRepair';
 import { 天气列表 } from '@/data/weatherRules';
 import { getMinorAgeEvidenceReason, getNsfwArchiveBlockReason, isProtectedCanonicalNpc } from '@/utils/nsfwArchivePolicy';
+import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
+import { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveEnrichment';
 import {
   normalizeLegacyFactKind,
   readLegacyNpcKeyFromName,
@@ -1157,11 +1159,10 @@ function mergePreferredText(current: unknown, incoming: unknown): string | undef
 function buildNsfwArchiveUpdate(existing: NPC记录, fact: Extract<变量事实, { type: 'nsfw_archive' }>): Record<string, unknown> {
   const current = existing.NSFW档案 ?? {};
   const archive: Record<string, unknown> = {};
-  // NSFW 年龄门禁已解除：年龄确认降级为纯展示信息，不再限制档案写入。
-  // 落库改为字段级合并（existing 优先，fact 补充），不再强制塞入保守基线占位文案。
   archive.enabled = fact.enabled ?? current.enabled ?? true;
-  archive.年龄确认 = fact.ageConfirm ?? current.年龄确认 ?? 'unknown';
-  if (existing.性别 === '女' && archive.年龄确认 === 'adult') {
+  archive.年龄确认 = 'adult';
+  archive.年龄确认来源 = getCanonicalArchiveBaselineAge(existing.姓名) === 'adult' ? 'canonical' : current.年龄确认来源;
+  if (existing.性别 === '女') {
     archive.是否处女 = fact.virginityStatus === 'virgin' ? '是' : fact.virginityStatus === 'not_virgin' ? '否' : fact.virginityStatus === 'unknown' ? '未知' : current.是否处女;
     archive.首次性行为对象 = fact.firstSexualPartner ?? current.首次性行为对象;
   }
@@ -1498,14 +1499,19 @@ export function factsToVariableCommands(
         warnings.push(`nsfw_archive 已忽略：找不到 NPC ${fact.npcName}，NSFW 档案只更新已入档 NPC。`);
         continue;
       }
-      const blockedReason = getNsfwArchiveBlockReason(existing, fact.npcName);
-      if (blockedReason) {
-        warnings.push(`nsfw_archive 已忽略：${blockedReason}。`);
+      const eligibility = resolveNpcAdultEligibility({
+        name: existing.姓名, aliases: existing.别名 ? [existing.别名] : [],
+        description: [existing.介绍, existing.外貌, existing.备注.join(' ')].filter(Boolean).join(' '),
+        ageConfirmation: existing.NSFW档案?.年龄确认,
+        ageSource: existing.NSFW档案?.年龄确认来源,
+        canonicalBaselineAge: getCanonicalArchiveBaselineAge(existing.姓名),
+      });
+      if (!eligibility.confirmed) {
+        warnings.push(`nsfw_archive 已忽略：${eligibility.reason}。`);
         continue;
       }
       const key = `NPC[id=${existing.id}].NSFW档案`;
       const archive = buildNsfwArchiveUpdate(existing, fact);
-      if (fact.ageConfirm) archive.年龄确认 = fact.ageConfirm;
       if (fact.intimacyStage) archive.亲密阶段 = fact.intimacyStage;
       if (fact.boundaries) archive.边界 = fact.boundaries;
       if (fact.preferences?.length) archive.偏好 = fact.preferences;
@@ -1840,8 +1846,19 @@ export function factsToTeyvatDomainCommands(
       const id = requestedId && isTeyvatStableId(requestedId) ? requestedId : npcIdFromName(fact.npcName);
       let existing = state.NPC.find((entry) => entry.id === id || entry.姓名 === fact.npcName || entry.aliases.includes(fact.npcName)
         || matchCanonical(entry.姓名)?.name === matchCanonical(fact.npcName)?.name);
-      const blockedReason = getNsfwArchiveBlockReason(undefined, fact.npcName, fact.evidence);
-      if (!existing && !blockedReason) {
+      const canonicalBaselineAge = getCanonicalArchiveBaselineAge(existing?.姓名 ?? fact.npcName);
+      const eligibility = resolveNpcAdultEligibility({
+        name: existing?.姓名 ?? fact.npcName, aliases: existing?.aliases,
+        description: [existing?.说明, existing?.appearance, ...(existing?.notes ?? [])].filter(Boolean).join(' '),
+        ageConfirmation: existing?.matureArchive?.ageConfirmation,
+        ageSource: existing?.matureArchive?.ageConfirmationSource,
+        canonicalBaselineAge,
+      });
+      if (!eligibility.confirmed) {
+        warnings.push(`nsfw_archive 已忽略：${eligibility.reason}。`);
+        continue;
+      }
+      if (!existing) {
         const canonical = matchCanonical(fact.npcName);
         existing = {
           id, 姓名: canonical?.name ?? fact.npcName, 地区: '', 身份: '', 天赋: [], 说明: '',
@@ -1854,18 +1871,15 @@ export function factsToTeyvatDomainCommands(
         };
         push({ action: 'push', root: 'NPC', path: 'records', value: existing }, fact.evidence);
       }
-      if (blockedReason) warnings.push(`nsfw_archive 已忽略：${blockedReason}。`);
-      else if (existing) {
-        const archiveBlockedReason = getNsfwArchiveBlockReason(undefined, fact.npcName, fact.evidence);
-        if (archiveBlockedReason) warnings.push(`nsfw_archive 已忽略：${archiveBlockedReason}。`);
-        else push({ action: 'set', root: 'NPC', path: `${buildTeyvatIdSelector(existing.id)}.matureArchive`, value: {
+      if (existing) {
+        push({ action: 'set', root: 'NPC', path: `${buildTeyvatIdSelector(existing.id)}.matureArchive`, value: {
           ...(existing.matureArchive ?? { preferences: [], sensitivePoints: [], taboos: [], femaleBodyProfile: {}, maleBodyProfile: {}, experiences: [], longTermFacts: [], tags: [], partImages: {} }),
           enabled: fact.enabled ?? existing.matureArchive?.enabled ?? true,
-          // 女角色的年龄确认默认按原著视为成年（与 npcArchiveEnrichment 的默认值保持一致）。
-          ageConfirmation: fact.ageConfirm ?? existing.matureArchive?.ageConfirmation ?? (existing.gender === '女' ? 'adult' : 'unknown'),
+          ageConfirmation: 'adult',
+          ageConfirmationSource: canonicalBaselineAge === 'adult' ? 'canonical' : existing.matureArchive?.ageConfirmationSource,
           intimacyStage: fact.intimacyStage ?? existing.matureArchive?.intimacyStage,
           boundaries: fact.boundaries ?? existing.matureArchive?.boundaries,
-          ...(existing.gender === '女' && (fact.ageConfirm ?? existing.matureArchive?.ageConfirmation) === 'adult' ? {
+          ...(existing.gender === '女' ? {
             virginityStatus: fact.virginityStatus ?? existing.matureArchive?.virginityStatus,
             firstSexualPartner: fact.firstSexualPartner ?? existing.matureArchive?.firstSexualPartner,
           } : {}),

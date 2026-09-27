@@ -1,7 +1,7 @@
 import { matchCanonical } from '@/data/canonicalCharacters';
 import type { NPC记录, NPC性别, NPC_NSFW档案 } from '@/models/npc';
 import type { ArchiveCodex, CodexEntry } from '@/models/teyvat/codex';
-import { getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
+import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
 
 export type CanonicalArchiveBaseline = {
   性别?: NPC性别;
@@ -88,6 +88,11 @@ const CANONICAL_ARCHIVE_BASELINES: Record<string, CanonicalArchiveBaseline> = {
   },
 };
 
+export function getCanonicalArchiveBaselineAge(name: string): CanonicalArchiveBaseline['nsfw年龄确认'] {
+  const canonicalName = matchCanonical(name)?.name;
+  return canonicalName ? CANONICAL_ARCHIVE_BASELINES[canonicalName]?.nsfw年龄确认 : undefined;
+}
+
 function hasText(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
@@ -157,7 +162,13 @@ function shouldCreateNsfwBaseline(
   options: { nsfwEnabled: boolean; maleNsfwArchiveEnabled: boolean },
 ): boolean {
   if (!options.nsfwEnabled) return false;
-  if (getNsfwArchiveBlockReason(npc, npc.姓名)) return false;
+  if (!resolveNpcAdultEligibility({
+    name: npc.姓名, aliases: npc.别名 ? [npc.别名] : [],
+    description: [npc.介绍, npc.外貌, npc.备注.join(' ')].filter(Boolean).join(' '),
+    ageConfirmation: npc.NSFW档案?.年龄确认,
+    ageSource: npc.NSFW档案?.年龄确认来源,
+    canonicalBaselineAge: baseline?.nsfw年龄确认,
+  }).confirmed) return false;
   const gender = baseline?.性别 ?? npc.性别;
   if (gender === '男' && !options.maleNsfwArchiveEnabled) return false;
   return npc.阶位 === 'companion' || npc.同行 || npc.原著角色 === true;
@@ -166,23 +177,15 @@ function shouldCreateNsfwBaseline(
 function buildNsfwBaseline(npc: NPC记录, baseline?: CanonicalArchiveBaseline): NPC_NSFW档案 {
   const existing = npc.NSFW档案 ?? {};
   const gender = baseline?.性别 ?? npc.性别;
-  // 女角色的年龄确认按原著视为成年（玩家要求「全部填上」）。
-  // 受保护的非成年角色不会走到这里：shouldCreateNsfwBaseline / shouldBackfillFemaleNsfwDefaults
-  // 都先过 getNsfwArchiveBlockReason，派蒙、七七、可莉、瑶瑶、早柚拿不到档案。
-  // 注意 'unknown' 是**非空字符串**，用 `??` 不会回退 —— 老存档里写死的 'unknown'
-  // 必须按「未填」处理，否则女角色的年龄永远补不上（这是首版实现的真实 bug）。
-  // 'minor_blocked' 是安全标记，永远原样保留。
-  const declared = existing.年龄确认 ?? baseline?.nsfw年龄确认;
-  const age: NonNullable<NPC_NSFW档案['年龄确认']> = declared === 'adult' || declared === 'minor_blocked'
-    ? declared
-    : (gender === '女' ? 'adult' : 'unknown');
-  // NSFW 年龄门禁已解除：年龄确认降级为纯展示信息，不再限制档案写入或显示。
-  // 基线档案只建一个干净空壳（enabled + 年龄 + 亲密阶段占位），把内容留给事实填充，
-  // 不再写「保守基线」「等待剧情事实补充」等占位文案。
+  const age: NonNullable<NPC_NSFW档案['年龄确认']> = baseline?.nsfw年龄确认 === 'adult'
+    || (existing.年龄确认 === 'adult' && existing.年龄确认来源 === 'manual')
+    ? 'adult' : 'unknown';
+  const ageSource = baseline?.nsfw年龄确认 === 'adult' ? 'canonical' : existing.年龄确认来源;
   return {
     ...existing,
     enabled: true,
     年龄确认: age,
+    年龄确认来源: ageSource,
     ...(gender === '女' && age === 'adult' ? {
       // 女角色默认「是」，性爱事件结算后会由 nsfw_archive 事实改为「否」。
       是否处女: existing.是否处女 ?? '是',
@@ -203,7 +206,13 @@ function shouldBackfillFemaleNsfwDefaults(
   options: { nsfwEnabled: boolean; maleNsfwArchiveEnabled: boolean },
 ): boolean {
   if (!options.nsfwEnabled) return false;
-  if (getNsfwArchiveBlockReason(npc, npc.姓名)) return false;
+  if (!resolveNpcAdultEligibility({
+    name: npc.姓名, aliases: npc.别名 ? [npc.别名] : [],
+    description: [npc.介绍, npc.外貌, npc.备注.join(' ')].filter(Boolean).join(' '),
+    ageConfirmation: npc.NSFW档案?.年龄确认,
+    ageSource: npc.NSFW档案?.年龄确认来源,
+    canonicalBaselineAge: baseline?.nsfw年龄确认,
+  }).confirmed) return false;
   if ((baseline?.性别 ?? npc.性别) !== '女') return false;
   if (!(npc.阶位 === 'companion' || npc.同行 || npc.原著角色 === true)) return false;
   const archive = npc.NSFW档案;

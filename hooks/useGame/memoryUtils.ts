@@ -215,6 +215,7 @@ export function compressToLongTerm(system: 记忆系统, turn: number, batchSize
     中期记忆: (system.中期记忆 ?? []).slice(size),
     中期归档ID: (system.中期归档ID ?? (system.中期记忆 ?? []).map(() => null)).slice(size),
     长期记忆: [...system.长期记忆, compressed],
+    长期归档ID: [...(system.长期归档ID ?? system.长期记忆.map(() => null)), null],
   };
 }
 
@@ -584,6 +585,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
       中期记忆: removeIndexes(next.中期记忆 ?? [], picked.indexes),
       中期归档ID: removeIndexes(next.中期归档ID ?? (next.中期记忆 ?? []).map(() => null), picked.indexes),
       长期记忆: [...next.长期记忆, result.summary],
+      长期归档ID: [...(next.长期归档ID ?? next.长期记忆.map(() => null)), archive.id],
     };
   }
 
@@ -592,6 +594,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
 
 export interface RetryMemoryFailureDraftResult {
   memory: 记忆系统;
+  irminsul?: IrminsulMemory;
   draft: 记忆失败草稿;
   usedModel: boolean;
   usedFallback: boolean;
@@ -607,11 +610,12 @@ export async function retryMemoryFailureDraft(
   settings: 记忆系统设置,
   mainConfig: API配置项,
   signal?: AbortSignal,
+  irminsul?: IrminsulMemory,
 ): Promise<RetryMemoryFailureDraftResult> {
   const draft = (system.失败草稿 ?? []).find((item) => item.id === draftId);
   if (!draft) throw new Error('找不到对应的失败草稿。');
   if (draft.status === 'resolved' || draft.status === 'ignored') {
-    return { memory: system, draft, usedModel: false, usedFallback: false };
+    return { memory: system, irminsul, draft, usedModel: false, usedFallback: false };
   }
   if (draft.origin === 'batch_rebuild') {
     throw new Error('这份草稿来自批量重建，请重新运行批量重建；原记忆仍保持不变。');
@@ -660,6 +664,7 @@ export async function retryMemoryFailureDraft(
         失败草稿: (system.失败草稿 ?? []).map((item) => item.id === draft.id ? updated : item),
       },
       draft: updated,
+      irminsul,
       usedModel: false,
       usedFallback: true,
     };
@@ -667,8 +672,17 @@ export async function retryMemoryFailureDraft(
 
   const layerKey = draft.targetLayer;
   const current = system[layerKey];
-  const index = current.findIndex((item) => item === draft.fallbackSummary);
-  if (index < 0) {
+  const archiveKey = layerKey === '短期记忆' ? '短期归档ID'
+    : layerKey === '中期记忆' ? '中期归档ID' : '长期归档ID';
+  const archiveIds = system[archiveKey];
+  const matchingIndexes = current.flatMap((item, index) => item === draft.fallbackSummary ? [index] : []);
+  const index = draft.archiveEntryId && archiveIds
+    ? archiveIds.findIndex((id) => id === draft.archiveEntryId)
+    : matchingIndexes.length === 1 ? matchingIndexes[0] ?? -1 : -1;
+  const pendingArchive = draft.archiveEntryId && irminsul
+    ? irminsul.entries.find((entry) => entry.id === draft.archiveEntryId) : undefined;
+  if (index < 0 || current[index] !== draft.fallbackSummary
+    || (draft.archiveEntryId && irminsul && (pendingArchive?.status !== 'pending' || pendingArchive.summary !== draft.fallbackSummary))) {
     const conflicted: 记忆失败草稿 = {
       ...draft,
       status: 'pending',
@@ -683,6 +697,7 @@ export async function retryMemoryFailureDraft(
         失败草稿: (system.失败草稿 ?? []).map((item) => item.id === draft.id ? conflicted : item),
       },
       draft: conflicted,
+      irminsul,
       usedModel: false,
       usedFallback: false,
     };
@@ -696,6 +711,9 @@ export async function retryMemoryFailureDraft(
     sourceSnapshot: { ...draft.sourceSnapshot, payload: '' },
     updatedAt: now,
   };
+  const nextIrminsul = pendingArchive && irminsul
+    ? promoteIrminsulEntry(irminsul, { ...pendingArchive, summary: result.summary, status: 'active' })
+    : irminsul;
   return {
     memory: {
       ...system,
@@ -703,6 +721,7 @@ export async function retryMemoryFailureDraft(
       失败草稿: (system.失败草稿 ?? []).map((item) => item.id === draft.id ? resolved : item),
     },
     draft: resolved,
+    irminsul: nextIrminsul,
     usedModel: true,
     usedFallback: false,
   };

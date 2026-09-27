@@ -147,6 +147,7 @@ export interface MemorySourceSnapshotDto {
 
 export interface MemoryFailedDraftDto {
   id: string;
+  archiveEntryId?: string;
   origin?: 'automatic' | 'batch_rebuild';
   kind: 'short' | 'middle' | 'long';
   status: 'pending' | 'retrying' | 'resolved' | 'ignored';
@@ -164,8 +165,11 @@ export interface MemoryFailedDraftDto {
 export interface MemoryLedger {
   immediate: string[];
   shortTerm: string[];
+  shortArchiveIds?: (string | null)[];
   mediumTerm: string[];
+  mediumArchiveIds?: (string | null)[];
   longTerm: string[];
+  longArchiveIds?: (string | null)[];
   recoveryLog: MemoryRecoveryLog[];
   failedDrafts: MemoryFailedDraftDto[];
 }
@@ -471,13 +475,22 @@ export function normalizeConversationLog(value: unknown): ConversationLog {
 function normalizeTurnRange(value: unknown): { start: number; end: number } { const raw = isRecord(value) ? value : {}; return { start: integer(raw.start), end: integer(raw.end) } }
 export function normalizeMemoryLedger(value: unknown): MemoryLedger {
   const raw = isRecord(value) ? value : {};
+  const shortTerm = textList(raw.shortTerm);
+  const mediumTerm = textList(raw.mediumTerm);
+  const longTerm = textList(raw.longTerm);
+  const archiveIds = (value: unknown, length: number): (string | null)[] =>
+    Array.from({ length }, (_, index) => typeof (value as unknown[])?.[index] === 'string' ? (value as string[])[index] ?? null : null);
   const recoveryStatuses = ['pending', 'retrying', 'resolved', 'ignored'] as const;
   const draftKinds = ['short', 'middle', 'long'] as const;
   const failureCodes = ['unconfigured', 'request_failed', 'empty_output', 'source_changed'] as const;
-  return { immediate: textList(raw.immediate), shortTerm: textList(raw.shortTerm), mediumTerm: textList(raw.mediumTerm), longTerm: textList(raw.longTerm), recoveryLog: Array.isArray(raw.recoveryLog) ? raw.recoveryLog.flatMap((entry) => isRecord(entry) ? [{ id: text(entry.id), sourceTurns: normalizeTurnRange(entry.sourceTurns), summary: text(entry.summary), status: recoveryStatuses.find((item) => item === entry.status) ?? 'pending', ...(optionalText(entry.failureCode) ? { failureCode: text(entry.failureCode) } : {}), createdAt: number(entry.createdAt), updatedAt: number(entry.updatedAt) }] : []) : [], failedDrafts: Array.isArray(raw.failedDrafts) ? raw.failedDrafts.flatMap((entry) => {
+  return { immediate: textList(raw.immediate), shortTerm,
+    ...(Array.isArray(raw.shortArchiveIds) ? { shortArchiveIds: archiveIds(raw.shortArchiveIds, shortTerm.length) } : {}),
+    mediumTerm, ...(Array.isArray(raw.mediumArchiveIds) ? { mediumArchiveIds: archiveIds(raw.mediumArchiveIds, mediumTerm.length) } : {}),
+    longTerm, ...(Array.isArray(raw.longArchiveIds) ? { longArchiveIds: archiveIds(raw.longArchiveIds, longTerm.length) } : {}),
+    recoveryLog: Array.isArray(raw.recoveryLog) ? raw.recoveryLog.flatMap((entry) => isRecord(entry) ? [{ id: text(entry.id), sourceTurns: normalizeTurnRange(entry.sourceTurns), summary: text(entry.summary), status: recoveryStatuses.find((item) => item === entry.status) ?? 'pending', ...(optionalText(entry.failureCode) ? { failureCode: text(entry.failureCode) } : {}), createdAt: number(entry.createdAt), updatedAt: number(entry.updatedAt) }] : []) : [], failedDrafts: Array.isArray(raw.failedDrafts) ? raw.failedDrafts.flatMap((entry) => {
     if (!isRecord(entry)) return [];
     const snapshot = isRecord(entry.sourceSnapshot) ? entry.sourceSnapshot : {};
-    return [{ id: text(entry.id), ...(entry.origin === 'automatic' || entry.origin === 'batch_rebuild' ? { origin: entry.origin } : {}), kind: draftKinds.find((item) => item === entry.kind) ?? 'short', status: recoveryStatuses.find((item) => item === entry.status) ?? 'pending', sourceTurns: normalizeTurnRange(entry.sourceTurns), sourceSnapshot: { encoding: snapshot.encoding === 'gzip-base64' ? 'gzip-base64' : 'plain-json', payload: text(snapshot.payload), checksum: text(snapshot.checksum), itemCount: integer(snapshot.itemCount), uncompressedBytes: integer(snapshot.uncompressedBytes) }, targetLayer: entry.targetLayer === '中期记忆' || entry.targetLayer === '长期记忆' ? entry.targetLayer : '短期记忆', fallbackSummary: text(entry.fallbackSummary), failureCode: failureCodes.find((item) => item === entry.failureCode) ?? 'request_failed', failureMessage: text(entry.failureMessage), attemptCount: integer(entry.attemptCount), createdAt: number(entry.createdAt), updatedAt: number(entry.updatedAt) }];
+    return [{ id: text(entry.id), ...(optionalText(entry.archiveEntryId) ? { archiveEntryId: text(entry.archiveEntryId) } : {}), ...(entry.origin === 'automatic' || entry.origin === 'batch_rebuild' ? { origin: entry.origin } : {}), kind: draftKinds.find((item) => item === entry.kind) ?? 'short', status: recoveryStatuses.find((item) => item === entry.status) ?? 'pending', sourceTurns: normalizeTurnRange(entry.sourceTurns), sourceSnapshot: { encoding: snapshot.encoding === 'gzip-base64' ? 'gzip-base64' : 'plain-json', payload: text(snapshot.payload), checksum: text(snapshot.checksum), itemCount: integer(snapshot.itemCount), uncompressedBytes: integer(snapshot.uncompressedBytes) }, targetLayer: entry.targetLayer === '中期记忆' || entry.targetLayer === '长期记忆' ? entry.targetLayer : '短期记忆', fallbackSummary: text(entry.fallbackSummary), failureCode: failureCodes.find((item) => item === entry.failureCode) ?? 'request_failed', failureMessage: text(entry.failureMessage), attemptCount: integer(entry.attemptCount), createdAt: number(entry.createdAt), updatedAt: number(entry.updatedAt) }];
   }) : [] };
 }
 

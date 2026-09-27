@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { settlePostNarrativeMemory } from '@/hooks/useGame/postNarrativeMemoryStage';
-import { autoCompressMemorySystemWithArchivesAsync } from '@/hooks/useGame/memoryUtils';
-import { 创建空记忆系统 } from '@/models/memory';
+import { autoCompressMemorySystemWithArchivesAsync, retryMemoryFailureDraft } from '@/hooks/useGame/memoryUtils';
+import { 创建空记忆系统, serializeMemoryFailureSource } from '@/models/memory';
 import { 创建默认记忆系统设置, type API配置项 } from '@/models/settings';
 import { createEmptyIrminsulMemory } from '@/models/teyvat/irminsul';
 import { getActiveIrminsulEntries } from '@/services/irminsulPromotion';
@@ -130,5 +130,40 @@ describe('post-narrative memory stage', () => {
     await expect(autoCompressMemorySystemWithArchivesAsync({ ...创建空记忆系统(), 短期记忆: ['另一个短期'] }, 7,
       settings, {} as API配置项, undefined, result.irminsul)).rejects.toMatchObject({ name: 'AbortError' });
     expect(result.irminsul).toEqual(before);
+  });
+
+  it('retry_replaces_only_its_pending_archive', async () => {
+    const snapshot = await serializeMemoryFailureSource(['安柏迎接玩家']);
+    const source = { id: 'source-short', title: '短期记忆', summary: '安柏迎接玩家', sourceText: '原文', keywords: ['安柏'],
+      sourceTurns: [5], recordedAt: '第5回', archiveType: 'short' as const, turn: 5 };
+    const pending = { ...source, id: 'pending-middle', archiveType: 'medium' as const, summary: '本地回退摘要',
+      coveredEntryIds: ['source-short'], status: 'pending' as const };
+    const otherPending = { ...pending, id: 'other-pending', summary: '另一份待重试摘要', coveredEntryIds: undefined };
+    const tree = { entries: [source, pending, otherPending] };
+    const draft = { id: 'draft-middle', archiveEntryId: pending.id, kind: 'middle' as const, status: 'pending' as const,
+      sourceTurns: { start: 5, end: 5 }, sourceSnapshot: snapshot, targetLayer: '中期记忆' as const,
+      fallbackSummary: pending.summary, failureCode: 'request_failed' as const, failureMessage: '暂时失败',
+      attemptCount: 0, createdAt: 1, updatedAt: 1 };
+    const memory = { ...创建空记忆系统(), 中期记忆: [pending.summary, pending.summary],
+      中期归档ID: [otherPending.id, pending.id], 失败草稿: [draft] };
+    const settings = 创建默认记忆系统设置();
+    compressionModel.summarize.mockResolvedValue({ summary: '安柏带队完成侦察', usedFallback: false, usedModel: true, usedLocal: false });
+
+    const retried = await retryMemoryFailureDraft(memory, draft.id, settings, {} as API配置项, undefined, tree);
+    expect(retried.memory.中期记忆).toEqual([pending.summary, '安柏带队完成侦察']);
+    expect(retried.draft.status).toBe('resolved');
+    expect(retried.draft.sourceSnapshot.payload).toBe('');
+    expect(retried.irminsul?.entries.map((entry) => entry.id)).toEqual(['other-pending', 'pending-middle']);
+    expect(retried.irminsul?.entries.find((entry) => entry.id === pending.id)).toMatchObject({
+      summary: '安柏带队完成侦察', status: 'active', coveredEntryIds: ['source-short'],
+    });
+    const repeated = await retryMemoryFailureDraft(retried.memory, draft.id, settings, {} as API配置项, undefined, retried.irminsul);
+    expect(repeated.irminsul).toBe(retried.irminsul);
+    expect(compressionModel.summarize).toHaveBeenCalledTimes(1);
+
+    const changed = await retryMemoryFailureDraft({ ...memory, 中期记忆: [pending.summary, '人工修改的摘要'] }, draft.id,
+      settings, {} as API配置项, undefined, tree);
+    expect(changed.draft.failureCode).toBe('source_changed');
+    expect(changed.irminsul).toBe(tree);
   });
 });

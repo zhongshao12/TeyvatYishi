@@ -7,6 +7,7 @@ import { persistMemorySnapshot } from '@/hooks/useGame/memorySaveTask';
 import { saveStatusStore } from '@/utils/saveStatus';
 import { 创建默认游戏设置 } from '@/models/settings';
 import { 创建空记忆系统 } from '@/models/memory';
+import { createEmptyIrminsulMemory } from '@/models/teyvat/irminsul';
 
 const db = vi.hoisted(() => ({ saveGame: vi.fn() }));
 vi.mock('@/services/dbService', () => ({
@@ -140,4 +141,25 @@ it('persists a memory edit against the live game rather than an older rendered r
   expect(db.saveGame.mock.calls[0]?.[0]).toMatchObject({ turnCount: 1 });
   expect(saveStatusStore.getSnapshot()).toMatchObject({ sessionId, phase: 'saved', source: 'auto' });
   expect(setHasSave).toHaveBeenCalledWith(true);
+});
+
+it('retry_save_persists_memory_and_tree_together', async () => {
+  const { state } = stateFor();
+  const memory = { ...创建空记忆系统(), 中期记忆: ['重试后的摘要'], 中期归档ID: ['retry-archive'], 失败草稿: [{
+    id: 'retry-draft', archiveEntryId: 'retry-archive', kind: 'middle' as const, status: 'resolved' as const,
+    sourceTurns: { start: 5, end: 5 }, sourceSnapshot: { encoding: 'plain-json' as const, payload: '', checksum: '', itemCount: 1, uncompressedBytes: 1 },
+    targetLayer: '中期记忆' as const, fallbackSummary: '本地摘要', failureCode: 'request_failed' as const,
+    failureMessage: '', attemptCount: 1, createdAt: 1, updatedAt: 2,
+  }] };
+  const tree = { ...createEmptyIrminsulMemory(), entries: [{
+    id: 'retry-archive', title: '重试', archiveType: 'medium' as const, summary: '重试后的摘要',
+    sourceText: '来源', keywords: [], sourceTurns: [5], turn: 5, recordedAt: '第5回', status: 'active' as const,
+  }] };
+  db.saveGame.mockResolvedValueOnce(89);
+  await persistMemorySnapshot(state, memory, tree);
+  expect(db.saveGame.mock.calls[0]?.[0]).toMatchObject({
+    记忆: { mediumTerm: ['重试后的摘要'], mediumArchiveIds: ['retry-archive'],
+      failedDrafts: [{ id: 'retry-draft', archiveEntryId: 'retry-archive' }] },
+    世界树: { entries: [{ id: 'retry-archive', summary: '重试后的摘要' }] },
+  });
 });

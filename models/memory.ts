@@ -46,6 +46,7 @@ export interface 记忆系统 {
   中期归档ID?: (string | null)[];
   /** 长期记忆：由多条中期记忆再压缩，保留稳定事实。 */
   长期记忆: string[];
+  长期归档ID?: (string | null)[];
   /** 自动总结失败时保留的不可变原始批次，旧存档缺失时按空数组处理。 */
   失败草稿?: 记忆失败草稿[];
 }
@@ -145,13 +146,15 @@ export async function deserializeMemoryFailureSource(snapshot: 记忆失败来�
 export function normalizeMemorySystem(raw?: Partial<记忆系统> | null): 记忆系统 {
   const short = Array.isArray(raw?.短期记忆) ? raw!.短期记忆 : [];
   const middle = Array.isArray(raw?.中期记忆) ? raw!.中期记忆 : [];
+  const long = Array.isArray(raw?.长期记忆) ? raw!.长期记忆 : [];
   return {
     即时记忆: Array.isArray(raw?.即时记忆) ? raw!.即时记忆 : [],
     短期记忆: short,
     ...(Array.isArray(raw?.短期归档ID) ? { 短期归档ID: short.map((_, index) => typeof raw.短期归档ID?.[index] === 'string' ? raw.短期归档ID[index] : null) } : {}),
     中期记忆: middle,
     ...(Array.isArray(raw?.中期归档ID) ? { 中期归档ID: middle.map((_, index) => typeof raw.中期归档ID?.[index] === 'string' ? raw.中期归档ID[index] : null) } : {}),
-    长期记忆: Array.isArray(raw?.长期记忆) ? raw!.长期记忆 : [],
+    长期记忆: long,
+    ...(Array.isArray(raw?.长期归档ID) ? { 长期归档ID: long.map((_, index) => typeof raw.长期归档ID?.[index] === 'string' ? raw.长期归档ID[index] : null) } : {}),
     失败草稿: Array.isArray(raw?.失败草稿) ? raw!.失败草稿 : [],
   };
 }

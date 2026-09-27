@@ -16,7 +16,7 @@ import {
 } from '@/models/memory';
 import { retryMemoryFailureDraft } from '@/hooks/useGame/memoryUtils';
 import { narrativeTurnBodyText } from '@/models/teyvat/narrativeTurn';
-import { createEmptyCourierSystem, createEmptyIrminsulMemory, createEmptySteambirdNews, createEmptyTeyvatInventory } from '@/models/teyvat';
+import { createEmptyCourierSystem, createEmptyIrminsulMemory, createEmptySteambirdNews, createEmptyTeyvatInventory, type IrminsulMemory } from '@/models/teyvat';
 import type { API配置项, 记忆系统设置 } from '@/models/settings';
 import { resolveActiveApiConfig } from '@/services/ai/activeApiConfig';
 import type { 队列任务记录 } from '@/models/queueTask';
@@ -219,8 +219,8 @@ export function useGame(): UseGameReturn {
     await retryQueueTask(stateRef.current, getActiveConfig, task, mode);
   }, [getActiveConfig]);
 
-  const persistCurrentMemorySnapshot = useCallback(async (memory: 记忆系统): Promise<void> => {
-    await persistMemorySnapshot(stateRef.current, memory);
+  const persistCurrentMemorySnapshot = useCallback(async (memory: 记忆系统, irminsul?: IrminsulMemory): Promise<void> => {
+    await persistMemorySnapshot(stateRef.current, memory, irminsul);
   }, []);
 
   const getMemoryCompressionConfig = useCallback((settings: 记忆系统设置): API配置项 | null => {
@@ -270,10 +270,11 @@ export function useGame(): UseGameReturn {
     s.setWorkflowHint(`正在重新总结第 ${target.sourceTurns.start}-${target.sourceTurns.end} 回合的失败草稿。`);
 
     try {
-      const result = await retryMemoryFailureDraft(retryingMemory, draftId, settings, config);
+      const result = await retryMemoryFailureDraft(retryingMemory, draftId, settings, config, undefined, s.世界树);
       s.set记忆(result.memory);
+      if (result.irminsul) s.set世界树(result.irminsul);
       try {
-        await persistCurrentMemorySnapshot(result.memory);
+        await persistCurrentMemorySnapshot(result.memory, result.irminsul);
       } catch (persistError) {
         s.setWorkflowHint(`记忆已在当前页面更新，但自动保存失败：${persistError instanceof Error ? persistError.message : String(persistError)}`);
         return;

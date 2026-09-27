@@ -73,6 +73,9 @@ import type { SaveListItemSummary } from '@/services/dbService';
 import { WORLDBOOK_STORAGE_KEY, normalizeWorldbooks } from '@/utils/worldbook';
 import { createBuiltinWorldbooks } from '@/data/worldbookPresets';
 import { loadAllBundledWorldbookPresets } from '@/data/openingWorldbookPreset';
+import { officialOpeningTemplates, startingScenarios } from '@/data/journeyPresets';
+import { ContentResourceError, markContentResourceFailed, markContentResourceReady } from '@/services/contentResourceStatus';
+import { pushToast } from '@/utils/toastStore';
 import {
   createEmptyTeyvatGameState,
   normalizeTeyvatGameState,
@@ -1188,6 +1191,9 @@ export function useGameState(): UseGameStateReturn {
         updateGameState((current) => applyLegacyCodex(current, mergedCodex));
       } catch (err) {
         console.warn('[codex] preset 加载失败，回退到本地图鉴:', err);
+        if (err instanceof ContentResourceError) {
+          pushToast({ kind: 'error', title: '内置图鉴加载失败', detail: `${err.resourceId} · ${err.stage}：${err.recoveryHint} 本地图鉴未被改写。可在设置→存档管理→内容资源诊断查看。` });
+        }
         const savedCodex = await loadSetting<旧图鉴系统>(LEGACY_CODEX_SETTING_KEY);
         if (savedCodex) {
           const savedMigrationAt = await loadSetting<number>(CODEX_CHARACTER_REBUILD_MIGRATION_KEY);
@@ -1207,7 +1213,19 @@ export function useGameState(): UseGameStateReturn {
       // Worldbooks 加载策略:
       // - savedWorldbooks === null   → 首次启动,把预设写入 IndexedDB(玩家之后可自由修改/删除)
       // - savedWorldbooks 是数组     → 玩家已与世界书交互过,完全尊重其状态,不再覆盖
-      const builtins = createBuiltinWorldbooks();
+      let builtins: 世界书[] | null = null;
+      try {
+        builtins = createBuiltinWorldbooks();
+      } catch {
+        const failure = markContentResourceFailed('worldbook:builtins', 'initialize', '请检查应用安装文件，然后刷新页面重试。当前不会改写已保存的世界书。');
+        pushToast({ kind: 'error', title: '内置世界书初始化失败', detail: `${failure.message} 可在设置→存档管理→内容资源诊断查看。` });
+      }
+      for (const template of officialOpeningTemplates) markContentResourceReady(`opening:${template.id}`);
+      for (const scenario of startingScenarios) markContentResourceReady(`scenario:${scenario.id}`);
+      for (const book of builtins ?? []) {
+        markContentResourceReady(`worldbook:${book.id}`);
+        for (const entry of book.entries) markContentResourceReady(`worldbook-entry:${book.id}:${entry.id}`);
+      }
       const rawSavedWorldbooks = await loadSetting<世界书[]>(WORLDBOOK_STORAGE_KEY);
       // 旧版本只有 'builtin_core_config' 一本内置；现在已拆为 6 本，老用户库里这本要丢弃。
       // 同样：CoT 已从世界书迁移到提示词模块系统，旧的 'builtin_cot' 本也要丢弃。
@@ -1224,7 +1242,10 @@ export function useGameState(): UseGameStateReturn {
           )
         : rawSavedWorldbooks;
 
-      if (savedWorldbooks === null) {
+      if (builtins === null) {
+        // Source initialization failed: display the last persisted books, but never overwrite them.
+        setWorldbooks(rawSavedWorldbooks ? normalizeWorldbooks(rawSavedWorldbooks) : []);
+      } else if (savedWorldbooks === null) {
         try {
           const presets = await loadAllBundledWorldbookPresets();
           const initial = [...builtins, ...presets];
@@ -1232,6 +1253,9 @@ export function useGameState(): UseGameStateReturn {
           await saveSetting(WORLDBOOK_STORAGE_KEY, initial);
         } catch (err) {
           console.warn('[opening-worldbook] preset 加载失败,使用内置空集:', err);
+          if (err instanceof ContentResourceError) {
+            pushToast({ kind: 'error', title: '内置世界书加载失败', detail: `${err.resourceId} · ${err.stage}：${err.recoveryHint} 已保留源码内置世界书。可在设置→存档管理→内容资源诊断查看。` });
+          }
           setWorldbooks(builtins);
         }
       } else if (savedWorldbooks.length) {

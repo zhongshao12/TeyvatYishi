@@ -11,6 +11,7 @@ import {
   迁移自制图鉴条目,
 } from './codexCustomGovernance';
 import { resolveBundledCodexIdentity } from './codexIdentityRegistry';
+import { markContentResourceFailed, markContentResourceLoading, markContentResourceReady } from '@/services/contentResourceStatus';
 
 export interface BundledCodexPreset {
   id: string;
@@ -271,17 +272,35 @@ export function buildPersistedCodexSystem(system: 图鉴系统 | undefined): 图
 }
 
 export async function loadBundledCodexPreset(preset: BundledCodexPreset, options: LoadBundledCodexOptions = {}): Promise<图鉴系统> {
+  const resourceId = `codex:${preset.id}`;
   const separator = preset.path.includes('?') ? '&' : '?';
   const cacheBust = options.cacheBust !== undefined ? `&r=${encodeURIComponent(String(options.cacheBust))}` : '';
-  const res = await fetch(`${preset.path}${separator}v=${encodeURIComponent(preset.updatedAt ?? preset.id)}${cacheBust}`);
-  if (!res.ok) {
-    throw new Error(`加载图鉴预设失败：${preset.title}（${res.status}）`);
+  markContentResourceLoading(resourceId, 'fetch');
+  let res: Response;
+  try {
+    res = await fetch(`${preset.path}${separator}v=${encodeURIComponent(preset.updatedAt ?? preset.id)}${cacheBust}`);
+  } catch {
+    throw markContentResourceFailed(resourceId, 'fetch', '请检查本地资源是否完整，然后刷新页面重试。');
   }
-  const data = await res.json() as { entries?: unknown[] };
-  const entries = Array.isArray(data.entries) ? (data.entries as unknown as 图鉴条目[]) : [];
+  if (!res.ok) {
+    throw markContentResourceFailed(resourceId, 'fetch', `资源请求返回 HTTP ${res.status}，请检查安装文件后刷新页面。`);
+  }
+  markContentResourceLoading(resourceId, 'parse');
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw markContentResourceFailed(resourceId, 'parse', '资源文件不是有效 JSON，请检查安装文件后刷新页面。');
+  }
+  if (!data || typeof data !== 'object' || !('entries' in data) || !Array.isArray(data.entries)) {
+    throw markContentResourceFailed(resourceId, 'parse', '图鉴资源缺少 entries 列表，请检查安装文件后刷新页面。');
+  }
+  const entries = data.entries as 图鉴条目[];
   const seriesOrder = bundledCodexPresets.findIndex((item) => item.id === preset.id) + 1;
   const isLinkableMigratedLore = LINKABLE_MIGRATED_LORE_PRESET_IDS.has(preset.id);
-  return 归一化图鉴系统({
+  markContentResourceLoading(resourceId, 'normalize');
+  try {
+    const normalized = 归一化图鉴系统({
     条目: entries
       .filter((entry) => !shouldRemoveRetiredCodexEntry(entry))
       .filter((entry) => entry.分类 !== 'character' || isRebuiltCodexCharacterEntry(entry))
@@ -319,7 +338,12 @@ export async function loadBundledCodexPreset(preset: BundledCodexPreset, options
           builtin: true,
         };
       }),
-  });
+    });
+    markContentResourceReady(resourceId);
+    return normalized;
+  } catch {
+    throw markContentResourceFailed(resourceId, 'normalize', '图鉴条目结构异常，请检查安装文件后刷新页面。');
+  }
 }
 
 export async function loadAllBundledCodexPresets(options: LoadBundledCodexOptions = {}): Promise<图鉴系统> {

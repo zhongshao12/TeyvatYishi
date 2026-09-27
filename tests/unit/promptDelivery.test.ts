@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { resolvePromptDeliveryTargets } from '@/services/promptDelivery';
+import { migratePromptDeliveryTargets, resolvePromptDeliveryTargets } from '@/services/promptDelivery';
+import { createBuiltinPromptModules } from '@/data/builtinPromptModules';
 import type { 提示词模块 } from '@/models/prompts';
 
 const sample = (id: string, deliveryTargets?: 提示词模块['deliveryTargets']) => ({
@@ -17,5 +18,18 @@ describe('prompt delivery', () => {
 
   it('does not guess a target for an unknown calibration module', () => {
     expect(resolvePromptDeliveryTargets(sample('custom_unknown'))).toEqual([]);
+  });
+
+  it('routes the source-controlled domain command rules to variable', () => {
+    const builtin = createBuiltinPromptModules().find((module) => module.id === 'builtin_domain_command_rules');
+    expect(builtin && resolvePromptDeliveryTargets(builtin)).toEqual(['variable']);
+  });
+
+  it('migrates an old custom courier ID exactly once', () => {
+    expect(migratePromptDeliveryTargets([sample('custom_courier_1')])[0]?.deliveryTargets).toEqual(['courier']);
+  });
+
+  it('keeps explicit target authoritative after migration', () => {
+    expect(migratePromptDeliveryTargets([sample('custom_courier_1', ['variable'])])[0]?.deliveryTargets).toEqual(['variable']);
   });
 });

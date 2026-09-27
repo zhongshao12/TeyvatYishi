@@ -54,6 +54,7 @@ import { normalizeRetiredTavernSelection } from '@/utils/retiredTavernPresets';
 import { BUILTIN_NARRATIVE_MODULE_IDS, BUILTIN_PROMPT_MODULE_IDS, LEGACY_BUILTIN_COT_ID, getDefaultModuleFields } from '@/models/prompts';
 import { isSTImportedModule } from '@/utils/stPresetParser';
 import { createBuiltinPromptModules } from '@/data/builtinPromptModules';
+import { migratePromptDeliveryTargets } from '@/services/promptDelivery';
 import {
   CODEX_CHARACTER_REBUILD_MIGRATION_KEY,
   isBundledCodexDuplicate,
@@ -196,7 +197,7 @@ export function migratePromptModules(savedGame: 游戏设置): 提示词模块[]
     });
   }
 
-  return [...mergedBuiltins, ...customsWithDefaults];
+  return migratePromptDeliveryTargets([...mergedBuiltins, ...customsWithDefaults]);
 }
 
 /** 方案 A 三层 order 区间迁移：把预设库里的 ST 模块 order 从 50+ 迁移到 100+。

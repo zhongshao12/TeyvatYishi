@@ -1,5 +1,6 @@
 import { getDefaultModuleFields } from '@/models/prompts';
 import type { 提示词模块, 提示词模块类目, 提示词模块作用域 } from '@/models/prompts';
+import { legacyTargetForId } from '@/services/promptDelivery';
 import { MAIN_NARRATIVE_PROMPT } from '@/prompts/narrative/mainPrompt';
 import { FREE_OPENING_NARRATIVE_PROMPT, OPENING_NARRATIVE_PROMPT, PRESET_OPENING_NARRATIVE_PROMPT } from '@/prompts/narrative/openingPrompt';
 import { ELEMENTAL_ECHO_NARRATIVE_PROMPT } from '@/prompts/narrative/elementalEchoPrompt';
@@ -39,6 +40,7 @@ function makeBuiltin(overrides: Partial<提示词模块> & { id: string; title: 
     enabled: true,
     builtin: true,
     ...getDefaultModuleFields(),
+    deliveryTargets: overrides.scope.includes('calibration') ? legacyTargetForId(overrides.id) : ['main'],
     createdAt: 0,
     updatedAt: 0,
     ...overrides,

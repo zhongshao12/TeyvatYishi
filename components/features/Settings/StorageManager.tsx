@@ -82,6 +82,7 @@ import { pushToast } from '@/utils/toastStore';
 import { toUserFacingError } from '@/utils/userFacingError';
 import { getRuntimePlatform } from '@/utils/platform/desktopRuntime';
 import { formatByteSize } from '@/utils/formatByteSize';
+import { StorageAttributionPanel } from './storage/StorageAttributionPanel';
 import {
   StorageActionButton as ActionButton,
   StorageLegacyBackupSection,
@@ -1056,6 +1057,8 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
           {browserStorage.persisted === undefined ? '' : browserStorage.persisted ? ' · 已获得持久存储保护' : ' · 当前为浏览器尽力存储，低磁盘空间时可能被清理'}
         </div>
       )}
+
+      <StorageAttributionPanel saves={saves} />
 
       <div
         role="status"

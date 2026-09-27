@@ -359,7 +359,7 @@ function SaveCard({
           <span style={{ color: 'rgb(var(--tj-arcane-accent))' }}>第 {save.turnCount} 回合</span>
           <span>{[save.currentDate, save.currentTime, save.currentLocation].filter(Boolean).join(' / ') || save.worldPeriodName || '未知坐标'}</span>
           <span>{new Date(save.timestamp).toLocaleString('zh-CN')}</span>
-          <span>{formatByteSize(save.sizeBytes)}</span>
+          <span>体积估算 {formatByteSize(save.sizeBytes)}</span>
         </div>
         {save.lastSummary && (
           <div className={`leading-relaxed ${isLatest ? 'mt-2 line-clamp-3 text-[13px]' : 'mt-1.5 line-clamp-2 text-[12px]'}`} style={{ color: 'rgba(var(--tj-text-primary),0.62)' }}>

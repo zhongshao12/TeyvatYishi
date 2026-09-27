@@ -45,8 +45,10 @@ export function compactVariableBatchHistory(
     const omittedSummary = omittedDiagnostics > 0
       ? `\n...[另有 ${omittedDiagnostics} 条失败/警告摘要已省略]`
       : '';
-    const { rawText: _rawText, ...summary } = batch;
+    const { rawText: _rawText, committedChanges: _committedChanges, omittedCommittedChanges: _omittedCommittedChanges, ...summary } = batch;
     void _rawText;
+    void _committedChanges;
+    void _omittedCommittedChanges;
     return {
       ...summary,
       results: diagnosticResults,

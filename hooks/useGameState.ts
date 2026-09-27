@@ -778,14 +778,20 @@ export function fromLegacyVariableBatches(batches: 变量命令批次[]): Teyvat
   return normalizeNarrativeRuntime({ variableBatches: batches.map((batch) => ({
     id: batch.id, turn: batch.turn, timestamp: batch.timestamp, source: batch.source, modelName: batch.modelName,
     results: batch.results.map((result) => ({ command: { action: result.command.action, key: result.command.key, value: normalizeTechnicalJsonValue(result.command.value) }, ok: result.ok, kind: result.kind, reason: result.reason, evidence: result.evidence })),
-    report: batch.report, rawText: batch.rawText, retentionSummary: batch.retentionSummary ? { ...batch.retentionSummary } : undefined,
+    report: batch.report, rawText: batch.rawText,
+    committedChanges: batch.committedChanges?.map((change) => ({ ...change })),
+    omittedCommittedChanges: batch.omittedCommittedChanges,
+    retentionSummary: batch.retentionSummary ? { ...batch.retentionSummary } : undefined,
   })) }).variableBatches;
 }
 
 export function toLegacyVariableBatches(batches: TeyvatGameState['叙事']['variableBatches']): 变量命令批次[] {
   return batches.map((batch) => ({ id: batch.id, turn: batch.turn, timestamp: batch.timestamp, source: batch.source, modelName: batch.modelName,
     results: batch.results.map((result) => ({ command: { action: result.command.action, key: result.command.key, value: technicalJsonToLegacy(result.command.value) }, ok: result.ok, kind: result.kind, reason: result.reason, evidence: result.evidence })),
-    report: batch.report, rawText: batch.rawText, retentionSummary: batch.retentionSummary ? { ...batch.retentionSummary } : undefined }));
+    report: batch.report, rawText: batch.rawText,
+    committedChanges: batch.committedChanges?.map((change) => ({ ...change })),
+    omittedCommittedChanges: batch.omittedCommittedChanges,
+    retentionSummary: batch.retentionSummary ? { ...batch.retentionSummary } : undefined }));
 }
 
 export interface LegacyGameStateOverrides {

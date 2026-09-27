@@ -1,4 +1,5 @@
 export type TechnicalJsonValue = null | boolean | number | string | TechnicalJsonValue[] | TechnicalJsonObject;
+import type { CommittedSettlementChange } from '@/models/variableCommand';
 import { ELEMENT_IDS, type ElementId } from './elements';
 import { createEmptyElementalField, MAX_ELEMENT_EVENTS, type ElementalFieldState, type ElementalReactionEvent } from './elementalGauge';
 import { readLegacyCodexDebugMetadata } from '@/compat/legacy-hsr/readOnly';
@@ -292,7 +293,7 @@ export interface StoryWeavingDto { series: StorySeriesDto[]; activeSeriesId?: st
 
 export interface VariableCommandDto { action: 'set' | 'add' | 'sub' | 'push' | 'delete'; key: string; value: TechnicalJsonValue }
 export interface VariableCommandResultDto { command: VariableCommandDto; ok: boolean; kind?: 'command' | 'warning' | 'error' | 'rejected'; reason?: string; evidence?: string }
-export interface VariableBatchDto { id: string; turn: number; timestamp: number; source: 'main' | 'calibration'; modelName?: string; results: VariableCommandResultDto[]; report?: string; rawText?: string; retentionSummary?: { totalResults: number; succeededResults: number; diagnosticResults: number; omittedDiagnosticResults: number } }
+export interface VariableBatchDto { id: string; turn: number; timestamp: number; source: 'main' | 'calibration'; modelName?: string; results: VariableCommandResultDto[]; report?: string; rawText?: string; committedChanges?: CommittedSettlementChange[]; omittedCommittedChanges?: number; retentionSummary?: { totalResults: number; succeededResults: number; diagnosticResults: number; omittedDiagnosticResults: number } }
 export interface NarrativeRuntime {
   plotNodes: PlotNodeDto[];
   storyWeaving: StoryWeavingDto | null;
@@ -581,7 +582,50 @@ function normalizeStoryWeaving(value: unknown): StoryWeavingDto | null {
   const progress = normalizeStoryProgress(value.progress);
   return { series: Array.isArray(value.series) ? value.series.flatMap((entry) => normalizeStorySeries(entry) ?? []) : [], ...(optionalText(value.activeSeriesId) ? { activeSeriesId: text(value.activeSeriesId) } : {}), ...(progress ? { progress } : {}) };
 }
-function normalizeVariableBatch(value: unknown): VariableBatchDto | null { if (!isRecord(value)) return null; return { id: text(value.id), turn: integer(value.turn), timestamp: number(value.timestamp), source: value.source === 'calibration' ? 'calibration' : 'main', ...(optionalText(value.modelName) ? { modelName: text(value.modelName) } : {}), results: Array.isArray(value.results) ? value.results.flatMap((entry) => { if (!isRecord(entry) || !isRecord(entry.command)) return []; const action = entry.command.action === 'add' || entry.command.action === 'sub' || entry.command.action === 'push' || entry.command.action === 'delete' ? entry.command.action : 'set'; const kind = entry.kind === 'warning' || entry.kind === 'error' || entry.kind === 'rejected' ? entry.kind : entry.kind === 'command' ? 'command' : undefined; return [{ command: { action, key: text(entry.command.key), value: normalizeTechnicalJsonValue(entry.command.value) }, ok: entry.ok === true, ...(kind ? { kind } : {}), ...(optionalText(entry.reason) ? { reason: text(entry.reason) } : {}), ...(optionalText(entry.evidence) ? { evidence: text(entry.evidence) } : {}) }]; }) : [], ...(optionalText(value.report) ? { report: text(value.report) } : {}), ...(optionalText(value.rawText) ? { rawText: text(value.rawText) } : {}), ...(isRecord(value.retentionSummary) ? { retentionSummary: { totalResults: integer(value.retentionSummary.totalResults), succeededResults: integer(value.retentionSummary.succeededResults), diagnosticResults: integer(value.retentionSummary.diagnosticResults), omittedDiagnosticResults: integer(value.retentionSummary.omittedDiagnosticResults) } } : {}) } }
+const QUEST_RECEIPT_STATUSES = new Set(['absent', 'not_started', 'active', 'completed', 'failed', 'abandoned']);
+function normalizeCommittedChange(value: unknown): CommittedSettlementChange[] {
+  if (!isRecord(value)) return [];
+  const id = optionalText(value.id)?.slice(0, 80);
+  const before = value.before;
+  const after = value.after;
+  if (value.kind === 'item' || value.kind === 'affinity') {
+    const name = optionalText(value.name)?.slice(0, 80);
+    if (!id || !name || typeof before !== 'number' || typeof after !== 'number'
+      || !Number.isFinite(before) || !Number.isFinite(after) || (value.kind === 'item' && (before < 0 || after < 0))) return [];
+    return [{ kind: value.kind, id, name, before, after }];
+  }
+  if (value.kind === 'quest') {
+    const title = optionalText(value.title)?.slice(0, 80);
+    if (!id || !title || !QUEST_RECEIPT_STATUSES.has(String(before)) || !QUEST_RECEIPT_STATUSES.has(String(after))) return [];
+    return [{ kind: 'quest', id, title, before: before as QuestStatus | 'absent', after: after as QuestStatus | 'absent' }];
+  }
+  if (value.kind === 'time') {
+    if (!['beforeDate', 'beforeTime', 'afterDate', 'afterTime'].every((key) => typeof value[key] === 'string' && (value[key] as string).length <= 40)) return [];
+    return [{ kind: 'time', beforeDate: text(value.beforeDate), beforeTime: text(value.beforeTime), afterDate: text(value.afterDate), afterTime: text(value.afterTime) }];
+  }
+  return [];
+}
+function normalizeVariableBatch(value: unknown): VariableBatchDto | null {
+  if (!isRecord(value)) return null;
+  const results: VariableCommandResultDto[] = Array.isArray(value.results) ? value.results.flatMap((entry) => {
+    if (!isRecord(entry) || !isRecord(entry.command)) return [];
+    const action = entry.command.action === 'add' || entry.command.action === 'sub' || entry.command.action === 'push' || entry.command.action === 'delete' ? entry.command.action : 'set';
+    const kind = entry.kind === 'warning' || entry.kind === 'error' || entry.kind === 'rejected' ? entry.kind : entry.kind === 'command' ? 'command' : undefined;
+    return [{ command: { action, key: text(entry.command.key), value: normalizeTechnicalJsonValue(entry.command.value) }, ok: entry.ok === true, ...(kind ? { kind } : {}), ...(optionalText(entry.reason) ? { reason: text(entry.reason) } : {}), ...(optionalText(entry.evidence) ? { evidence: text(entry.evidence) } : {}) }];
+  }) : [];
+  return {
+    id: text(value.id), turn: integer(value.turn), timestamp: number(value.timestamp),
+    source: value.source === 'calibration' ? 'calibration' : 'main',
+    ...(optionalText(value.modelName) ? { modelName: text(value.modelName) } : {}),
+    results,
+    ...(optionalText(value.report) ? { report: text(value.report) } : {}),
+    ...(optionalText(value.rawText) ? { rawText: text(value.rawText) } : {}),
+    ...(Array.isArray(value.committedChanges) ? { committedChanges: value.committedChanges.flatMap(normalizeCommittedChange).slice(0, 50) } : {}),
+    ...(typeof value.omittedCommittedChanges === 'number' && Number.isFinite(value.omittedCommittedChanges) && value.omittedCommittedChanges > 0
+      ? { omittedCommittedChanges: Math.min(10000, Math.trunc(value.omittedCommittedChanges)) } : {}),
+    ...(isRecord(value.retentionSummary) ? { retentionSummary: { totalResults: integer(value.retentionSummary.totalResults), succeededResults: integer(value.retentionSummary.succeededResults), diagnosticResults: integer(value.retentionSummary.diagnosticResults), omittedDiagnosticResults: integer(value.retentionSummary.omittedDiagnosticResults) } } : {}),
+  };
+}
 export function normalizeNarrativeRuntime(value: unknown): NarrativeRuntime {
   const raw = isRecord(value) ? value : {};
   return {

@@ -33,7 +33,7 @@ assert(variableFacts.includes('女性身体档案'), 'nsfw_archive 必须支持�
 
 // ─── 硬禁名单：提瓦特幼态角色、机械与非人形 ───
 assert(variableFacts.includes('getNsfwArchiveBlockReason'), '事实层必须调用集中 NSFW 资格策略。');
-assert(enrichment.includes('getNsfwArchiveBlockReason'), '补档层必须调用集中 NSFW 资格策略。');
+assert(enrichment.includes('resolveNpcAdultEligibility'), '补档层必须调用集中、可追溯的成年资格策略。');
 assert(sendWorkflow.includes('getNsfwArchiveBlockReason'), '旧命令层必须调用集中 NSFW 资格策略。');
 assert(nsfwPolicy.includes('BLOCKED_CANONICAL_NAMES'), '集中策略必须维护原著名屏蔽名单。');
 assert(nsfwPolicy.includes('派蒙') && nsfwPolicy.includes('七七') && nsfwPolicy.includes('可莉'), '集中策略必须覆盖提瓦特幼态角色。');
@@ -41,7 +41,7 @@ assert(nsfwPolicy.includes('怪物') && nsfwPolicy.includes('魔物'), '集中�
 assert(nsfwPolicy.includes('机械') && nsfwPolicy.includes('机器人') && nsfwPolicy.includes('人偶'), '集中策略必须屏蔽机械、机器人和普通人偶。');
 assert(!/帕姆|史瓦罗|isHertaIdentity/u.test(nsfwPolicy), '集中策略不得保留旧世界角色例外。');
 
-// ─── 年龄门禁解除 ───
+// ─── 成年资格门禁 ───
 // buildConservativeNsfwArchive 已改名为 buildNsfwArchiveUpdate，不再写保守基线。
 assert(variableFacts.includes('buildNsfwArchiveUpdate'), 'nsfw_archive 必须使用 buildNsfwArchiveUpdate 合并档案。');
 assert(!variableFacts.includes('buildConservativeNsfwArchive'), '不得再使用旧的 buildConservativeNsfwArchive 名称。');
@@ -64,9 +64,8 @@ assert(!variableFacts.includes('buildConservativeNsfwArchive'), '不得再使用
   assert(!fnBody.includes('不代表已发生亲密剧情'), 'buildNsfwBaseline 函数体不得再写保守基线长期事实文案。');
   assert(!fnBody.includes('未确认成人、明确同意与关系边界前'), 'buildNsfwBaseline 函数体不得再写保守基线边界文案。');
 }
-// 年龄门禁解除：年龄确认降级为纯展示信息。
-assert(variableFacts.includes('年龄门禁已解除') || variableFacts.includes('不再限制'), 'variableFacts 必须标注年龄门禁已解除。');
-assert(enrichment.includes('年龄门禁已解除') || enrichment.includes('不再限制'), 'enrichment 必须标注年龄门禁已解除。');
+assert(variableFacts.includes('resolveNpcAdultEligibility'), '事实层必须验证独立成年资格。');
+assert(enrichment.includes('resolveNpcAdultEligibility'), '补档层必须验证独立成年资格。');
 
 // ─── 变量模型提示词：原生领域事实与独立档案边界 ───
 assert(variableModel.includes('DOMAIN_COMMAND_RULES_PROMPT'), '变量模型必须装配原生领域事实规则。');

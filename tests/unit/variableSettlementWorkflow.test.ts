@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { 创建默认游戏设置, type API配置项, type 变量API覆盖 } from '@/models/settings';
-import { createEmptyTeyvatGameState, type TeyvatGameState } from '@/models/teyvat/state';
+import { createEmptyTeyvatGameState, normalizeTeyvatGameState, type TeyvatGameState } from '@/models/teyvat/state';
 import { normalizeTeyvatNpcRecords } from '@/models/teyvat/character';
 import { 创建空记忆系统 } from '@/models/memory';
 import { mapTeyvatNpcsToLegacy } from '@/hooks/useGameState';
 import { buildNpcIntimacyEventId } from '@/utils/variableFacts';
+import { displayFirstPartner } from '@/utils/npcFirstPartner';
 import {
   excludeRejectedSettlementCommands,
   markRejectedSettlementResults,
@@ -160,5 +161,41 @@ describe('intimacy settlement replay and selective model de-duplication', () => 
     expect(result?.committedGame).toBeUndefined();
     expect(result?.batch?.committedChanges).toBeUndefined();
     expect(result?.batch?.results.every((entry) => !entry.ok)).toBe(true);
+  });
+
+  it('reload_replay_preserves_partner_and_affinity across separate same-name saves', async () => {
+    model.call.mockResolvedValue({ rawText: '<变量事实>{"facts":[]}</变量事实>' });
+    async function settleSex(initial: TeyvatGameState) {
+      let live = initial;
+      await runVariableSettlementWorkflow({
+        mainApiConfig: createMainConfig(), currentGame: live,
+        settings: { ...创建默认游戏设置(), enableNsfw: true },
+        npcRecords: mapTeyvatNpcsToLegacy(live), commitGame: (next) => { live = next; return true; },
+        userInput: '继续', body: '安柏与云发生了性爱关系。', turnAfter: 7,
+        memorySystemSnapshot: 创建空记忆系统(), settlementId: 'first-event',
+      });
+      return live;
+    }
+    const first = root();
+    first.NPC[0]!.matureArchive!.virginityStatus = 'virgin';
+    const committed = await settleSex(first);
+    expect(committed.NPC[0]?.affinity).toBe(30);
+    expect(committed.NPC[0]?.matureArchive?.experiences).toHaveLength(1);
+    const renamed = normalizeTeyvatGameState({ ...committed, 旅行者: { ...committed.旅行者, 姓名: '新名字' } });
+    expect(displayFirstPartner(mapTeyvatNpcsToLegacy(renamed)[0]?.NSFW档案, renamed.旅行者.姓名)).toBe('新名字');
+    const replayed = await settleSex(renamed);
+    expect(replayed.NPC[0]?.affinity).toBe(30);
+    expect(replayed.NPC[0]?.matureArchive?.experiences).toHaveLength(1);
+
+    const separate = root();
+    separate.NPC[0]!.matureArchive = {
+      ...separate.NPC[0]!.matureArchive!, firstSexualPartner: '凯亚', firstSexualPartnerSource: 'manual',
+      experiences: ['既有经历'],
+    };
+    const separateCommitted = await settleSex(separate);
+    expect(separateCommitted.NPC[0]?.affinity).toBe(30);
+    expect(separateCommitted.NPC[0]?.matureArchive?.firstSexualPartner).toBe('凯亚');
+    expect(separateCommitted.NPC[0]?.matureArchive?.firstSexualPartnerSource).toBe('manual');
+    expect(separateCommitted.NPC[0]?.matureArchive?.experiences).toContain('既有经历');
   });
 });

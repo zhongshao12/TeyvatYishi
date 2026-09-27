@@ -826,6 +826,7 @@ export function deriveNarrativeIntimacyFacts(
         firstSexualPartnerSource: 'narrative',
         firstSexualPartnerTurn: options.turn,
         eventId,
+        experiences: [options.turn ? `第${options.turn}回合：与玩家建立亲密关系` : '与玩家建立亲密关系'],
         evidence: event.evidence,
       });
     }
@@ -1847,7 +1848,7 @@ export function factsToTeyvatDomainCommands(
             firstSexualPartnerTurn: hasFirstPartner ? currentFirstPartner?.firstSexualPartnerTurn : fact.firstSexualPartnerTurn,
           } : {}),
           preferences: fact.preferences ?? existing.matureArchive?.preferences ?? [], sensitivePoints: fact.sensitivePoints ?? existing.matureArchive?.sensitivePoints ?? [],
-          taboos: fact.taboos ?? existing.matureArchive?.taboos ?? [], experiences: fact.experiences ?? existing.matureArchive?.experiences ?? [],
+          taboos: fact.taboos ?? existing.matureArchive?.taboos ?? [], experiences: mergeUniqueTexts(existing.matureArchive?.experiences, fact.experiences) ?? [],
           longTermFacts: fact.longTermFacts ?? existing.matureArchive?.longTermFacts ?? [], tags: fact.tags ?? existing.matureArchive?.tags ?? [], notes: fact.notes,
           femaleBodyProfile: {
             ...(existing.matureArchive?.femaleBodyProfile ?? {}),

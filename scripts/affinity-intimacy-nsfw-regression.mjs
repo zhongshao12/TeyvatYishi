@@ -161,14 +161,16 @@ assert(npc.获取NPC关系阶段(npc.NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD + 1) 
 // 玩家指定的亲密事件固定好感度 + 每日同行 +10。
 const intimacyState = teyvatState.normalizeTeyvatGameState({
   ...teyvatState.createEmptyTeyvatGameState(),
+  旅行者: { ...teyvatState.createEmptyTeyvatGameState().旅行者, 姓名: '旅行者' },
   NPC: [{
     id: 'npc_lover', 姓名: '恋人角色', roleTier: 'companion', affinity: 0,
     relationship: 'friend', intimate: false, travelingTogether: true,
     firstSeenTurn: 1, lastSeenTurn: 1,
+    matureArchive: { ageConfirmation: 'adult', ageConfirmationSource: 'manual' },
   }],
 });
 const intimacyRun = (body, options = { nsfwEnabled: true }) => {
-  const derived = facts.deriveNarrativeIntimacyFacts(body, intimacyState.NPC, options);
+  const derived = facts.deriveNarrativeIntimacyFacts(body, intimacyState.NPC, { ...options, playerName: intimacyState.旅行者.姓名 });
   const translated = facts.factsToTeyvatDomainCommands(derived, intimacyState, 3);
   const result = transaction.commitTeyvatTurn(intimacyState, translated.commands, () => undefined, { lenientEvidence: true });
   assert(result.status === 'committed', `亲密事件结算必须提交：${body}`);
@@ -176,9 +178,9 @@ const intimacyRun = (body, options = { nsfwEnabled: true }) => {
 };
 assert(intimacyRun('恋人角色轻轻亲吻了旅行者。') === 5, '亲吻必须是 +5。');
 assert(intimacyRun('恋人角色与旅行者发生了性爱关系。') === 30, '性爱事件必须是 +30。');
-assert(intimacyRun('恋人角色说出了近似表白的话。') === 3, '暧昧/谈情说爱必须是 +3。');
+assert(intimacyRun('恋人角色向旅行者表白了心意。') === 3, '暧昧/谈情说爱必须是 +3。');
 assert(intimacyRun('恋人角色牵起旅行者的手，一路没有松开。') === 3, '肢体接触必须是 +3。');
-assert(intimacyRun('恋人角色紧紧拥抱旅行者，随后亲吻了对方。') === 5, '同回合只能按命中的最高档结算一次。');
+assert(intimacyRun('恋人角色紧紧拥抱旅行者，随后恋人角色亲吻了旅行者。') === 5, '同回合只能按命中的最高档结算一次。');
 assert(intimacyRun('恋人角色与旅行者发生了性爱关系。', { nsfwEnabled: false }) === 0, 'NSFW 关闭时不得结算性爱档。');
 assert(facts.deriveNarrativeIntimacyFacts('可莉亲吻了旅行者。', [
   { id: 'npc_klee', 姓名: '可莉', aliases: [] },
@@ -215,18 +217,19 @@ assert(kleeBaseline.NSFW档案?.年龄确认 !== 'adult', '受保护的非成年
 // 性爱事件必须把「是否处女」翻成「否」。
 const virginState = teyvatState.normalizeTeyvatGameState({
   ...teyvatState.createEmptyTeyvatGameState(),
+  旅行者: { ...teyvatState.createEmptyTeyvatGameState().旅行者, 姓名: '旅行者' },
   NPC: [{
     id: 'npc_lover', 姓名: '恋人角色', roleTier: 'companion', affinity: 0, gender: '女',
     relationship: 'friend', intimate: false, travelingTogether: false,
     firstSeenTurn: 1, lastSeenTurn: 1,
     matureArchive: {
-      enabled: true, ageConfirmation: 'adult', virginityStatus: 'virgin',
+      enabled: true, ageConfirmation: 'adult', ageConfirmationSource: 'manual', virginityStatus: 'virgin',
       preferences: [], sensitivePoints: [], taboos: [], experiences: [], longTermFacts: [], tags: [],
       femaleBodyProfile: {}, maleBodyProfile: {}, partImages: {},
     },
   }],
 });
-const virginDerived = facts.deriveNarrativeIntimacyFacts('夜深之后，恋人角色与旅行者发生了性爱关系。', virginState.NPC, { nsfwEnabled: true });
+const virginDerived = facts.deriveNarrativeIntimacyFacts('夜深之后，恋人角色与旅行者发生了性爱关系。', virginState.NPC, { nsfwEnabled: true, playerName: virginState.旅行者.姓名 });
 const virginTranslated = facts.factsToTeyvatDomainCommands(virginDerived, virginState, 4);
 const virginResult = transaction.commitTeyvatTurn(virginState, virginTranslated.commands, () => undefined, { lenientEvidence: true });
 assert(virginResult.status === 'committed', '性爱事件结算必须提交。');
@@ -247,9 +250,9 @@ const canonicalAliasRecords = npc.归一化NPC记录列表([
 ]);
 assert(canonicalAliasRecords.length === 1 && canonicalAliasRecords[0].姓名 === '雷电将军', '提瓦特原著角色与英文别名必须合并为同一身份。');
 const adultCanonicalRecords = npc.归一化NPC记录列表([
-  { id: 'raiden-a', 姓名: '雷电将军', 阶位: 'companion', 好感度: 20, 关系: 'acquaintance', 同行: false, 初见回合: 1, 最近回合: 2, 备注: [] },
+  { id: 'amber-a', 姓名: '安柏', 阶位: 'companion', 好感度: 20, 关系: 'acquaintance', 同行: false, 初见回合: 1, 最近回合: 2, 备注: [] },
 ]);
-assert(policy.getNsfwArchiveBlockReason(adultCanonicalRecords[0], 'Raiden Shogun') === null, '未命中屏蔽条件的成年提瓦特角色不得被误拦截。');
+assert(policy.getNsfwArchiveBlockReason(adultCanonicalRecords[0], '安柏') === null, '已确认成年提瓦特角色不得被误拦截。');
 assert(policy.getNsfwArchiveBlockReason(undefined, '普通人偶', '机械投影') !== null, '机械或人偶对象仍必须被拦截。');
 assert(policy.getNsfwArchiveBlockReason({ 姓名: '可莉' }, 'Klee') !== null, '非成人原著角色必须被拦截。');
 
@@ -259,8 +262,12 @@ const customNpc = {
   性别: '女', 备注: [],
 };
 const enabled = enrichment.enrichNpcArchives([customNpc], { nsfwEnabled: true, maleNsfwArchiveEnabled: false });
-assert(enabled.records[0].NSFW档案?.enabled === true, '非智库重要 NPC 在 NSFW 开启时必须获得档案基线。');
-assert(enabled.records[0].NSFW档案?.亲密阶段.includes('已建立亲密关系'), '基线必须承接普通亲密关系状态。');
+assert(enabled.records[0].NSFW档案?.enabled !== true, '未知年龄的自定义 NPC 不得自动获得成年私密档案。');
+const manuallyConfirmed = enrichment.enrichNpcArchives([{
+  ...customNpc, NSFW档案: { 年龄确认: 'adult', 年龄确认来源: 'manual' },
+}], { nsfwEnabled: true, maleNsfwArchiveEnabled: false });
+assert(manuallyConfirmed.records[0].NSFW档案?.enabled === true, '明确确认成年后自定义 NPC 可建立档案。');
+assert(manuallyConfirmed.records[0].NSFW档案?.亲密阶段.includes('已建立亲密关系'), '基线必须承接普通亲密关系状态。');
 const disabled = enrichment.enrichNpcArchives([{ ...customNpc, NSFW档案: { enabled: true, 经历: ['保留数据'] } }], { nsfwEnabled: false, maleNsfwArchiveEnabled: false });
 assert(disabled.records[0].NSFW档案?.经历?.[0] === '保留数据', 'NSFW 关闭时必须保留已有档案数据。');
 
@@ -274,7 +281,7 @@ await fs.rm(outDir, { recursive: true, force: true });
 const durableLongTerm = enrichment.enrichNpcArchives([{
   ...femaleLegacy('恋人角色'),
   NSFW档案: {
-    enabled: true, 年龄确认: 'adult',
+    enabled: true, 年龄确认: 'adult', 年龄确认来源: 'manual',
     长期事实: ['保守基线', '双方约定亲密互动前先确认边界。'],
     标签: ['等待剧情事实补充', '真心'],
     备注: '不代表已发生亲密剧情',

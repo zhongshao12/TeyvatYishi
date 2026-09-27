@@ -70,4 +70,21 @@ describe('buildTurnSettlementReceipt', () => {
     })]);
     expect(compressed?.items).toEqual([{ status: 'warning', label: '旧结算记录已压缩' }]);
   });
+
+  it('shows concrete committed state differences without exposing command prose', () => {
+    const receipt = buildTurnSettlementReceipt(assistant('3'), [batch({
+      committedChanges: [
+        { kind: 'item', id: 'apple', name: '日落果', before: 2, after: 1 },
+        { kind: 'affinity', id: 'amber', name: '安柏', before: 10, after: 15 },
+        { kind: 'quest', id: 'quest', title: '侦察丘丘营地', before: 'active', after: 'completed' },
+        { kind: 'time', beforeDate: '2026-09-27', beforeTime: '10:00', afterDate: '2026-09-27', afterTime: '18:00' },
+      ],
+      results: [result({ command: { action: 'set', key: '背包.物品[0].描述', value: 'SECRET_MODEL_PROSE' } })],
+    })]);
+    expect(receipt?.items.map((item) => item.label)).toEqual([
+      '日落果 2 → 1', '安柏好感度 10 → 15', '侦察丘丘营地：进行中 → 已完成',
+      '时间：2026-09-27 10:00 → 2026-09-27 18:00',
+    ]);
+    expect(JSON.stringify(receipt)).not.toContain('SECRET_MODEL_PROSE');
+  });
 });

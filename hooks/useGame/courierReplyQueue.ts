@@ -112,6 +112,10 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
   };
 
   return {
+    /** React StrictMode replays effect cleanup/setup on the same mounted queue. */
+    activate(): void {
+      disposed = false;
+    },
     enqueue(intent: CourierReplyIntent): void {
       if (disposed || !intent.conversationId || !intent.messageId) return;
       removeOldSessions();

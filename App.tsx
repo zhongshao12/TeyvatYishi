@@ -300,7 +300,10 @@ export default function App() {
     courierReplyQueue.invalidateSession();
     setCourierReplyErrors({});
   }, [activeCourierSessionId, courierReplyQueue]);
-  useEffect(() => () => courierReplyQueue.dispose(), [courierReplyQueue]);
+  useEffect(() => {
+    courierReplyQueue.activate();
+    return () => courierReplyQueue.dispose();
+  }, [courierReplyQueue]);
 
   const commitAndRevealCourierReply = useCallback(async (
     result: CourierReplyPassResult,

@@ -103,6 +103,22 @@ it('discards old-session timers and never starts a disposed queue', async () => 
   expect(dispatched).toEqual([]);
 });
 
+it('accepts sends after StrictMode replays the queue effect cleanup and setup', async () => {
+  vi.useFakeTimers();
+  const dispatched: string[] = [];
+  const queue = createCourierReplyQueue({
+    getSessionId: () => 7,
+    dispatch: async (batch) => { dispatched.push(batch.conversationId); return 'sent'; },
+  });
+  queue.activate();
+  queue.dispose(); // React StrictMode's development-only effect cleanup.
+  queue.activate(); // The same mounted queue receives the effect setup again.
+  queue.enqueue({ conversationId: 'amber', messageId: 'p1', sessionId: 7 });
+  await vi.advanceTimersByTimeAsync(500);
+  expect(dispatched).toEqual(['amber']);
+  queue.dispose();
+});
+
 it('lets the new save reply without waiting for an old save model request to finish', async () => {
   vi.useFakeTimers();
   let sessionId = 7;

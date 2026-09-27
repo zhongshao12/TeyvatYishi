@@ -13,6 +13,7 @@ import type { 变量事实, 变量命令批次, 变量命令结果 } from '@/mod
 import { callVariableModel, type NsfwBaselineCandidate } from '@/services/ai/variableModel';
 import { commitPreflightedTeyvatTurn, commitTeyvatTurn, preflightTeyvatTurn } from '@/services/teyvatTurnTransaction';
 import { compactVariableBatchHistory } from '@/utils/longSessionRetention';
+import { projectCommittedSettlementChanges } from '@/utils/committedSettlementChanges';
 import { needsNsfwBaseline } from '@/utils/npcArchiveEnrichment';
 import {
   deriveNarrativeCanonicalNpcFacts,
@@ -294,17 +295,24 @@ export async function runVariableSettlementWorkflow(
       ? excludeRejectedSettlementCommands(commands, dry.errors)
       : [...commands];
     const commitGameState = (nextState: TeyvatGameState) => {
+      const projection = projectCommittedSettlementChanges(stateSnapshot, nextState);
+      const candidateBatch: 变量命令批次 = {
+        ...batch,
+        committedChanges: projection.changes,
+        ...(projection.omitted > 0 ? { omittedCommittedChanges: projection.omitted } : {}),
+      };
       committedGame = {
         ...nextState,
         叙事: {
           ...nextState.叙事,
           variableBatches: fromLegacyVariableBatches(compactVariableBatchHistory([
             ...toLegacyVariableBatches(stateSnapshot.叙事.variableBatches),
-            batch,
+            candidateBatch,
           ])),
         },
       };
       committedApplied = params.commitGame(committedGame) !== false;
+      if (committedApplied) batch = candidateBatch;
     };
     const transaction = dry.status === 'accepted'
       ? commitPreflightedTeyvatTurn(stateSnapshot, dry, commitGameState)
@@ -315,12 +323,20 @@ export async function runVariableSettlementWorkflow(
       kind: 'rejected' as const,
       reason: item.code,
     }));
-    const finalBatch = transaction.status === 'committed'
+    const actuallyCommitted = transaction.status === 'committed' && committedApplied;
+    const finalBatch = actuallyCommitted
       ? batch
-      : { ...batch, results: [...errResults, ...warningResults, ...transactionErrorResults] };
+      : {
+          ...batch,
+          committedChanges: undefined,
+          omittedCommittedChanges: undefined,
+          results: [...batch.results.map((item): 变量命令结果 => item.ok
+            ? { ...item, ok: false, kind: 'rejected', reason: 'COMMIT_NOT_APPLIED' }
+            : item), ...transactionErrorResults],
+        };
     const npcLedgerUpdate = buildNpcLedgerUpdateDebug({
       facts: effectiveFacts,
-      commands: transaction.status === 'committed' ? batch.results.filter((item) => item.ok).map((item) => item.command) : [],
+      commands: actuallyCommitted ? batch.results.filter((item) => item.ok).map((item) => item.command) : [],
       results: finalBatch.results,
       warnings: [
         ...parseErrors,

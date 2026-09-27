@@ -54,3 +54,27 @@ it('commits both named items from one explicit handoff', async () => {
   expect((committed as TeyvatGameState | null)?.背包.items.map((item) => [item.name, item.quantity]))
     .toEqual([['日落果', 1], ['苹果', 2]]);
 });
+
+it('stores concrete receipt changes only in a successfully committed batch', async () => {
+  const { result, committed } = await settle('你收下一枚日落果。', createEmptyTeyvatGameState());
+  expect(result?.batch?.committedChanges).toEqual([
+    expect.objectContaining({ kind: 'item', name: '日落果', before: 0, after: 1 }),
+  ]);
+  expect((committed as TeyvatGameState | null)?.叙事.variableBatches.at(-1)?.committedChanges)
+    .toEqual(result?.batch?.committedChanges);
+});
+
+it('does not claim item success when the live-root CAS refuses the commit', async () => {
+  vi.mocked(callVariableModel).mockResolvedValue({ rawText: '<变量事实>{"facts":[]}</变量事实>' });
+  const result = await runVariableSettlementWorkflow({
+    mainApiConfig: config,
+    currentGame: createEmptyTeyvatGameState(),
+    settings: 创建默认游戏设置(), npcRecords: [],
+    commitGame: () => false,
+    userInput: '继续', body: '你收下一枚日落果。', turnAfter: 2,
+    memorySystemSnapshot: 创建空记忆系统(), settlementId: 'cas_refused',
+  });
+  expect(result?.committedGame).toBeUndefined();
+  expect(result?.batch?.committedChanges).toBeUndefined();
+  expect(result?.batch?.results.some((item) => item.ok)).toBe(false);
+});

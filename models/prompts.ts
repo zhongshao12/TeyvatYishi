@@ -15,6 +15,9 @@ export type 提示词模块类目 = 'cot' | 'format' | 'persona' | 'devmode' | '
  */
 export type 提示词模块作用域 = 'main' | 'opening' | 'battle' | 'elementalEcho' | 'calibration' | 'all';
 
+/** 模块实际投递到的模型目标；与叙事场景 scope 独立。 */
+export type PromptDeliveryTarget = 'main' | 'variable' | 'courier' | 'steambird' | 'codex' | 'irminsulRecall' | 'irminsulArchive' | 'storyWeaving';
+
 export interface 提示词模块 {
   id: string;
   title: string;
@@ -30,6 +33,8 @@ export interface 提示词模块 {
   /** 允许注入的场景。空数组等价于 ['all']（运行时兜底）。
    *  填 ['all'] 表示任何回合都注入；填 ['main'] 表示首回合不注入；填 ['opening'] 表示仅首回合注入。 */
   scope: 提示词模块作用域[];
+  /** 明确投递目标。未赋值的历史模块由一次性迁移填充；空数组表示不投递。 */
+  deliveryTargets?: PromptDeliveryTarget[];
   /** 可选：仅在开局档案来源命中时注入，用于区分官方预设 / 自由开局 / 创意工坊开局。 */
   openingSourceGate?: ('official_preset' | 'free' | 'workshop')[];
   /** ST 预设兼容：消息角色。system 走 systemPrompt 拼接，user/assistant 走 messages 插入。 */

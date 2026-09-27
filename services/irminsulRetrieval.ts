@@ -2,6 +2,7 @@ import type { IrminsulEntry, IrminsulMemory } from '@/models/teyvat/irminsul';
 import type { 提示词模块 } from '@/models/prompts';
 import { buildIndependentPromptModulesSection } from '@/services/promptModuleScopes';
 import { buildRetrievalQueryProfile, scoreRetrievalCandidate } from '@/services/retrievalScoring';
+import { getActiveIrminsulEntries } from '@/services/irminsulPromotion';
 
 export function buildIrminsulRecallPromptModulesSection(promptModules?: 提示词模块[]): string {
   return buildIndependentPromptModulesSection(promptModules, 'irminsulRecall');
@@ -14,7 +15,7 @@ function searchableText(entry: IrminsulEntry): string {
 export function retrieveIrminsulEntries(memory: IrminsulMemory, query: string, limit = 8): IrminsulEntry[] {
   const profile = buildRetrievalQueryProfile(query);
   if (!profile) return [];
-  return memory.entries
+  return getActiveIrminsulEntries(memory)
     .map((entry, index) => ({
       entry,
       index,

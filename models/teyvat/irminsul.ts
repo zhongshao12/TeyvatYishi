@@ -8,6 +8,10 @@ export interface IrminsulEntry {
   archiveType: 'short' | 'medium' | 'long' | 'refined';
   sourceText: string;
   turn: number;
+  /** Exact lower-layer archive identities consumed by this summary; absent on unverifiable legacy entries. */
+  coveredEntryIds?: string[];
+  /** Missing on old entries means active. Pending summaries are visible but not recallable. */
+  status?: 'active' | 'pending';
 }
 
 export interface IrminsulMemory {
@@ -32,10 +36,21 @@ export function normalizeIrminsulMemory(input: unknown): IrminsulMemory {
       keywords: Array.isArray(value.keywords) ? value.keywords.map(String) : [],
       recordedAt: String(value.recordedAt ?? ''), archiveType, sourceText: String(value.sourceText ?? ''),
       turn: Math.max(0, Math.trunc(Number(value.turn) || 0)),
+      ...(Array.isArray(value.coveredEntryIds) ? {
+        coveredEntryIds: [...new Set(value.coveredEntryIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map((id) => id.trim()))],
+      } : {}),
+      ...(value.status === 'active' || value.status === 'pending' ? { status: value.status as IrminsulEntry['status'] } : {}),
     }];
   }) : [];
+  const protectedIds = new Set(entries.filter((entry) => entry.status === 'pending')
+    .flatMap((entry) => [entry.id, ...(entry.coveredEntryIds ?? [])]));
+  const protectedEntries = entries.filter((entry) => protectedIds.has(entry.id));
+  const remaining = Math.max(0, MAX_IRMINSUL_ENTRIES - protectedEntries.length);
+  const newestUnprotected = remaining > 0
+    ? entries.filter((entry) => !protectedIds.has(entry.id)).slice(-remaining) : [];
+  const keptIds = new Set([...protectedEntries, ...newestUnprotected].map((entry) => entry.id));
   return {
-    entries: entries.slice(-MAX_IRMINSUL_ENTRIES),
+    entries: entries.filter((entry) => keptIds.has(entry.id)),
   };
 }
 import { isRecord } from '@/utils/valueGuards';

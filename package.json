@@ -11,7 +11,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vitest run tests/unit/contentResourceRegistry.test.ts && vite build",
     "lint": "eslint .",
     "typecheck:index-safety": "node scripts/no-unchecked-indexed-access-regression.mjs",
     "desktop:dev": "tauri dev",

@@ -216,4 +216,49 @@ describe('CompanionPanel behavior', () => {
       { id: 'contact-b', name: '另一位', available: true },
     ]);
   });
+
+  it('shows the current traveler name and lets an adult correct a legacy-assumed first partner', async () => {
+    const record = 创建NPC记录({ 姓名: '丽莎', 阶位: 'companion', 初见回合: 1, 原著角色: true });
+    record.性别 = '女';
+    record.NSFW档案 = {
+      enabled: true, 年龄确认: 'adult', 年龄确认来源: 'canonical', 是否处女: '否',
+      首次性行为对象引用: 'player', 首次性行为对象来源: 'legacy_assumed',
+      经历: ['旧档推定，具体回合未知'],
+    };
+    const onNpcRecordsChange = vi.fn();
+    await act(async () => root.render(createElement(CompanionPanel, {
+      npcRecords: [record], onNpcRecordsChange, turnCount: 2, nsfwEnabled: true, travelerName: '云',
+    })));
+    await act(async () => findButton('NSFW档案').click());
+    expect(host.querySelector('[data-testid="adult-female-sexual-history"]')?.textContent).toContain('云');
+    expect(host.textContent).toContain('旧档推定');
+
+    await act(async () => findButton('编辑首次对象').click());
+    const type = host.querySelector<HTMLSelectElement>('select[aria-label="首次对象类型"]');
+    expect(type).not.toBeNull();
+    await act(async () => {
+      if (!type) return;
+      type.value = 'other';
+      type.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => changeInput(host, '其他对象姓名', '凯亚'));
+    await act(async () => findButton('保存首次对象').click());
+    const updater = onNpcRecordsChange.mock.lastCall?.[0] as ((records: typeof record[]) => typeof record[]) | undefined;
+    expect(updater?.([record])[0]?.NSFW档案).toMatchObject({
+      首次性行为对象: '凯亚', 首次性行为对象来源: 'manual',
+    });
+    expect(updater?.([record])[0]?.NSFW档案?.首次性行为对象引用).toBeUndefined();
+  });
+
+  it('does not expose old unverified adult private fields in the companion page', async () => {
+    const record = 创建NPC记录({ 姓名: '原创冒险家', 阶位: 'companion', 初见回合: 1 });
+    record.性别 = '女';
+    record.NSFW档案 = { enabled: true, 年龄确认: 'adult', 年龄确认来源: 'legacy_unverified', 是否处女: '否' };
+    await act(async () => root.render(createElement(CompanionPanel, {
+      npcRecords: [record], onNpcRecordsChange: vi.fn(), turnCount: 2, nsfwEnabled: true, travelerName: '云',
+    })));
+    await act(async () => findButton('NSFW档案').click());
+    expect(host.querySelector('[data-testid="adult-female-sexual-history"]')).toBeNull();
+    expect(host.textContent).toContain('待确认');
+  });
 });

@@ -122,6 +122,9 @@ export interface NPC_NSFW档案 {
   是否处女?: '是' | '否' | '未知';
   /** 仅对已确认成年女性角色记录；尚无经历时为“无”。 */
   首次性行为对象?: string;
+  首次性行为对象引用?: 'player';
+  首次性行为对象来源?: 'narrative' | 'legacy_assumed' | 'manual';
+  首次性行为对象回合?: number;
   亲密阶段?: string;
   边界?: string;
   偏好?: string[];
@@ -838,6 +841,11 @@ function 归一化NSFW档案(raw: unknown): NPC记录['NSFW档案'] {
   const boundary = typeof obj.边界 === 'string' ? obj.边界.trim() : undefined;
   const virginity = obj.是否处女 === '是' || obj.是否处女 === '否' || obj.是否处女 === '未知' ? obj.是否处女 : undefined;
   const firstPartner = typeof obj.首次性行为对象 === 'string' && obj.首次性行为对象.trim() ? obj.首次性行为对象.trim() : undefined;
+  const firstPartnerRef = obj.首次性行为对象引用 === 'player' ? 'player' : undefined;
+  const firstPartnerSource = obj.首次性行为对象来源 === 'narrative' || obj.首次性行为对象来源 === 'legacy_assumed' || obj.首次性行为对象来源 === 'manual'
+    ? obj.首次性行为对象来源 : undefined;
+  const firstPartnerTurn = Number.isInteger(obj.首次性行为对象回合) && Number(obj.首次性行为对象回合) > 0
+    ? Number(obj.首次性行为对象回合) : undefined;
   const legacyBodyArchive = normalizeLegacyNsfwBodyArchive(obj.身体档案);
   const femaleBodyArchive = normalizeFemaleNsfwBodyArchive(obj.女性身体档案, legacyBodyArchive);
   const maleBodyArchive = normalizeMaleNsfwBodyArchive(obj.男性身体档案, legacyBodyArchive);
@@ -849,6 +857,7 @@ function 归一化NSFW档案(raw: unknown): NPC记录['NSFW档案'] {
     !boundary &&
     !virginity &&
     !firstPartner &&
+    !firstPartnerRef &&
     !preferences?.length &&
     !sensitivePoints?.length &&
     !taboos?.length &&
@@ -868,6 +877,9 @@ function 归一化NSFW档案(raw: unknown): NPC记录['NSFW档案'] {
     年龄确认来源: ageSource,
     是否处女: age === 'adult' ? virginity : undefined,
     首次性行为对象: age === 'adult' ? firstPartner : undefined,
+    首次性行为对象引用: age === 'adult' ? firstPartnerRef : undefined,
+    首次性行为对象来源: age === 'adult' ? firstPartnerSource : undefined,
+    首次性行为对象回合: age === 'adult' ? firstPartnerTurn : undefined,
     亲密阶段: stage,
     边界: boundary,
     偏好: preferences,

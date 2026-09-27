@@ -2,7 +2,7 @@ import { CLIP_ITEM, CLIP_SECTION, gradientAccent, insetRing } from '@/styles/cli
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { memo } from 'react';
-import type { NPC记录, NPC阶位, NPC_NSFW年龄确认 } from '@/models/npc';
+import type { NPC记录, NPC阶位, NPC_NSFW年龄确认, NPC_NSFW档案 } from '@/models/npc';
 import { buildNpcMemoryLedgerView, 获取NPC兼容关系, 格式化NPC关系, 提取NPC同行记忆文本列表, 限制NPC好感度, 读取NPC头像 } from '@/models/npc';
 import { matchCanonical } from '@/data/canonicalCharacters';
 import type { 相册系统 } from '@/models/imageGeneration';
@@ -14,6 +14,9 @@ import { RelationshipGraphPanel } from './RelationshipGraphPanel';
 import { 解析相册资源引用 } from '@/utils/albumActions';
 import type { CourierSystem } from '@/models/teyvat/courier';
 import { addNpcToCourierContacts } from '@/services/ai/courierService';
+import { displayFirstPartner } from '@/utils/npcFirstPartner';
+import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
+import { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveEnrichment';
 import {
   AffinityMeter,
   CompanionAvatar as Avatar,
@@ -157,6 +160,10 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
     if (!courier || !onCourierChange) return;
     onCourierChange(addNpcToCourierContacts(courier, npc));
   }, [courier, onCourierChange]);
+  const handlePrivateArchiveCorrection = useCallback((npcId: string, archive: NPC_NSFW档案) => {
+    updateRecord(npcId, { NSFW档案: archive });
+    onProfileSaved?.();
+  }, [updateRecord, onProfileSaved]);
   const handleSelectNpc = useCallback((id: string) => setSelectedId(id), []);
   const handleShowMoreNpcs = useCallback(() => {
     setVisibleNpcCount((count) => count + ROSTER_PAGE_SIZE);
@@ -258,6 +265,8 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
             isPhoneContact={Boolean(courier?.contacts.some((contact) => contact.npcId === selected.id || contact.name === selected.姓名))}
             onAddPhoneContact={courier && onCourierChange ? handleAddPhoneContact : undefined}
             onSaveProfile={handleSaveProfile}
+            travelerName={travelerName ?? ''}
+            onPrivateArchiveCorrection={handlePrivateArchiveCorrection}
           />
           </>
         ) : (
@@ -318,6 +327,8 @@ const NpcDetail = memo(function NpcDetail({
   isPhoneContact,
   onAddPhoneContact,
   onSaveProfile,
+  travelerName,
+  onPrivateArchiveCorrection,
 }: {
   npc: NPC记录;
   album?: 相册系统;
@@ -330,6 +341,8 @@ const NpcDetail = memo(function NpcDetail({
   isPhoneContact: boolean;
   onAddPhoneContact?: (npc: NPC记录) => void;
   onSaveProfile: (npc: NPC记录, draft: NpcProfileDraft) => string | null;
+  travelerName: string;
+  onPrivateArchiveCorrection: (npcId: string, archive: NPC_NSFW档案) => void;
 }) {
   const isCompanion = npc.阶位 === 'companion';
   const [detailTab, setDetailTab] = useState<DetailTab>('archive');
@@ -568,7 +581,7 @@ const NpcDetail = memo(function NpcDetail({
 
       {detailTab === 'memory' && <MemoryPanel npc={npc} devMode={devMode} />}
 
-      {nsfwEnabled && detailTab === 'nsfw' && <NSFWArchivePanel npc={npc} />}
+      {nsfwEnabled && detailTab === 'nsfw' && <NSFWArchivePanel npc={npc} travelerName={travelerName} onCorrection={onPrivateArchiveCorrection} />}
     </div>
   );
 });
@@ -631,8 +644,43 @@ function AvatarSlotCard({
   );
 }
 
-function NSFWArchivePanel({ npc }: { npc: NPC记录 }) {
+function NSFWArchivePanel({ npc, travelerName, onCorrection }: {
+  npc: NPC记录;
+  travelerName: string;
+  onCorrection: (npcId: string, archive: NPC_NSFW档案) => void;
+}) {
   const archive = npc.NSFW档案;
+  const [editingPartner, setEditingPartner] = useState(false);
+  const [partnerType, setPartnerType] = useState<'player' | 'other' | 'unknown'>('player');
+  const [otherPartner, setOtherPartner] = useState('');
+  const [partnerError, setPartnerError] = useState('');
+  const adultEligibility = resolveNpcAdultEligibility({
+    name: npc.姓名, aliases: npc.别名 ? [npc.别名] : [],
+    description: [npc.介绍, npc.外貌, npc.备注.join(' ')].filter(Boolean).join(' '),
+    ageConfirmation: archive?.年龄确认, ageSource: archive?.年龄确认来源,
+    canonicalBaselineAge: getCanonicalArchiveBaselineAge(npc.姓名),
+  });
+  if (!adultEligibility.confirmed) {
+    return <DetailBlock title="NSFW档案"><p className="px-4 py-4 text-sm" style={{ color: bodyColor }}>成年资格待确认；旧档内容已保留，但不会显示或用于私密结算。</p></DetailBlock>;
+  }
+  const savePartnerCorrection = () => {
+    if (!archive) return;
+    const name = otherPartner.trim();
+    if (partnerType === 'other' && !name) {
+      setPartnerError('请填写其他对象姓名');
+      return;
+    }
+    onCorrection(npc.id, {
+      ...archive,
+      首次性行为对象: partnerType === 'other' ? name : undefined,
+      首次性行为对象引用: partnerType === 'player' ? 'player' : undefined,
+      首次性行为对象来源: 'manual',
+      首次性行为对象回合: undefined,
+      经历: archive.经历?.filter((entry) => entry !== '旧档推定，具体回合未知'),
+    });
+    setPartnerError('');
+    setEditingPartner(false);
+  };
   const tags = archive?.标签 ?? [];
   const femaleBodyArchive = archive?.女性身体档案;
   const maleBodyArchive = archive?.男性身体档案;
@@ -667,10 +715,32 @@ function NSFWArchivePanel({ npc }: { npc: NPC记录 }) {
           <InfoPill label="边界" value={archive?.边界 ?? '未记录'} />
         </div>
 
-        {npc.性别 === '女' && archive?.年龄确认 === 'adult' && (
+        {npc.性别 === '女' && archive && (
           <div className="mt-3 grid gap-2 md:grid-cols-2" data-testid="adult-female-sexual-history">
             <InfoPill label="是否处女" value={archive.是否处女 ?? '未知'} />
-            <InfoPill label="首次性行为对象" value={archive.首次性行为对象 ?? '无'} />
+            <InfoPill label="首次性行为对象" value={displayFirstPartner(archive, travelerName)} />
+          </div>
+        )}
+
+        {npc.性别 === '女' && archive?.首次性行为对象来源 === 'legacy_assumed' && (
+          <div className="mt-3 space-y-2 text-xs" style={{ color: bodyColor }}>
+            <p>旧档推定 · 具体回合未知，可手动校正。</p>
+            {!editingPartner ? (
+              <button type="button" onClick={() => setEditingPartner(true)} className="teyvat-input px-3 py-1.5">编辑首次对象</button>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <select aria-label="首次对象类型" className="teyvat-input px-2 py-1.5" value={partnerType}
+                  onChange={(event) => { setPartnerType(event.target.value as typeof partnerType); setPartnerError(''); }}>
+                  <option value="player">当前玩家</option>
+                  <option value="other">其他对象</option>
+                  <option value="unknown">待确认</option>
+                </select>
+                {partnerType === 'other' && <input aria-label="其他对象姓名" className="teyvat-input px-2 py-1.5" value={otherPartner} onChange={(event) => setOtherPartner(event.target.value)} />}
+                <button type="button" onClick={savePartnerCorrection} className="teyvat-input px-3 py-1.5">保存首次对象</button>
+                <button type="button" onClick={() => setEditingPartner(false)} className="teyvat-input px-3 py-1.5">取消</button>
+                {partnerError && <span role="alert">{partnerError}</span>}
+              </div>
+            )}
           </div>
         )}
 

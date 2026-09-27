@@ -30,6 +30,7 @@ import { createEmptyTravelerProfile, normalizeTeyvatNpcRecords, normalizeTravele
 import { createEmptyTeyvatWorld, type TeyvatWorld } from './world';
 import { normalizeTeyvatWorld } from './world';
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
+import { migrateTeyvatFirstPartner } from '@/utils/npcFirstPartner';
 
 export const TEYVAT_SCHEMA_VERSION = 2 as const;
 
@@ -140,7 +141,9 @@ export function normalizeTeyvatGameState(input: unknown): TeyvatGameState {
 
   const base = createEmptyTeyvatGameState();
   const world = normalizeTeyvatWorld(raw.世界);
-  const normalizedNpcs = normalizeTeyvatNpcRecords(raw.NPC);
+  const traveler = normalizeTravelerProfile(raw.旅行者);
+  const normalizedNpcs = normalizeTeyvatNpcRecords(raw.NPC)
+    .map((npc) => migrateTeyvatFirstPartner(npc, traveler.姓名));
   const reconciledCourier = reconcileCourierContactsWithNpcs(raw.手机, normalizedNpcs);
   const roster = pruneUnselectedCanonicalTraveler(reconciledCourier, normalizedNpcs, world.原著旅行者);
   return {
@@ -148,7 +151,7 @@ export function normalizeTeyvatGameState(input: unknown): TeyvatGameState {
     universe: 'teyvat',
     schemaVersion: TEYVAT_SCHEMA_VERSION,
     turnCount: Math.max(0, Math.trunc(Number(raw.turnCount) || 0)),
-    旅行者: normalizeTravelerProfile(raw.旅行者),
+    旅行者: traveler,
     世界: world,
     NPC: roster.npcs,
     背包: normalizeTeyvatInventory(raw.背包),

@@ -130,6 +130,9 @@ export interface TeyvatNpcMatureArchive {
   /** Adult-confirmed female characters only. */
   virginityStatus?: 'virgin' | 'not_virgin' | 'unknown';
   firstSexualPartner?: string;
+  firstSexualPartnerRef?: 'player';
+  firstSexualPartnerSource?: 'narrative' | 'legacy_assumed' | 'manual';
+  firstSexualPartnerTurn?: number;
   intimacyStage?: string;
   boundaries?: string;
   preferences: string[];
@@ -278,6 +281,11 @@ export function normalizeTeyvatNpcMatureArchive(value: unknown): TeyvatNpcMature
     ...(ageSource ? { ageConfirmationSource: ageSource } : {}),
     ...(virginityStatus ? { virginityStatus } : {}),
     ...(age === 'adult' && optionalText(value.firstSexualPartner) ? { firstSexualPartner: text(value.firstSexualPartner) } : {}),
+    ...(age === 'adult' && value.firstSexualPartnerRef === 'player' ? { firstSexualPartnerRef: 'player' as const } : {}),
+    ...(age === 'adult' && ['narrative', 'legacy_assumed', 'manual'].includes(text(value.firstSexualPartnerSource))
+      ? { firstSexualPartnerSource: text(value.firstSexualPartnerSource) as TeyvatNpcMatureArchive['firstSexualPartnerSource'] } : {}),
+    ...(age === 'adult' && Number.isInteger(value.firstSexualPartnerTurn) && Number(value.firstSexualPartnerTurn) > 0
+      ? { firstSexualPartnerTurn: Number(value.firstSexualPartnerTurn) } : {}),
     ...(optionalText(value.intimacyStage) ? { intimacyStage: text(value.intimacyStage) } : {}),
     ...(optionalText(value.boundaries) ? { boundaries: text(value.boundaries) } : {}),
     preferences: textList(value.preferences), sensitivePoints: textList(value.sensitivePoints), taboos: textList(value.taboos),

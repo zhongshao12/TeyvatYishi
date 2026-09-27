@@ -82,6 +82,7 @@ import { pushToast } from '@/utils/toastStore';
 import { toUserFacingError } from '@/utils/userFacingError';
 import { getRuntimePlatform } from '@/utils/platform/desktopRuntime';
 import { formatByteSize } from '@/utils/formatByteSize';
+import { markBackupExportSuccess, readBackupReminderState, saveBackupReminderState, shouldSuggestBackup, snoozeBackupReminder } from '@/utils/backupReminder';
 import { StorageAttributionPanel } from './storage/StorageAttributionPanel';
 import {
   StorageActionButton as ActionButton,
@@ -170,6 +171,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
   const [updateProgress, setUpdateProgress] = useState<DesktopUpdateProgress | null>(null);
   const [updateError, setUpdateError] = useState('');
   const [browserStorage, setBrowserStorage] = useState<{ usage: number; quota: number; persisted?: boolean } | null>(null);
+  const [backupReminder, setBackupReminder] = useState(() => readBackupReminderState(Date.now()));
   // 破坏性操作不再经过原生 confirm（无法换主题、无法读屏标注），
   // 改用支持键盘陷阱与焦点恢复的样式化弹窗。
   const confirmDialog = useConfirmDialog();
@@ -373,7 +375,12 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       const id = await onSave();
       const save = await loadSave(id);
       if (save) await exportSavePackage(save);
-      await refresh();
+      const snapshot = await refresh();
+      if (save) {
+        const next = markBackupExportSuccess(backupReminder, snapshot?.items.length ?? saves.length, Date.now());
+        saveBackupReminderState(next);
+        setBackupReminder(next);
+      }
       await refreshDesktopMirrorCount();
       setFilter('manual');
     } finally {
@@ -512,12 +519,22 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
 
   const handleExport = async (id: number) => {
     const save = await loadSave(id);
-    if (save) await exportSavePackage(save);
+    if (save) {
+      await exportSavePackage(save);
+      const next = markBackupExportSuccess(backupReminder, saves.length, Date.now());
+      saveBackupReminderState(next);
+      setBackupReminder(next);
+    }
   };
 
   const handleExportTree = async (rootId: string) => {
     const treeSaves = await loadSaveTree(rootId);
-    if (treeSaves.length) await exportSaveTreePackage(treeSaves);
+    if (treeSaves.length) {
+      await exportSaveTreePackage(treeSaves);
+      const next = markBackupExportSuccess(backupReminder, saves.length, Date.now());
+      saveBackupReminderState(next);
+      setBackupReminder(next);
+    }
   };
 
   const handleImport = () => {
@@ -1027,6 +1044,20 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
           <FilterButton label="导入存档" count={grouped.imported.length} active={filter === 'imported'} onClick={() => setFilter('imported')} />
         </div>
       </div>
+
+      {shouldSuggestBackup({ ...backupReminder, now: Date.now(), saveCount: saves.length }) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-[rgb(var(--tj-text-primary))]">
+          <span>已有一段时间未导出备份，且新增了不少存档。建议保存一份本地存档包。</span>
+          <div className="flex gap-2">
+            <button type="button" disabled={saving} onClick={() => void handleExportCurrent()} className="rounded border border-amber-500/40 px-2 py-1 disabled:opacity-50">导出当前</button>
+            <button type="button" onClick={() => {
+              const next = snoozeBackupReminder(backupReminder, Date.now());
+              saveBackupReminderState(next);
+              setBackupReminder(next);
+            }} className="rounded border border-[rgb(var(--tj-border))] px-2 py-1">稍后提醒</button>
+          </div>
+        </div>
+      )}
 
       <div
         className="grid grid-cols-2 gap-3 px-3 py-3 text-center font-serif text-[12px] tracking-[0.18em] lg:grid-cols-4"

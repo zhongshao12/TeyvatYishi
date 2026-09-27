@@ -30,7 +30,7 @@ export async function scanStorageAttribution(saves: ReadonlyArray<{ id: number; 
     assets.push({ id: record.id, bytes: record.blob?.size ?? record.size ?? (dataLength ? Math.floor(dataLength * 0.75) : 0) });
   });
   await scanStore<SaveNodeDeltaRecord>(db, SAVE_NODE_DELTAS_STORE, (record) => {
-    deltas.push({ saveId: record.saveId, baseMode: record.baseMode, assetIds: record.assetIds });
+    deltas.push({ saveId: record.saveId, baseMode: record.baseMode, assetIds: Array.isArray(record.assetIds) ? record.assetIds : [] });
   });
   return summarizeStorageAttribution(saves, assets, deltas);
 }

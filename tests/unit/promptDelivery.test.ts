@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { migratePromptDeliveryTargets, resolvePromptDeliveryTargets } from '@/services/promptDelivery';
+import { explainPromptDelivery, migratePromptDeliveryTargets, resolvePromptDeliveryTargets, togglePromptTarget } from '@/services/promptDelivery';
 import { createBuiltinPromptModules } from '@/data/builtinPromptModules';
 import type { 提示词模块 } from '@/models/prompts';
 
@@ -31,5 +31,16 @@ describe('prompt delivery', () => {
 
   it('keeps explicit target authoritative after migration', () => {
     expect(migratePromptDeliveryTargets([sample('custom_courier_1', ['variable'])])[0]?.deliveryTargets).toEqual(['variable']);
+  });
+
+  it('explains disabled, wrong-target, and unassigned modules', () => {
+    expect(explainPromptDelivery({ ...sample('x', ['courier']), enabled: false }, 'courier')).toBe('disabled');
+    expect(explainPromptDelivery(sample('x', ['variable']), 'courier')).toBe('wrong-target');
+    expect(explainPromptDelivery(sample('x'), 'courier')).toBe('unassigned');
+  });
+
+  it('toggles explicit targets without duplicating them', () => {
+    expect(togglePromptTarget(['courier'], 'courier')).toEqual([]);
+    expect(togglePromptTarget(['courier'], 'variable')).toEqual(['courier', 'variable']);
   });
 });

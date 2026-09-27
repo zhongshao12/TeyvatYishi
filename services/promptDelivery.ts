@@ -36,3 +36,18 @@ export function migratePromptDeliveryTargets(modules: 提示词模块[]): 提示
     ? module
     : { ...module, deliveryTargets: resolvePromptDeliveryTargets(module) });
 }
+
+export type PromptDeliveryReason = 'selected' | 'disabled' | 'wrong-scope' | 'unassigned' | 'wrong-target';
+
+export function explainPromptDelivery(module: 提示词模块, target: PromptDeliveryTarget): PromptDeliveryReason {
+  if (!module.enabled) return 'disabled';
+  if (target !== 'main' && !module.scope?.includes('calibration')) return 'wrong-scope';
+  if (target === 'main' && module.scope?.includes('calibration')) return 'wrong-scope';
+  const targets = resolvePromptDeliveryTargets(module);
+  if (targets.length === 0) return 'unassigned';
+  return targets.includes(target) ? 'selected' : 'wrong-target';
+}
+
+export function togglePromptTarget(targets: PromptDeliveryTarget[], target: PromptDeliveryTarget): PromptDeliveryTarget[] {
+  return targets.includes(target) ? targets.filter((item) => item !== target) : [...targets, target];
+}

@@ -1,5 +1,7 @@
 import type { UseGameStateReturn } from '@/hooks/useGameState';
 import type { 聊天消息 } from '@/models/chat';
+import type { PromptDeliveryTarget, 提示词模块 } from '@/models/prompts';
+import { explainPromptDelivery } from '@/services/promptDelivery';
 import { buildSteambirdGenerationRequest } from '@/services/ai/steambirdModel';
 import { buildVariableModelPrompt } from '@/services/ai/variableModel';
 import { buildCodexAiCandidateIndex } from '@/services/codexAiRetrievalIndex';
@@ -29,8 +31,9 @@ function addSection(sections: ContextSection[], section: Omit<ContextSection, 'o
   sections.push({ ...section, content, order: sections.length + 1, estimatedTokens: estimateTextTokens(content) });
 }
 
-function finalizeSnapshot(kind: ContextSnapshotKind, title: string, sections: ContextSection[], sourceInput: string): ContextSnapshot {
+function finalizeSnapshot(kind: ContextSnapshotKind, title: string, sections: ContextSection[], sourceInput: string, modules: 提示词模块[] = []): ContextSnapshot {
   const fullText = sections.map((section) => section.content).join('\n\n---\n\n');
+  const target: PromptDeliveryTarget = kind === 'irminsul' ? 'irminsulRecall' : kind;
   return {
     kind,
     title,
@@ -41,6 +44,13 @@ function finalizeSnapshot(kind: ContextSnapshotKind, title: string, sections: Co
     diagnosticEstimatedTokens: sections.filter((section) => section.diagnostic === true).reduce((sum, section) => sum + section.estimatedTokens, 0),
     createdAt: Date.now(),
     sourceInput,
+    deliveryDecisions: modules.map((module) => ({
+      id: module.id,
+      title: module.title,
+      target,
+      reason: explainPromptDelivery(module, target),
+      estimatedTokens: estimateTextTokens(module.content),
+    })),
   };
 }
 
@@ -214,7 +224,7 @@ function buildMainContextSnapshot(state: UseGameStateReturn): ContextSnapshot {
     id: 'current_npc_ledger_injection', title: '本回合 NPC 账本预期注入', category: '诊断',
     content: JSON.stringify(npcLedgerSelection, null, 2), upload: false, diagnostic: true,
   });
-  return finalizeSnapshot('main', '主剧情当前 AI 上下文', sections, sourceInput);
+  return finalizeSnapshot('main', '主剧情当前 AI 上下文', sections, sourceInput, state.gameSettings.promptModules);
 }
 
 function buildVariableContextSnapshot(state: UseGameStateReturn): ContextSnapshot {
@@ -237,7 +247,7 @@ function buildVariableContextSnapshot(state: UseGameStateReturn): ContextSnapsho
     id: 'variable_npc_memory_rule', title: 'NPC档案记忆写入法则（完整）', category: '系统',
     content: NPC_MEMORY_WRITE_RULE_PROMPT, upload: true,
   });
-  return finalizeSnapshot('variable', '变量模型上下文', sections, sourceInput);
+  return finalizeSnapshot('variable', '变量模型上下文', sections, sourceInput, state.gameSettings.promptModules);
 }
 
 function buildCourierContextSnapshot(state: UseGameStateReturn): ContextSnapshot {
@@ -250,7 +260,7 @@ function buildCourierContextSnapshot(state: UseGameStateReturn): ContextSnapshot
     id: 'courier_archives', title: '手机聊天本地归档', category: '通讯', upload: true,
     content: JSON.stringify({ archiveFacts, pendingDeliverySeeds: state.手机.deliverySeeds.filter((seed) => seed.status === 'pending') }, null, 2),
   });
-  return finalizeSnapshot('courier', '手机聊天上下文', sections, sourceInput);
+  return finalizeSnapshot('courier', '手机聊天上下文', sections, sourceInput, state.gameSettings.promptModules);
 }
 
 function buildSteambirdContextSnapshot(state: UseGameStateReturn): ContextSnapshot {
@@ -261,7 +271,7 @@ function buildSteambirdContextSnapshot(state: UseGameStateReturn): ContextSnapsh
     id: 'steambird_public_facts', title: '蒸汽鸟报公开事实 DTO', category: '公开事实', upload: true,
     content: JSON.stringify(buildSteambirdGenerationRequest({ publicFacts }), null, 2),
   });
-  return finalizeSnapshot('steambird', '蒸汽鸟报上下文', sections, sourceInput);
+  return finalizeSnapshot('steambird', '蒸汽鸟报上下文', sections, sourceInput, state.gameSettings.promptModules);
 }
 
 function buildIrminsulContextSnapshot(state: UseGameStateReturn): ContextSnapshot {
@@ -272,7 +282,7 @@ function buildIrminsulContextSnapshot(state: UseGameStateReturn): ContextSnapsho
     id: 'irminsul_recall', title: '世界树召回结果', category: '记忆', upload: true,
     content: entries.length ? entries.map((entry) => `${entry.title}\n${entry.summary || entry.sourceText}`).join('\n\n') : '（未命中）',
   });
-  return finalizeSnapshot('irminsul', '世界树召回上下文', sections, sourceInput);
+  return finalizeSnapshot('irminsul', '世界树召回上下文', sections, sourceInput, state.gameSettings.promptModules);
 }
 
 function buildCodexContextSnapshot(state: UseGameStateReturn): ContextSnapshot {
@@ -284,5 +294,5 @@ function buildCodexContextSnapshot(state: UseGameStateReturn): ContextSnapshot {
     id: 'codex_recall', title: '图鉴召回结果', category: '图鉴', upload: true,
     content: JSON.stringify({ candidates: index.candidates, injection: result.injection }, null, 2),
   });
-  return finalizeSnapshot('codex', '图鉴召回上下文', sections, sourceInput);
+  return finalizeSnapshot('codex', '图鉴召回上下文', sections, sourceInput, state.gameSettings.promptModules);
 }

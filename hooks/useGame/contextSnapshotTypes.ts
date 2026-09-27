@@ -1,3 +1,6 @@
+import type { PromptDeliveryTarget } from '@/models/prompts';
+import type { PromptDeliveryReason } from '@/services/promptDelivery';
+
 export interface ContextSection {
   id: string;
   title: string;
@@ -21,4 +24,5 @@ export interface ContextSnapshot {
   diagnosticEstimatedTokens: number;
   createdAt: number;
   sourceInput: string;
+  deliveryDecisions?: Array<{ id: string; title: string; target: PromptDeliveryTarget; reason: PromptDeliveryReason; estimatedTokens: number }>;
 }

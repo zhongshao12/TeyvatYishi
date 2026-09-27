@@ -23,6 +23,11 @@ const SNAPSHOT_TABS: Array<{ key: ContextSnapshotKind; label: string }> = [
   { key: 'codex', label: '图鉴召回' },
 ];
 
+const DELIVERY_REASON_LABELS = {
+  selected: '目标匹配', disabled: '已停用', 'wrong-scope': '作用域不符',
+  unassigned: '未指定目标', 'wrong-target': '投递到其他模型',
+} as const;
+
 export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) {
   const [snapshotKind, setSnapshotKind] = useState<ContextSnapshotKind>('main');
   const [snapshot, setSnapshot] = useState<ContextSnapshot | null>(null);
@@ -147,6 +152,29 @@ export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) 
         {snapshot.sourceInput ? <span className="ml-2">参考输入：{snapshot.sourceInput.slice(0, 80)}</span> : null}
         {copyHint ? <span className="ml-3 text-emerald-300">{copyHint}</span> : null}
       </div>
+
+      {(snapshot.deliveryDecisions?.length ?? 0) > 0 && (
+        <details className="px-4 py-3 text-xs text-[rgb(var(--tj-text-secondary))]" style={{ border: '1px solid rgba(var(--tj-accent-primary),0.22)', clipPath: CLIP_CARD }}>
+          <summary className="cursor-pointer text-[rgb(var(--tj-accent-primary))]">
+            当前预览 · 提示词模块投递判断（{snapshot.deliveryDecisions?.filter((decision) => decision.reason === 'selected').length ?? 0} 项目标匹配）
+          </summary>
+          <p className="my-2 opacity-80">这里只解释模块启用、作用域与目标配置；实际请求还可能受场景、运行时数据及其他规则影响。</p>
+          <div className="max-h-52 overflow-auto">
+            <table className="w-full text-left">
+              <thead><tr><th className="py-1 pr-3">模块</th><th className="py-1 pr-3">判断</th><th className="py-1 text-right">约 Token</th></tr></thead>
+              <tbody>
+                {snapshot.deliveryDecisions?.map((decision) => (
+                  <tr key={decision.id} className="border-t border-white/10">
+                    <td className="py-1 pr-3">{decision.title}</td>
+                    <td className="py-1 pr-3">{DELIVERY_REASON_LABELS[decision.reason]}</td>
+                    <td className="py-1 text-right">{formatTokenCount(decision.estimatedTokens)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
 
       {/* 窄屏单列堆叠：右栏详情必须可达；360px 侧栏只在 xl 及以上并排。 */}
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">

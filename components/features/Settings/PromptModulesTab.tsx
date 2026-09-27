@@ -4,7 +4,7 @@ import { pushToast } from '@/utils/toastStore';
 import { toUserFacingError } from '@/utils/userFacingError';
 import { useEffect, useMemo, useState } from 'react';
 import type { 游戏设置, API设置, API配置项 } from '@/models/settings';
-import type { 提示词模块, 提示词模块类目, 提示词模块作用域 } from '@/models/prompts';
+import type { PromptDeliveryTarget, 提示词模块, 提示词模块类目, 提示词模块作用域 } from '@/models/prompts';
 import {
   PROMPT_MODULE_CATEGORY_LABELS,
   PROMPT_MODULE_SCOPE_LABELS,
@@ -13,6 +13,7 @@ import {
   getDefaultModuleFields,
 } from '@/models/prompts';
 import { createBuiltinPromptModules } from '@/data/builtinPromptModules';
+import { PROMPT_DELIVERY_LABELS, PROMPT_DELIVERY_TARGETS, resolvePromptDeliveryTargets, togglePromptTarget } from '@/services/promptDelivery';
 import {
   parseSTPresetV2,
   parseSTPresetWithDetection,
@@ -50,11 +51,17 @@ type CustomModuleSystemKey = CalibrationGroupKey | 'main';
 
 /** 根据模块 id 获取所属的系统分组 key，不属于任何已知系统的归入 'other' */
 const getCalibrationGroupKey = (m: 提示词模块): CalibrationGroupKey | 'other' => {
-  for (const key of CALIBRATION_GROUP_ORDER) {
-    if (CALIBRATION_SYSTEM_GROUPS[key].match(m.id)) return key;
-  }
+  const primary = resolvePromptDeliveryTargets(m).find((target) => target !== 'main');
+  if (primary === 'variable') return CALIBRATION_SYSTEM_GROUPS.companionArchive.match(m.id) ? 'companionArchive' : 'variable';
+  if (primary === 'irminsulRecall' || primary === 'irminsulArchive') return 'irminsul';
+  if (primary && primary in CALIBRATION_SYSTEM_GROUPS) return primary as CalibrationGroupKey;
   return 'other';
 };
+
+const targetForGroup = (key: CustomModuleSystemKey): PromptDeliveryTarget =>
+  key === 'companionArchive' ? 'variable'
+    : key === 'irminsul' ? 'irminsulRecall'
+      : key;
 
 /** 文风模块互斥组：同一时间只能启用一个。ST 预设导入的文风（id 含 'st_import_' 前缀）也加入此组。 */
 const WRITING_STYLE_MODULE_IDS = new Set([
@@ -512,7 +519,7 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
     const catLabel = PROMPT_MODULE_CATEGORY_LABELS[category];
 
     const targetModules = isCal
-      ? modules.filter((m) => CALIBRATION_SYSTEM_GROUPS[systemKey]?.match(m.id))
+      ? modules.filter((m) => getCalibrationGroupKey(m) === systemKey)
       : modules.filter(isMainPlotModule);
     const nextOrder = (targetModules.length > 0 ? Math.max(...targetModules.map((m) => m.order)) : 0) + 10;
 
@@ -529,6 +536,7 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
       builtin: false,
       order: nextOrder,
       scope,
+      deliveryTargets: [targetForGroup(systemKey)],
       createdAt: now,
       updatedAt: now,
     };
@@ -538,7 +546,7 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
       next = next.map((m) => {
         if (!isBuiltinPromptModule(m.id)) return m;
         const sameSystem = isCal
-          ? !!CALIBRATION_SYSTEM_GROUPS[systemKey]?.match(m.id)
+          ? getCalibrationGroupKey(m) === systemKey
           : isMainPlotModule(m);
         const sameCategory = m.category === category;
         if (sameSystem && sameCategory && m.enabled) {
@@ -564,7 +572,7 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
       next = next.map((m) => {
         if (!isBuiltinPromptModule(m.id) || m.enabled) return m;
         const sameSystem = isCal
-          ? !!Object.values(CALIBRATION_SYSTEM_GROUPS).find((g) => g.match(m.id) && g.match(id))
+          ? getCalibrationGroupKey(m) === getCalibrationGroupKey(target)
           : isMainPlotModule(m) && isMainPlotModule(target);
         const sameCategory = m.category === target.category;
         if (sameSystem && sameCategory) {
@@ -2989,6 +2997,24 @@ function EditorPanel({
           readonly={readonly}
           onChange={(next) => onPatch({ scope: next })}
         />
+      </Field>
+      <Field label={`◆ 投递目标${readonly ? '（内置，只读）' : ''}`}>
+        <div className="flex flex-wrap gap-2">
+          {PROMPT_DELIVERY_TARGETS.map((target) => (
+            <label key={target} className="flex items-center gap-1.5 rounded border border-[rgb(var(--tj-accent-primary))]/20 px-2 py-1 text-xs text-[rgb(var(--tj-text-secondary))]">
+              <input
+                type="checkbox"
+                disabled={readonly}
+                checked={resolvePromptDeliveryTargets(m).includes(target)}
+                onChange={() => onPatch({ deliveryTargets: togglePromptTarget(resolvePromptDeliveryTargets(m), target) })}
+              />
+              {PROMPT_DELIVERY_LABELS[target]}
+            </label>
+          ))}
+        </div>
+        {resolvePromptDeliveryTargets(m).length === 0 && (
+          <p className="mt-1 text-xs text-amber-300">未指定投递目标：此模块不会进入任何模型请求。</p>
+        )}
       </Field>
       <div className="text-xs -mt-1" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)' }}>
         {isCalibrationModule

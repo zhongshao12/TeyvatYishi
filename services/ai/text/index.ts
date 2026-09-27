@@ -88,6 +88,7 @@ export async function sendChatMessage(
       {
         messages: apiMessages,
         systemPrompt: request.systemPrompt,
+        purpose: 'main',
         signal: request.signal,
         onUsage,
         prefixMode: request.prefixMode,
@@ -108,6 +109,7 @@ export async function sendChatMessage(
     fullText = await chatCompletionNonStream(config, {
       messages: apiMessages,
       systemPrompt: request.systemPrompt,
+      purpose: 'main',
       signal: request.signal,
       onUsage,
       prefixMode: request.prefixMode,

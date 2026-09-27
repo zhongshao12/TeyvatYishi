@@ -46,6 +46,7 @@ async function requestCourierText(config: API配置项, prompt: string): Promise
   const run = async (maxTokens: number): Promise<{ text: string; finishReason?: string }> => {
     let finishReason: string | undefined;
     const text = await chatCompletion(config, {
+      purpose: 'courier',
       messages: [{ role: 'user', content: prompt }],
       systemPrompt: '',
       maxTokens,

@@ -1,6 +1,7 @@
 import type { API配置项 } from '@/models/settings';
 import type { 聊天消息 } from '@/models/chat';
 import { extractUsage, type ChatCompletionUsage } from './usageExtraction';
+import { createRequestMetadata, rememberRequestMetadata, updateRequestUsage, type RequestMetadata, type RequestPurpose } from './requestMetadata';
 export type { ChatCompletionUsage } from './usageExtraction';
 import { appendApiErrorReport } from './apiErrorReportService';
 import { isPioneerBaseUrl, normalizePioneerBaseUrl } from './pioneerProxyCore';
@@ -54,6 +55,8 @@ export interface ChatCompletionRequest {
   presencePenalty?: number;
   /** 最大上下文窗口（tokens）。 */
   maxContext?: number;
+  /** Diagnostics only. Never changes whether a request is sent. */
+  purpose?: RequestPurpose;
   signal?: AbortSignal;
   onUsage?: (usage: ChatCompletionUsage) => void;
   /** DeepSeek beta prefix completion. Only the DeepSeek branch reads this flag. */
@@ -65,6 +68,21 @@ export interface ChatCompletionRequest {
   onDeepSeekRecovery?: (summary: DeepSeekRecoverySummary) => void;
   /** Internal transport diagnostics consumed by the recovery coordinator. */
   onResponseDiagnostics?: (diagnostics: DeepSeekAttemptDiagnostics) => void;
+}
+
+const requestMetadataByAttempt = new WeakMap<ChatCompletionRequest, RequestMetadata>();
+
+function recordRequestAttempt(config: API配置项, request: ChatCompletionRequest): void {
+  const record = createRequestMetadata({
+    target: request.purpose ?? 'other',
+    model: config.model,
+    systemPrompt: request.systemPrompt,
+    prefixContent: request.prefixMode ? request.prefixContent : undefined,
+    messages: request.messages,
+    configuredWindow: request.maxContext ?? config.maxContext,
+  });
+  requestMetadataByAttempt.set(request, record);
+  rememberRequestMetadata(record);
 }
 
 export interface StreamWatchdogOptions {
@@ -533,9 +551,11 @@ function isStreamUsageOptionUnsupported(status: number, text: string): boolean {
 }
 
 function emitUsageFromResponse(raw: unknown, config: API配置项, request: ChatCompletionRequest): void {
-  if (!request.onUsage) return;
   const usage = extractUsage(raw, config);
-  if (usage) request.onUsage(usage);
+  if (!usage) return;
+  const record = requestMetadataByAttempt.get(request);
+  if (record && typeof usage.inputTokens === 'number') updateRequestUsage(record, usage.inputTokens);
+  request.onUsage?.(usage);
 }
 
 
@@ -939,6 +959,7 @@ async function chatCompletionOnce(
   request: ChatCompletionRequest,
   callbacks: StreamCallbacks,
 ): Promise<string> {
+  recordRequestAttempt(config, request);
   const provider = detectChatProvider(config);
   const msgs = buildMessages(request.systemPrompt, request.messages);
 
@@ -1826,6 +1847,7 @@ async function chatCompletionNonStreamOnce(
   request: ChatCompletionRequest,
 ): Promise<string> {
   const provider = detectChatProvider(config);
+  if (provider !== 'gemini') recordRequestAttempt(config, request);
   const msgs = buildMessages(request.systemPrompt, request.messages);
 
   if (provider === 'mimo') {

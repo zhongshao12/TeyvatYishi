@@ -1,5 +1,5 @@
 import type { PromptDeliveryTarget, 提示词模块, 提示词模块类目 } from '@/models/prompts';
-import { resolvePromptDeliveryTargets } from '@/services/promptDelivery';
+import { explainPromptDelivery } from '@/services/promptDelivery';
 
 type 独立系统提示词目标 = Exclude<PromptDeliveryTarget, 'main'>;
 
@@ -15,10 +15,8 @@ export function filterIndependentPromptModules(
   if (!promptModules?.length) return [];
   return promptModules
     .filter((module) => {
-      if (!module.enabled) return false;
-      if (!module.scope?.includes('calibration')) return false;
       if (options.category && module.category !== options.category) return false;
-      return resolvePromptDeliveryTargets(module).includes(target);
+      return explainPromptDelivery(module, target) === 'selected';
     })
     .sort((a, b) => a.order - b.order);
 }

@@ -47,6 +47,7 @@ function finalizeSnapshot(kind: ContextSnapshotKind, title: string, sections: Co
     deliveryDecisions: modules.map((module) => ({
       id: module.id,
       title: module.title,
+      source: module.source ?? 'unknown',
       target,
       reason: explainPromptDelivery(module, target),
       estimatedTokens: estimateTextTokens(module.content),

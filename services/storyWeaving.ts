@@ -56,6 +56,7 @@ export async function decomposeStorySegment(params: {
   promptModules?: 提示词模块[];
 }): Promise<剧情编织分段> {
   const raw = await chatCompletionNonStream(params.config, {
+    purpose: 'storyWeaving',
     systemPrompt: buildStoryWeavingSystemPrompt(params.promptModules),
     messages: [{ role: 'user', content: buildStoryWeavingUserPrompt(params) }],
     maxTokens: params.config.maxTokens ?? 4096,

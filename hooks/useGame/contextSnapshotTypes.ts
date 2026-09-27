@@ -24,5 +24,5 @@ export interface ContextSnapshot {
   diagnosticEstimatedTokens: number;
   createdAt: number;
   sourceInput: string;
-  deliveryDecisions?: Array<{ id: string; title: string; target: PromptDeliveryTarget; reason: PromptDeliveryReason; estimatedTokens: number }>;
+  deliveryDecisions?: Array<{ id: string; title: string; source: string; target: PromptDeliveryTarget; reason: PromptDeliveryReason; estimatedTokens: number }>;
 }

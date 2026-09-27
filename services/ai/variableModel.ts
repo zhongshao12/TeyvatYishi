@@ -342,6 +342,7 @@ export async function callVariableModel(
     '只输出一个 {"facts":[...]} JSON 对象；没有事实时输出 {"facts":[]}。',
   ].join('\n\n');
   const requestOnce = (messages: Array<{ role: string; content: string }>) => chatCompletionNonStream(config, {
+    purpose: 'variable',
     messages,
     systemPrompt,
     signal: request.signal,

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ContextSnapshot, ContextSnapshotKind } from '@/hooks/useGame/contextSnapshotTypes';
 import { formatTokenCount } from '@/utils/tokenEstimate';
 import { 分析提示词构成 } from '@/utils/contextComposition';
+import { readLastRequestMetadata } from '@/services/ai/requestMetadata';
 
 interface Props {
   getSnapshot: (kind?: ContextSnapshotKind) => Promise<ContextSnapshot>;
@@ -65,6 +66,9 @@ export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) 
   );
   const content = mode === 'all' ? snapshot?.fullText ?? '' : selected?.content ?? '';
   const shownTokens = mode === 'all' ? snapshot?.estimatedTokens ?? 0 : selected?.estimatedTokens ?? 0;
+  const lastRequest = snapshot
+    ? readLastRequestMetadata(snapshot.kind === 'irminsul' ? 'irminsulRecall' : snapshot.kind)
+    : undefined;
 
   const copyText = async (text: string, label: string) => {
     await navigator.clipboard.writeText(text);
@@ -113,7 +117,7 @@ export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) 
           </h3>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[rgb(var(--tj-text-secondary))]/80">
             <span>顺序与类目一览</span>
-            <span>真实上传 Tokens：{formatTokenCount(snapshot.uploadEstimatedTokens)}</span>
+            <span>预览上传约 Tokens：{formatTokenCount(snapshot.uploadEstimatedTokens)}</span>
             {snapshot.diagnosticEstimatedTokens > 0 ? (
               <span>诊断参考 Tokens：{formatTokenCount(snapshot.diagnosticEstimatedTokens)}</span>
             ) : null}
@@ -148,9 +152,36 @@ export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) 
         style={{ border: '1px solid rgba(var(--tj-accent-primary),0.22)', background: 'rgba(0,0,0,0.22)', clipPath: CLIP_CARD }}
       >
         <span className="text-[rgb(var(--tj-accent-primary))]">说明：</span>
-        当前为本地预览计数，不会调用 API。真实上传 Tokens 只统计会进入请求的区块；诊断参考不会发送给模型。真实计费以模型服务商为准。
+        当前为本地预览计数，不会调用 API。预览上传只统计预计进入请求的区块；诊断参考不会发送给模型。真实计费以模型服务商为准。
         {snapshot.sourceInput ? <span className="ml-2">参考输入：{snapshot.sourceInput.slice(0, 80)}</span> : null}
         {copyHint ? <span className="ml-3 text-emerald-300">{copyHint}</span> : null}
+      </div>
+      <div className="px-4 py-3 text-xs leading-6 text-[rgb(var(--tj-text-secondary))]" style={{ border: '1px solid rgba(var(--tj-accent-primary),0.22)', clipPath: CLIP_CARD }}>
+        <div className="font-medium text-[rgb(var(--tj-accent-primary))]">上次请求尝试 · 仅元数据（本次应用运行期间）</div>
+        {lastRequest ? (
+          <>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <span>模型：{lastRequest.model}</span>
+              <span>时间：{new Date(lastRequest.sentAt).toLocaleString()}</span>
+              <span>输入估算：{formatTokenCount(lastRequest.estimatedInputTokens)} Tokens</span>
+              {lastRequest.actualInputTokens !== undefined && <span>服务商返回：{formatTokenCount(lastRequest.actualInputTokens)} Tokens</span>}
+              {lastRequest.windowRatio !== undefined && <span>配置窗口占比：{Math.round(lastRequest.windowRatio * 100)}%</span>}
+            </div>
+            <p className="opacity-70">切换存档后仍会保留本次运行的最后一条记录，请以显示时间为准。</p>
+            {lastRequest.windowRatio !== undefined && lastRequest.windowRatio >= 0.85 && (
+              <p className="text-amber-300">估算接近所配置的上下文窗口；这里只提醒，不会阻止发送或自动裁剪。</p>
+            )}
+            <details className="mt-1"><summary className="cursor-pointer">分段估算</summary>
+              <div className="max-h-36 overflow-y-auto">
+                {lastRequest.segments.map((segment, index) => (
+                  <div key={index} className="flex justify-between gap-3 border-t border-white/10">
+                    <span>{segment.label}</span><span>{formatTokenCount(segment.estimatedTokens)}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          </>
+        ) : <p>本次打开页面后，该模型尚无请求记录；不会读取旧聊天正文来冒充实际发送记录。</p>}
       </div>
 
       {(snapshot.deliveryDecisions?.length ?? 0) > 0 && (
@@ -161,11 +192,12 @@ export function ContextViewerTab({ getSnapshot, refreshKey, onRefresh }: Props) 
           <p className="my-2 opacity-80">这里只解释模块启用、作用域与目标配置；实际请求还可能受场景、运行时数据及其他规则影响。</p>
           <div className="max-h-52 overflow-auto">
             <table className="w-full text-left">
-              <thead><tr><th className="py-1 pr-3">模块</th><th className="py-1 pr-3">判断</th><th className="py-1 text-right">约 Token</th></tr></thead>
+              <thead><tr><th className="py-1 pr-3">模块</th><th className="py-1 pr-3">来源</th><th className="py-1 pr-3">判断</th><th className="py-1 text-right">约 Token</th></tr></thead>
               <tbody>
                 {snapshot.deliveryDecisions?.map((decision) => (
                   <tr key={decision.id} className="border-t border-white/10">
                     <td className="py-1 pr-3">{decision.title}</td>
+                    <td className="py-1 pr-3">{decision.source}</td>
                     <td className="py-1 pr-3">{DELIVERY_REASON_LABELS[decision.reason]}</td>
                     <td className="py-1 text-right">{formatTokenCount(decision.estimatedTokens)}</td>
                   </tr>

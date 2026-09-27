@@ -26,6 +26,7 @@ export function buildMomentCommentPrompt(input: MomentCommentInput): string {
 
 export async function generateMomentComment(config: API配置项, input: MomentCommentInput): Promise<string> {
   const raw = await chatCompletion(config, {
+    purpose: 'courier',
     messages: [{ role: 'user', content: buildMomentCommentPrompt(input) }],
     systemPrompt: '', maxTokens: 256,
   }, {

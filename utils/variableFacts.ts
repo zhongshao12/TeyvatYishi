@@ -757,6 +757,10 @@ export const 亲密事件好感规则 = {
   肢体接触: 3,
 } as const;
 
+export function buildNpcIntimacyEventId(settlementId: string, turn: number, npcId: string, tier: string): string {
+  return `npc_intimacy:${JSON.stringify([settlementId, turn, npcId, tier])}`;
+}
+
 /**
  * 正文里的直接玩家↔NPC亲密事件 → 固定好感度事实。
  * 第三方、模糊指代、尚未发生的动作及未确认成年角色均不自动结算。
@@ -775,7 +779,7 @@ export function deriveNarrativeIntimacyFacts(
     matureArchive?: { ageConfirmation?: 'adult' | 'unknown' | 'minor_blocked'; ageConfirmationSource?: 'canonical' | 'manual' | 'legacy_unverified' } | null;
     NSFW档案?: NPC记录['NSFW档案'];
   })[],
-  options: { nsfwEnabled?: boolean; playerName?: string; turn?: number } = {},
+  options: { nsfwEnabled?: boolean; playerName?: string; turn?: number; settlementId?: string } = {},
 ): 变量事实[] {
   if (!body.trim()) return [];
   const facts: 变量事实[] = [];
@@ -801,11 +805,15 @@ export function deriveNarrativeIntimacyFacts(
     if (records.some((other) => other.id !== record.id
       && [other.姓名, ...(other.aliases ?? [])].some((otherName) => otherName.trim() && event.evidence.includes(otherName.trim())))) continue;
     const delta = event.tier === 'sex' ? 30 : event.tier === 'kiss' ? 5 : 3;
+    const eventId = options.settlementId && options.turn
+      ? buildNpcIntimacyEventId(options.settlementId, options.turn, record.id, event.tier)
+      : undefined;
     facts.push({
       type: 'npc',
       id: record.id,
       name,
       affinityDelta: delta,
+      eventId,
       evidence: event.evidence,
     });
     if (event.tier === 'sex' && record.gender === '女') {
@@ -817,6 +825,7 @@ export function deriveNarrativeIntimacyFacts(
         firstSexualPartnerRef: 'player',
         firstSexualPartnerSource: 'narrative',
         firstSexualPartnerTurn: options.turn,
+        eventId,
         evidence: event.evidence,
       });
     }

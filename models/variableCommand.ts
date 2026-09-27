@@ -72,6 +72,8 @@ export interface NPC变量事实 {
   gender?: '男' | '女' | '其他';
   affinityDelta?: number;
   affinitySet?: number;
+  /** Stable deterministic settlement event, never a model-supplied authority. */
+  eventId?: string;
   relation?: string;
   intimateRelationship?: boolean;
   following?: boolean;
@@ -151,6 +153,7 @@ export interface NSFW档案变量事实 {
   firstSexualPartnerRef?: 'player';
   firstSexualPartnerSource?: 'narrative' | 'legacy_assumed' | 'manual';
   firstSexualPartnerTurn?: number;
+  eventId?: string;
   intimacyStage?: string;
   boundaries?: string;
   preferences?: string[];

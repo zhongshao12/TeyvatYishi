@@ -1,10 +1,20 @@
-import { describe, expect, it } from 'vitest';
-import type { API配置项, 变量API覆盖 } from '@/models/settings';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { 创建默认游戏设置, type API配置项, type 变量API覆盖 } from '@/models/settings';
+import { createEmptyTeyvatGameState, type TeyvatGameState } from '@/models/teyvat/state';
+import { normalizeTeyvatNpcRecords } from '@/models/teyvat/character';
+import { 创建空记忆系统 } from '@/models/memory';
+import { mapTeyvatNpcsToLegacy } from '@/hooks/useGameState';
+import { buildNpcIntimacyEventId } from '@/utils/variableFacts';
 import {
   excludeRejectedSettlementCommands,
   markRejectedSettlementResults,
+  removeDuplicateModelIntimacyAffinity,
   resolveVariableSettlementApiConfig,
+  runVariableSettlementWorkflow,
 } from '@/hooks/useGame/variableSettlementWorkflow';
+
+const model = vi.hoisted(() => ({ call: vi.fn() }));
+vi.mock('@/services/ai/variableModel', () => ({ callVariableModel: model.call }));
 
 function createMainConfig(): API配置项 {
   return {
@@ -69,5 +79,86 @@ describe('variable settlement workflow boundaries', () => {
     expect(results[0]).toEqual(accepted);
     expect(results[1]).toMatchObject({ ok: false, kind: 'rejected', reason: 'INVALID_NUMERIC_RESULT' });
     expect(rejected.ok).toBe(true);
+  });
+});
+
+describe('intimacy settlement replay and selective model de-duplication', () => {
+  const body = '安柏轻轻亲吻了云。随后安柏因云失约而生气。';
+  const root = () => {
+    const state = createEmptyTeyvatGameState();
+    state.旅行者.姓名 = '云';
+    state.NPC = normalizeTeyvatNpcRecords([{
+      id: 'npc_amber', 姓名: '安柏', gender: '女',
+      matureArchive: { ageConfirmation: 'adult', ageConfirmationSource: 'canonical' },
+    }]);
+    return state;
+  };
+  beforeEach(() => model.call.mockReset());
+
+  async function settle(initial: TeyvatGameState, settlementId: string) {
+    let live = initial;
+    const result = await runVariableSettlementWorkflow({
+      mainApiConfig: createMainConfig(), currentGame: live, settings: 创建默认游戏设置(),
+      npcRecords: mapTeyvatNpcsToLegacy(live), commitGame: (next) => { live = next; return true; },
+      userInput: '继续', body, turnAfter: 7, memorySystemSnapshot: 创建空记忆系统(), settlementId,
+    });
+    return { result, live };
+  }
+
+  it('same_settlement_replay_is_idempotent', async () => {
+    model.call.mockResolvedValue({ rawText: '<变量事实>{"facts":[]}</变量事实>' });
+    const first = await settle(root(), 'run-1');
+    expect(first.live.NPC[0]?.affinity).toBe(5);
+    const second = await settle(first.live, 'run-1');
+    expect(second.live.NPC[0]?.affinity).toBe(5);
+    expect(second.result?.committedGame).toBeDefined();
+    expect(second.live.叙事.variableBatches).toHaveLength(1);
+    expect(model.call).toHaveBeenCalledTimes(1);
+  });
+
+  it('same_name_separate_save_is_independent', async () => {
+    model.call.mockResolvedValue({ rawText: '<变量事实>{"facts":[]}</变量事实>' });
+    const first = await settle(root(), 'run-1');
+    const separate = await settle(root(), 'run-1');
+    expect(first.live.NPC[0]?.affinity).toBe(5);
+    expect(separate.live.NPC[0]?.affinity).toBe(5);
+    expect(model.call).toHaveBeenCalledTimes(2);
+    expect(buildNpcIntimacyEventId('run-1', 7, 'npc_amber', 'kiss'))
+      .not.toBe(buildNpcIntimacyEventId('run-1', 7, 'npc_lisa', 'kiss'));
+  });
+
+  it('keeps_independent_negative_model_fact', async () => {
+    model.call.mockResolvedValue({ rawText: `<变量事实>${JSON.stringify({ facts: [
+      { type: 'npc', id: 'npc_amber', name: '安柏', affinityDelta: 5, evidence: '安柏轻轻亲吻了云。' },
+      { type: 'npc', id: 'npc_amber', name: '安柏', affinityDelta: -3, evidence: '安柏因云失约而生气。' },
+    ] })}</变量事实>` });
+    const { result, live } = await settle(root(), 'run-negative');
+    expect(live.NPC[0]?.affinity).toBe(2);
+    expect(result?.batch?.committedChanges).toContainEqual(expect.objectContaining({ kind: 'affinity', after: 2 }));
+  });
+
+  it('preserves a separately evidenced positive interaction too', () => {
+    const npc = root().NPC;
+    const derived = [{ type: 'npc' as const, id: 'npc_amber', name: '安柏', affinityDelta: 5, evidence: '安柏轻轻亲吻了云。' }];
+    const modelFacts = [
+      { type: 'npc' as const, id: 'npc_amber', name: '安柏', affinityDelta: 5, evidence: '安柏轻轻亲吻了云。' },
+      { type: 'npc' as const, id: 'npc_amber', name: '安柏', affinityDelta: 2, evidence: '安柏感谢云协助完成巡逻。' },
+    ];
+    expect(removeDuplicateModelIntimacyAffinity(modelFacts, derived, npc).map((fact) => fact.type === 'npc' ? fact.affinityDelta : null))
+      .toEqual([undefined, 2]);
+  });
+
+  it('a rejected live commit does not claim the fixed affinity was applied', async () => {
+    model.call.mockResolvedValue({ rawText: '<变量事实>{"facts":[]}</变量事实>' });
+    const initial = root();
+    const result = await runVariableSettlementWorkflow({
+      mainApiConfig: createMainConfig(), currentGame: initial, settings: 创建默认游戏设置(),
+      npcRecords: mapTeyvatNpcsToLegacy(initial), commitGame: () => false,
+      userInput: '继续', body, turnAfter: 7, memorySystemSnapshot: 创建空记忆系统(), settlementId: 'rejected',
+    });
+    expect(initial.NPC[0]?.affinity).toBe(0);
+    expect(result?.committedGame).toBeUndefined();
+    expect(result?.batch?.committedChanges).toBeUndefined();
+    expect(result?.batch?.results.every((entry) => !entry.ok)).toBe(true);
   });
 });

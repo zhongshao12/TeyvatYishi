@@ -121,6 +121,31 @@ export function markRejectedSettlementResults(
   });
 }
 
+function normalizedEvidence(value: string | undefined): string {
+  return (value ?? '').toLowerCase().replace(/[\s，。！？、,.!?:：；;“”‘’"']/gu, '');
+}
+
+/** Remove only a positive model estimate backed by the same excerpt as an accepted fixed event. */
+export function removeDuplicateModelIntimacyAffinity(
+  facts: readonly 变量事实[],
+  intimacyFacts: readonly 变量事实[],
+  records: TeyvatGameState['NPC'],
+): 变量事实[] {
+  return facts.map((fact) => {
+    if (fact.type !== 'npc' || ((fact.affinityDelta ?? 0) <= 0 && fact.affinitySet === undefined)) return fact;
+    const matches = records.filter((npc) => npc.id === fact.id || npc.姓名 === fact.name || npc.aliases.includes(fact.name));
+    if (matches.length !== 1) return fact;
+    const modelEvidence = normalizedEvidence(fact.evidence);
+    if (modelEvidence.length < 6) return fact;
+    const sameEvent = intimacyFacts.some((derived) => {
+      if (derived.type !== 'npc' || derived.id !== matches[0]?.id) return false;
+      const eventEvidence = normalizedEvidence(derived.evidence);
+      return eventEvidence.length >= 6 && (eventEvidence.includes(modelEvidence) || modelEvidence.includes(eventEvidence));
+    });
+    return sameEvent ? { ...fact, affinityDelta: undefined, affinitySet: undefined } : fact;
+  });
+}
+
 function collectNsfwBaselineCandidates(
   npcRecords: readonly NPC记录[],
   settings: VariableSettlementSettings,
@@ -154,6 +179,26 @@ export async function runVariableSettlementWorkflow(
   params: VariableSettlementParams,
 ): Promise<VariableSettlementResult | null> {
   if (!params.body.trim()) return null;
+  if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
+
+  // The committed batch belongs to this save's own history. A resumed workflow may
+  // hold a stale frozen source; replay must use the already-committed live root.
+  const priorBatch = params.settlementId
+    ? params.currentGame.叙事.variableBatches.find((batch) => batch.id === `vbatch_${params.settlementId}`)
+    : undefined;
+  if (priorBatch) {
+    const committedGame = params.currentGame;
+    return {
+      committedGame,
+      batch: toLegacyVariableBatches([priorBatch])[0],
+      NPC: mapTeyvatNpcsToLegacy(committedGame),
+      世界: toLegacyWorld(committedGame),
+      旅人: toLegacyTraveler(committedGame),
+      背包: committedGame.背包,
+      手机: committedGame.手机,
+      蒸汽鸟报: committedGame.蒸汽鸟报,
+    };
+  }
 
   const { config: variableConfig, overrodeAny } = resolveVariableSettlementApiConfig(
     params.mainApiConfig,
@@ -213,11 +258,10 @@ export async function runVariableSettlementWorkflow(
       nsfwEnabled: params.settings.enableNsfw,
       playerName: stateSnapshot.旅行者.姓名,
       turn: params.turnAfter,
+      settlementId: params.settlementId,
     });
     const factsWithIntimacy = [
-      ...factsWithPartyPresence.filter((fact) => fact.type !== 'npc'
-        || !intimacyFacts.some((derived) => derived.type === 'npc' && derived.name === fact.name)
-        || (typeof fact.affinityDelta !== 'number' && typeof fact.affinitySet !== 'number')),
+      ...removeDuplicateModelIntimacyAffinity(factsWithPartyPresence, intimacyFacts, stateSnapshot.NPC),
       ...intimacyFacts,
     ];
     const effectiveFacts = narrativeClock
@@ -272,6 +316,7 @@ export async function runVariableSettlementWorkflow(
         `变量事实：${effectiveFacts.length} 条，生成正式领域命令 ${factCommands.commands.length} 条；任务命令 ${questSettlement.commands.length} 条。`,
         '兼容旧命令：0 条（新回合只接受正式领域命令）。',
         allWarnings.length ? `事实警告：${allWarnings.length} 条。` : '事实警告：0 条。',
+        ...intimacyFacts.flatMap((fact) => fact.type === 'npc' && fact.eventId ? [`亲密事件：${fact.eventId}`] : []),
         ...factCommands.notes,
       ].filter(Boolean).join('\n'),
       rawText,

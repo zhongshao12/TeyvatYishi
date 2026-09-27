@@ -84,6 +84,7 @@ import { getRuntimePlatform } from '@/utils/platform/desktopRuntime';
 import { formatByteSize } from '@/utils/formatByteSize';
 import { markBackupExportSuccess, readBackupReminderState, saveBackupReminderState, shouldSuggestBackup, snoozeBackupReminder } from '@/utils/backupReminder';
 import { StorageAttributionPanel } from './storage/StorageAttributionPanel';
+import { ContentResourceStatusPanel } from './storage/ContentResourceStatusPanel';
 import {
   StorageActionButton as ActionButton,
   StorageLegacyBackupSection,
@@ -1090,6 +1091,7 @@ export function StorageManagerTab({ onSave, onContinue, onLoadSave }: Props) {
       )}
 
       <StorageAttributionPanel saves={saves} />
+      <ContentResourceStatusPanel />
 
       <div
         role="status"

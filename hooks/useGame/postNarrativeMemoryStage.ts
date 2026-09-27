@@ -1,11 +1,11 @@
 import type { 记忆系统 } from '@/models/memory';
 import type { API配置项, 记忆系统设置 } from '@/models/settings';
 import type { IrminsulMemory } from '@/models/teyvat/irminsul';
+import { promoteIrminsulEntry } from '@/services/irminsulPromotion';
 import {
   addImmediateMemory,
   autoCompressMemorySystemWithArchivesAsync,
   buildImmediateMemory,
-  upsertRecallEntry,
 } from './memoryUtils';
 
 type MemoryCompressionResult = Awaited<ReturnType<typeof autoCompressMemorySystemWithArchivesAsync>>;
@@ -15,6 +15,7 @@ type MemoryCompressor = (
   settings: 记忆系统设置,
   mainConfig: API配置项,
   signal?: AbortSignal,
+  irminsul?: IrminsulMemory,
 ) => Promise<MemoryCompressionResult>;
 
 export interface PostNarrativeMemoryFeedback {
@@ -58,8 +59,9 @@ export async function settlePostNarrativeMemory(
     input.settings,
     input.mainConfig,
     input.signal,
+    input.irminsul,
   );
-  const irminsul = compression.archives.reduce(upsertRecallEntry, input.irminsul);
+  const irminsul = compression.archives.reduce(promoteIrminsulEntry, input.irminsul);
   const failureCount = compression.failures.length;
   const detail = failureCount > 0
     ? `记忆总结有 ${failureCount} 批 API 失败，已保留完整失败草稿；当前回合继续使用本地 fallback。`

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeIrminsulMemory, type IrminsulEntry } from '@/models/teyvat/irminsul';
 import { getActiveIrminsulEntries, promoteIrminsulEntry } from '@/services/irminsulPromotion';
 import { retrieveIrminsulEntries } from '@/services/irminsulRetrieval';
+import { upsertRecallEntry } from '@/hooks/useGame/memoryUtils';
 
 function entry(id: string, turn: number, archiveType: IrminsulEntry['archiveType'] = 'short', patch: Partial<IrminsulEntry> = {}): IrminsulEntry {
   return { id, title: '安柏同行', summary: '安柏带领旅行者进入蒙德城', sourceText: '安柏带领旅行者进入蒙德城',
@@ -47,5 +48,12 @@ describe('世界树归档安全晋升', () => {
     expect(normalized.entries.some((item) => item.id === 'old-0')).toBe(true);
     expect(normalized.entries.find((item) => item.id === 'old-1')?.coveredEntryIds).toBeUndefined();
     expect(getActiveIrminsulEntries(normalized).some((item) => item.id === 'old-0')).toBe(true);
+  });
+
+  it('does not delete another same-turn refined note without an exact covered ID', () => {
+    const first = entry('refined-one', 9, 'refined', { title: '【回合纪要 一】' });
+    const second = entry('refined-two', 9, 'refined', { title: '【回合纪要 二】' });
+    expect(upsertRecallEntry({ entries: [first] }, second).entries.map((item) => item.id))
+      .toEqual(['refined-one', 'refined-two']);
   });
 });

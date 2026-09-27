@@ -19,6 +19,8 @@ export interface 记忆失败来源快照 {
 
 export interface 记忆失败草稿 {
   id: string;
+  /** World-tree pending archive corresponding to this fallback, when provenance is available. */
+  archiveEntryId?: string;
   /** 批量重建草稿不能按普通 fallback 替换逻辑重试。旧存档缺失时按 automatic 处理。 */
   origin?: 'automatic' | 'batch_rebuild';
   kind: 记忆压缩层级;
@@ -37,8 +39,11 @@ export interface 记忆失败草稿 {
 export interface 记忆系统 {
   即时记忆: string[];
   短期记忆: string[];
+  /** Same-index world-tree IDs; absent/null on legacy text-only memories. */
+  短期归档ID?: (string | null)[];
   /** 中期记忆：由多条短期记忆再压缩，承接阶段性剧情链。 */
   中期记忆: string[];
+  中期归档ID?: (string | null)[];
   /** 长期记忆：由多条中期记忆再压缩，保留稳定事实。 */
   长期记忆: string[];
   /** 自动总结失败时保留的不可变原始批次，旧存档缺失时按空数组处理。 */
@@ -138,10 +143,14 @@ export async function deserializeMemoryFailureSource(snapshot: 记忆失败来�
 }
 
 export function normalizeMemorySystem(raw?: Partial<记忆系统> | null): 记忆系统 {
+  const short = Array.isArray(raw?.短期记忆) ? raw!.短期记忆 : [];
+  const middle = Array.isArray(raw?.中期记忆) ? raw!.中期记忆 : [];
   return {
     即时记忆: Array.isArray(raw?.即时记忆) ? raw!.即时记忆 : [],
-    短期记忆: Array.isArray(raw?.短期记忆) ? raw!.短期记忆 : [],
-    中期记忆: Array.isArray(raw?.中期记忆) ? raw!.中期记忆 : [],
+    短期记忆: short,
+    ...(Array.isArray(raw?.短期归档ID) ? { 短期归档ID: short.map((_, index) => typeof raw.短期归档ID?.[index] === 'string' ? raw.短期归档ID[index] : null) } : {}),
+    中期记忆: middle,
+    ...(Array.isArray(raw?.中期归档ID) ? { 中期归档ID: middle.map((_, index) => typeof raw.中期归档ID?.[index] === 'string' ? raw.中期归档ID[index] : null) } : {}),
     长期记忆: Array.isArray(raw?.长期记忆) ? raw!.长期记忆 : [],
     失败草稿: Array.isArray(raw?.失败草稿) ? raw!.失败草稿 : [],
   };

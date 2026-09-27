@@ -11,6 +11,7 @@ import type { API配置项, 记忆系统设置 } from '@/models/settings';
 import type { NPC同行记忆来源, NPC同行记忆条目, NPC总结记忆条目 } from '@/models/npc';
 import { summarizeMemoryBatch } from '@/services/memoryCompression';
 import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
+import { getActiveIrminsulEntries, promoteIrminsulEntry } from '@/services/irminsulPromotion';
 
 const MEMORY_SNIPPET_LIMIT = 84;
 const NPC_MEMORY_SUMMARY_LIMIT = 160;
@@ -152,6 +153,7 @@ export function compressToShortTerm(system: 记忆系统, turn: number, batchSiz
     ...system,
     即时记忆: system.即时记忆.slice(size),
     短期记忆: [...system.短期记忆, summary],
+    短期归档ID: [...(system.短期归档ID ?? system.短期记忆.map(() => null)), null],
   };
 }
 
@@ -180,7 +182,9 @@ export function compressToMiddleTerm(system: 记忆系统, turn: number, batchSi
   return {
     ...system,
     短期记忆: system.短期记忆.slice(size),
+    短期归档ID: (system.短期归档ID ?? system.短期记忆.map(() => null)).slice(size),
     中期记忆: [...(system.中期记忆 ?? []), compressed],
+    中期归档ID: [...(system.中期归档ID ?? (system.中期记忆 ?? []).map(() => null)), null],
   };
 }
 
@@ -209,6 +213,7 @@ export function compressToLongTerm(system: 记忆系统, turn: number, batchSize
   return {
     ...system,
     中期记忆: (system.中期记忆 ?? []).slice(size),
+    中期归档ID: (system.中期归档ID ?? (system.中期记忆 ?? []).map(() => null)).slice(size),
     长期记忆: [...system.长期记忆, compressed],
   };
 }
@@ -288,10 +293,50 @@ export function createTurnRecallEntry(input: {
 }
 
 export function upsertRecallEntry(system: IrminsulMemory, entry: IrminsulEntry): IrminsulMemory {
-  const next = system.entries.filter(
-    (item) => !(item.turn === entry.turn && item.archiveType === 'refined' && item.title.startsWith('【回合纪要')),
-  );
-  return { entries: [...next, entry] };
+  return promoteIrminsulEntry(system, entry);
+}
+
+function archiveIdentity(kind: 'short' | 'medium' | 'long', turn: number, items: readonly string[], sourceIds: readonly string[], index: number): string {
+  const payload = JSON.stringify([kind, turn, index, sourceIds, items]);
+  let hash = 2166136261;
+  for (const char of payload) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `recall_${kind}_${turn}_${(hash >>> 0).toString(36)}`;
+}
+
+function exactArchiveSources(memory: IrminsulMemory, items: readonly string[], sourceIds: readonly (string | null)[], archiveType: IrminsulEntry['archiveType']): IrminsulEntry[] | null {
+  if (sourceIds.length !== items.length || sourceIds.some((id) => !id)) return null;
+  const active = getActiveIrminsulEntries(memory).filter((entry) => entry.archiveType === archiveType);
+  const sources = items.map((item, index) => active.filter((entry) => entry.id === sourceIds[index] && entry.summary === item));
+  if (sources.some((matched) => matched.length !== 1)) return null;
+  const unique = sources.map((matched) => matched[0]!).filter(Boolean);
+  return new Set(unique.map((entry) => entry.id)).size === unique.length ? unique : null;
+}
+
+function archiveWithProvenance(
+  base: IrminsulEntry,
+  raw: string[],
+  turn: number,
+  index: number,
+  sourceArchiveType: IrminsulEntry['archiveType'] | null,
+  sourceIds: readonly (string | null)[],
+  memory: IrminsulMemory,
+  pending: boolean,
+): IrminsulEntry {
+  const sources = sourceArchiveType ? exactArchiveSources(memory, raw, sourceIds, sourceArchiveType) : null;
+  const coveredEntryIds = sources?.map((source) => source.id);
+  const sourceTurns = sources?.length
+    ? [...new Set(sources.flatMap((source) => source.sourceTurns))].sort((a, b) => a - b)
+    : [turn];
+  return {
+    ...base,
+    id: archiveIdentity(base.archiveType as 'short' | 'medium' | 'long', turn, raw, coveredEntryIds ?? [], index),
+    sourceTurns,
+    ...(coveredEntryIds?.length ? { coveredEntryIds } : {}),
+    status: pending ? 'pending' : 'active',
+  };
 }
 
 export function autoCompressMemorySystem(
@@ -351,6 +396,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
   settings: 记忆系统设置,
   mainConfig: API配置项,
   signal?: AbortSignal,
+  irminsul?: IrminsulMemory,
 ): Promise<{
   memory: 记忆系统;
   archives: IrminsulEntry[];
@@ -361,6 +407,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
 }> {
   let next = system;
   const archives: IrminsulEntry[] = [];
+  let workingIrminsul = irminsul ?? { entries: [] };
   const failures: 记忆失败草稿[] = [];
   const immediateThreshold = Math.max(1, Math.trunc(settings.即时转短期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD));
   const shortThreshold = Math.max(1, Math.trunc(settings.短期转中期阈值 || settings.短期转长期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD));
@@ -379,6 +426,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
   const appendFailure = async (
     source: { kind: 'short' | 'middle' | 'long'; turn: number; items: string[]; sourceTurns?: { start: number; end: number } },
     result: Awaited<ReturnType<typeof summarizeMemoryBatch>>,
+    archiveEntryId: string,
   ): Promise<void> => {
     if (!result.failureCode) return;
     const sourceSnapshot = await serializeMemoryFailureSource(source.items);
@@ -394,6 +442,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
     const now = Date.now();
     const draft: 记忆失败草稿 = {
       id: `memory_failure_${now}_${Math.random().toString(36).slice(2, 8)}`,
+      archiveEntryId,
       origin: 'automatic',
       kind: source.kind,
       status: 'pending',
@@ -422,7 +471,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
       : null;
   };
 
-  const removeIndexes = (items: string[], indexes: number[]): string[] => {
+  const removeIndexes = <T>(items: T[], indexes: number[]): T[] => {
     const selected = new Set(indexes);
     return items.filter((_item, index) => !selected.has(index));
   };
@@ -458,12 +507,16 @@ export async function autoCompressMemorySystemWithArchivesAsync(
     usedFallback = usedFallback || result.usedFallback;
     usedModel = usedModel || result.usedModel;
     usedLocal = usedLocal || result.usedLocal;
-    await appendFailure({ kind: 'short', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result);
-    archives.push(createShortTermArchiveEntry(raw, turn, result.summary));
+    const archive = archiveWithProvenance(createShortTermArchiveEntry(raw, turn, result.summary), raw, turn,
+      archives.filter((entry) => entry.archiveType === 'short').length, null, [], workingIrminsul, Boolean(result.failureCode));
+    await appendFailure({ kind: 'short', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result, archive.id);
+    archives.push(archive);
+    workingIrminsul = promoteIrminsulEntry(workingIrminsul, archive);
     next = {
       ...next,
       即时记忆: removeIndexes(next.即时记忆, picked.indexes),
       短期记忆: [...next.短期记忆, result.summary],
+      短期归档ID: [...(next.短期归档ID ?? next.短期记忆.map(() => null)), archive.id],
     };
   }
 
@@ -486,12 +539,18 @@ export async function autoCompressMemorySystemWithArchivesAsync(
     usedFallback = usedFallback || result.usedFallback;
     usedModel = usedModel || result.usedModel;
     usedLocal = usedLocal || result.usedLocal;
-    await appendFailure({ kind: 'middle', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result);
-    archives.push(createMiddleTermArchiveEntry(raw, turn, result.summary));
+    const sourceIds = picked.indexes.map((index) => next.短期归档ID?.[index] ?? null);
+    const archive = archiveWithProvenance(createMiddleTermArchiveEntry(raw, turn, result.summary), raw, turn,
+      archives.filter((entry) => entry.archiveType === 'medium').length, 'short', sourceIds, workingIrminsul, Boolean(result.failureCode));
+    await appendFailure({ kind: 'middle', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result, archive.id);
+    archives.push(archive);
+    workingIrminsul = promoteIrminsulEntry(workingIrminsul, archive);
     next = {
       ...next,
       短期记忆: removeIndexes(next.短期记忆, picked.indexes),
+      短期归档ID: removeIndexes(next.短期归档ID ?? next.短期记忆.map(() => null), picked.indexes),
       中期记忆: [...(next.中期记忆 ?? []), result.summary],
+      中期归档ID: [...(next.中期归档ID ?? (next.中期记忆 ?? []).map(() => null)), archive.id],
     };
   }
 
@@ -514,11 +573,16 @@ export async function autoCompressMemorySystemWithArchivesAsync(
     usedFallback = usedFallback || result.usedFallback;
     usedModel = usedModel || result.usedModel;
     usedLocal = usedLocal || result.usedLocal;
-    await appendFailure({ kind: 'long', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result);
-    archives.push(createLongTermArchiveEntry(raw, turn, result.summary));
+    const sourceIds = picked.indexes.map((index) => next.中期归档ID?.[index] ?? null);
+    const archive = archiveWithProvenance(createLongTermArchiveEntry(raw, turn, result.summary), raw, turn,
+      archives.filter((entry) => entry.archiveType === 'long').length, 'medium', sourceIds, workingIrminsul, Boolean(result.failureCode));
+    await appendFailure({ kind: 'long', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result, archive.id);
+    archives.push(archive);
+    workingIrminsul = promoteIrminsulEntry(workingIrminsul, archive);
     next = {
       ...next,
       中期记忆: removeIndexes(next.中期记忆 ?? [], picked.indexes),
+      中期归档ID: removeIndexes(next.中期归档ID ?? (next.中期记忆 ?? []).map(() => null), picked.indexes),
       长期记忆: [...next.长期记忆, result.summary],
     };
   }

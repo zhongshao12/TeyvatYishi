@@ -201,6 +201,12 @@ export interface 变量命令结果 {
   evidence?: string;
 }
 
+export type CommittedSettlementChange =
+  | { kind: 'item'; id: string; name: string; before: number; after: number }
+  | { kind: 'affinity'; id: string; name: string; before: number; after: number }
+  | { kind: 'quest'; id: string; title: string; before: import('./teyvat/runtimeSlices').QuestStatus | 'absent'; after: import('./teyvat/runtimeSlices').QuestStatus | 'absent' }
+  | { kind: 'time'; beforeDate: string; beforeTime: string; afterDate: string; afterTime: string };
+
 /** 一回合的变量命令批次（一次 AI 调用产出的所有命令 + 结果），存入命令历史。 */
 export interface 变量命令批次 {
   id: string;
@@ -211,6 +217,9 @@ export interface 变量命令批次 {
   /** 是否调用了变量模型（false = 主模型直接出，true = 走了二次校准） */
   modelName?: string;
   results: 变量命令结果[];
+  /** Final committed-state differences only. Missing on older saves and failed commits. */
+  committedChanges?: CommittedSettlementChange[];
+  omittedCommittedChanges?: number;
   /** 变量模型的额外报告（可选，用于调试展示） */
   report?: string;
   /** 变量模型返回的原始文本，供「查看原始信息」面板展示。失败回执时为空。 */

@@ -148,6 +148,9 @@ export interface NSFW档案变量事实 {
   /** 仅已确认成年女性可写。 */
   virginityStatus?: 'virgin' | 'not_virgin' | 'unknown';
   firstSexualPartner?: string;
+  firstSexualPartnerRef?: 'player';
+  firstSexualPartnerSource?: 'narrative' | 'legacy_assumed' | 'manual';
+  firstSexualPartnerTurn?: number;
   intimacyStage?: string;
   boundaries?: string;
   preferences?: string[];

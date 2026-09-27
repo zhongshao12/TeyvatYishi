@@ -23,13 +23,14 @@ const npc = (patch: Record<string, unknown> = {}) => ({
 
 const stateWith = (records: ReturnType<typeof npc>[]) => {
   const state = createEmptyTeyvatGameState();
+  state.旅行者.姓名 = '旅行者';
   state.NPC = normalizeTeyvatNpcRecords(records);
   return state;
 };
 
 const commitDerived = (body: string, records: ReturnType<typeof npc>[], options: { nsfwEnabled?: boolean } = {}) => {
   const state = stateWith(records);
-  const derived = deriveNarrativeIntimacyFacts(body, state.NPC, options);
+  const derived = deriveNarrativeIntimacyFacts(body, state.NPC, { ...options, playerName: state.旅行者.姓名, turn: 3 });
   const translated = factsToTeyvatDomainCommands(derived, state, 3);
   const committed = commitTeyvatTurn(state, translated.commands, () => undefined, { lenientEvidence: true });
   return { derived, committed };
@@ -37,9 +38,9 @@ const commitDerived = (body: string, records: ReturnType<typeof npc>[], options:
 
 describe('亲密事件固定好感度', () => {
   it.each([
-    ['亲吻', '安柏踮起脚尖，轻轻亲吻了旅行者的脸颊。', 5],
+    ['亲吻', '安柏踮起脚尖后轻轻亲吻了旅行者的脸颊。', 5],
     ['性爱事件', '夜深之后，安柏与旅行者共度了彼此交付的性爱时刻。', 30],
-    ['暧昧', '安柏侧过头，用近似表白的话说出自己的心意。', 3],
+    ['暧昧', '安柏向旅行者表白了自己的心意。', 3],
     ['肢体接触', '安柏主动牵起旅行者的手，两人一路都没有松开。', 3],
   ])('awards the fixed value for %s', (_tier, body, expected) => {
     const { derived, committed } = commitDerived(body, [npc()], { nsfwEnabled: true });
@@ -57,7 +58,7 @@ describe('亲密事件固定好感度', () => {
   });
 
   it('takes only the highest matched tier in one turn', () => {
-    const { derived } = commitDerived('安柏与旅行者紧紧拥抱，随后亲吻了彼此。', [npc()], { nsfwEnabled: true });
+    const { derived } = commitDerived('安柏与旅行者紧紧拥抱，随后安柏亲吻了旅行者。', [npc()], { nsfwEnabled: true });
 
     expect(derived).toEqual([expect.objectContaining({ affinityDelta: 5 })]);
   });
@@ -96,7 +97,7 @@ describe('亲密事件固定好感度', () => {
   });
 
   it('keeps the evidence long enough for the settlement evidence gate', () => {
-    const { derived, committed } = commitDerived('安柏亲吻了他。', [npc()], { nsfwEnabled: true });
+    const { derived, committed } = commitDerived('安柏轻轻亲吻了旅行者。', [npc()], { nsfwEnabled: true });
 
     expect((derived[0]!.evidence ?? '').length).toBeGreaterThanOrEqual(8);
     expect(committed.status).toBe('committed');

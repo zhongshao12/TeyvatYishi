@@ -211,6 +211,8 @@ export async function runVariableSettlementWorkflow(
     // 正文证据能确定的事情以系统派生为准。
     const intimacyFacts = deriveNarrativeIntimacyFacts(params.body, stateSnapshot.NPC, {
       nsfwEnabled: params.settings.enableNsfw,
+      playerName: stateSnapshot.旅行者.姓名,
+      turn: params.turnAfter,
     });
     const factsWithIntimacy = [
       ...factsWithPartyPresence.filter((fact) => fact.type !== 'npc'

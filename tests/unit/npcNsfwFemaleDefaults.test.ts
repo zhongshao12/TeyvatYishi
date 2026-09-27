@@ -90,8 +90,9 @@ describe('性爱事件后 是否处女 变为 否', () => {
 
   const run = (body: string, nsfwEnabled = true) => {
     const state = createEmptyTeyvatGameState();
+    state.旅行者.姓名 = '旅行者';
     state.NPC = normalizeTeyvatNpcRecords([npcRecord()]);
-    const derived = deriveNarrativeIntimacyFacts(body, state.NPC, { nsfwEnabled });
+    const derived = deriveNarrativeIntimacyFacts(body, state.NPC, { nsfwEnabled, playerName: state.旅行者.姓名, turn: 3 });
     const translated = factsToTeyvatDomainCommands(derived, state, 3);
     const committed = commitTeyvatTurn(state, translated.commands, () => undefined, { lenientEvidence: true });
     return { derived, committed };
@@ -129,8 +130,9 @@ describe('性爱事件后 是否处女 变为 否', () => {
 
   it('does not flip for a male character', () => {
     const state = createEmptyTeyvatGameState();
+    state.旅行者.姓名 = '旅行者';
     state.NPC = normalizeTeyvatNpcRecords([npcRecord({ id: 'npc_kaeya', 姓名: '凯亚', gender: '男' })]);
-    const derived = deriveNarrativeIntimacyFacts('夜深之后，凯亚与旅行者发生了性爱关系。', state.NPC, { nsfwEnabled: true });
+    const derived = deriveNarrativeIntimacyFacts('夜深之后，凯亚与旅行者发生了性爱关系。', state.NPC, { nsfwEnabled: true, playerName: state.旅行者.姓名 });
 
     expect(derived).toEqual([expect.objectContaining({ type: 'npc', affinityDelta: 30 })]);
   });

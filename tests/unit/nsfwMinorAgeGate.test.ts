@@ -86,9 +86,10 @@ describe('非成年角色的档案与好感度行为', () => {
     const records = [{
       id: 'npc_adult', 姓名: '成人角色', aliases: [], gender: '女', travelingTogether: true,
       说明: '成年冒险家',
+      matureArchive: { ageConfirmation: 'adult' as const, ageConfirmationSource: 'manual' as const },
     }];
 
-    expect(deriveNarrativeIntimacyFacts('成人角色亲吻了旅行者。', records, { nsfwEnabled: true }))
+    expect(deriveNarrativeIntimacyFacts('成人角色亲吻了旅行者。', records, { nsfwEnabled: true, playerName: '旅行者' }))
       .toContainEqual(expect.objectContaining({ type: 'npc', affinityDelta: 5 }));
   });
 });

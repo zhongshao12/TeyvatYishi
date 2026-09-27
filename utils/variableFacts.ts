@@ -25,9 +25,10 @@ import {
 } from '@/models/teyvat/domainCommand';
 import { extractJsonLikeText, parseJsonWithRepair } from '@/services/ai/structuredOutputRepair';
 import { 天气列表 } from '@/data/weatherRules';
-import { getMinorAgeEvidenceReason, getNsfwArchiveBlockReason, isProtectedCanonicalNpc } from '@/utils/nsfwArchivePolicy';
+import { getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
 import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
 import { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveEnrichment';
+import { detectNpcIntimacyEvent } from '@/utils/npcIntimacyEvidence';
 import {
   normalizeLegacyFactKind,
   readLegacyNpcKeyFromName,
@@ -756,48 +757,9 @@ export const 亲密事件好感规则 = {
   肢体接触: 3,
 } as const;
 
-/** 数组顺序即优先级：命中最靠前的一档就停。 */
-const 亲密事件档位 = [
-  {
-    名称: '性爱事件',
-    加成: 亲密事件好感规则.性爱事件,
-    // 只认明确词；刻意不收「上床」（睡觉）、「高潮」（剧情高潮）、「缠绵」（雨/往事）这类歧义词。
-    模式: /(性爱|做爱|交合|性交|交欢|欢好|欢爱|云雨|巫山|鱼水之欢|春宵)/u,
-  },
-  {
-    名称: '亲吻',
-    加成: 亲密事件好感规则.亲吻,
-    模式: /(亲吻|接吻|吻了|吻上|吻住|吻别|轻吻|深吻|亲了|亲上|唇上)/u,
-  },
-  {
-    名称: '暧昧',
-    加成: 亲密事件好感规则.暧昧,
-    模式: /(暧昧|表白|告白|示爱|谈情|情话|调情|倾心|互诉衷肠|表明心意)/u,
-  },
-  {
-    名称: '肢体接触',
-    加成: 亲密事件好感规则.肢体接触,
-    // 不认单独的「抱」：抱歉/抱怨/抱负都会误命中。也不认单独的「手」：要带握/牵/拉的动作。
-    模式: /(牵手|牵起|牵住|牵着|拉手|十指相扣|握住.{0,4}手|挽住|挽着|搂住|搂着|搂在怀里|拥抱|抱住|抱紧|依偎|靠在.{0,6}(?:怀里|肩上|身上)|贴在一起)/u,
-  },
-] as const;
-
-/** 否定证据：出现这些词就不算发生过亲密事件。 */
-const 亲密事件否定模式 = /(?:没有|并未|未曾|不曾|尚未|拒绝|推开|挣脱|躲开|抽开|抽回|避开|梦见|幻想).{0,12}(?:亲吻|接吻|吻|拥抱|抱|牵手|搂|暧昧|表白|告白|性爱|做爱)/u;
-
 /**
- * 匿名主语（成对/复数）：情爱场景常写「两人发生了性爱关系。」而不重复角色名。
- * 这类句子只有在**唯一同行者**时才可归属（那时"两人"必然是玩家与该同伴），否则宁可不加。
- */
-const 亲密事件匿名主语模式 = /(两人|二人|双方|彼此|他们|她们|对方|互相)/u;
-
-/**
- * 正文里的亲密事件 → 固定好感度事实（玩家指定的 4 条规则）。
- *
- * 归属规则是保守的：**只有角色姓名/别名与亲密词出现在同一句时才计入**。
- * 只用「她/他」指代时无法可靠判断是谁，宁可不加，也不给错人。
- * 安全闸复用 NSFW 政策：受保护原著角色（派蒙/七七/可莉/瑶瑶/早柚）全档位跳过；
- * 性爱档额外要求 NSFW 开启且未命中机械/非人形屏蔽。
+ * 正文里的直接玩家↔NPC亲密事件 → 固定好感度事实。
+ * 第三方、模糊指代、尚未发生的动作及未确认成年角色均不自动结算。
  */
 export function deriveNarrativeIntimacyFacts(
   body: string,
@@ -810,15 +772,13 @@ export function deriveNarrativeIntimacyFacts(
     说明?: string;
     appearance?: string;
     notes?: readonly string[];
+    matureArchive?: { ageConfirmation?: 'adult' | 'unknown' | 'minor_blocked'; ageConfirmationSource?: 'canonical' | 'manual' | 'legacy_unverified' } | null;
+    NSFW档案?: NPC记录['NSFW档案'];
   })[],
-  options: { nsfwEnabled?: boolean } = {},
+  options: { nsfwEnabled?: boolean; playerName?: string; turn?: number } = {},
 ): 变量事实[] {
   if (!body.trim()) return [];
-  const sentences = body.split(/(?<=[。！？!?\n])/u).map((item) => item.trim()).filter(Boolean);
   const facts: 变量事实[] = [];
-  // 唯一同行者：用于归属匿名主语（「两人/彼此」）的句子。
-  const companions = records.filter((record) => record.travelingTogether === true || record.同行 === true);
-  const soleCompanion = companions.length === 1 ? companions[0] : undefined;
   for (const record of records) {
     const name = (record.姓名 ?? '').trim();
     if (!name) continue;
@@ -827,64 +787,41 @@ export function deriveNarrativeIntimacyFacts(
     const identityText = [record.说明, record.appearance, ...(record.notes ?? [])]
       .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
       .join(' ');
-    // 受保护原著角色与非成年证据都跳过**全部**档位（不只是性爱档）。
-    if (isProtectedCanonicalNpc(undefined, names)) continue;
-    if (getMinorAgeEvidenceReason(undefined, name, identityText)) continue;
+    const eligibility = resolveNpcAdultEligibility({
+      name, aliases: record.aliases, description: identityText,
+      ageConfirmation: record.matureArchive?.ageConfirmation ?? record.NSFW档案?.年龄确认,
+      ageSource: record.matureArchive?.ageConfirmationSource ?? record.NSFW档案?.年龄确认来源,
+      canonicalBaselineAge: getCanonicalArchiveBaselineAge(name),
+    });
+    if (!eligibility.confirmed) continue;
     const sexTierAllowed = options.nsfwEnabled !== false
       && getNsfwArchiveBlockReason(undefined, name, `${names.join(' ')} ${identityText}`) === null;
-    // 契约是「同一回合同一角色只按命中的最高档结算一次」，所以必须先扫完所有可归属的句子再取最高档，
-    // 不能命中第一句就 break（那样「拥抱…随后亲吻…」只算 +3，而「两人发生了性爱关系」会被整条漏掉）。
-    let best: { matched: (typeof 亲密事件档位)[number]; sentence: string } | null = null;
-    for (const sentence of sentences) {
-      if (亲密事件否定模式.test(sentence)) continue;
-      const named = names.some((candidate) => sentence.includes(candidate));
-      const anonymous = !named && soleCompanion === record && 亲密事件匿名主语模式.test(sentence);
-      if (!named && !anonymous) continue;
-      const matched = 亲密事件档位.find((tier) => tier.模式.test(sentence));
-      if (!matched) continue;
-      if (matched.名称 === '性爱事件' && !sexTierAllowed) continue;
-      if (!best || matched.加成 > best.matched.加成) best = { matched, sentence };
-    }
-    if (!best) continue;
-    // 证据必须够长：结算的宽松证据门槛是 8 字，太短的句子会被整条拒掉。
-    const evidence = 亲密事件证据(body, best.sentence, best.matched.名称);
+    const event = detectNpcIntimacyEvent(body, record, options.playerName ?? '', sexTierAllowed);
+    if (!event) continue;
+    if (records.some((other) => other.id !== record.id
+      && [other.姓名, ...(other.aliases ?? [])].some((otherName) => otherName.trim() && event.evidence.includes(otherName.trim())))) continue;
+    const delta = event.tier === 'sex' ? 30 : event.tier === 'kiss' ? 5 : 3;
     facts.push({
       type: 'npc',
       id: record.id,
       name,
-      affinityDelta: best.matched.加成,
-      evidence,
+      affinityDelta: delta,
+      evidence: event.evidence,
     });
-    if (best.matched.名称 === '性爱事件' && record.gender === '女') {
-      // 女角色的「是否处女」默认是「是」（建档案时写入），发生性爱事件后翻成「否」。
-      // 走 nsfw_archive 事实而不是直接改字段：matureArchive 的写入必须经过 registry 校验与夹取。
+    if (event.tier === 'sex' && record.gender === '女') {
       facts.push({
         type: 'nsfw_archive',
         npcId: record.id,
         npcName: name,
-        ageConfirm: 'adult',
         virginityStatus: 'not_virgin',
-        evidence,
+        firstSexualPartnerRef: 'player',
+        firstSexualPartnerSource: 'narrative',
+        firstSexualPartnerTurn: options.turn,
+        evidence: event.evidence,
       });
     }
   }
   return facts;
-}
-
-/** 取足够长的逐字证据：句子本身太短时向外扩到正文窗口（仍是正文原文）。 */
-function 亲密事件证据(body: string, sentence: string, tierName: string): string {
-  const trimmed = sentence.trim();
-  if (trimmed.length >= 8) return trimmed.slice(0, 240);
-  const index = body.indexOf(trimmed);
-  const window = index < 0
-    ? trimmed
-    : body.slice(Math.max(0, index - 20), Math.min(body.length, index + trimmed.length + 20))
-      .replace(/\s+/g, ' ')
-      .trim();
-  if (window.length >= 8) return window.slice(0, 240);
-  // 整段正文都不足 8 字时（极短的叙事），结算的证据门槛会把命令判为 UNMATCHED_EVIDENCE 丢掉，
-  // 因此补一个档位标签凑够长度；正文本身仍是逐字引用。
-  return `${tierName}：${window}`.slice(0, 240);
 }
 
 function classifyPlayerInventoryRemoval(sentence: string, itemName: string): Extract<变量事实, { type: 'item' }>['action'] | null {
@@ -1164,7 +1101,18 @@ function buildNsfwArchiveUpdate(existing: NPC记录, fact: Extract<变量事实,
   archive.年龄确认来源 = getCanonicalArchiveBaselineAge(existing.姓名) === 'adult' ? 'canonical' : current.年龄确认来源;
   if (existing.性别 === '女') {
     archive.是否处女 = fact.virginityStatus === 'virgin' ? '是' : fact.virginityStatus === 'not_virgin' ? '否' : fact.virginityStatus === 'unknown' ? '未知' : current.是否处女;
-    archive.首次性行为对象 = fact.firstSexualPartner ?? current.首次性行为对象;
+    const hasFirstPartner = Boolean(current.首次性行为对象引用 || current.首次性行为对象来源
+      || (current.首次性行为对象 && current.首次性行为对象 !== '无'));
+    archive.首次性行为对象 = hasFirstPartner ? current.首次性行为对象 : fact.firstSexualPartner;
+    if (!hasFirstPartner && fact.firstSexualPartnerRef === 'player') {
+      archive.首次性行为对象引用 = 'player';
+      archive.首次性行为对象来源 = fact.firstSexualPartnerSource ?? 'narrative';
+      archive.首次性行为对象回合 = fact.firstSexualPartnerTurn;
+    } else {
+      archive.首次性行为对象引用 = current.首次性行为对象引用;
+      archive.首次性行为对象来源 = current.首次性行为对象来源;
+      archive.首次性行为对象回合 = current.首次性行为对象回合;
+    }
   }
   archive.亲密阶段 = fact.intimacyStage ?? current.亲密阶段 ?? (existing.亲密关系 ? '已建立亲密关系（私密细节未记录）' : '未建立');
   // 边界/备注只在 fact 或 existing 有值时写入，不再写保守基线默认长文。
@@ -1872,6 +1820,9 @@ export function factsToTeyvatDomainCommands(
         push({ action: 'push', root: 'NPC', path: 'records', value: existing }, fact.evidence);
       }
       if (existing) {
+        const currentFirstPartner = existing.matureArchive;
+        const hasFirstPartner = Boolean(currentFirstPartner?.firstSexualPartnerRef || currentFirstPartner?.firstSexualPartnerSource
+          || (currentFirstPartner?.firstSexualPartner && currentFirstPartner.firstSexualPartner !== '无'));
         push({ action: 'set', root: 'NPC', path: `${buildTeyvatIdSelector(existing.id)}.matureArchive`, value: {
           ...(existing.matureArchive ?? { preferences: [], sensitivePoints: [], taboos: [], femaleBodyProfile: {}, maleBodyProfile: {}, experiences: [], longTermFacts: [], tags: [], partImages: {} }),
           enabled: fact.enabled ?? existing.matureArchive?.enabled ?? true,
@@ -1881,7 +1832,10 @@ export function factsToTeyvatDomainCommands(
           boundaries: fact.boundaries ?? existing.matureArchive?.boundaries,
           ...(existing.gender === '女' ? {
             virginityStatus: fact.virginityStatus ?? existing.matureArchive?.virginityStatus,
-            firstSexualPartner: fact.firstSexualPartner ?? existing.matureArchive?.firstSexualPartner,
+            firstSexualPartner: hasFirstPartner ? currentFirstPartner?.firstSexualPartner : fact.firstSexualPartner,
+            firstSexualPartnerRef: hasFirstPartner ? currentFirstPartner?.firstSexualPartnerRef : fact.firstSexualPartnerRef,
+            firstSexualPartnerSource: hasFirstPartner ? currentFirstPartner?.firstSexualPartnerSource : fact.firstSexualPartnerSource,
+            firstSexualPartnerTurn: hasFirstPartner ? currentFirstPartner?.firstSexualPartnerTurn : fact.firstSexualPartnerTurn,
           } : {}),
           preferences: fact.preferences ?? existing.matureArchive?.preferences ?? [], sensitivePoints: fact.sensitivePoints ?? existing.matureArchive?.sensitivePoints ?? [],
           taboos: fact.taboos ?? existing.matureArchive?.taboos ?? [], experiences: fact.experiences ?? existing.matureArchive?.experiences ?? [],

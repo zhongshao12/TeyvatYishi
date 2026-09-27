@@ -12,7 +12,7 @@ const amber = (patch: Record<string, unknown> = {}) => ({
 });
 
 const deltaOf = (body: string, records: Array<ReturnType<typeof amber>> = [amber()]) => {
-  const derived = deriveNarrativeIntimacyFacts(body, records, { nsfwEnabled: true });
+  const derived = deriveNarrativeIntimacyFacts(body, records, { nsfwEnabled: true, playerName: '旅行者' });
   return derived.find((fact) => fact.type === 'npc')?.affinityDelta ?? 0;
 };
 
@@ -33,19 +33,19 @@ describe('亲密事件跨句取最高档', () => {
     const derived = deriveNarrativeIntimacyFacts(
       '安柏亲吻了旅行者。之后安柏又亲吻了旅行者。安柏还拥抱了旅行者。',
       [amber()],
-      { nsfwEnabled: true },
+      { nsfwEnabled: true, playerName: '旅行者' },
     );
     expect(derived.filter((fact) => fact.type === 'npc')).toHaveLength(1);
   });
 });
 
 describe('匿名主语（两人/彼此）的归属', () => {
-  it('attributes to the sole traveling companion', () => {
-    expect(deltaOf('两人发生了性爱关系。', [amber({ travelingTogether: true })])).toBe(30);
+  it('does not guess the pair from a sole traveling companion', () => {
+    expect(deltaOf('两人发生了性爱关系。', [amber({ travelingTogether: true })])).toBe(0);
   });
 
-  it('also picks the higher anonymous tier', () => {
-    expect(deltaOf('安柏紧紧拥抱了旅行者。随后两人亲吻了彼此。', [amber({ travelingTogether: true })])).toBe(5);
+  it('does not upgrade a named touch with a later anonymous kiss', () => {
+    expect(deltaOf('安柏紧紧拥抱了旅行者。随后两人亲吻了彼此。', [amber({ travelingTogether: true })])).toBe(3);
   });
 
   it('refuses to attribute when nobody is traveling with the player', () => {

@@ -271,11 +271,8 @@ export async function loadAllBundledStoryWeavingPresets(): Promise<剧情编织�
   });
 }
 
-type PersistedStoryWeavingSystem = 剧情编织系统 & { persistenceVersion?: number };
-
 export function mergeBundledStoryWeavingPresets(saved: 剧情编织系统 | null | undefined, bundled: 剧情编织系统): 剧情编织系统 {
   if (!saved?.系列列表?.length) return bundled;
-  const persistenceVersion = Number((saved as PersistedStoryWeavingSystem).persistenceVersion) || 0;
   const normalizedSaved = 归一化剧情编织系统(saved);
   const savedById = new Map(normalizedSaved.系列列表.map((series) => [series.id, series]));
   const customSeries = normalizedSaved.系列列表.filter((series) => series.来源类型 !== 'canon' || !series.内置预设ID);
@@ -286,41 +283,21 @@ export function mergeBundledStoryWeavingPresets(saved: 剧情编织系统 | null
     const mergedSegments = presetSeries.分段列表.map((segment) => {
       const savedSegment = savedSegments.get(segment.id);
       if (!savedSegment) return segment;
-      if (persistenceVersion === 2) {
-        return {
-          ...segment,
-          启用注入: savedSegment.启用注入,
-          处理状态: savedSegment.处理状态,
-          运行状态: savedSegment.运行状态,
-          updatedAt: savedSegment.updatedAt,
-        };
-      }
       return {
         ...segment,
-        ...savedSegment,
-        原文内容: segment.原文内容,
-        字数: segment.字数,
+        启用注入: savedSegment.启用注入,
+        处理状态: savedSegment.处理状态,
+        运行状态: savedSegment.运行状态,
+        最近错误: savedSegment.最近错误,
+        updatedAt: savedSegment.updatedAt,
       };
     });
-    if (persistenceVersion === 2) {
-      return 归一化剧情编织系列({
-        ...presetSeries,
-        激活注入: savedSeries.激活注入,
-        当前分段组号: savedSeries.当前分段组号,
-        当前阶段概括: savedSeries.当前阶段概括,
-        分段列表: mergedSegments,
-        createdAt: savedSeries.createdAt,
-        updatedAt: Math.max(savedSeries.updatedAt, presetSeries.updatedAt),
-      });
-    }
     return 归一化剧情编织系列({
       ...presetSeries,
-      ...savedSeries,
-      来源图鉴条目ID: presetSeries.来源图鉴条目ID,
-      来源文件名: presetSeries.来源文件名,
-      原始文本: presetSeries.原始文本,
-      章节列表: presetSeries.章节列表,
+      激活注入: savedSeries.激活注入,
+      当前分段组号: savedSeries.当前分段组号,
       分段列表: mergedSegments,
+      createdAt: savedSeries.createdAt,
       updatedAt: Math.max(savedSeries.updatedAt, presetSeries.updatedAt),
     });
   });

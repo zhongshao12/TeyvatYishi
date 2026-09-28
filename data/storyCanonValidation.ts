@@ -22,6 +22,7 @@ export function validateBundledStorySeries(raw: unknown): string[] {
   }
 
   const segmentIds = new Set<string>();
+  const sceneIds = new Set<string>();
   raw.分段列表.forEach((segment, segmentIndex) => {
     const label = `${seriesId}/分段 ${segmentIndex + 1}`;
     if (!isRecord(segment)) {
@@ -44,6 +45,37 @@ export function validateBundledStorySeries(raw: unknown): string[] {
       const roleLabel = `${label}/角色推进 ${roleIndex + 1}`;
       if (!isRecord(progress) || !hasText(progress.角色名)) issues.push(`${roleLabel}: 缺少角色名`);
     });
+
+    if (segment.场景节点 !== undefined && !Array.isArray(segment.场景节点)) {
+      issues.push(`${label}: 场景节点必须是数组`);
+    } else if (Array.isArray(segment.场景节点)) {
+      segment.场景节点.forEach((scene, sceneIndex) => {
+        const sceneLabel = `${label}/场景 ${sceneIndex + 1}`;
+        if (!isRecord(scene)) {
+          issues.push(`${sceneLabel}: 场景必须是对象`);
+          return;
+        }
+        if (!hasText(scene.id)) issues.push(`${sceneLabel}: 缺少场景 ID`);
+        else {
+          if (sceneIds.has(scene.id)) issues.push(`${sceneLabel}: 重复场景 ID ${scene.id}`);
+          sceneIds.add(scene.id);
+          if (hasText(segment.id) && !scene.id.startsWith(`${segment.id}_scene_`)) {
+            issues.push(`${sceneLabel}: 场景 ID 未引用所属分段 ${segment.id}`);
+          }
+        }
+        for (const field of ['标题', '地点', '目标'] as const) {
+          if (!hasText(scene[field])) issues.push(`${sceneLabel}: 缺少${field}`);
+        }
+        for (const field of ['参与角色', '完成证据', '可偏离切口'] as const) {
+          if (!hasTextArray(scene[field])) issues.push(`${sceneLabel}: 缺少${field}`);
+        }
+        for (const field of ['开场事实', '完成后事实'] as const) {
+          if (!Array.isArray(scene[field]) || !scene[field].some((fact) => isRecord(fact) && hasText(fact.内容))) {
+            issues.push(`${sceneLabel}: 缺少${field}`);
+          }
+        }
+      });
+    }
   });
   return issues;
 }

@@ -51,4 +51,16 @@ describe('bundled six-nation story resource contract', () => {
     await expect(loadBundledStoryWeavingPreset(preset))
       .rejects.toThrow(/事件名/u);
   });
+
+  it('rejects duplicate or incomplete canonical scene nodes', () => {
+    const raw = JSON.parse(readFileSync(join(resourceDirectory, mainlineFiles[0]!), 'utf8'));
+    raw.分段列表[0].场景节点 = [
+      { id: 'same-scene', 标题: '开场', 地点: '蒙德', 参与角色: ['安柏'], 目标: '', 完成证据: [], 可偏离切口: [], 开场事实: [], 完成后事实: [] },
+      { id: 'same-scene', 标题: '重号', 地点: '蒙德', 参与角色: ['安柏'], 目标: '继续', 完成证据: ['完成'], 可偏离切口: ['折返'], 开场事实: [], 完成后事实: [] },
+    ];
+    const issues = validateBundledStorySeries(raw);
+    expect(issues.some((issue) => issue.includes('重复场景 ID'))).toBe(true);
+    expect(issues.some((issue) => issue.includes('目标'))).toBe(true);
+    expect(issues.some((issue) => issue.includes('完成证据'))).toBe(true);
+  });
 });

@@ -1,6 +1,7 @@
 import { CLIP_ITEM, insetRing } from '@/styles/clipPaths';
 import { useMemo, useState } from 'react';
 import type { IrminsulMemory, IrminsulEntry } from '@/models/teyvat/irminsul';
+import { getActiveIrminsulEntries } from '@/services/irminsulPromotion';
 
 const ARCHIVE_TYPE_LABELS: Record<IrminsulEntry['archiveType'], string> = {
   short: '短期归档',
@@ -18,6 +19,8 @@ export function IrminsulPanel({ memory }: { memory: IrminsulMemory }) {
     () => [...memory.entries].sort((left, right) => right.turn - left.turn),
     [memory.entries],
   );
+  const activeCount = useMemo(() => getActiveIrminsulEntries(memory).length, [memory]);
+  const pendingCount = entries.length - activeCount;
 
   const typeCounts = useMemo(() => {
     const counts = new Map<IrminsulEntry['archiveType'], number>();
@@ -59,6 +62,9 @@ export function IrminsulPanel({ memory }: { memory: IrminsulMemory }) {
         <h2 className="mt-1 font-serif text-2xl tracking-[0.18em]">世界树 · 记忆账本</h2>
         <p className="mt-1 text-xs" style={{ color: 'rgba(var(--tj-text-secondary),0.85)' }}>
           旅途的每一页都会归档于此；召回时可按关键词取回。
+        </p>
+        <p className="mt-2 text-xs" style={{ color: 'rgba(var(--tj-text-secondary),0.9)' }}>
+          可召回 {activeCount} · 待重试 {pendingCount}
         </p>
       </header>
 
@@ -102,19 +108,31 @@ export function IrminsulPanel({ memory }: { memory: IrminsulMemory }) {
               return (
                 <article key={entry.id} className="p-3" style={{ background: 'rgba(var(--tj-bubble),0.6)', boxShadow: insetRing(0.2), clipPath: CLIP_ITEM }}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="px-1.5 py-0.5 text-[10px] tracking-[0.14em]" style={{ color: 'rgba(var(--tj-accent-primary),0.9)', boxShadow: insetRing(0.35) }}>
-                      {ARCHIVE_TYPE_LABELS[entry.archiveType]}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="px-1.5 py-0.5 text-[10px] tracking-[0.14em]" style={{ color: 'rgba(var(--tj-accent-primary),0.9)', boxShadow: insetRing(0.35) }}>
+                        {ARCHIVE_TYPE_LABELS[entry.archiveType]}
+                      </span>
+                      {entry.status === 'pending' && (
+                        <span className="px-1.5 py-0.5 text-[10px]" style={{ color: 'rgba(var(--tj-text-secondary),0.95)', boxShadow: insetRing(0.35) }}>
+                          待重试 · 暂不召回
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.7)' }}>
                       回合 {entry.turn}{entry.sourceTurns.length > 1 ? ` · 源自 ${entry.sourceTurns.length} 个回合` : ''}
                     </span>
                   </div>
                   <h3 className="mt-1.5 font-serif text-lg">{entry.title}</h3>
                   <p className="mt-1.5 text-sm leading-6" style={{ color: 'rgba(var(--tj-text-secondary),0.92)' }}>{entry.summary}</p>
+                  {entry.sourceTurns.length > 0 && (
+                    <p className="mt-1 text-xs" style={{ color: 'rgba(var(--tj-text-secondary),0.75)' }}>
+                      来源回合 {entry.sourceTurns.join('、')}
+                    </p>
+                  )}
                   {entry.keywords.length > 0 && (
                     <p className="mt-2 text-xs" style={{ color: 'rgba(var(--tj-accent-primary),0.85)' }}>{entry.keywords.join(' · ')}</p>
                   )}
-                  {entry.sourceText && (
+                  {entry.status !== 'pending' && entry.sourceText && (
                     <>
                       {expanded && (
                         <p className="mt-2 whitespace-pre-wrap border-l-2 pl-3 text-xs leading-6" style={{ borderColor: 'rgba(var(--tj-accent-primary),0.4)', color: 'rgba(var(--tj-text-secondary),0.85)' }}>

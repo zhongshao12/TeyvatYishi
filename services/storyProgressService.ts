@@ -3,6 +3,7 @@ import { 归一化剧情编织系统 } from '@/models/storyWeaving';
 import type { 剧情编织门禁快照 } from '@/services/storyWeaving';
 import { getTeyvatCanonAnchorIdForSeries, type CanonTrack, type TeyvatCanonAnchorId } from '@/models/teyvat/canon';
 import { getBlockedCanonAnchorIds } from '@/services/canonDeviationService';
+import { advanceStorySceneProgress } from '@/services/storySceneProgress';
 
 export function getCurrentStoryChapterLabel(system: 剧情编织系统): string {
   const normalized = 归一化剧情编织系统(system);
@@ -179,6 +180,21 @@ export function autoAlignCanonStoryProgress(params: {
       evidenceState,
     }),
   });
+  const diagnosticAnchor = diagnosticSystem.当前进度;
+  const sceneAnchor = diagnosticAnchor && advanceStorySceneProgress({
+    segment: current,
+    anchor: diagnosticAnchor,
+    userInput: params.userInput,
+    body: params.body,
+    turnCount: params.turnCount,
+  });
+  if (sceneAnchor && sceneAnchor !== diagnosticAnchor) {
+    return {
+      system: 归一化剧情编织系统({ ...diagnosticSystem, 当前进度: sceneAnchor }),
+      changed: true,
+      progressed: false,
+    };
+  }
   return {
     system: diagnosticSystem,
     changed: diagnosticSystem !== normalized,
@@ -584,6 +600,7 @@ function buildProgressAnchor(params: {
   }>;
   gateSnapshot?: 剧情编织门禁快照 | null;
 }): 剧情编织进度锚点 {
+  const keepSceneCursor = !params.completedSegment && params.previous?.当前分段ID === params.current.id;
   const archiveStatus = params.archiveStatus ?? (params.completed ? '已完成' : '已经历');
   const completedSummary = params.completedSegment && ['已经历', '已完成'].includes(archiveStatus)
     ? params.completedSegment.本段结束状态[0]
@@ -620,6 +637,9 @@ function buildProgressAnchor(params: {
   return {
     当前系列ID: params.series.id,
     当前分段ID: params.current.id,
+    当前场景ID: keepSceneCursor ? params.previous?.当前场景ID : undefined,
+    已完成场景ID: keepSceneCursor ? params.previous?.已完成场景ID : undefined,
+    最近场景推进回合: keepSceneCursor ? params.previous?.最近场景推进回合 : undefined,
     当前分段组号: params.current.组号,
     推进状态: params.completed ? '已完成' : '推进中',
     已完成摘要: uniqueText([...(params.previous?.已完成摘要 ?? []), completedSummary], 12),

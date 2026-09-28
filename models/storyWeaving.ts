@@ -27,6 +27,24 @@ export interface 剧情编织事件 {
   信息可见性: 剧情编织可见性;
 }
 
+export interface 剧情编织场景事实 {
+  内容: string;
+  信息可见性: 剧情编织可见性;
+}
+
+export interface 剧情编织场景节点 {
+  id: string;
+  标题: string;
+  地点: string;
+  参与角色: string[];
+  目标: string;
+  进入条件: string[];
+  开场事实: 剧情编织场景事实[];
+  完成证据: string[];
+  完成后事实: 剧情编织场景事实[];
+  可偏离切口: string[];
+}
+
 export interface 剧情编织角色推进 {
   角色名: string;
   本段前状态: string[];
@@ -111,6 +129,7 @@ export interface 剧情编织分段 {
   势力档案: 剧情编织势力档案[];
   地图地点档案: 剧情编织地点档案[];
   关键事件: 剧情编织事件[];
+  场景节点?: 剧情编织场景节点[];
   时间线: 剧情编织时间线事件[];
   角色推进: 剧情编织角色推进[];
   处理状态: 剧情编织分段状态;
@@ -145,6 +164,9 @@ export interface 剧情编织系列 {
 export interface 剧情编织进度锚点 {
   当前系列ID?: string;
   当前分段ID?: string;
+  当前场景ID?: string;
+  已完成场景ID?: string[];
+  最近场景推进回合?: number;
   当前分段组号: number;
   推进状态: 剧情编织推进状态;
   已完成摘要: string[];
@@ -468,9 +490,21 @@ export function 归一化剧情编织进度锚点(
           : currentSegment.运行状态 === '未开始' ? '未开始'
             : '推进中';
   const rawGate = raw?.最近门禁结果 === 'strong' || raw?.最近门禁结果 === 'soft' ? raw.最近门禁结果 : undefined;
+  const sceneIds = currentSegment.场景节点?.map((scene) => scene.id) ?? [];
+  const completedSceneIds = 去重文本列表(文本列表(raw?.已完成场景ID), sceneIds.length)
+    .filter((id) => sceneIds.includes(id));
+  const requestedSceneId = 读文本(raw?.当前场景ID).trim();
+  const currentSceneId = is归档运行状态(currentSegment.运行状态)
+    ? undefined
+    : sceneIds.includes(requestedSceneId) && !completedSceneIds.includes(requestedSceneId)
+      ? requestedSceneId
+      : sceneIds.find((id) => !completedSceneIds.includes(id));
   return {
     当前系列ID: series.id,
     当前分段ID: currentSegment.id,
+    当前场景ID: currentSceneId,
+    已完成场景ID: sceneIds.length ? completedSceneIds : undefined,
+    最近场景推进回合: currentSceneId ? Number(raw?.最近场景推进回合) || undefined : undefined,
     当前分段组号: currentSegment.组号,
     推进状态: raw?.推进状态 ? 归一化推进状态(raw.推进状态) : progressByRuntime,
     已完成摘要: 去重文本列表(文本列表(raw?.已完成摘要), 12),
@@ -612,6 +646,9 @@ export function 归一化剧情编织分段(raw: Partial<剧情编织分段>, in
     势力档案: Array.isArray(raw.势力档案) ? raw.势力档案.map((item) => 归一化势力档案(item)).filter((item) => item.名称) : [],
     地图地点档案: Array.isArray(raw.地图地点档案) ? raw.地图地点档案.map((item) => 归一化地点档案(item)).filter((item) => item.名称) : [],
     关键事件: Array.isArray(raw.关键事件) ? raw.关键事件.map(归一化事件).filter((e) => e.事件名 || e.事件说明) : [],
+    场景节点: Array.isArray(raw.场景节点)
+      ? raw.场景节点.map(归一化场景节点).filter((scene) => scene.id)
+      : undefined,
     时间线: Array.isArray(raw.时间线) ? raw.时间线.map((item) => 规范化时间线事件(item)).filter((item) => item.标题 || item.描述 || item.时间锚点) : [],
     角色推进: Array.isArray(raw.角色推进) ? raw.角色推进.map(归一化角色推进).filter((r) => r.角色名) : [],
     处理状态: raw.处理状态 === '处理中' || raw.处理状态 === '已完成' || raw.处理状态 === '失败' ? raw.处理状态 : '待处理',
@@ -653,6 +690,34 @@ function 归一化事件(raw: Partial<剧情编织事件>): 剧情编织事件 {
       谁不知道: 文本列表(raw.信息可见性?.谁不知道),
       是否仅读者视角可见: raw.信息可见性?.是否仅读者视角可见 === true,
     },
+  };
+}
+
+function 归一化场景事实(raw: Partial<剧情编织场景事实>): 剧情编织场景事实 {
+  return {
+    内容: 读文本(raw.内容).trim(),
+    信息可见性: {
+      ...默认可见性(),
+      ...(raw.信息可见性 ?? {}),
+      谁知道: 文本列表(raw.信息可见性?.谁知道),
+      谁不知道: 文本列表(raw.信息可见性?.谁不知道),
+      是否仅读者视角可见: raw.信息可见性?.是否仅读者视角可见 === true,
+    },
+  };
+}
+
+function 归一化场景节点(raw: Partial<剧情编织场景节点>): 剧情编织场景节点 {
+  return {
+    id: 读文本(raw.id).trim(),
+    标题: 读文本(raw.标题).trim(),
+    地点: 读文本(raw.地点).trim(),
+    参与角色: 文本列表(raw.参与角色),
+    目标: 读文本(raw.目标).trim(),
+    进入条件: 文本列表(raw.进入条件),
+    开场事实: Array.isArray(raw.开场事实) ? raw.开场事实.map(归一化场景事实).filter((fact) => fact.内容) : [],
+    完成证据: 文本列表(raw.完成证据),
+    完成后事实: Array.isArray(raw.完成后事实) ? raw.完成后事实.map(归一化场景事实).filter((fact) => fact.内容) : [],
+    可偏离切口: 文本列表(raw.可偏离切口),
   };
 }
 

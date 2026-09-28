@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { 创建NPC记录, type NPC记录 } from '@/models/npc';
 import type { API配置项 } from '@/models/settings';
 import { createEmptyCourierSystem, type CourierSystem } from '@/models/teyvat/courier';
-import { createMoment, deleteMoment, editMoment, markMomentTarget } from '@/services/courierMoments';
+import { appendMomentComment, createMoment, deleteMoment, editMoment, markMomentTarget } from '@/services/courierMoments';
 import { runMomentComments, type MomentWorkflowDeps } from '@/hooks/useGame/courierMomentWorkflow';
 
 const config: API配置项 = {
@@ -137,6 +137,23 @@ it.each(['edit', 'remove'] as const)('drops an old result after %s', async (chan
   resolve('下次叫上我！');
   await run;
   expect(job.read().moments?.[0]?.comments ?? []).toEqual([]);
+});
+
+it('stale_revision_cannot_append_comment_or_erase_another_comment', async () => {
+  let resolve!: (text: string) => void;
+  const pending = new Promise<string>((done) => { resolve = done; });
+  const job = harness([friend('amber', '安柏'), friend('lisa', '丽莎')], vi.fn(() => pending));
+  job.target('amber', 'failed');
+  const run = runMomentComments(job.deps, 'p1', 1, 'amber');
+  job.edit();
+  job.deps.setCourier((old) => appendMomentComment(old, 'p1', 2, {
+    id: 'p1:2:lisa', npcId: 'lisa', npcName: '丽莎', content: '新动态真有趣！', createdAt: 3,
+  }));
+  resolve('安柏的旧版评论！');
+  await run;
+  expect(job.read().moments?.[0]?.revision).toBe(2);
+  expect(job.read().moments?.[0]?.comments.map((comment) => comment.npcId)).toEqual(['lisa']);
+  expect(job.read().moments?.[0]?.targets).toEqual([]);
 });
 
 it('discards a result when the commenter falls back to 100 affinity', async () => {

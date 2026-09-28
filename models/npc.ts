@@ -5,9 +5,17 @@
 import { matchCanonical } from '@/data/canonicalCharacters';
 import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
+import { canRevealNpcMeasurements, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 export type NPC阶位 = 'companion' | 'extra';
 
 export type NPC性别 = '男' | '女' | '其他';
+
+export interface NPC外貌字段 {
+  value: string;
+  source: 'canon' | 'manual' | 'narrative' | 'ai_estimate';
+}
+
+export type NPC外貌档案 = Partial<Record<'发色' | '瞳色' | '身高' | '体重' | '三围', NPC外貌字段>>;
 
 export type NPC关系类型 =
   | 'stranger'
@@ -303,6 +311,7 @@ export interface NPC记录 {
   性别?: NPC性别;
   对玩家称呼?: string;               // NPC 平时如何称呼玩家，如「旅行者」「伙伴」「小家伙」
   外貌?: string;
+  外貌档案?: NPC外貌档案;
   穿着?: string;
   说话方式?: string;
   性格?: string;
@@ -426,6 +435,12 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
   const rawAvatar = source.头像 ?? source.avatar ?? source.avatarUrl;
   const rawNSFW = source.NSFW档案 ?? source.nsfw ?? source.NSFW;
   const rawImage = source.图像档案 ?? source.image ?? source.images;
+  const archive = 归一化NSFW档案(rawNSFW);
+  const appearanceFacts = normalizeNpcAppearanceFacts(source.外貌档案 ?? source.appearanceFacts, canRevealNpcMeasurements({
+    name, aliases: typeof rawAlias === 'string' ? [rawAlias] : [], gender: typeof rawGender === 'string' ? rawGender : undefined,
+    description: [rawIntro, rawAppearance, ...(Array.isArray(rawNotes) ? rawNotes : [])].filter((item): item is string => typeof item === 'string').join(' '),
+    ageConfirmation: archive?.年龄确认, ageSource: archive?.年龄确认来源,
+  }));
   const canonical = 匹配NPC原著角色(name, typeof rawAlias === 'string' ? rawAlias : undefined);
   const shouldForceCompanion = Boolean(canonical || source.原著角色 || source.canonical);
   const archived = source.已归档 === true || source.archived === true;
@@ -451,6 +466,7 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
     性别: rawGender === '男' || rawGender === '女' || rawGender === '其他' ? rawGender : undefined,
     对玩家称呼: typeof rawPlayerName === 'string' ? rawPlayerName : undefined,
     外貌: typeof rawAppearance === 'string' ? rawAppearance : undefined,
+    ...(appearanceFacts ? { 外貌档案: appearanceFacts } : {}),
     穿着: typeof rawClothing === 'string' ? rawClothing : undefined,
     说话方式: typeof rawSpeech === 'string' ? rawSpeech : undefined,
     性格: typeof rawPersonality === 'string' ? rawPersonality : undefined,
@@ -470,7 +486,7 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
       ? rawNotes.filter((note): note is string => typeof note === 'string')
       : [],
     原著角色: shouldForceCompanion,
-    NSFW档案: 归一化NSFW档案(rawNSFW),
+    NSFW档案: archive,
     图像档案: 归一化图像档案(rawImage, rawAvatar),
     头像: typeof rawAvatar === 'string' ? rawAvatar : undefined,
   };
@@ -508,6 +524,7 @@ function 合并NPC记录(base: NPC记录, incoming: NPC记录): NPC记录 {
     原著角色: Boolean(base.原著角色 || incoming.原著角色),
     头像: preferred.头像 ?? base.头像 ?? incoming.头像,
     外貌: preferred.外貌 ?? base.外貌 ?? incoming.外貌,
+    外貌档案: preferred.外貌档案 ?? base.外貌档案 ?? incoming.外貌档案,
     穿着: preferred.穿着 ?? base.穿着 ?? incoming.穿着,
     说话方式: preferred.说话方式 ?? base.说话方式 ?? incoming.说话方式,
     性格: preferred.性格 ?? base.性格 ?? incoming.性格,

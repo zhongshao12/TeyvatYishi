@@ -5,6 +5,14 @@ import { updateTeyvatState } from '../../hooks/useTeyvatRuntime';
 import * as saveLoadWorkflow from '../../hooks/useGame/saveLoadWorkflow';
 
 describe('updateTeyvatState', () => {
+  it('does not trust an appearance fact as proof of adulthood', () => {
+    const state = createEmptyTeyvatGameState();
+    const normalized = normalizeTeyvatGameState({ ...state, NPC: [{
+      id: 'npc_unknown', 姓名: '阿明', gender: '女', roleTier: 'companion',
+      appearanceFacts: { 三围: { value: '86/61/88 cm', source: 'ai_estimate' } },
+    }] });
+    expect(normalized.NPC[0]?.appearanceFacts?.三围).toBeUndefined();
+  });
   it('keeps a canonical archived NPC outside the active companion tier after normalization', () => {
     const game = createEmptyTeyvatGameState();
     const normalized = normalizeTeyvatGameState({

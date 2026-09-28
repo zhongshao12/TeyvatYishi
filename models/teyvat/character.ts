@@ -1,6 +1,7 @@
 import { ELEMENT_IDS, type ElementalAttunement, type ElementId, type PowerSource } from './elements';
-import { isReservedNpcIdentityName } from '../npc';
+import { isReservedNpcIdentityName, type NPC外貌档案 } from '../npc';
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
+import { canRevealNpcMeasurements, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 
 export type TalentCategory = 'normal_attack' | 'elemental_skill' | 'elemental_burst' | 'passive';
 
@@ -72,6 +73,7 @@ export interface TeyvatNpcRecord {
   gender: string;
   playerAddress: string;
   appearance: string;
+  appearanceFacts?: NPC外貌档案;
   clothing: string;
   speechStyle: string;
   personality: string;
@@ -309,6 +311,12 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
     const rawName = text(entry.姓名);
     const rawAliases = textList(entry.aliases);
     const canonical = matchCanonicalIdentity({ id: rawId, name: rawName, aliases: rawAliases });
+    const matureArchive = normalizeTeyvatNpcMatureArchive(entry.matureArchive);
+    const appearanceFacts = normalizeNpcAppearanceFacts(entry.appearanceFacts, canRevealNpcMeasurements({
+      name: canonical?.name ?? rawName, aliases: rawAliases, gender: text(entry.gender) || canonical?.gender,
+      description: [text(entry.说明), text(entry.appearance), ...textList(entry.notes)].filter(Boolean).join(' '),
+      ageConfirmation: matureArchive?.ageConfirmation, ageSource: matureArchive?.ageConfirmationSource,
+    }));
     const archived = entry.archived === true;
     const roleTier = archived ? 'extra' : canonical || entry.roleTier === 'companion' ? 'companion' : 'extra';
     const tierBeforeArchive = entry.tierBeforeArchive === 'companion' || entry.tierBeforeArchive === 'extra'
@@ -322,7 +330,8 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
       ...(archived ? { archived: true, tierBeforeArchive } : {}), affinity: finiteNumber(entry.affinity),
       relationship: text(entry.relationship), intimate: entry.intimate === true, travelingTogether: !archived && entry.travelingTogether === true,
       firstSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.firstSeenTurn))), lastSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.lastSeenTurn))),
-      gender: text(entry.gender) || canonical?.gender || '', playerAddress: text(entry.playerAddress), appearance: text(entry.appearance) || canonical?.appearance || '', clothing: text(entry.clothing),
+      gender: text(entry.gender) || canonical?.gender || '', playerAddress: text(entry.playerAddress), appearance: text(entry.appearance) || canonical?.appearance || '',
+      ...(appearanceFacts ? { appearanceFacts } : {}), clothing: text(entry.clothing),
       speechStyle: text(entry.speechStyle), personality: canonical?.personality || text(entry.personality), equipmentSummary: text(entry.equipmentSummary),
       sharedMemories: Array.isArray(entry.sharedMemories) ? entry.sharedMemories.flatMap((item) => normalizeTeyvatNpcSharedMemory(item) ?? []) : [],
       relationshipLedger: {
@@ -332,7 +341,7 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
         summaries: Array.isArray(ledger.summaries) ? ledger.summaries.flatMap((item) => normalizeTeyvatNpcSummaryMemory(item) ?? []) : [],
       },
       notes: textList(entry.notes), playerCorrections: textList(entry.playerCorrections), canonical: entry.canonical === true || Boolean(canonical),
-      avatar: text(entry.avatar), visualArchive: normalizeTeyvatNpcVisualArchive(entry.visualArchive), matureArchive: normalizeTeyvatNpcMatureArchive(entry.matureArchive),
+      avatar: text(entry.avatar), visualArchive: normalizeTeyvatNpcVisualArchive(entry.visualArchive), matureArchive,
     }];
   });
 }

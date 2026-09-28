@@ -16,6 +16,7 @@ import { displayFirstPartner } from '@/utils/npcFirstPartner';
 import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
 import { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveEnrichment';
 import { archiveNpc, restoreNpc } from '@/services/npcArchiving';
+import { canRevealNpcRecordMeasurements, NPC_APPEARANCE_KEYS, npcAppearanceSourceLabel } from '@/services/npcAppearanceFacts';
 import {
   AffinityMeter,
   CompanionAvatar as Avatar,
@@ -594,6 +595,21 @@ const NpcDetail = memo(function NpcDetail({
               <Paragraph text={npc.穿着} placeholder="尚无穿着记录" />
             </DetailBlock>
           </section>
+
+          <DetailBlock title="外貌细项">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {NPC_APPEARANCE_KEYS.filter((key) => key !== '三围' || canRevealNpcRecordMeasurements(npc)).map((key) => {
+                const fact = npc.外貌档案?.[key];
+                return (
+                  <div key={key} className="px-3 py-2 text-xs" style={{ background: quietSurface, color: bodyColor }}>
+                    <span className="font-semibold">{key}</span>
+                    <span className="ml-2">{fact?.value || '未记录'}</span>
+                    {fact && <span className="ml-2" style={{ color: mutedColor }}>· {npcAppearanceSourceLabel(fact.source)}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </DetailBlock>
 
           <section className="grid gap-4 xl:grid-cols-2">
             <DetailBlock title="说话方式">

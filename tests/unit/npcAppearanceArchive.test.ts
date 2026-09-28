@@ -78,4 +78,23 @@ describe('sourced NPC appearance archive', () => {
       await act(async () => root.unmount());
     }
   });
+
+  it('keeps two same-name NPC appearance archives separate by stable id', () => {
+    const first = { ...创建NPC记录({ 姓名: '同名旅人', 初见回合: 1, 性别: '女' }), id: 'npc_same_a', 外貌档案: { 发色: { value: '金色', source: 'manual' as const } } };
+    const second = { ...创建NPC记录({ 姓名: '同名旅人', 初见回合: 1, 性别: '女' }), id: 'npc_same_b', 外貌档案: { 发色: { value: '黑色', source: 'narrative' as const } } };
+    const loaded = normalizeTeyvatGameState(JSON.parse(JSON.stringify(applyLegacyNpcRecords(createEmptyTeyvatGameState(), [first, second]))));
+    const records = mapTeyvatNpcsToLegacy(loaded);
+    expect(records).toHaveLength(2);
+    expect(records.find((npc) => npc.id === 'npc_same_a')?.外貌档案?.发色?.value).toBe('金色');
+    expect(records.find((npc) => npc.id === 'npc_same_b')?.外貌档案?.发色?.value).toBe('黑色');
+  });
+
+  it('strips protected-age private fields despite a manual adult flag', () => {
+    const npc = { ...创建NPC记录({ 姓名: '阿明', 初见回合: 1, 性别: '女', 介绍: '十岁的学徒', NSFW档案: {
+      年龄确认: 'adult', 年龄确认来源: 'manual', 常用内衣: '不应显示',
+    } }), id: 'npc_minor_evidence', 外貌档案: { 三围: { value: '86/61/88 cm', source: 'manual' as const } } };
+    const loaded = mapTeyvatNpcsToLegacy(normalizeTeyvatGameState(applyLegacyNpcRecords(createEmptyTeyvatGameState(), [npc])))[0];
+    expect(loaded?.外貌档案?.三围).toBeUndefined();
+    expect(loaded?.NSFW档案?.常用内衣).toBeUndefined();
+  });
 });

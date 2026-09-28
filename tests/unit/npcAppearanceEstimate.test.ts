@@ -46,4 +46,13 @@ describe('AI appearance estimate', () => {
     vi.mocked(chatCompletionNonStream).mockResolvedValueOnce(JSON.stringify({ npcId: 'npc_other', facts: { 发色: '银白色' } }));
     await expect(generateNpcAppearanceEstimate(config, makeAdult())).rejects.toThrow();
   });
+
+  it('does not accept a response that arrives after cancellation', async () => {
+    const controller = new AbortController();
+    vi.mocked(chatCompletionNonStream).mockImplementationOnce(async () => {
+      controller.abort();
+      return JSON.stringify({ npcId: 'npc_aming', facts: { 发色: '银白色' } });
+    });
+    await expect(generateNpcAppearanceEstimate(config, makeAdult(), controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+  });
 });

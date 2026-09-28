@@ -7,6 +7,8 @@ import type {
   剧情编织势力档案,
   剧情编织地点档案,
   剧情编织时间线事件,
+  剧情编织场景节点,
+  剧情编织进度锚点,
 } from '@/models/storyWeaving';
 import { 归一化剧情编织分段 } from '@/models/storyWeaving';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
@@ -87,7 +89,9 @@ export function buildStoryWeavingInjection(system?: 剧情编织系统, ctx?: St
       .find((segment) => segment.组号 < current.组号 && segment.运行状态 === '已经历');
   const next = completed.find((segment) => segment.组号 > current.组号 && segment.运行状态 === '未开始');
   const indexSegments = filterMainlineIndexSegments(completed);
-  const stageSummary = series.当前阶段概括 || deriveStageSummary(indexSegments);
+  const stageSummary = current.场景节点?.length
+    ? current.标题
+    : series.当前阶段概括 || deriveStageSummary(indexSegments);
   const coreRoles = series.核心角色.length > 0 ? series.核心角色 : deriveCoreRoles(indexSegments);
   const locationIndex = series.涉及地点索引.length > 0 ? series.涉及地点索引 : deriveLocations(indexSegments);
   const factionIndex = series.涉及派系索引.length > 0 ? series.涉及派系索引 : deriveFactions(indexSegments);
@@ -101,7 +105,9 @@ export function buildStoryWeavingInjection(system?: 剧情编织系统, ctx?: St
   ].filter(Boolean).join('\n');
   const recentIndexBlock = buildRecentSegmentIndex(indexSegments, indexSegments.findIndex((segment) => segment.id === current.id));
   const gate = evaluateSegmentGate(current, ctx);
-  const progressBlock = formatProgressAnchor(progress);
+  const progressBlock = current.场景节点?.length
+    ? `# 当前章节进度锚点\n推进状态：${progress?.推进状态 ?? '未开始'}\n当前分段组号：${current.组号}`
+    : formatProgressAnchor(progress);
   const canonContext = ctx?.canonTrack ? buildCanonContextWindow(ctx.canonTrack) : '';
 
   const blocks = [
@@ -134,13 +140,65 @@ export function buildStoryWeavingInjection(system?: 剧情编织系统, ctx?: St
       ? `锚点提示：原锚点分段「${archivedAnchor.标题}」已归档，本回合不再把它作为当前段素材注入。`
       : '',
     formatWindowSegment('已经历承接', previous, 'brief'),
-    formatWindowSegment(gate.mode === 'strong' ? '当前段强承接素材' : '当前段软参考素材', current, gate.mode),
-    formatWindowSegment('下一段预热', next, 'brief'),
+    current.场景节点?.length
+      ? formatSceneWindow(current, progress?.当前分段ID === current.id ? progress : undefined, gate.mode)
+      : formatWindowSegment(gate.mode === 'strong' ? '当前段强承接素材' : '当前段软参考素材', current, gate.mode),
+    current.场景节点?.length ? '' : formatWindowSegment('下一段预热', next, 'brief'),
   ].filter(Boolean);
   return blocks.join('\n').trim();
 }
 
 type StoryWeavingInjectionMode = 'brief' | 'soft' | 'strong';
+
+function sceneText(value: string, limit = 100): string {
+  return value.trim().slice(0, limit);
+}
+
+function formatSceneFact(fact: 剧情编织场景节点['开场事实'][number]): string {
+  const visibility = fact.信息可见性;
+  const known = visibility.谁知道.slice(0, 4).map((name) => sceneText(name, 20));
+  const unknown = visibility.谁不知道.slice(0, 4).map((name) => sceneText(name, 20));
+  const scope = [
+    known.length ? `仅${known.join('、')}已知` : '',
+    unknown.length ? `${unknown.join('、')}未知` : '',
+  ].filter(Boolean).join('；');
+  return `${sceneText(fact.内容)}${scope ? `（${scope}）` : ''}`;
+}
+
+function formatSceneWindow(segment: 剧情编织分段, progress: 剧情编织进度锚点 | undefined, gate: 'soft' | 'strong'): string {
+  const scenes = segment.场景节点 ?? [];
+  const completed = new Set(progress?.已完成场景ID ?? []);
+  const currentIndex = scenes.findIndex((scene) => scene.id === progress?.当前场景ID && !completed.has(scene.id));
+  const index = currentIndex >= 0 ? currentIndex : scenes.findIndex((scene) => !completed.has(scene.id));
+  const current = scenes[index];
+  const next = index >= 0 ? scenes[index + 1] : undefined;
+  const lines = [
+    `【当前段${gate === 'strong' ? '强承接素材' : '软参考素材'}】`,
+    `章节：${sceneText(segment.标题, 70)}`,
+    `运行状态：${segment.运行状态}`,
+  ];
+  if (!current) {
+    lines.push('本段场景均已确认；等待章节结算，不重演旧场景。');
+    return lines.join('\n');
+  }
+  lines.push(`当前场景：${sceneText(current.标题, 70)}｜${sceneText(current.地点, 60)}`);
+  if (progress?.推进状态 === '已偏离') {
+    lines.push('当前存档已偏离原著：此场景仅作可能线索，不得强制推进或改写已发生事实。');
+  } else if (gate === 'strong') {
+    lines.push(`互动目标：${sceneText(current.目标, 130)}`);
+    current.进入条件.slice(0, 2).forEach((item) => lines.push(`进入条件：${sceneText(item, 90)}`));
+    current.开场事实.filter((fact) => !fact.信息可见性.是否仅读者视角可见)
+      .slice(0, 4).forEach((fact) => lines.push(`已成立事实：${formatSceneFact(fact)}`));
+    current.可偏离切口.slice(0, 2).forEach((item) => lines.push(`可偏离：${sceneText(item, 100)}`));
+  }
+  const completedFacts = scenes.filter((scene) => completed.has(scene.id))
+    .flatMap((scene) => scene.完成后事实)
+    .filter((fact) => !fact.信息可见性.是否仅读者视角可见)
+    .slice(-3);
+  completedFacts.forEach((fact) => lines.push(`已确认后果：${formatSceneFact(fact)}`));
+  if (next) lines.push(`下一个场景仅预热：${sceneText(next.标题, 70)}｜${sceneText(next.地点, 60)}`);
+  return lines.join('\n');
+}
 
 export interface 剧情编织门禁快照 {
   系列ID?: string;

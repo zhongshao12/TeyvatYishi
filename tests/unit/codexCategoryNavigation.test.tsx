@@ -5,6 +5,8 @@ import { createRoot } from 'react-dom/client';
 import { CodexManagerModal } from '@/components/features/Codex/CodexManagerModal';
 import type { ArchiveCodex, CodexEntry } from '@/models/teyvat/codex';
 import { clearContentResourceStatuses, markContentResourceFailed } from '@/services/contentResourceStatus';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -92,6 +94,36 @@ describe('codex category navigation', () => {
       expect(host.textContent).toContain('codex:broken');
       expect(host.textContent).toContain('请检查安装文件');
       expect(host.textContent).not.toContain('图鉴尚无条目');
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it('navigates the bundled location character and term data without stale cross-category detail', async () => {
+    const presets = [
+      'teyvat-location-core.json', 'teyvat-characters-core.json', 'teyvat-term-core.json',
+    ].map((filename) => JSON.parse(readFileSync(resolve('public', 'codex-presets', filename), 'utf8')) as {
+      entries: Array<{ 标题: string; 分类: string; 摘要: string }>;
+    });
+    const builtins = presets.map((preset, index) => {
+      const first = preset.entries[0];
+      if (!first) throw new Error('内置图鉴资源为空');
+      return entry(`builtin-${index}`, first.分类, first.标题, first.摘要);
+    });
+    expect(builtins.map((item) => item.category)).toEqual(['location', 'character', 'term']);
+    const archive: ArchiveCodex = { entries: builtins, unlockedEntryIds: builtins.map((item) => item.id) };
+    const host = document.createElement('div'); hosts.push(host); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(CodexManagerModal, { codex: archive, onClose: () => undefined })));
+      for (const [label, expected, other] of [
+        ['地点', builtins[0]!.name, builtins[1]!.name],
+        ['角色', builtins[1]!.name, builtins[2]!.name],
+        ['术语', builtins[2]!.name, builtins[0]!.name],
+      ]) {
+        const button = [...host.querySelectorAll('aside button')].find((node) => node.textContent?.trim() === label);
+        await act(async () => (button as HTMLButtonElement).click());
+        expect(host.querySelector('main')?.textContent).toContain(expected);
+        expect(host.querySelector('main')?.textContent).not.toContain(other);
+      }
     } finally { await act(async () => root.unmount()); }
   });
 });

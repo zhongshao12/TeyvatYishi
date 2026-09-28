@@ -2,6 +2,7 @@ import type { 图鉴条目 } from '@/models/codex';
 import type { 剧情编织分段, 剧情编织系列, 剧情编织系统 } from '@/models/storyWeaving';
 import { 归一化剧情编织系统, 归一化剧情编织系列 } from '@/models/storyWeaving';
 import { bundledCodexPresets, loadBundledCodexPreset } from '@/data/codexPreset';
+import { validateBundledStorySeries } from '@/data/storyCanonValidation';
 import type { 开局档案 } from '@/models/world';
 const decomposedStoryWeavingPresets: BundledStoryWeavingPreset[] = [
   {
@@ -402,12 +403,17 @@ async function fetchDecomposedCanonSeries(presetId: string): Promise<剧情编�
 async function loadDecomposedCanonSeries(presetId: string): Promise<剧情编织系列 | null> {
   const series = await fetchDecomposedCanonSeries(presetId);
   if (!series) return null;
-  return 归一化剧情编织系列({
+  const rawIssues = validateBundledStorySeries(series);
+  if (rawIssues.length) throw new Error(`内置剧情资源 ${presetId} 无效：${rawIssues.join('；')}`);
+  const normalized = 归一化剧情编织系列({
     ...series,
     来源类型: 'canon',
     内置预设ID: presetId,
     激活注入: series.激活注入 !== false,
   });
+  const normalizedIssues = validateBundledStorySeries(normalized);
+  if (normalizedIssues.length) throw new Error(`内置剧情资源 ${presetId} 归一化后无效：${normalizedIssues.join('；')}`);
+  return normalized;
 }
 
 function buildCanonSeriesFromCodexEntries(preset: BundledStoryWeavingPreset, entries: 图鉴条目[]): 剧情编织系列 {

@@ -11,5 +11,9 @@ export interface CodexArchiveItem {
 }
 
 export function buildCodexArchiveItems(codex: ArchiveCodex): CodexArchiveItem[] {
-  return codex.entries.map((entry: CodexEntry) => ({ id: entry.id, category: entry.category, name: entry.name, summary: entry.summary, injectionPreview: buildCodexEntryInjectionPreview(entry), unlocked: codex.unlockedEntryIds.includes(entry.id) || entry.runtimeUnlock.status === 'unlocked' }));
+  return codex.entries.map((entry: CodexEntry) => {
+    const unlocked = codex.unlockedEntryIds.includes(entry.id) || entry.runtimeUnlock.status === 'unlocked';
+    return { id: entry.id, category: entry.category, name: entry.name,
+      summary: unlocked ? entry.summary : '', injectionPreview: unlocked ? buildCodexEntryInjectionPreview(entry) : '', unlocked };
+  });
 }

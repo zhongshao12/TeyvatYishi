@@ -1,9 +1,10 @@
 import { CLIP_ITEM, CLIP_SECTION } from '@/styles/clipPaths';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import type { ArchiveCodex, CodexEntry } from '@/models/teyvat';
 import { buildCodexArchiveItems } from './productionAdapter';
 import { buildCodexEntryInjectionPreview, retrieveCodexEntries } from '@/services/codexRetrieval';
 import { useModalAccessibility } from '@/components/ui/Modal';
+import { getContentResourceStatuses, subscribeContentResourceStatuses } from '@/services/contentResourceStatus';
 
 export interface CodexManagerModalProps {
   codex: ArchiveCodex;
@@ -36,8 +37,10 @@ const USAGE_LABELS: Array<{ key: keyof CodexEntry['usage']; label: string }> = [
   { key: 'variables', label: '变量' },
 ];
 
-function entryMatchesQuery(entry: CodexEntry, query: string): boolean {
-  const source = [entry.name, entry.category, entry.summary, entry.description, entry.source, ...entry.tags, ...entry.keywords]
+function entryMatchesQuery(entry: CodexEntry, query: string, unlocked: boolean): boolean {
+  const source = (unlocked
+    ? [entry.name, entry.category, entry.summary, entry.description, entry.source, ...entry.tags, ...entry.keywords]
+    : [entry.name, entry.category])
     .join('\n')
     .toLocaleLowerCase();
   return query
@@ -55,6 +58,9 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
 
   const items = useMemo(() => buildCodexArchiveItems(codex), [codex]);
   const entryById = useMemo(() => new Map(codex.entries.map((entry) => [entry.id, entry])), [codex]);
+  const resourceStatuses = useSyncExternalStore(subscribeContentResourceStatuses, getContentResourceStatuses);
+  const resourceFailure = resourceStatuses.find((status) => status.resourceId.startsWith('codex:') && status.state === 'failed');
+  const resourceLoading = resourceStatuses.some((status) => status.resourceId.startsWith('codex:') && status.state === 'loading');
 
   const categories = useMemo(() => {
     const counts = new Map<string, number>();
@@ -70,12 +76,13 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
       if (activeCategory !== 'all' && item.category !== activeCategory) return false;
       if (!query.trim()) return true;
       const entry = entryById.get(item.id);
-      return entry ? entryMatchesQuery(entry, query) : false;
+      return entry ? entryMatchesQuery(entry, query, item.unlocked) : false;
     });
   }, [items, entryById, activeCategory, query]);
 
   const selectedItem = listItems.find((item) => item.id === selectedId) ?? listItems[0] ?? null;
   const selectedEntry: CodexEntry | null = selectedItem ? entryById.get(selectedItem.id) ?? null : null;
+  const selectedUnlocked = selectedItem?.unlocked === true;
 
   // 用领域检索服务演示：当前搜索词若在回合内出现，会召回并注入哪些条目。
   const recallPreview = useMemo(() => {
@@ -87,14 +94,14 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
   }, [codex, query, listItems]);
 
   const relatedEntries = useMemo(() => {
-    if (!selectedEntry?.relatedEntryIds?.length) return [];
+    if (!selectedUnlocked || !selectedEntry?.relatedEntryIds?.length) return [];
     return selectedEntry.relatedEntryIds
       .map((id) => entryById.get(id))
       .filter((entry): entry is CodexEntry => Boolean(entry));
-  }, [selectedEntry, entryById]);
+  }, [selectedEntry, selectedUnlocked, entryById]);
 
   const injectionSections = useMemo(() => {
-    if (!selectedEntry) return [];
+    if (!selectedEntry || !selectedUnlocked) return [];
     const injection = selectedEntry.injection;
     const sections: Array<{ label: string; value?: string }> = [
       { label: '身份与阵营', value: injection.identityAndFaction },
@@ -111,7 +118,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
       { label: '边界', value: injection.boundaries },
     ];
     return sections.filter((section) => section.value?.trim());
-  }, [selectedEntry]);
+  }, [selectedEntry, selectedUnlocked]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-0 sm:p-4">
@@ -175,9 +182,12 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
             )}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+            {resourceFailure && <p role="alert" className="mb-3 px-2 py-2 text-xs leading-5" style={{ color: ink(0.95), boxShadow: `inset 0 0 0 1px ${goldSoft(0.45)}` }}>
+              图鉴资源加载失败：{resourceFailure.resourceId} · {resourceFailure.stage}。{resourceFailure.recoveryHint}
+            </p>}
             {listItems.length === 0 ? (
               <p className="px-1 py-8 text-center text-xs leading-6" style={{ color: muted(0.75) }}>
-                {query.trim() ? '没有匹配的条目。' : activeCategory === 'all' ? '图鉴尚无条目。' : '当前分类暂无条目。'}
+                {resourceFailure ? '图鉴资源不可用，请按上方提示恢复。' : resourceLoading ? '图鉴资源正在加载……' : query.trim() ? '没有匹配的条目。' : activeCategory === 'all' ? '图鉴尚无条目。' : '当前分类暂无条目。'}
               </p>
             ) : (
               listItems.map((item) => {
@@ -234,6 +244,10 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
             {!selectedEntry ? (
               <p className="py-12 text-center text-sm leading-6" style={{ color: muted(0.75) }}>
                 从左侧选择一个条目，查看它的档案与注入预览。
+              </p>
+            ) : !selectedUnlocked ? (
+              <p className="py-12 text-center text-sm leading-6" style={{ color: muted(0.85) }}>
+                条目尚未解锁。{selectedEntry.runtimeUnlock.note || selectedEntry.runtimeUnlock.condition || '继续探索以查看档案内容。'}
               </p>
             ) : (
               <div className="space-y-4">

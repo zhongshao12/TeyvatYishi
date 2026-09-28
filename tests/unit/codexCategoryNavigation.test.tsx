@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { CodexManagerModal } from '@/components/features/Codex/CodexManagerModal';
 import type { ArchiveCodex, CodexEntry } from '@/models/teyvat/codex';
+import { clearContentResourceStatuses, markContentResourceFailed } from '@/services/contentResourceStatus';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -23,7 +24,7 @@ const codex: ArchiveCodex = {
 
 describe('codex category navigation', () => {
   const hosts: HTMLDivElement[] = [];
-  afterEach(() => { hosts.forEach((host) => host.remove()); hosts.length = 0; });
+  afterEach(() => { hosts.forEach((host) => host.remove()); hosts.length = 0; clearContentResourceStatuses(); });
 
   it('switching_location_character_term_shows_matching_entries', async () => {
     const host = document.createElement('div'); hosts.push(host); document.body.append(host);
@@ -65,6 +66,32 @@ describe('codex category navigation', () => {
       });
       expect(host.textContent).toContain('没有匹配的条目');
       expect(host.querySelector('main')?.textContent).not.toContain('侦察骑士资料');
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it('locked_entry_hides_body_and_injection', async () => {
+    const locked = { ...entry('sealed', 'term', '封存词条', 'SECRET_SUMMARY'), description: 'SECRET_DESCRIPTION', injection: { publicText: 'SECRET_INJECTION' }, runtimeUnlock: { status: 'locked', note: '继续探索解锁' } };
+    const archive: ArchiveCodex = { entries: [locked], unlockedEntryIds: [] };
+    const host = document.createElement('div'); hosts.push(host); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(CodexManagerModal, { codex: archive, onClose: () => undefined })));
+      expect(host.textContent).toContain('封存词条');
+      expect(host.textContent).toContain('继续探索解锁');
+      expect(host.textContent).not.toContain('SECRET_');
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it('missing_catalog_reports_resource_failure instead of claiming the category is empty', async () => {
+    markContentResourceFailed('codex:broken', 'parse', '请检查安装文件后刷新页面。');
+    const host = document.createElement('div'); hosts.push(host); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(CodexManagerModal, { codex: { entries: [], unlockedEntryIds: [] }, onClose: () => undefined })));
+      expect(host.textContent).toContain('图鉴资源加载失败');
+      expect(host.textContent).toContain('codex:broken');
+      expect(host.textContent).toContain('请检查安装文件');
+      expect(host.textContent).not.toContain('图鉴尚无条目');
     } finally { await act(async () => root.unmount()); }
   });
 });

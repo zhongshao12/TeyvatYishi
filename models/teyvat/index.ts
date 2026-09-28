@@ -1,4 +1,5 @@
 export * from './character';
+export * from './doudizhu';
 export * from './elements';
 export * from './elementalGauge';
 export * from './map';

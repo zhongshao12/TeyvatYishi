@@ -1,6 +1,7 @@
 import { createEmptyCanonTrack, type CanonTrack } from './canon';
 import { normalizeCanonTrack } from '@/services/canonDeviationService';
 import { createEmptyArchiveCodex, normalizeArchiveCodex, type ArchiveCodex } from './codex';
+import { createEmptyDoudizhuState, normalizeDoudizhuState, type DoudizhuState } from './doudizhu';
 import { createEmptyCourierSystem, normalizeCourierSystem, reconcileCourierContactsWithNpcs, type CourierSystem } from './courier';
 import { createEmptyIrminsulMemory, normalizeIrminsulMemory, type IrminsulMemory } from './irminsul';
 import { createEmptyTeyvatInventory, normalizeTeyvatInventory, type TeyvatInventory } from './items';
@@ -54,6 +55,7 @@ export interface TeyvatGameState {
   后台队列: BackgroundQueueState;
   叙事: NarrativeRuntime;
   地图: TeyvatMapState;
+  斗地主: DoudizhuState;
 }
 
 export type TeyvatSaveData = TeyvatGameState;
@@ -79,6 +81,7 @@ export function createEmptyTeyvatGameState(): TeyvatGameState {
     后台队列: createEmptyBackgroundQueueState(),
     叙事: createEmptyNarrativeRuntime(),
     地图: createEmptyTeyvatMapState(),
+    斗地主: createEmptyDoudizhuState(),
   };
 }
 
@@ -167,6 +170,7 @@ export function normalizeTeyvatGameState(input: unknown): TeyvatGameState {
     后台队列: normalizeBackgroundQueueState(raw.后台队列),
     叙事: normalizeNarrativeRuntime(raw.叙事),
     地图: normalizeTeyvatMapState(raw.地图),
+    斗地主: normalizeDoudizhuState(raw.斗地主),
   };
 }
 import { isRecord } from '@/utils/valueGuards';

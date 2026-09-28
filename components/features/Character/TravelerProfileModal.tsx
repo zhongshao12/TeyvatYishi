@@ -1,5 +1,6 @@
 import { CLIP_MEDIUM, CLIP_PANEL, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
-import type { 角色数据结构 } from '@/models/character';
+import { useState } from 'react';
+import { validateTravelerProfileDraft, type 角色数据结构 } from '@/models/character';
 import type { 相册系统 } from '@/models/imageGeneration';
 import { Modal } from '@/components/ui/Modal';
 import type { ElementId } from '@/models/teyvat/elements';
@@ -16,6 +17,23 @@ interface Props {
 
 
 export function TravelerProfileModal({ traveler, album, onClose, onTravelerChange }: Props) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<角色数据结构>(traveler);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const startEditing = () => { setDraft(traveler); setDraftError(null); setEditing(true); };
+  const cancelEditing = () => { setDraft(traveler); setDraftError(null); setEditing(false); };
+  const saveEditing = () => {
+    const error = validateTravelerProfileDraft(draft);
+    if (error) { setDraftError(error); return; }
+    onTravelerChange?.({
+      ...traveler,
+      姓名: draft.姓名.trim(), 别名: draft.别名.trim(), 性别: draft.性别.trim(),
+      年龄: draft.年龄, 身高: draft.身高.trim(), 生日: draft.生日.trim(),
+      身份: draft.身份.trim(), 外貌: draft.外貌.trim(), 性格: draft.性格.trim(), 背景: draft.背景.trim(),
+    });
+    setDraftError(null);
+    setEditing(false);
+  };
   const handleAvatarUpload = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -118,6 +136,56 @@ export function TravelerProfileModal({ traveler, album, onClose, onTravelerChang
 
         <div className="teyvat-divider" />
 
+        {onTravelerChange && (
+          <div className="space-y-3">
+            {!editing ? (
+              <button type="button" onClick={startEditing} className="teyvat-btn px-4 py-2 text-sm">编辑资料</button>
+            ) : (
+              <section aria-label="编辑旅人资料" className="space-y-3 px-3 py-3" style={{ background: 'rgba(var(--tj-bubble),0.7)', boxShadow: insetRing(0.32) }}>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {([
+                    ['姓名', '旅人姓名'], ['别名', '旅人别名'], ['性别', '旅人性别'],
+                    ['年龄', '旅人年龄'], ['身高', '旅人身高'], ['生日', '旅人生日'], ['身份', '旅人身份'],
+                  ] as const).map(([field, label]) => (
+                    <label key={field} className="flex flex-col gap-1 text-xs" style={{ color: 'rgb(var(--tj-text-primary))' }}>
+                      {label}
+                      <input
+                        aria-label={label}
+                        type={field === '年龄' ? 'number' : 'text'}
+                        value={draft[field]}
+                        onChange={(event) => {
+                          setDraft((previous) => ({ ...previous, [field]: field === '年龄' ? Number(event.target.value) : event.target.value }));
+                          setDraftError(null);
+                        }}
+                        className="min-h-11 rounded px-2 text-sm"
+                        style={{ color: 'rgb(var(--tj-text-primary))', background: 'rgb(var(--tj-surface-strong))' }}
+                      />
+                    </label>
+                  ))}
+                </div>
+                {([
+                  ['外貌', '旅人外貌'], ['性格', '旅人性格'], ['背景', '旅人背景'],
+                ] as const).map(([field, label]) => (
+                  <label key={field} className="flex flex-col gap-1 text-xs" style={{ color: 'rgb(var(--tj-text-primary))' }}>
+                    {label}
+                    <textarea
+                      aria-label={label} value={draft[field]}
+                      onChange={(event) => { setDraft((previous) => ({ ...previous, [field]: event.target.value })); setDraftError(null); }}
+                      className="min-h-20 rounded px-2 py-2 text-sm"
+                      style={{ color: 'rgb(var(--tj-text-primary))', background: 'rgb(var(--tj-surface-strong))' }}
+                    />
+                  </label>
+                ))}
+                {draftError && <p role="alert" className="text-sm" style={{ color: 'rgb(var(--tj-danger))' }}>{draftError}</p>}
+                <div className="flex gap-2">
+                  <button type="button" onClick={saveEditing} className="teyvat-btn teyvat-btn-primary px-4 py-2 text-sm">保存资料</button>
+                  <button type="button" onClick={cancelEditing} className="teyvat-btn px-4 py-2 text-sm">取消编辑</button>
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+
         {/* 基本信息 */}
         <Section title="基本信息">
           <div className="grid grid-cols-2 gap-2">
@@ -177,7 +245,7 @@ export function TravelerProfileModal({ traveler, album, onClose, onTravelerChang
             clipPath: CLIP_MEDIUM,
           }}
         >
-          ✦ 档案为只读视图。如需修改字段，请前往「变量管理」中调整。
+          ✦ 基础资料可在此编辑；元素、能力与天赋仍由旅途经历决定。
         </div>
       </div>
     </Modal>

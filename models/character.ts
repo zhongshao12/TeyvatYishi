@@ -63,3 +63,11 @@ export function 创建空角色(): 角色数据结构 {
 export function 确保元素共鸣(traveler: 角色数据结构): 角色数据结构 {
   return Array.isArray(traveler.元素共鸣) ? traveler : { ...traveler, 元素共鸣: [] };
 }
+
+/** 仅校验可手动编辑的旅人基本资料；等级、元素等派生字段不由此入口修改。 */
+export function validateTravelerProfileDraft(draft: 角色数据结构): string | null {
+  if (!draft.姓名.trim()) return '旅人姓名不能为空。';
+  if (!Number.isInteger(draft.年龄) || draft.年龄 < 0) return '年龄须为非负整数。';
+  if (typeof draft.身高 !== 'string') return '身高须为文本。';
+  return null;
+}

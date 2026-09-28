@@ -7,6 +7,9 @@ import { CompanionPanel } from '@/components/features/GameSystems/CompanionPanel
 import { 创建空角色 } from '@/models/character';
 import { 创建NPC记录 } from '@/models/npc';
 import type { 变量命令批次 } from '@/models/variableCommand';
+import { archiveNpc } from '@/services/npcArchiving';
+import { createEmptyTeyvatGameState, normalizeTeyvatGameState } from '@/models/teyvat/state';
+import { applyLegacyNpcRecords, mapTeyvatNpcsToLegacy } from '@/hooks/useGameState';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -73,5 +76,47 @@ describe('traveler relationship graph navigation', () => {
     expect(host.querySelector('main')?.textContent).toContain('安柏');
     await act(async () => root.render(createElement(CompanionPanel, { ...base, focusNpcRequest: 2 })));
     expect(host.querySelector('main')?.textContent).toContain('阿明');
+  });
+
+  it('keeps renamed traveler and same-name NPC identities isolated across archive navigation and save load', async () => {
+    const traveler = { ...创建空角色(), id: 'player', 姓名: '风' };
+    const first = {
+      ...创建NPC记录({ 姓名: '阿明', 阶位: 'companion', 初见回合: 1, 原著角色: false }),
+      id: 'npc_first', 好感度: 40,
+      同行记忆: [{ id: 'memory-first', 回合: 1, 摘要: '只属于第一位阿明的记忆', 关联NPCID: [] }],
+    };
+    const second = { ...创建NPC记录({ 姓名: '阿明', 阶位: 'extra', 初见回合: 1, 原著角色: false }), id: 'npc_second', 好感度: 5 };
+    let saved = createEmptyTeyvatGameState();
+    saved.旅行者.姓名 = traveler.姓名;
+    saved.手机.contacts = [{ id: 'contact-first', npcId: first.id, name: first.姓名, available: true }];
+    saved = applyLegacyNpcRecords(saved, [archiveNpc(first), second]);
+    saved = normalizeTeyvatGameState(JSON.parse(JSON.stringify(saved)));
+    let records = mapTeyvatNpcsToLegacy(saved);
+    expect(records).toHaveLength(2);
+    let focusedId = '';
+    await act(async () => root.render(createElement(TravelerProfileModal, {
+      traveler, npcRecords: records, variableBatches: [], onSelectNpc: (id) => { focusedId = id; }, onClose: vi.fn(),
+    })));
+    expect(host.querySelector('svg')?.textContent).toContain('风');
+    const nodes = host.querySelectorAll<SVGGElement>('g.relationship-graph-node');
+    expect(nodes).toHaveLength(2);
+    await act(async () => nodes[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(focusedId).toBe('npc_first');
+    const renderCompanion = async () => act(async () => root.render(createElement(CompanionPanel, {
+      npcRecords: records, onNpcRecordsChange: (update) => { records = typeof update === 'function' ? update(records) : update; },
+      turnCount: 3, nsfwEnabled: false, focusNpcId: focusedId,
+    })));
+    await renderCompanion();
+    expect(host.querySelector('main')?.textContent).toContain('已从活跃同伴');
+    const restore = Array.from(host.querySelectorAll('button')).find((item) => item.textContent?.trim() === '恢复角色');
+    await act(async () => restore!.click());
+    await renderCompanion();
+    saved = normalizeTeyvatGameState(JSON.parse(JSON.stringify(applyLegacyNpcRecords(saved, records))));
+    const loaded = mapTeyvatNpcsToLegacy(saved);
+    expect(loaded.find((npc) => npc.id === 'npc_first')).toMatchObject({ 阶位: 'companion', 同行: false, 好感度: 40 });
+    expect(loaded.find((npc) => npc.id === 'npc_first')?.同行记忆?.[0]?.摘要).toBe('只属于第一位阿明的记忆');
+    expect(loaded.find((npc) => npc.id === 'npc_second')).toMatchObject({ 阶位: 'extra', 好感度: 5 });
+    expect(saved.手机.contacts[0]).toMatchObject({ id: 'contact-first', npcId: 'npc_first' });
+    expect(saved.旅行者.姓名).toBe('风');
   });
 });

@@ -6,7 +6,7 @@ import { restoreLegacyDeltaView } from '@/compat/legacy-hsr/readOnly';
 
 type FormalDeltaSave = TeyvatSaveData & Partial<Pick<存档数据, 'id' | 'type' | 'timestamp' | 'gameSettings' | 'apiSettings' | 'theme'>>;
 
-type SaveDeltaField = '旅行者' | '背包' | '世界' | 'NPC' | '手机' | '世界树' | '图鉴' | '蒸汽鸟报' | '原著轨道' | '记忆' | '相册' | '任务' | '后台队列' | '叙事'
+type SaveDeltaField = '旅行者' | '背包' | '世界' | 'NPC' | '手机' | '世界树' | '图鉴' | '蒸汽鸟报' | '原著轨道' | '记忆' | '相册' | '任务' | '后台队列' | '叙事' | '斗地主'
   | 'gameSettings' | 'apiSettings' | 'theme';
 
 export type SaveNodeBaseMode = 'checkpoint' | 'delta';
@@ -80,6 +80,7 @@ const TEYVAT_DELTA_FIELDS: SaveDeltaField[] = [
   '任务',
   '后台队列',
   '叙事',
+  '斗地主',
   'gameSettings',
   'apiSettings',
   'theme',
@@ -163,6 +164,7 @@ export function buildDeltaOnlyStoredSave(save: 存档数据 | TeyvatSaveData, ba
       任务: undefined,
       后台队列: undefined,
       叙事: undefined,
+      斗地主: undefined,
       saveTree: tree,
       saveStorage: { mode: 'delta', baseSaveId },
     } as unknown as 存档数据;

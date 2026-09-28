@@ -47,6 +47,7 @@ import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
 import type { 角色数据结构 } from '@/models/character';
 import { 切换剧情书签 } from '@/utils/storyBookmarks';
 import { mergeNpcWriteBack } from '@/utils/npcWriteBack';
+import { applyDoudizhuGameAction } from '@/services/doudizhu/settlement';
 import { 累计Token用量 } from '@/utils/tokenUsageStats';
 import { TokenMeter } from '@/components/features/Chat/TokenMeter';
 import { CommandPalette } from '@/components/features/Chat/CommandPalette';
@@ -82,7 +83,7 @@ const AlbumPanel = lazyWithRetry(() => import('@/components/features/GameSystems
 const SkillPanel = lazyWithRetry(() => import('@/components/features/GameSystems/SkillPanel').then((module) => ({ default: module.SkillPanel })), 'skill-panel');
 const InventoryPanel = lazyWithRetry(() => import('@/components/features/GameSystems/InventoryPanel').then((module) => ({ default: module.InventoryPanel })), 'inventory-panel');
 const SteambirdPanel = lazyWithRetry(() => import('@/components/features/GameSystems/SteambirdPanel').then((module) => ({ default: module.SteambirdPanel })), 'steambird-panel');
-const TimelinePanel = lazyWithRetry(() => import('@/components/features/GameSystems/TimelinePanel').then((module) => ({ default: module.TimelinePanel })), 'timeline-panel');
+const DoudizhuPanel = lazyWithRetry(() => import('@/components/features/GameSystems/DoudizhuPanel').then((module) => ({ default: module.DoudizhuPanel })), 'doudizhu-panel');
 const CompanionPanel = lazyWithRetry(() => import('@/components/features/GameSystems/CompanionPanel').then((module) => ({ default: module.CompanionPanel })), 'companion-panel');
 const PathPanel = lazyWithRetry(() => import('@/components/features/GameSystems/PathPanel').then((module) => ({ default: module.PathPanel })), 'path-panel');
 const QuestPanel = lazyWithRetry(() => import('@/components/features/GameSystems/QuestPanel').then((module) => ({ default: module.QuestPanel })), 'quest-panel');
@@ -580,7 +581,7 @@ export default function App() {
     if (state.turnCount < 1 || gamePanelsPreloadedRef.current) return;
     gamePanelsPreloadedRef.current = true;
     const cancelPreload = preloadAll([
-      PlotPanel, IrminsulPanel, MapPanel, MemoryPanel, AlbumPanel, SkillPanel, InventoryPanel, QuestPanel, SteambirdPanel, TimelinePanel, CompanionPanel, PathPanel,
+      PlotPanel, IrminsulPanel, MapPanel, MemoryPanel, AlbumPanel, SkillPanel, InventoryPanel, QuestPanel, SteambirdPanel, DoudizhuPanel, CompanionPanel, PathPanel,
     ]);
     return cancelPreload;
   }, [state.turnCount]);
@@ -936,6 +937,9 @@ export default function App() {
             getGameSessionId: state.getGameSessionId,
             onUnlockedElement: handleUnlockedElement,
             npcRecords: state.NPC,
+            doudizhuState: state.game.斗地主,
+            doudizhuNpcs: state.game.NPC,
+            onDoudizhuAction: (action) => state.updateGameState((current) => applyDoudizhuGameAction(current, action)),
             focusedCompanionNpcId,
             focusedCompanionRequest,
             onNpcRecordsChange: state.setNPC,
@@ -1445,6 +1449,9 @@ function renderSystemPanel(
     getGameSessionId: () => number;
     onUnlockedElement: (id: ElementId) => void;
     npcRecords: NPC记录[];
+    doudizhuState: import('@/models/teyvat').DoudizhuState;
+    doudizhuNpcs: import('@/models/teyvat').TeyvatNpcRecord[];
+    onDoudizhuAction: (action: import('@/models/teyvat').DoudizhuUiAction) => void;
     onNpcRecordsChange: React.Dispatch<React.SetStateAction<NPC记录[]>>;
     onCompanionProfileSaved: () => void;
     courier: import('@/models/teyvat').CourierSystem;
@@ -1555,12 +1562,7 @@ function renderSystemPanel(
       );
     case 'timeline':
       return (
-        <TimelinePanel
-          world={ctx.world}
-          steambird={ctx.steambirdNews}
-          storyWeaving={ctx.storyWeaving}
-          memory={ctx.memorySystem}
-        />
+        <DoudizhuPanel state={ctx.doudizhuState} npcs={ctx.doudizhuNpcs} onAction={ctx.onDoudizhuAction} />
       );
     case 'steambird':
       return <SteambirdPanel steambird={ctx.steambirdNews} turnCount={ctx.turnCount} />;

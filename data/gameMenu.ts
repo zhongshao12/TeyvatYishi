@@ -32,7 +32,7 @@ export const GAME_MENU_ITEMS: GameMenuItem[] = [
   { id: 'companion', label: '同伴', subtitle: '同行角色与好感', glyph: '✦' },
   { id: 'album', label: '相册', subtitle: '留影机与视觉资产', glyph: '▧' },
   { id: 'steambird', label: '蒸汽鸟报', subtitle: '提瓦特要闻', glyph: '☉' },
-  { id: 'timeline', label: '纪年', subtitle: '提瓦特大事年表', glyph: '⧗' },
+  { id: 'timeline', label: '斗地主', subtitle: '邀请两位同伴打牌', glyph: '♠' },
   { id: 'plot', label: '剧情', subtitle: '魔神任务轨道', glyph: '❖' },
   { id: 'memory', label: '记忆', subtitle: '即时 / 短期 / 长期', glyph: '◐' },
   { id: 'map', label: '地图', subtitle: '七国地图与传送锚点', glyph: '⌖' },

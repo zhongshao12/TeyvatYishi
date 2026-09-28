@@ -244,6 +244,9 @@ export function alignStoryWeavingToOpeningArchive(system: 剧情编织系统, ar
 export async function loadBundledStoryWeavingPreset(preset: BundledStoryWeavingPreset): Promise<剧情编织系列 | null> {
   const decomposed = await loadDecomposedCanonSeries(preset.id);
   if (decomposed) return decomposed;
+  if (decomposedStoryWeavingPresets.some((item) => item.id === preset.id)) {
+    throw new Error(`内置剧情资源 ${preset.id} 加载失败，无法使用过时的图鉴摘要代替。`);
+  }
 
   const codexPreset = bundledCodexPresets.find((item) => item.id === preset.codexPresetId);
   if (!codexPreset) return null;

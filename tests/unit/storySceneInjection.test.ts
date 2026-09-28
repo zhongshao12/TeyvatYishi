@@ -34,6 +34,7 @@ const strongContext = { currentLocation: '蒙德城', recentUserInput: '我和�
 describe('story scene prompt window', () => {
   it('shows active goal and known facts, but not reader-only or uncompleted results', () => {
     const current = scene('scene-1', '城门调查', '核对城门信件');
+    current.参与角色 = ['安柏', '丽莎'];
     current.开场事实 = [
       { 内容: '安柏已见过送信人', 信息可见性: visible },
       { 内容: '女皇秘密计划', 信息可见性: hidden },
@@ -43,6 +44,8 @@ describe('story scene prompt window', () => {
       current, scene('scene-2', '骑士团会面', '讨论如何追查'), scene('scene-3', '远方终局', '终局结算'),
     ]), strongContext);
     expect(result).toContain('核对城门信件');
+    expect(result).toContain('可涉及角色（仅实际在场者）：安柏、丽莎');
+    expect(result).toContain('完成判据（仅实际达成后表述）：信件已交付');
     expect(result).toContain('安柏已见过送信人');
     expect(result).toContain('丽莎未知');
     expect(result).toContain('骑士团会面');

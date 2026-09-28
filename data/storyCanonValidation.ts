@@ -72,6 +72,23 @@ export function validateBundledStorySeries(raw: unknown): string[] {
         for (const field of ['开场事实', '完成后事实'] as const) {
           if (!Array.isArray(scene[field]) || !scene[field].some((fact) => isRecord(fact) && hasText(fact.内容))) {
             issues.push(`${sceneLabel}: 缺少${field}`);
+          } else {
+            scene[field].forEach((fact, factIndex) => {
+              const factLabel = `${sceneLabel}/${field} ${factIndex + 1}`;
+              if (!isRecord(fact) || !hasText(fact.内容)) {
+                issues.push(`${factLabel}: 缺少内容`);
+                return;
+              }
+              const visibility = fact.信息可见性;
+              if (!isRecord(visibility)
+                || !Array.isArray(visibility.谁知道)
+                || !visibility.谁知道.every((name) => typeof name === 'string')
+                || !Array.isArray(visibility.谁不知道)
+                || !visibility.谁不知道.every((name) => typeof name === 'string')
+                || typeof visibility.是否仅读者视角可见 !== 'boolean') {
+                issues.push(`${factLabel}: 信息可见性无效`);
+              }
+            });
           }
         }
       });

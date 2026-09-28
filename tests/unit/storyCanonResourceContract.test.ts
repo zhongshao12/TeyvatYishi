@@ -52,6 +52,13 @@ describe('bundled six-nation story resource contract', () => {
       .rejects.toThrow(/事件名/u);
   });
 
+  it('reports an unavailable decomposed resource instead of reverting to stale Codex prose', async () => {
+    vi.stubGlobal('fetch', async () => new Response('missing', { status: 404 }));
+    const preset = bundledStoryWeavingPresets.find((item) => item.id === 'story_canon_teyvat_mondstadt_prologue_act1')!;
+    await expect(loadBundledStoryWeavingPreset(preset))
+      .rejects.toThrow(/story_canon_teyvat_mondstadt_prologue_act1.*加载失败/u);
+  });
+
   it('rejects duplicate or incomplete canonical scene nodes', () => {
     const raw = JSON.parse(readFileSync(join(resourceDirectory, mainlineFiles[0]!), 'utf8'));
     raw.分段列表[0].场景节点 = [
@@ -62,5 +69,11 @@ describe('bundled six-nation story resource contract', () => {
     expect(issues.some((issue) => issue.includes('重复场景 ID'))).toBe(true);
     expect(issues.some((issue) => issue.includes('目标'))).toBe(true);
     expect(issues.some((issue) => issue.includes('完成证据'))).toBe(true);
+  });
+
+  it('rejects a scene fact with missing visibility instead of making it public', () => {
+    const raw = JSON.parse(readFileSync(join(resourceDirectory, mainlineFiles[0]!), 'utf8'));
+    delete raw.分段列表[0].场景节点[0].开场事实[0].信息可见性;
+    expect(validateBundledStorySeries(raw).some((issue) => issue.includes('信息可见性'))).toBe(true);
   });
 });

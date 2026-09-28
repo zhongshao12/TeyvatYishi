@@ -159,7 +159,7 @@ function formatSceneFact(fact: 剧情编织场景节点['开场事实'][number])
   const known = visibility.谁知道.slice(0, 4).map((name) => sceneText(name, 20));
   const unknown = visibility.谁不知道.slice(0, 4).map((name) => sceneText(name, 20));
   const scope = [
-    known.length ? `仅${known.join('、')}已知` : '',
+    known.length ? `已确认知情：${known.join('、')}` : '',
     unknown.length ? `${unknown.join('、')}未知` : '',
   ].filter(Boolean).join('；');
   return `${sceneText(fact.内容)}${scope ? `（${scope}）` : ''}`;
@@ -185,7 +185,11 @@ function formatSceneWindow(segment: 剧情编织分段, progress: 剧情编织�
   if (progress?.推进状态 === '已偏离') {
     lines.push('当前存档已偏离原著：此场景仅作可能线索，不得强制推进或改写已发生事实。');
   } else if (gate === 'strong') {
+    if (current.参与角色.length) {
+      lines.push(`可涉及角色（仅实际在场者）：${current.参与角色.slice(0, 4).map((name) => sceneText(name, 20)).join('、')}`);
+    }
     lines.push(`互动目标：${sceneText(current.目标, 130)}`);
+    current.完成证据.slice(0, 2).forEach((item) => lines.push(`完成判据（仅实际达成后表述）：${sceneText(item, 90)}`));
     current.进入条件.slice(0, 2).forEach((item) => lines.push(`进入条件：${sceneText(item, 90)}`));
     current.开场事实.filter((fact) => !fact.信息可见性.是否仅读者视角可见)
       .slice(0, 4).forEach((fact) => lines.push(`已成立事实：${formatSceneFact(fact)}`));

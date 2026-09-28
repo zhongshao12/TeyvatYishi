@@ -73,6 +73,15 @@ export function autoAlignCanonStoryProgress(params: {
   if (!current || current.处理状态 !== '已完成') {
     return { system: normalized, changed: false, progressed: false };
   }
+  const sceneAnchorForSettlement = normalized.当前进度 && advanceStorySceneProgress({
+    segment: current,
+    anchor: normalized.当前进度,
+    userInput: params.userInput,
+    body: params.body,
+    turnCount: params.turnCount,
+  });
+  const allCurrentScenesConfirmed = !current.场景节点?.length
+    || current.场景节点.every((scene) => sceneAnchorForSettlement?.已完成场景ID?.includes(scene.id));
 
   const source = `${params.currentLocation ?? ''}\n${params.userInput}\n${params.body}`;
   const crossSeries = params.turnCount >= 4
@@ -131,7 +140,7 @@ export function autoAlignCanonStoryProgress(params: {
     return { system: alignedSystem, changed: true, progressed: true };
   }
 
-  if (completionScore.value >= 3 && completionScore.explicitEnding) {
+  if (allCurrentScenesConfirmed && completionScore.value >= 3 && completionScore.explicitEnding) {
     const next = segments.find((segment) => segment.组号 > current.组号 && segment.运行状态 === '未开始');
     const settledSystem = settleCurrentSegment({
       normalized,
@@ -146,7 +155,7 @@ export function autoAlignCanonStoryProgress(params: {
     return { system: settledSystem, changed: true, progressed: true };
   }
 
-  if (evidenceState.consecutive >= 2 && progressEvidence.valid) {
+  if (allCurrentScenesConfirmed && evidenceState.consecutive >= 2 && progressEvidence.valid) {
     const next = segments.find((segment) => segment.组号 > current.组号 && segment.运行状态 === '未开始');
     const settledSystem = settleCurrentSegment({
       normalized,
@@ -524,6 +533,9 @@ function refreshProgressDiagnostics(params: {
       switchNote: '后台判定暂不切换分段，当前分段继续作为软参考。',
       gateSnapshot: params.gateSnapshot,
     }),
+    推进状态: previous?.当前分段ID === params.current.id && previous.推进状态 === '已偏离'
+      ? '已偏离'
+      : '推进中',
     已完成摘要: previous?.已完成摘要 ?? [],
     切换说明: previous?.切换说明 ?? [],
     历史归档: previous?.历史归档 ?? [],

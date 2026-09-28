@@ -49,6 +49,9 @@ describe('six-nation canonical scene coverage', () => {
           expect(scene.完成证据.length, scene.id).toBeGreaterThan(0);
           expect(scene.开场事实.length, scene.id).toBeGreaterThan(0);
           expect(scene.完成后事实.length, scene.id).toBeGreaterThan(0);
+          for (const fact of [...scene.开场事实, ...scene.完成后事实]) {
+            expect(fact.信息可见性.谁知道, scene.id).toContain('玩家');
+          }
           expect(scene.可偏离切口.length, scene.id).toBeGreaterThan(0);
           expect(JSON.stringify(scene), scene.id).not.toMatch(/\{\{[^}]+\}\}/u);
         }

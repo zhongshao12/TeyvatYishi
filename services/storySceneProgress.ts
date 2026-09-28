@@ -19,14 +19,24 @@ export function advanceStorySceneProgress(input: {
   const scene = scenes[sceneIndex];
   if (!scene?.完成证据.length) return anchor;
 
+  const normalizedInput = userInput.replace(/\s+/gu, '');
+  const sceneTerms = [scene.目标, scene.地点, ...scene.参与角色, ...scene.完成证据];
+  const userTouchedScene = sceneTerms.some((term) => {
+    const characters = [...term.replace(/[^\p{L}\p{N}]/gu, '')];
+    return characters.some((character, index) => index + 1 < characters.length
+      && normalizedInput.includes(`${character}${characters[index + 1]}`));
+  });
+  if (!userTouchedScene) return anchor;
+
   const normalizedBody = body.replace(/\s+/gu, '');
   const hasCompletedResult = scene.完成证据.some((rawEvidence) => {
     const evidence = rawEvidence.replace(/\s+/gu, '');
     if (!evidence) return false;
     const index = normalizedBody.indexOf(evidence);
     if (index < 0) return false;
-    const before = normalizedBody.slice(Math.max(0, index - 12), index);
-    return !/(?:没有|尚未|未能|并未|无法|不能|不曾|如果|假如|可能|打算|计划|准备|将要|下一步要)$/u.test(before);
+    const clauseStart = Math.max(0, normalizedBody.slice(0, index).search(/[^。！？；，,\n]*$/u));
+    const before = normalizedBody.slice(clauseStart, index);
+    return !/(?:没有|尚未|未能|并未|无法|不能|不曾|如果|假如|可能|也许|打算|计划|准备|将要|下一步要)/u.test(before);
   });
   if (!hasCompletedResult) return anchor;
 

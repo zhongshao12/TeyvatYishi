@@ -1531,6 +1531,8 @@ function renderSystemPanel(
           courier={ctx.courier}
           onCourierChange={ctx.onCourierChange}
           travelerName={ctx.traveler.姓名}
+          apiSettings={ctx.apiSettings}
+          enableClaudeMode={ctx.gameSettings.enableClaudeMode}
         />
       );
     case 'album':

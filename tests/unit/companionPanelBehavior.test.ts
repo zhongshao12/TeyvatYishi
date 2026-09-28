@@ -6,6 +6,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { CompanionPanel } from '@/components/features/GameSystems/CompanionPanel';
 import { 创建NPC记录 } from '@/models/npc';
 import { createEmptyCourierSystem } from '@/models/teyvat/courier';
+import type { API设置 } from '@/models/settings';
+import { generateNpcAppearanceEstimate } from '@/services/ai/npcAppearanceEstimate';
+
+vi.mock('@/services/ai/npcAppearanceEstimate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/ai/npcAppearanceEstimate')>();
+  return { ...actual, generateNpcAppearanceEstimate: vi.fn() };
+});
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -93,6 +100,27 @@ describe('CompanionPanel behavior', () => {
 
     expect(visibleRosterButtons()).toHaveLength(120);
     expect(host.textContent).toContain('还有 5 位未显示');
+  });
+
+  it('AI appearance completion writes only to the selected NPC and manual edits persist by id', async () => {
+    const first = { ...创建NPC记录({ 姓名: '阿明', 阶位: 'companion', 初见回合: 1, 性别: '女' }), id: 'npc_first' };
+    const second = { ...创建NPC记录({ 姓名: '阿华', 阶位: 'companion', 初见回合: 1, 性别: '女' }), id: 'npc_second' };
+    let records = [first, second];
+    vi.mocked(generateNpcAppearanceEstimate).mockResolvedValueOnce({ 发色: { value: '金色', source: 'ai_estimate' } });
+    const apiSettings = { activeConfigId: 'test', configs: [{ id: 'test', name: 'test', provider: 'openai_compatible', baseUrl: 'https://example.test', apiKey: 'test', model: 'test' }] } as API设置;
+    const render = async () => act(async () => root.render(createElement(CompanionPanel, {
+      npcRecords: records, onNpcRecordsChange: (update) => { records = typeof update === 'function' ? update(records) : update; },
+      turnCount: 1, nsfwEnabled: false, apiSettings,
+    })));
+    await render();
+    await act(async () => findButton('AI 补全空白外貌').click());
+    expect(records.find((npc) => npc.id === 'npc_first')?.外貌档案?.发色?.value).toBe('金色');
+    expect(records.find((npc) => npc.id === 'npc_second')?.外貌档案).toBeUndefined();
+    await render();
+    await act(async () => findButton('编辑外貌细项').click());
+    await act(async () => changeInput(host, '手动修改发色', '黑色'));
+    await act(async () => findButton('保存发色').click());
+    expect(records.find((npc) => npc.id === 'npc_first')?.外貌档案?.发色).toEqual({ value: '黑色', source: 'manual' });
   });
 
   it('does not rerender the selected NPC detail while only the roster search changes', async () => {

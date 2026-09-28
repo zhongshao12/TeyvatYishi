@@ -7,6 +7,7 @@ import { buildNpcMemoryLedgerView, 获取NPC兼容关系, 格式化NPC关系, �
 import { matchCanonical } from '@/data/canonicalCharacters';
 import type { 相册系统 } from '@/models/imageGeneration';
 import type { ArchiveCodex } from '@/models/teyvat/codex';
+import type { API设置 } from '@/models/settings';
 import { buildNpcRelationshipPlanning, type NPC关系规划条目 } from '@/services/npcRelationshipPlanning';
 import { enrichNpcArchives } from '@/utils/npcArchiveEnrichment';
 import { 解析相册资源引用 } from '@/utils/albumActions';
@@ -17,6 +18,9 @@ import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
 import { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveEnrichment';
 import { archiveNpc, restoreNpc } from '@/services/npcArchiving';
 import { canRevealNpcRecordMeasurements, NPC_APPEARANCE_KEYS, npcAppearanceSourceLabel } from '@/services/npcAppearanceFacts';
+import type { NpcAppearanceKey } from '@/services/npcAppearanceFacts';
+import { applyNpcAppearanceEstimate, generateNpcAppearanceEstimate, setNpcAppearanceFact } from '@/services/ai/npcAppearanceEstimate';
+import { resolveActiveApiConfig } from '@/services/ai/activeApiConfig';
 import {
   AffinityMeter,
   CompanionAvatar as Avatar,
@@ -39,6 +43,8 @@ interface CompanionPanelProps {
   courier?: CourierSystem;
   onCourierChange?: React.Dispatch<React.SetStateAction<CourierSystem>>;
   travelerName?: string;
+  apiSettings?: API设置;
+  enableClaudeMode?: boolean;
 }
 
 type DetailTab = 'archive' | 'planning' | 'memory' | 'nsfw';
@@ -83,7 +89,7 @@ const activeSurface = 'linear-gradient(90deg, rgba(var(--tj-btn-primary-start), 
 const quietSurface = 'linear-gradient(135deg, rgba(var(--tj-ui-panel), 0.62), rgba(var(--tj-ui-panel-strong), 0.72))';
 const ROSTER_PAGE_SIZE = 60;
 
-export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved, album, turnCount, nsfwEnabled, maleNsfwArchiveEnabled = false, codex, devMode = false, focusNpcId, focusNpcRequest = 0, courier, onCourierChange, travelerName }: CompanionPanelProps) {
+export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved, album, turnCount, nsfwEnabled, maleNsfwArchiveEnabled = false, codex, devMode = false, focusNpcId, focusNpcRequest = 0, courier, onCourierChange, travelerName, apiSettings, enableClaudeMode = false }: CompanionPanelProps) {
   const [tab, setTab] = useState<NPC阶位 | 'archived'>('companion');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [correctionDraft, setCorrectionDraft] = useState('');
@@ -164,6 +170,7 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
     [normalizedRecords, turnCount],
   );
   const selectedPlanning = selected ? relationshipPlanning.条目.find((item) => item.npcId === selected.id) : undefined;
+  const activeApiConfig = useMemo(() => apiSettings ? resolveActiveApiConfig(apiSettings, enableClaudeMode) : null, [apiSettings, enableClaudeMode]);
 
   const updateRecord = useCallback((id: string, patch: Partial<NPC记录>) => {
     onNpcRecordsChange((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
@@ -187,6 +194,27 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
     updateRecord(npcId, { NSFW档案: archive });
     onProfileSaved?.();
   }, [updateRecord, onProfileSaved]);
+  const handleSetAppearanceFact = useCallback((npc: NPC记录, key: NpcAppearanceKey, value: string): string | null => {
+    try {
+      setNpcAppearanceFact(npc, key, value);
+      onNpcRecordsChange((previous) => previous.map((entry) => {
+        if (entry.id !== npc.id) return entry;
+        try { return setNpcAppearanceFact(entry, key, value); } catch { return entry; }
+      }));
+      onProfileSaved?.();
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : '外貌字段保存失败。';
+    }
+  }, [onNpcRecordsChange, onProfileSaved]);
+  const handleGenerateAppearance = useCallback(async (npc: NPC记录, signal: AbortSignal) => {
+    if (!activeApiConfig) throw new Error('请先配置可用的文字模型 API。');
+    const estimate = await generateNpcAppearanceEstimate(activeApiConfig, npc, signal);
+    if (signal.aborted) return;
+    onNpcRecordsChange((previous) => previous.map((entry) => entry.id === npc.id && !entry.已归档
+      ? applyNpcAppearanceEstimate(entry, estimate) : entry));
+    onProfileSaved?.();
+  }, [activeApiConfig, onNpcRecordsChange, onProfileSaved]);
   const handleSelectNpc = useCallback((id: string) => setSelectedId(id), []);
   const handleShowMoreNpcs = useCallback(() => {
     setVisibleNpcCount((count) => count + ROSTER_PAGE_SIZE);
@@ -302,6 +330,8 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
             onSaveProfile={handleSaveProfile}
             travelerName={travelerName ?? ''}
             onPrivateArchiveCorrection={handlePrivateArchiveCorrection}
+            onSetAppearanceFact={handleSetAppearanceFact}
+            onGenerateAppearance={activeApiConfig ? handleGenerateAppearance : undefined}
           />
           </>
         ) : (
@@ -364,6 +394,8 @@ const NpcDetail = memo(function NpcDetail({
   onSaveProfile,
   travelerName,
   onPrivateArchiveCorrection,
+  onSetAppearanceFact,
+  onGenerateAppearance,
 }: {
   npc: NPC记录;
   album?: 相册系统;
@@ -378,12 +410,41 @@ const NpcDetail = memo(function NpcDetail({
   onSaveProfile: (npc: NPC记录, draft: NpcProfileDraft) => string | null;
   travelerName: string;
   onPrivateArchiveCorrection: (npcId: string, archive: NPC_NSFW档案) => void;
+  onSetAppearanceFact: (npc: NPC记录, key: NpcAppearanceKey, value: string) => string | null;
+  onGenerateAppearance?: (npc: NPC记录, signal: AbortSignal) => Promise<void>;
 }) {
   const isCompanion = npc.阶位 === 'companion';
   const [detailTab, setDetailTab] = useState<DetailTab>('archive');
   const [isEditing, setIsEditing] = useState(false);
   const [profileDraft, setProfileDraft] = useState<NpcProfileDraft>(() => makeNpcProfileDraft(npc));
   const [profileError, setProfileError] = useState('');
+  const [appearanceEditorOpen, setAppearanceEditorOpen] = useState(false);
+  const [appearanceDraft, setAppearanceDraft] = useState<Partial<Record<NpcAppearanceKey, string>>>(() => Object.fromEntries(
+    NPC_APPEARANCE_KEYS.map((key) => [key, npc.外貌档案?.[key]?.value ?? '']),
+  ));
+  const [appearanceMessage, setAppearanceMessage] = useState('');
+  const [appearanceGenerating, setAppearanceGenerating] = useState(false);
+  const appearanceAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    setAppearanceDraft(Object.fromEntries(NPC_APPEARANCE_KEYS.map((key) => [key, npc.外貌档案?.[key]?.value ?? ''])));
+  }, [npc.外貌档案]);
+  useEffect(() => () => appearanceAbortRef.current?.abort(), []);
+  const generateAppearance = async () => {
+    if (!onGenerateAppearance || appearanceGenerating) return;
+    const controller = new AbortController();
+    appearanceAbortRef.current = controller;
+    setAppearanceGenerating(true);
+    setAppearanceMessage('正在补全空白外貌资料……');
+    try {
+      await onGenerateAppearance(npc, controller.signal);
+      if (!controller.signal.aborted) setAppearanceMessage('补全完成；推测值已标注来源，可手动校正。');
+    } catch (error) {
+      if (!controller.signal.aborted) setAppearanceMessage(`补全失败：${error instanceof Error ? error.message : '请检查 API 配置。'}`);
+    } finally {
+      if (!controller.signal.aborted) setAppearanceGenerating(false);
+      if (appearanceAbortRef.current === controller) appearanceAbortRef.current = null;
+    }
+  };
   const updateProfileDraft = (field: keyof NpcProfileDraft, value: string) => {
     setProfileDraft((draft) => ({ ...draft, [field]: value }));
     setProfileError('');
@@ -597,6 +658,14 @@ const NpcDetail = memo(function NpcDetail({
           </section>
 
           <DetailBlock title="外貌细项">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <button type="button" disabled={!onGenerateAppearance || appearanceGenerating} onClick={() => void generateAppearance()} className="teyvat-btn px-3 py-1.5 text-xs disabled:opacity-50">
+                {appearanceGenerating ? '正在补全……' : 'AI 补全空白外貌'}
+              </button>
+              <button type="button" onClick={() => setAppearanceEditorOpen((open) => !open)} className="teyvat-btn px-3 py-1.5 text-xs">{appearanceEditorOpen ? '收起外貌编辑' : '编辑外貌细项'}</button>
+              {!onGenerateAppearance && <span className="text-xs" style={{ color: mutedColor }}>请先配置文字模型 API</span>}
+            </div>
+            {appearanceMessage && <p role="status" className="mb-2 text-xs" style={{ color: appearanceMessage.startsWith('补全失败') ? 'var(--tj-danger)' : mutedColor }}>{appearanceMessage}</p>}
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {NPC_APPEARANCE_KEYS.filter((key) => key !== '三围' || canRevealNpcRecordMeasurements(npc)).map((key) => {
                 const fact = npc.外貌档案?.[key];
@@ -605,6 +674,13 @@ const NpcDetail = memo(function NpcDetail({
                     <span className="font-semibold">{key}</span>
                     <span className="ml-2">{fact?.value || '未记录'}</span>
                     {fact && <span className="ml-2" style={{ color: mutedColor }}>· {npcAppearanceSourceLabel(fact.source)}</span>}
+                    {appearanceEditorOpen && <div className="mt-2 flex gap-1">
+                      <input aria-label={`手动修改${key}`} className="teyvat-input min-w-0 flex-1 px-2 py-1" value={appearanceDraft[key] ?? ''} onChange={(event) => setAppearanceDraft((current) => ({ ...current, [key]: event.target.value }))} />
+                      <button type="button" className="teyvat-btn shrink-0 px-2 py-1" onClick={() => {
+                        const error = onSetAppearanceFact(npc, key, appearanceDraft[key] ?? '');
+                        setAppearanceMessage(error ? `保存失败：${error}` : `${key}已手动保存。`);
+                      }}>{`保存${key}`}</button>
+                    </div>}
                   </div>
                 );
               })}

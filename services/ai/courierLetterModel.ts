@@ -1,17 +1,20 @@
 import type { API配置项 } from '@/models/settings';
 import { chatCompletion } from './chatCompletionClient';
-import { composeCourierLetterLocally, extractCourierSpeechEvent, type CourierGroupReplyContext, type CourierLetterContext, type CourierReplyContext, type CourierSenderProfile } from './courierService';
+import { composeCourierLetterLocally, extractCourierSpeechEvent, sanitizeCourierSeedFact, type CourierGroupReplyContext, type CourierLetterContext, type CourierReplyContext, type CourierSenderProfile } from './courierService';
 import type { 手机API覆盖 } from '@/models/settings';
 
 /** 手机消息独立模型：按上下文、人设、关系与同行记忆生成即时聊天。 */
 
-const META_PATTERN = /deliverySeed|triggerType|seed\.context|系统提示|以下是?消息[:：]|如下是?消息[:：]|(?:API|提示词|记忆库)(?:参数|内容|字段|数据)?/i;
+const META_PATTERN = /deliverySeed|triggerType|seed\.context|系统提示|以下是?消息[:：]|如下是?消息[:：]|(?:API|提示词|记忆库)(?:参数|内容|字段|数据)?|<\/?time_format\b|(?:^|[\s，：])(?:time|scene)\s*[:：]/i;
 const META_NARRATIVE_PATTERN = /关于.{0,30}对.*(?:印象|好感)|可能会有后续联络|可低频投递|已发生事实|玩家一行人/u;
 
 function speechSafeSender(sender: CourierSenderProfile | undefined): CourierSenderProfile | undefined {
   if (!sender) return undefined;
-  const line = (value: string | undefined) => value && !META_NARRATIVE_PATTERN.test(value) ? value : undefined;
-  const lines = (value: string[] | undefined) => value?.filter((item) => !META_NARRATIVE_PATTERN.test(item));
+  const line = (value: string | undefined) => {
+    const cleaned = sanitizeCourierSeedFact(value ?? '');
+    return cleaned && !META_NARRATIVE_PATTERN.test(cleaned) ? cleaned : undefined;
+  };
+  const lines = (value: string[] | undefined) => value?.map(line).filter((item): item is string => Boolean(item));
   return {
     ...sender,
     recentInteraction: line(sender.recentInteraction),

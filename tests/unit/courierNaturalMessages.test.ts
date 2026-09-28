@@ -87,3 +87,14 @@ it.each([
   expect(composeCourierLetterLocally({ seed: instructionSeed, sender })).not.toContain(context);
   expect(buildCourierLetterPrompt({ seed: instructionSeed, sender })).not.toContain(context);
 });
+
+it('paimon_letter_ignores_time_format_markup', () => {
+  const raw = '<time_format> time: 旅行历 1000.03.11·晴☆13:05-14:30 scene: 蒙德·西风之狼庙宇·遗迹入口。 </time_format>\n派蒙和旅行者一起清点了行囊。';
+  const paimonSeed = { ...seed, senderId: 'paimon', context: raw, title: '派蒙近况' };
+  const paimon = { name: '派蒙', recentInteraction: raw };
+  const prompt = buildCourierLetterPrompt({ seed: paimonSeed, sender: paimon });
+  const local = composeCourierLetterLocally({ seed: paimonSeed, sender: paimon });
+  expect(prompt).toContain('派蒙和旅行者一起清点了行囊');
+  expect(prompt).not.toMatch(/time_format|time:|scene:|1000\.03\.11/u);
+  expect(local).not.toMatch(/time_format|time:|scene:|1000\.03\.11/u);
+});

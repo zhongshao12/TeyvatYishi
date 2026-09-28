@@ -418,9 +418,20 @@ export interface CourierLetterContext {
   travelerName?: string;
 }
 
+/** Remove machine-only time/scene envelopes before a seed becomes character speech. */
+export function sanitizeCourierSeedFact(context: string): string {
+  return context
+    .replace(/<time_format\b[^>]*>[\s\S]*?<\/time_format\s*>/giu, ' ')
+    .replace(/<time_format\b[^>]*>[^\n\r]*/giu, ' ')
+    .replace(/^\s*(?:time|scene)\s*[:：][^\n\r]*/gimu, ' ')
+    .replace(/<\/?time_format\b[^>]*>/giu, ' ')
+    .replace(/^[ \t]*\n/gmu, '')
+    .trim();
+}
+
 /** 从种子描述里提取「发生过什么事」：剥离投递指令式语句，只留事件本体。 */
 function extractEventBasis(context: string): string {
-  const raw = context.trim();
+  const raw = sanitizeCourierSeedFact(context);
   if (!raw) return '';
   const factMark = raw.lastIndexOf('已发生事实');
   const source = factMark >= 0 ? raw.slice(factMark).replace(/^已发生事实[:：]?/, '').trim() : raw;

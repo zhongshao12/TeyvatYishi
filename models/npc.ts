@@ -126,6 +126,8 @@ export interface NPC_NSFW档案 {
   enabled?: boolean;
   年龄确认?: NPC_NSFW年龄确认;
   年龄确认来源?: 'canonical' | 'manual' | 'legacy_unverified';
+  /** 仅已确认成年女性；不由外貌 AI 推测。 */
+  常用内衣?: string;
   /** 仅对已确认成年女性角色记录。 */
   是否处女?: '是' | '否' | '未知';
   /** 仅对已确认成年女性角色记录；尚无经历时为“无”。 */
@@ -436,11 +438,12 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
   const rawNSFW = source.NSFW档案 ?? source.nsfw ?? source.NSFW;
   const rawImage = source.图像档案 ?? source.image ?? source.images;
   const archive = 归一化NSFW档案(rawNSFW);
-  const appearanceFacts = normalizeNpcAppearanceFacts(source.外貌档案 ?? source.appearanceFacts, canRevealNpcMeasurements({
+  const eligibleForMeasurements = canRevealNpcMeasurements({
     name, aliases: typeof rawAlias === 'string' ? [rawAlias] : [], gender: typeof rawGender === 'string' ? rawGender : undefined,
     description: [rawIntro, rawAppearance, ...(Array.isArray(rawNotes) ? rawNotes : [])].filter((item): item is string => typeof item === 'string').join(' '),
     ageConfirmation: archive?.年龄确认, ageSource: archive?.年龄确认来源,
-  }));
+  });
+  const appearanceFacts = normalizeNpcAppearanceFacts(source.外貌档案 ?? source.appearanceFacts, eligibleForMeasurements);
   const canonical = 匹配NPC原著角色(name, typeof rawAlias === 'string' ? rawAlias : undefined);
   const shouldForceCompanion = Boolean(canonical || source.原著角色 || source.canonical);
   const archived = source.已归档 === true || source.archived === true;
@@ -486,7 +489,7 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
       ? rawNotes.filter((note): note is string => typeof note === 'string')
       : [],
     原著角色: shouldForceCompanion,
-    NSFW档案: archive,
+    NSFW档案: archive && !eligibleForMeasurements ? { ...archive, 常用内衣: undefined } : archive,
     图像档案: 归一化图像档案(rawImage, rawAvatar),
     头像: typeof rawAvatar === 'string' ? rawAvatar : undefined,
   };
@@ -858,6 +861,7 @@ function 归一化NSFW档案(raw: unknown): NPC记录['NSFW档案'] {
   const experiences = normalizeStringList(obj.经历);
   const facts = normalizeStringList(obj.长期事实);
   const note = typeof obj.备注 === 'string' ? obj.备注.trim() : undefined;
+  const usualUnderwear = typeof obj.常用内衣 === 'string' ? obj.常用内衣.trim().slice(0, 120) : undefined;
   const enabled = Boolean(obj.enabled);
   const age = normalizeNsfwAge(obj.年龄确认);
   const ageSource = obj.年龄确认来源 === 'canonical' || obj.年龄确认来源 === 'manual'
@@ -892,12 +896,14 @@ function 归一化NSFW档案(raw: unknown): NPC记录['NSFW档案'] {
     !facts?.length &&
     !tags?.length &&
     !partImages &&
-    !note
+    !note &&
+    !usualUnderwear
   ) {
     return undefined;
   }
   return {
     enabled,
+    常用内衣: age === 'adult' ? usualUnderwear : undefined,
     年龄确认: age,
     年龄确认来源: ageSource,
     是否处女: age === 'adult' ? virginity : undefined,

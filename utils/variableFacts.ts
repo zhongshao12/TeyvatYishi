@@ -35,6 +35,7 @@ import {
   readLegacyNpcNameFromKey,
 } from '@/compat/legacy-hsr/readOnly';
 import { LEGACY_NPC_ID_TO_CHINESE_NAME, normalizeLegacyNpcSelector } from '@/utils/legacyNpcIdentity';
+import { shouldReplaceUsualClothing } from '@/utils/npcUsualClothing';
 
 const ITEM_CATEGORY_SET = new Set<ItemCategory>(ITEM_CATEGORIES);
 const NPC_RELATIONS = new Set<NPC关系类型>(['stranger', 'acquaintance', 'friend', 'close', 'rival', 'enemy']);
@@ -1415,7 +1416,9 @@ export function factsToVariableCommands(
         if (typeof fact.following === 'boolean') push({ action: 'set', key: `${key}.同行`, value: fact.following });
         if (fact.gender) push({ action: 'set', key: `${key}.性别`, value: fact.gender });
         if (fact.appearance) push({ action: 'set', key: `${key}.外貌`, value: fact.appearance });
-        if (fact.clothing) push({ action: 'set', key: `${key}.穿着`, value: fact.clothing });
+        if (fact.clothing && shouldReplaceUsualClothing(existing.穿着, fact.clothing, fact.evidence ?? '')) {
+          push({ action: 'set', key: `${key}.穿着`, value: fact.clothing });
+        }
         if (fact.speechStyle) push({ action: 'set', key: `${key}.说话方式`, value: fact.speechStyle });
         if (fact.personality) {
           if (isCanonicalNpcPersonalityProtected(existing, fact.name)) {
@@ -1778,7 +1781,9 @@ export function factsToTeyvatDomainCommands(
       if (typeof fact.following === 'boolean') push({ action: 'set', root: 'NPC', path: `${prefix}.travelingTogether`, value: fact.following }, fact.evidence);
       if (fact.playerAddress) push({ action: 'set', root: 'NPC', path: `${prefix}.playerAddress`, value: fact.playerAddress }, fact.evidence);
       if (fact.appearance) push({ action: 'set', root: 'NPC', path: `${prefix}.appearance`, value: fact.appearance }, fact.evidence);
-      if (fact.clothing) push({ action: 'set', root: 'NPC', path: `${prefix}.clothing`, value: fact.clothing }, fact.evidence);
+      if (fact.clothing && shouldReplaceUsualClothing(existing.clothing, fact.clothing, fact.evidence ?? '')) {
+        push({ action: 'set', root: 'NPC', path: `${prefix}.clothing`, value: fact.clothing }, fact.evidence);
+      }
       if (fact.speechStyle) push({ action: 'set', root: 'NPC', path: `${prefix}.speechStyle`, value: fact.speechStyle }, fact.evidence);
       const ledgerSet = (field: string, value?: string) => { if (value) push({ action: 'set', root: 'NPC', path: `${prefix}.relationshipLedger.${field}`, value }, fact.evidence); };
       const ledgerPush = (field: string, values?: string[]) => values?.forEach((value) => push({ action: 'push', root: 'NPC', path: `${prefix}.relationshipLedger.${field}`, value }, fact.evidence));

@@ -315,4 +315,23 @@ describe('CompanionPanel behavior', () => {
     expect(host.querySelector('[data-testid="adult-female-sexual-history"]')).toBeNull();
     expect(host.textContent).toContain('待确认');
   });
+
+  it('allows confirmed adult female underwear correction but hides it for unknown age', async () => {
+    const adult = { ...创建NPC记录({ 姓名: '阿明', 阶位: 'companion', 初见回合: 1, 性别: '女', NSFW档案: { 年龄确认: 'adult', 年龄确认来源: 'manual' } }), id: 'npc_adult' };
+    let records = [adult];
+    const render = async () => act(async () => root.render(createElement(CompanionPanel, {
+      npcRecords: records, onNpcRecordsChange: (update) => { records = typeof update === 'function' ? update(records) : update; },
+      turnCount: 1, nsfwEnabled: true,
+    })));
+    await render();
+    await act(async () => findButton('NSFW档案').click());
+    expect(host.querySelector('input[aria-label="编辑常用内衣"]')).not.toBeNull();
+    await act(async () => changeInput(host, '编辑常用内衣', '浅色棉质内衣'));
+    await act(async () => findButton('保存常用内衣').click());
+    expect(records[0]?.NSFW档案?.常用内衣).toBe('浅色棉质内衣');
+    records = [{ ...adult, NSFW档案: { 年龄确认: 'unknown', 常用内衣: '不应展示' } }];
+    await render();
+    expect(host.querySelector('input[aria-label="编辑常用内衣"]')).toBeNull();
+    expect(host.textContent).not.toContain('不应展示');
+  });
 });

@@ -191,9 +191,10 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
     onCourierChange(addNpcToCourierContacts(courier, npc));
   }, [courier, onCourierChange]);
   const handlePrivateArchiveCorrection = useCallback((npcId: string, archive: NPC_NSFW档案) => {
-    updateRecord(npcId, { NSFW档案: archive });
+    const record = normalizedRecords.find((npc) => npc.id === npcId);
+    updateRecord(npcId, { NSFW档案: record && canRevealNpcRecordMeasurements(record) ? archive : { ...archive, 常用内衣: undefined } });
     onProfileSaved?.();
-  }, [updateRecord, onProfileSaved]);
+  }, [normalizedRecords, updateRecord, onProfileSaved]);
   const handleSetAppearanceFact = useCallback((npc: NPC记录, key: NpcAppearanceKey, value: string): string | null => {
     try {
       setNpcAppearanceFact(npc, key, value);
@@ -601,7 +602,7 @@ const NpcDetail = memo(function NpcDetail({
             ))}
             {(['介绍', '外貌', '穿着', '性格', '说话方式', '装备摘要'] as const).map((field) => (
               <label key={field} className="flex min-w-0 flex-col gap-1 text-xs" style={{ color: bodyColor }}>
-                {field}
+                {field === '穿着' ? '常用穿着' : field}
                 <textarea
                   aria-label={field}
                   rows={field === '介绍' ? 3 : 2}
@@ -652,8 +653,8 @@ const NpcDetail = memo(function NpcDetail({
             <DetailBlock title="外貌">
               <Paragraph text={npc.外貌} placeholder="尚无外貌记录" />
             </DetailBlock>
-            <DetailBlock title="穿着">
-              <Paragraph text={npc.穿着} placeholder="尚无穿着记录" />
+            <DetailBlock title="常用穿着">
+              <Paragraph text={npc.穿着} placeholder="尚无常用穿着记录" />
             </DetailBlock>
           </section>
 
@@ -780,6 +781,9 @@ function NSFWArchivePanel({ npc, travelerName, onCorrection }: {
   const [partnerType, setPartnerType] = useState<'player' | 'other' | 'unknown'>('player');
   const [otherPartner, setOtherPartner] = useState('');
   const [partnerError, setPartnerError] = useState('');
+  const [underwearDraft, setUnderwearDraft] = useState(archive?.常用内衣 ?? '');
+  const [underwearMessage, setUnderwearMessage] = useState('');
+  useEffect(() => setUnderwearDraft(archive?.常用内衣 ?? ''), [archive?.常用内衣]);
   const adultEligibility = resolveNpcAdultEligibility({
     name: npc.姓名, aliases: npc.别名 ? [npc.别名] : [],
     description: [npc.介绍, npc.外貌, npc.备注.join(' ')].filter(Boolean).join(' '),
@@ -845,6 +849,22 @@ function NSFWArchivePanel({ npc, travelerName, onCorrection }: {
           <div className="mt-3 grid gap-2 md:grid-cols-2" data-testid="adult-female-sexual-history">
             <InfoPill label="是否处女" value={archive.是否处女 ?? '未知'} />
             <InfoPill label="首次性行为对象" value={displayFirstPartner(archive, travelerName)} />
+          </div>
+        )}
+
+        {npc.性别 === '女' && (
+          <div className="mt-3 space-y-2 text-xs" style={{ color: bodyColor }}>
+            <ArchiveField title="常用内衣" text={archive?.常用内衣} />
+            <div className="flex flex-wrap gap-2">
+              <input aria-label="编辑常用内衣" value={underwearDraft} onChange={(event) => setUnderwearDraft(event.target.value)} className="teyvat-input min-w-0 flex-1 px-2 py-1.5" placeholder="仅手动记录已确认的常用内衣" />
+              <button type="button" className="teyvat-btn px-3 py-1.5" onClick={() => {
+                const value = underwearDraft.trim();
+                if (value.length > 120 || /[<>\r\n\u0000-\u001f]/u.test(value)) { setUnderwearMessage('保存失败：内容过长或包含无效字符。'); return; }
+                onCorrection(npc.id, { ...archive, 常用内衣: value || undefined });
+                setUnderwearMessage('常用内衣已保存。');
+              }}>保存常用内衣</button>
+            </div>
+            {underwearMessage && <p role="status">{underwearMessage}</p>}
           </div>
         )}
 

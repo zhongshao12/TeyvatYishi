@@ -6,6 +6,8 @@ import { 创建默认游戏设置 } from '@/models/settings';
 import { 创建空世界状态 } from '@/models/world';
 import type { NPC记录 } from '@/models/npc';
 import { enrichNpcArchives } from '@/utils/npcArchiveEnrichment';
+import { createEmptyTeyvatGameState, normalizeTeyvatGameState } from '@/models/teyvat/state';
+import { applyLegacyNpcRecords, mapTeyvatNpcsToLegacy } from '@/hooks/useGameState';
 
 /**
  * 「NSFW 档案里的长期事实没有发生作用」的两个成因，这里都锁住：
@@ -43,6 +45,19 @@ const buildPrompt = (records: NPC记录[], enableNsfw: boolean) => buildSystemPr
 ).systemPrompt;
 
 describe('NSFW 档案长期事实的持久化', () => {
+  it('adult_underwear_roundtrip_but_unknown_age_is_blocked', () => {
+    const adult = npc({ 姓名: '阿明', id: 'npc_adult', 性别: '女', 穿着: '常用制服', NSFW档案: {
+      enabled: true, 年龄确认: 'adult', 年龄确认来源: 'manual', 常用内衣: '浅色棉质内衣',
+    } });
+    const unknown = npc({ 姓名: '阿华', id: 'npc_unknown', 性别: '女', NSFW档案: {
+      enabled: true, 年龄确认: 'unknown', 常用内衣: '不应出现的旧档内容',
+    } });
+    const loaded = normalizeTeyvatGameState(applyLegacyNpcRecords(createEmptyTeyvatGameState(), [adult, unknown]));
+    const records = mapTeyvatNpcsToLegacy(loaded);
+    expect(records.find((entry) => entry.id === adult.id)?.穿着).toBe('常用制服');
+    expect(records.find((entry) => entry.id === adult.id)?.NSFW档案?.常用内衣).toBe('浅色棉质内衣');
+    expect(records.find((entry) => entry.id === unknown.id)?.NSFW档案?.常用内衣).toBeUndefined();
+  });
   it('keeps durable facts through archive enrichment', () => {
     const result = enrich(npc({ NSFW档案: { ...DURABLE } }));
 

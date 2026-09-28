@@ -250,6 +250,7 @@ export function buildVariableModelPrompt(
     '- 好感度大于 100（生死挚友）后不再下降：系统会忽略对这类角色的下调，不要安排他们掉好感。',
     '- 原著角色的长期性格不由变量模型改写；长期口吻以图鉴主体资料校准。',
     '- 单回合的沉默/紧张/冷淡不要固化为长期性格，只写进 memory / recentInteraction / openItems / unresolvedConflicts / mustRemember / doNotForget。',
+    '- clothing 是角色平时固定的“常用穿着”，不是当前场景服装。临时换装只写进 memory/recentInteraction；仅在正文明确“从此改穿/今后常穿”等持久变化时提交 clothing，并在 evidence 引用该变化。',
     '- 重要 NPC 的低风险日常轻记忆：已入档、原著、同行、当前镜头重点或具名原创角色，只要正文写明与玩家发生了具体共同互动，就应输出 npc 事实。',
     '- 共同互动包括：一起吃饭喝茶、共同训练或调查、互相玩笑、招呼玩家参与日常、等待玩家反馈等。',
     '- 这类事实只写低风险字段：memory、recentInteraction、sharedExperiences、longTermImpression。没有明确升温/冲突时不写 affinityDelta。',

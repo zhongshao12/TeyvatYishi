@@ -552,6 +552,7 @@ export function mapTeyvatNpcsToLegacy(game: TeyvatGameState): NPC记录[] {
     备注: npc.notes, 玩家纠正记录: npc.playerCorrections, 原著角色: npc.canonical,
     NSFW档案: npc.matureArchive ? {
       enabled: npc.matureArchive.enabled, 年龄确认: npc.matureArchive.ageConfirmation, 年龄确认来源: npc.matureArchive.ageConfirmationSource, 亲密阶段: npc.matureArchive.intimacyStage,
+      常用内衣: npc.matureArchive.usualUnderwear,
       是否处女: npc.gender === '女' && npc.matureArchive.ageConfirmation === 'adult' ? (npc.matureArchive.virginityStatus === 'virgin' ? '是' : npc.matureArchive.virginityStatus === 'not_virgin' ? '否' : npc.matureArchive.virginityStatus === 'unknown' ? '未知' : undefined) : undefined,
       首次性行为对象: npc.gender === '女' && npc.matureArchive.ageConfirmation === 'adult' ? npc.matureArchive.firstSexualPartner : undefined,
       首次性行为对象引用: npc.gender === '女' && npc.matureArchive.ageConfirmation === 'adult' ? npc.matureArchive.firstSexualPartnerRef : undefined,
@@ -599,6 +600,7 @@ export function applyLegacyNpcRecords(game: TeyvatGameState, records: NPC记录[
     } : { slotImages: {} },
     matureArchive: npc.NSFW档案 ? {
       enabled: npc.NSFW档案.enabled, ageConfirmation: npc.NSFW档案.年龄确认, ageConfirmationSource: npc.NSFW档案.年龄确认来源, intimacyStage: npc.NSFW档案.亲密阶段,
+      usualUnderwear: npc.NSFW档案.常用内衣,
       virginityStatus: npc.性别 === '女' && npc.NSFW档案.年龄确认 === 'adult' ? (npc.NSFW档案.是否处女 === '是' ? 'virgin' : npc.NSFW档案.是否处女 === '否' ? 'not_virgin' : npc.NSFW档案.是否处女 === '未知' ? 'unknown' : undefined) : undefined,
       firstSexualPartner: npc.性别 === '女' && npc.NSFW档案.年龄确认 === 'adult' ? npc.NSFW档案.首次性行为对象 : undefined,
       firstSexualPartnerRef: npc.性别 === '女' && npc.NSFW档案.年龄确认 === 'adult' ? npc.NSFW档案.首次性行为对象引用 : undefined,

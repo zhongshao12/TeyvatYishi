@@ -131,6 +131,8 @@ export interface TeyvatNpcMatureArchive {
   enabled?: boolean;
   ageConfirmation?: 'adult' | 'unknown' | 'minor_blocked';
   ageConfirmationSource?: 'canonical' | 'manual' | 'legacy_unverified';
+  /** Confirmed-adult female only; never inferred by appearance AI. */
+  usualUnderwear?: string;
   /** Adult-confirmed female characters only. */
   virginityStatus?: 'virgin' | 'not_virgin' | 'unknown';
   firstSexualPartner?: string;
@@ -283,6 +285,7 @@ export function normalizeTeyvatNpcMatureArchive(value: unknown): TeyvatNpcMature
   return {
     ...(typeof value.enabled === 'boolean' ? { enabled: value.enabled } : {}), ...(age ? { ageConfirmation: age } : {}),
     ...(ageSource ? { ageConfirmationSource: ageSource } : {}),
+    ...(age === 'adult' && optionalText(value.usualUnderwear) ? { usualUnderwear: text(value.usualUnderwear).slice(0, 120) } : {}),
     ...(virginityStatus ? { virginityStatus } : {}),
     ...(age === 'adult' && optionalText(value.firstSexualPartner) ? { firstSexualPartner: text(value.firstSexualPartner) } : {}),
     ...(age === 'adult' && value.firstSexualPartnerRef === 'player' ? { firstSexualPartnerRef: 'player' as const } : {}),
@@ -312,11 +315,12 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
     const rawAliases = textList(entry.aliases);
     const canonical = matchCanonicalIdentity({ id: rawId, name: rawName, aliases: rawAliases });
     const matureArchive = normalizeTeyvatNpcMatureArchive(entry.matureArchive);
-    const appearanceFacts = normalizeNpcAppearanceFacts(entry.appearanceFacts, canRevealNpcMeasurements({
+    const eligibleForMeasurements = canRevealNpcMeasurements({
       name: canonical?.name ?? rawName, aliases: rawAliases, gender: text(entry.gender) || canonical?.gender,
       description: [text(entry.说明), text(entry.appearance), ...textList(entry.notes)].filter(Boolean).join(' '),
       ageConfirmation: matureArchive?.ageConfirmation, ageSource: matureArchive?.ageConfirmationSource,
-    }));
+    });
+    const appearanceFacts = normalizeNpcAppearanceFacts(entry.appearanceFacts, eligibleForMeasurements);
     const archived = entry.archived === true;
     const roleTier = archived ? 'extra' : canonical || entry.roleTier === 'companion' ? 'companion' : 'extra';
     const tierBeforeArchive = entry.tierBeforeArchive === 'companion' || entry.tierBeforeArchive === 'extra'
@@ -341,7 +345,8 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
         summaries: Array.isArray(ledger.summaries) ? ledger.summaries.flatMap((item) => normalizeTeyvatNpcSummaryMemory(item) ?? []) : [],
       },
       notes: textList(entry.notes), playerCorrections: textList(entry.playerCorrections), canonical: entry.canonical === true || Boolean(canonical),
-      avatar: text(entry.avatar), visualArchive: normalizeTeyvatNpcVisualArchive(entry.visualArchive), matureArchive,
+      avatar: text(entry.avatar), visualArchive: normalizeTeyvatNpcVisualArchive(entry.visualArchive),
+      matureArchive: matureArchive && !eligibleForMeasurements ? { ...matureArchive, usualUnderwear: undefined } : matureArchive,
     }];
   });
 }

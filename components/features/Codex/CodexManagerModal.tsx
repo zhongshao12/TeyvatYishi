@@ -59,33 +59,32 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
   const categories = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of items) {
-      const label = categoryName(item.category);
-      counts.set(label, (counts.get(label) ?? 0) + 1);
+      counts.set(item.category, (counts.get(item.category) ?? 0) + 1);
     }
-    return [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], 'zh'));
+    return [...counts.entries()].sort((left, right) => right[1] - left[1] || categoryName(left[0]).localeCompare(categoryName(right[0]), 'zh'));
   }, [items]);
-  const [activeCategory, setActiveCategory] = useState<string>('全部');
+  const [activeCategory, setActiveCategory] = useState<string>('all');
 
   const listItems = useMemo(() => {
     return items.filter((item) => {
-      if (activeCategory !== '全部' && item.category !== activeCategory) return false;
+      if (activeCategory !== 'all' && item.category !== activeCategory) return false;
       if (!query.trim()) return true;
       const entry = entryById.get(item.id);
       return entry ? entryMatchesQuery(entry, query) : false;
     });
   }, [items, entryById, activeCategory, query]);
 
-  const selectedEntry: CodexEntry | null = (selectedId ? entryById.get(selectedId) : undefined)
-    ?? (listItems[0] ? entryById.get(listItems[0].id) : undefined)
-    ?? null;
-  const selectedItem = selectedEntry ? items.find((item) => item.id === selectedEntry.id) ?? null : null;
+  const selectedItem = listItems.find((item) => item.id === selectedId) ?? listItems[0] ?? null;
+  const selectedEntry: CodexEntry | null = selectedItem ? entryById.get(selectedItem.id) ?? null : null;
 
   // 用领域检索服务演示：当前搜索词若在回合内出现，会召回并注入哪些条目。
   const recallPreview = useMemo(() => {
     if (!query.trim()) return null;
     const result = retrieveCodexEntries(codex, query, 5);
-    return result.entries.length ? result.entries : null;
-  }, [codex, query]);
+    const visibleIds = new Set(listItems.map((item) => item.id));
+    const visibleEntries = result.entries.filter((entry) => visibleIds.has(entry.id));
+    return visibleEntries.length ? visibleEntries : null;
+  }, [codex, query, listItems]);
 
   const relatedEntries = useMemo(() => {
     if (!selectedEntry?.relatedEntryIds?.length) return [];
@@ -157,7 +156,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
             />
             {categories.length > 1 && (
               <div className="mt-2 flex flex-wrap gap-1">
-                {['全部', ...categories.map(([category]) => category)].map((category) => (
+                {['all', ...categories.map(([category]) => category)].map((category) => (
                   <button
                     key={category}
                     type="button"
@@ -169,7 +168,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
                       clipPath: CLIP_ITEM,
                     }}
                   >
-                    {category}
+                    {category === 'all' ? '全部' : categoryName(category)}
                   </button>
                 ))}
               </div>
@@ -178,7 +177,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
             {listItems.length === 0 ? (
               <p className="px-1 py-8 text-center text-xs leading-6" style={{ color: muted(0.75) }}>
-                没有匹配的条目。图鉴会随剧情推进与图鉴预设导入逐步充实。
+                {query.trim() ? '没有匹配的条目。' : activeCategory === 'all' ? '图鉴尚无条目。' : '当前分类暂无条目。'}
               </p>
             ) : (
               listItems.map((item) => {
@@ -279,7 +278,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
                         <button
                           key={entry.id}
                           type="button"
-                          onClick={() => setSelectedId(entry.id)}
+                          onClick={() => { setActiveCategory(entry.category); setSelectedId(entry.id); }}
                           className="px-2 py-1 text-[12px]"
                           style={{ color: goldSoft(0.92), boxShadow: `inset 0 0 0 1px ${goldSoft(0.3)}`, clipPath: CLIP_ITEM }}
                         >

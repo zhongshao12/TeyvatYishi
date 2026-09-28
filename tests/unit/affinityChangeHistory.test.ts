@@ -23,6 +23,17 @@ const batch = (turn: number, results: 变量命令结果[]): 变量命令批次 
 });
 
 describe('提取好感变化事件', () => {
+  it('recent_events_use_committed_delta', () => {
+    const events = 提取好感变化事件([
+      batch(2, [result('add', 'NPC.[id=npc_amber].affinity', 5), result('sub', 'NPC.[id=npc_lisa].affinity', 3)]),
+      batch(3, [result('set', 'NPC.[id=npc_amber].affinity', 40), result('add', 'NPC.[id=npc_lisa].affinity', 99, { ok: false, kind: 'rejected' })]),
+    ]);
+    expect(events.map(({ action, delta, value }) => ({ action, delta, value }))).toEqual([
+      { action: 'add', delta: 5, value: null },
+      { action: 'sub', delta: -3, value: null },
+      { action: 'set', delta: null, value: 40 },
+    ]);
+  });
   it('reads the live domain key (affinity), not only the legacy Chinese field', () => {
     const events = 提取好感变化事件([batch(7, [result('add', 'NPC.[id=npc_amber].affinity', 5)])]);
 

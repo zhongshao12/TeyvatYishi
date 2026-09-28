@@ -25,8 +25,8 @@ const activeSurface = 'linear-gradient(90deg, rgba(var(--tj-btn-primary-start), 
 const quietSurface = 'linear-gradient(135deg, rgba(var(--tj-ui-panel), 0.62), rgba(var(--tj-ui-panel-strong), 0.72))';
 
 interface CompanionRosterSidebarProps {
-  tab: NPC阶位 | 'graph';
-  onTabChange: (tab: NPC阶位 | 'graph') => void;
+  tab: NPC阶位;
+  onTabChange: (tab: NPC阶位) => void;
   companions: NPC记录[];
   extras: NPC记录[];
   visible: NPC记录[];
@@ -77,20 +77,16 @@ export const CompanionRosterSidebar = memo(function CompanionRosterSidebar({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <TabButton active={tab === 'companion'} onClick={() => onTabChange('companion')}>
           伙伴 {companions.length}
         </TabButton>
         <TabButton active={tab === 'extra'} onClick={() => onTabChange('extra')}>
           路人 {extras.length}
         </TabButton>
-        <TabButton active={tab === 'graph'} onClick={() => onTabChange('graph')}>
-          关系图
-        </TabButton>
       </div>
 
-      {tab !== 'graph' && (
-        <input
+      <input
           value={searchQuery}
           onChange={(event) => onSearchQueryChange(event.target.value)}
           aria-label="搜索同伴"
@@ -98,7 +94,6 @@ export const CompanionRosterSidebar = memo(function CompanionRosterSidebar({
           className="teyvat-input w-full px-3 py-2 text-xs"
           style={{ clipPath: CLIP_ITEM }}
         />
-      )}
 
       <div className="flex min-w-0 gap-2 overflow-x-auto overflow-y-hidden pb-1 md:min-h-0 md:flex-1 md:block md:space-y-2 md:overflow-y-auto md:overflow-x-hidden md:pb-0 md:pr-1">
         {visible.length ? (
@@ -270,7 +265,7 @@ export function getAffinityTone(value: number) {
   return { color: 'rgba(var(--tj-arcane-blue),0.86)', stroke: 'rgba(var(--tj-arcane-blue),0.34)', fill: 'linear-gradient(90deg, rgba(var(--tj-panel-bg-start),0.75), rgba(var(--tj-arcane-blue),0.62))' };
 }
 
-function EmptyRoster({ tab }: { tab: NPC阶位 | 'graph' }) {
+function EmptyRoster({ tab }: { tab: NPC阶位 }) {
   return (
     <div className="px-4 py-8 text-center" style={panelStyle}>
       <div className="font-serif text-[20px]" style={{ color: 'rgba(var(--tj-btn-primary-start), 0.45)' }}>✦</div>

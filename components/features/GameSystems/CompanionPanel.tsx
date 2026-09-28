@@ -1,5 +1,5 @@
 import { CLIP_ITEM, CLIP_SECTION, gradientAccent, insetRing } from '@/styles/clipPaths';
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { memo } from 'react';
 import type { NPC记录, NPC阶位, NPC_NSFW年龄确认, NPC_NSFW档案 } from '@/models/npc';
@@ -9,8 +9,6 @@ import type { 相册系统 } from '@/models/imageGeneration';
 import type { ArchiveCodex } from '@/models/teyvat/codex';
 import { buildNpcRelationshipPlanning, type NPC关系规划条目 } from '@/services/npcRelationshipPlanning';
 import { enrichNpcArchives } from '@/utils/npcArchiveEnrichment';
-import type { 变量命令批次 } from '@/models/variableCommand';
-import { RelationshipGraphPanel } from './RelationshipGraphPanel';
 import { 解析相册资源引用 } from '@/utils/albumActions';
 import type { CourierSystem } from '@/models/teyvat/courier';
 import { addNpcToCourierContacts } from '@/services/ai/courierService';
@@ -34,7 +32,8 @@ interface CompanionPanelProps {
   maleNsfwArchiveEnabled?: boolean;
   codex?: ArchiveCodex;
   devMode?: boolean;
-  variableBatches?: 变量命令批次[];
+  focusNpcId?: string;
+  focusNpcRequest?: number;
   courier?: CourierSystem;
   onCourierChange?: React.Dispatch<React.SetStateAction<CourierSystem>>;
   travelerName?: string;
@@ -82,13 +81,14 @@ const activeSurface = 'linear-gradient(90deg, rgba(var(--tj-btn-primary-start), 
 const quietSurface = 'linear-gradient(135deg, rgba(var(--tj-ui-panel), 0.62), rgba(var(--tj-ui-panel-strong), 0.72))';
 const ROSTER_PAGE_SIZE = 60;
 
-export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved, album, turnCount, nsfwEnabled, maleNsfwArchiveEnabled = false, codex, devMode = false, variableBatches, courier, onCourierChange, travelerName }: CompanionPanelProps) {
-  const [tab, setTab] = useState<NPC阶位 | 'graph'>('companion');
+export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved, album, turnCount, nsfwEnabled, maleNsfwArchiveEnabled = false, codex, devMode = false, focusNpcId, focusNpcRequest = 0, courier, onCourierChange, travelerName }: CompanionPanelProps) {
+  const [tab, setTab] = useState<NPC阶位>('companion');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [correctionDraft, setCorrectionDraft] = useState('');
   const [partyHint, setPartyHint] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [visibleNpcCount, setVisibleNpcCount] = useState(ROSTER_PAGE_SIZE);
+  const handledFocusRequest = useRef<string | null>(null);
   const enrichedRecords = useMemo(() => {
     // The canonical runtime already normalized this roster at the state
     // boundary. Re-running legacy identity merging here was quadratic and
@@ -124,8 +124,12 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
   const hiddenNpcCount = Math.max(0, filteredRoster.length - visible.length);
 
   useEffect(() => {
-    setVisibleNpcCount(ROSTER_PAGE_SIZE);
-  }, [searchQuery, tab]);
+    const roster = tab === 'companion' ? companions : extras;
+    const focusedIndex = !searchQuery && focusNpcId ? roster.findIndex((npc) => npc.id === focusNpcId) : -1;
+    setVisibleNpcCount(focusedIndex < 0
+      ? ROSTER_PAGE_SIZE
+      : Math.max(ROSTER_PAGE_SIZE, Math.ceil((focusedIndex + 1) / ROSTER_PAGE_SIZE) * ROSTER_PAGE_SIZE));
+  }, [searchQuery, tab, focusNpcId, companions, extras]);
 
   const travelingCount = companions.filter((n) => n.同行).length;
   const friendCount = companions.filter((n) => ['friend', 'close'].includes(n.关系)).length;
@@ -134,6 +138,22 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
     if (selectedId && visible.some((n) => n.id === selectedId)) return;
     setSelectedId(visible[0]?.id ?? null);
   }, [selectedId, visible]);
+
+  useEffect(() => {
+    if (!focusNpcId) return;
+    const requestKey = `${focusNpcRequest}:${focusNpcId}`;
+    if (handledFocusRequest.current === requestKey) return;
+    const record = normalizedRecords.find((npc) => npc.id === focusNpcId);
+    if (!record) return;
+    handledFocusRequest.current = requestKey;
+    const targetTab: NPC阶位 = record.阶位 === 'extra' ? 'extra' : 'companion';
+    const roster = targetTab === 'extra' ? extras : companions;
+    const index = roster.findIndex((npc) => npc.id === focusNpcId);
+    setSearchQuery('');
+    setTab(targetTab);
+    setVisibleNpcCount(Math.max(ROSTER_PAGE_SIZE, Math.ceil((index + 1) / ROSTER_PAGE_SIZE) * ROSTER_PAGE_SIZE));
+    setSelectedId(focusNpcId);
+  }, [focusNpcId, focusNpcRequest, normalizedRecords, companions, extras]);
 
   const selected = visible.find((n) => n.id === selectedId) ?? null;
   const relationshipPlanning = useMemo(
@@ -168,10 +188,6 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
   const handleShowMoreNpcs = useCallback(() => {
     setVisibleNpcCount((count) => count + ROSTER_PAGE_SIZE);
   }, []);
-  const handleGraphNpcSelect = useCallback((id: string) => {
-    setSelectedId(id);
-    setTab(normalizedRecords.find((npc) => npc.id === id)?.阶位 === 'extra' ? 'extra' : 'companion');
-  }, [normalizedRecords]);
   const handleSaveProfile = useCallback((npc: NPC记录, draft: NpcProfileDraft): string | null => {
     const name = npc.原著角色 ? npc.姓名 : draft.姓名.trim();
     const alias = draft.别名.trim();
@@ -223,7 +239,7 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
       />
 
       <main className="min-h-0 min-w-0 flex-1 overflow-y-visible md:overflow-y-auto md:pr-1">
-        {selected && tab !== 'graph' && (
+        {selected && (
           <div className="mb-2 flex gap-2 px-1">
             <input
               value={correctionDraft}
@@ -240,14 +256,7 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
             }} className="shrink-0 px-3 py-2 text-xs" style={{ color: 'rgb(var(--tj-text-primary))', background: 'rgba(var(--tj-accent-primary),0.12)', boxShadow: insetRing(0.4), clipPath: CLIP_ITEM }}>记录</button>
           </div>
         )}
-        {tab === 'graph' ? (
-          <RelationshipGraphPanel
-            npcRecords={normalizedRecords}
-            variableBatches={variableBatches}
-            travelerName={travelerName}
-            onSelectNpc={handleGraphNpcSelect}
-          />
-        ) : selected ? (
+        {selected ? (
           <>
           {partyHint && (
             <p className="px-3 py-1.5 text-[11px]" style={{ color: 'var(--tj-danger)' }}>{partyHint}</p>

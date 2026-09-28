@@ -267,6 +267,8 @@ export default function App() {
   const [showReleaseAnnouncements, setShowReleaseAnnouncements] = useState(false);
   const [showMysteryChat, setShowMysteryChat] = useState(false);
   const [showCharacter, setShowCharacter] = useState(false);
+  const [focusedCompanionNpcId, setFocusedCompanionNpcId] = useState<string | undefined>();
+  const [focusedCompanionRequest, setFocusedCompanionRequest] = useState(0);
   const [showCourier, setShowCourier] = useState(false);
   const [showMemoryRebuild, setShowMemoryRebuild] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('api');
@@ -934,6 +936,8 @@ export default function App() {
             getGameSessionId: state.getGameSessionId,
             onUnlockedElement: handleUnlockedElement,
             npcRecords: state.NPC,
+            focusedCompanionNpcId,
+            focusedCompanionRequest,
             onNpcRecordsChange: state.setNPC,
             onCompanionProfileSaved: requestCompanionSave,
             courier: state.game.手机,
@@ -1334,6 +1338,14 @@ export default function App() {
         <TravelerProfileModal
           traveler={state.旅人}
           album={state.相册}
+          npcRecords={state.NPC}
+          variableBatches={state.variableBatches}
+          onSelectNpc={(id) => {
+            setFocusedCompanionNpcId(id);
+            setFocusedCompanionRequest((value) => value + 1);
+            setShowCharacter(false);
+            setActiveSystem('companion');
+          }}
           onClose={() => setShowCharacter(false)}
           onTravelerChange={(旅人) => state.set旅人(旅人)}
         />
@@ -1440,6 +1452,8 @@ function renderSystemPanel(
     quest: QuestJournal;
     onQuestChange: (updater: (previous: QuestJournal) => QuestJournal) => void;
     variableBatches: import('@/models/variableCommand').变量命令批次[];
+    focusedCompanionNpcId?: string;
+    focusedCompanionRequest?: number;
     album: 相册系统;
     onAlbumChange: React.Dispatch<React.SetStateAction<相册系统>>;
     memorySystem: 记忆系统;
@@ -1504,6 +1518,8 @@ function renderSystemPanel(
       return (
         <CompanionPanel
           npcRecords={ctx.npcRecords}
+          focusNpcId={ctx.focusedCompanionNpcId}
+          focusNpcRequest={ctx.focusedCompanionRequest}
           onNpcRecordsChange={ctx.onNpcRecordsChange}
           onProfileSaved={ctx.onCompanionProfileSaved}
           album={ctx.album}
@@ -1512,7 +1528,6 @@ function renderSystemPanel(
           maleNsfwArchiveEnabled={ctx.gameSettings.enableMaleNsfwArchive}
           codex={ctx.codex}
           devMode={ctx.gameSettings.devMode}
-          variableBatches={ctx.variableBatches}
           courier={ctx.courier}
           onCourierChange={ctx.onCourierChange}
           travelerName={ctx.traveler.姓名}

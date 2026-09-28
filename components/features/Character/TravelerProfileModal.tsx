@@ -6,17 +6,23 @@ import { Modal } from '@/components/ui/Modal';
 import type { ElementId } from '@/models/teyvat/elements';
 import { ELEMENT_NAMES } from '@/styles/elementTokens';
 import { 解析相册资源引用 } from '@/utils/albumActions';
+import type { NPC记录 } from '@/models/npc';
+import type { 变量命令批次 } from '@/models/variableCommand';
+import { RelationshipGraphPanel } from '@/components/features/GameSystems/RelationshipGraphPanel';
 
 interface Props {
   traveler: 角色数据结构;
   album?: 相册系统;
   onClose: () => void;
   onTravelerChange?: (traveler: 角色数据结构) => void;
+  npcRecords?: NPC记录[];
+  variableBatches?: 变量命令批次[];
+  onSelectNpc?: (id: string) => void;
 }
 
 
 
-export function TravelerProfileModal({ traveler, album, onClose, onTravelerChange }: Props) {
+export function TravelerProfileModal({ traveler, album, onClose, onTravelerChange, npcRecords = [], variableBatches = [], onSelectNpc }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<角色数据结构>(traveler);
   const [draftError, setDraftError] = useState<string | null>(null);
@@ -232,6 +238,17 @@ export function TravelerProfileModal({ traveler, album, onClose, onTravelerChang
             {traveler.专长知识?.length > 0 && (
               <InfoCell label="知识" value={traveler.专长知识.join('、')} />
             )}
+          </Section>
+        )}
+
+        {onSelectNpc && (
+          <Section title="人际关系">
+            <RelationshipGraphPanel
+              npcRecords={npcRecords}
+              variableBatches={variableBatches}
+              travelerName={traveler.姓名}
+              onSelectNpc={onSelectNpc}
+            />
           </Section>
         )}
 

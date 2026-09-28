@@ -219,7 +219,7 @@ export interface 变量命令批次 {
   turn: number;
   timestamp: number;
   /** 触发来源：'main' 主模型直接输出，'calibration' 变量模型二次校准 */
-  source: 'main' | 'calibration';
+  source: 'main' | 'calibration' | 'doudizhu';
   /** 是否调用了变量模型（false = 主模型直接出，true = 走了二次校准） */
   modelName?: string;
   results: 变量命令结果[];

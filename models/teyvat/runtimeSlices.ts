@@ -297,7 +297,7 @@ export interface StoryWeavingDto { series: StorySeriesDto[]; activeSeriesId?: st
 
 export interface VariableCommandDto { action: 'set' | 'add' | 'sub' | 'push' | 'delete'; key: string; value: TechnicalJsonValue }
 export interface VariableCommandResultDto { command: VariableCommandDto; ok: boolean; kind?: 'command' | 'warning' | 'error' | 'rejected'; reason?: string; evidence?: string }
-export interface VariableBatchDto { id: string; turn: number; timestamp: number; source: 'main' | 'calibration'; modelName?: string; results: VariableCommandResultDto[]; report?: string; rawText?: string; committedChanges?: CommittedSettlementChange[]; omittedCommittedChanges?: number; retentionSummary?: { totalResults: number; succeededResults: number; diagnosticResults: number; omittedDiagnosticResults: number } }
+export interface VariableBatchDto { id: string; turn: number; timestamp: number; source: 'main' | 'calibration' | 'doudizhu'; modelName?: string; results: VariableCommandResultDto[]; report?: string; rawText?: string; committedChanges?: CommittedSettlementChange[]; omittedCommittedChanges?: number; retentionSummary?: { totalResults: number; succeededResults: number; diagnosticResults: number; omittedDiagnosticResults: number } }
 export interface NarrativeRuntime {
   plotNodes: PlotNodeDto[];
   storyWeaving: StoryWeavingDto | null;
@@ -628,7 +628,7 @@ function normalizeVariableBatch(value: unknown): VariableBatchDto | null {
   }) : [];
   return {
     id: text(value.id), turn: integer(value.turn), timestamp: number(value.timestamp),
-    source: value.source === 'calibration' ? 'calibration' : 'main',
+    source: value.source === 'doudizhu' ? 'doudizhu' : value.source === 'calibration' ? 'calibration' : 'main',
     ...(optionalText(value.modelName) ? { modelName: text(value.modelName) } : {}),
     results,
     ...(optionalText(value.report) ? { report: text(value.report) } : {}),

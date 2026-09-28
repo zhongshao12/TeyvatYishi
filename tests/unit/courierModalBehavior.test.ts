@@ -70,6 +70,28 @@ describe('CourierModal behavior', () => {
     vi.restoreAllMocks();
   });
 
+  it('shows private chat remark while group mentions retain canonical names', async () => {
+    const courier: CourierSystem = {
+      ...baseCourier,
+      contacts: [{ ...baseCourier.contacts[0]!, remark: '侦察骑士' }, baseCourier.contacts[1]!],
+      conversations: [...baseCourier.conversations, {
+        id: 'amber-private', title: '安柏', participantIds: ['player', 'amber'], messages: [],
+        unread: 0, type: 'private', typingMemberIds: [], updatedAt: 3,
+      }],
+    };
+    await act(async () => root.render(createElement(CourierModal, {
+      courier, travelerName: '云', onCourierChange: vi.fn(), onClose: vi.fn(),
+    })));
+    expect(host.textContent).toContain('侦察骑士');
+    const privateEntry = Array.from(host.querySelectorAll('button')).find((button) => button.querySelector('strong')?.textContent === '侦察骑士');
+    await act(async () => privateEntry!.click());
+    expect(host.querySelector('h3')?.textContent).toBe('侦察骑士');
+    const groupEntry = Array.from(host.querySelectorAll('button')).find((button) => button.querySelector('strong')?.textContent === '蒙德伙伴');
+    await act(async () => groupEntry!.click());
+    expect(findButton('@安柏')).toBeTruthy();
+    expect(host.textContent).not.toContain('@侦察骑士');
+  });
+
   it('renders the group roster and visual turn boundary from actual messages', async () => {
     await act(async () => {
       root.render(createElement(CourierModal, {

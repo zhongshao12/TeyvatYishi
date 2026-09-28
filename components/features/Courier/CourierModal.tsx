@@ -15,6 +15,7 @@ import { CourierContactTools } from './CourierContactTools';
 import { CourierMomentsPanel } from './CourierMomentsPanel';
 import { countEligibleMomentCommenters, createMoment, deleteMoment, editMoment, restoreMoment } from '@/services/courierMoments';
 import { createCourierPlayerMessageId } from '@/utils/courierReplyBatch';
+import { displayCourierContactName } from '@/services/courierContactRemark';
 
 export interface CourierModalProps {
   courier: CourierSystem;
@@ -137,6 +138,19 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
     for (const contact of courier.contacts) map.set(contact.id, contact.name);
     return map;
   }, [courier.contacts]);
+
+  const displayTitleByConversationId = useMemo(() => {
+    const overrides = new Map<string, string>();
+    const remarkedContacts = courier.contacts.filter((contact) => Boolean(contact.remark?.trim()));
+    if (!remarkedContacts.length) return overrides;
+    for (const conversation of courier.conversations) {
+      if (conversation.type !== 'private') continue;
+      const contact = remarkedContacts.find((item) => conversation.participantIds.includes(item.id)
+        || Boolean(item.npcId && conversation.participantIds.includes(item.npcId)));
+      if (contact) overrides.set(conversation.id, displayCourierContactName(contact));
+    }
+    return overrides;
+  }, [courier.conversations, courier.contacts]);
 
   const contactByParticipantId = useMemo(() => {
     const map = new Map<string, CourierContact>();
@@ -402,6 +416,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
           />
           <CourierConversationList
             conversations={visibleConversations}
+            displayTitleByConversationId={displayTitleByConversationId}
             selectedId={selected?.id}
             hiddenConversationCount={hiddenConversationCount}
             onSelect={handleSelectConversation}
@@ -423,7 +438,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
                 ←
               </button>
               <div className="min-w-0">
-                <h3 className="truncate font-serif text-lg tracking-wide">{phoneSection === 'moments' ? '朋友圈' : selected?.title ?? '消息'}</h3>
+                <h3 className="truncate font-serif text-lg tracking-wide">{phoneSection === 'moments' ? '朋友圈' : selected ? displayTitleByConversationId.get(selected.id) ?? selected.title : '消息'}</h3>
                 {phoneSection === 'chats' && selected?.type === 'group' && (
                   <p className="break-words text-[12px]" style={{ color: muted(0.75) }}>
                     {selected.participantIds.map(memberName).join('、')}

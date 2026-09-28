@@ -6,6 +6,8 @@ export type CourierDeliveryStatus = 'pending' | 'delivered' | 'dismissed' | 'exp
 export interface CourierContact {
   id: string;
   name: string;
+  /** 玩家本地显示别名；不参与 NPC 身份、@ 匹配或模型提示词。 */
+  remark?: string;
   npcId?: string;
   avatar?: string;
   relationLabel?: string;
@@ -150,6 +152,7 @@ function normalizeContact(value: unknown): CourierContact | null {
   const unlockSource = unlockSources.find((item) => item === value.unlockSource);
   return {
     id: text(value.id), name: text(value.name), available: value.available !== false,
+    ...(text(value.remark).trim() ? { remark: Array.from(text(value.remark).trim()).slice(0, 40).join('') } : {}),
     ...(optionalText(value.npcId) ? { npcId: text(value.npcId) } : {}), ...(optionalText(value.avatar) ? { avatar: text(value.avatar) } : {}),
     ...(optionalText(value.relationLabel) ? { relationLabel: text(value.relationLabel) } : {}), ...(optionalText(value.organization) ? { organization: text(value.organization) } : {}),
     ...(status ? { status } : {}), ...(Number.isFinite(Number(value.lastActiveTurn)) ? { lastActiveTurn: integer(value.lastActiveTurn) } : {}),
@@ -309,26 +312,40 @@ export function normalizeCourierSystem(value: unknown): CourierSystem {
   for (const contact of normalizedContacts) {
     const name = contact.name.trim();
     if (!name || !contact.id.trim()) continue;
-    const identity = name.toLocaleLowerCase('zh-CN');
-    const existingIndex = contactIndex.get(identity);
+    // Names are display data, not identity: unrelated NPCs may share one name.
+    const idIdentity = `id:${contact.id.trim()}`;
+    const npcIdentity = contact.npcId?.trim() ? `npc:${contact.npcId.trim()}` : undefined;
+    const canonicalName = matchCanonicalIdentity({ id: contact.npcId || contact.id, name })?.name;
+    // Old saves could contain an ID-backed canonical contact plus an ID-less alias.
+    // Only merge that narrow case; same-name NPCs with different explicit IDs remain separate.
+    const legacyAliasIndex = canonicalName ? contacts.findIndex((existing) =>
+      existing.name === name && Boolean(existing.npcId) !== Boolean(contact.npcId)
+      && matchCanonicalIdentity({ id: existing.npcId || existing.id, name: existing.name })?.name === canonicalName) : -1;
+    const existingIndex = contactIndex.get(idIdentity) ?? (npcIdentity ? contactIndex.get(npcIdentity) : undefined)
+      ?? (legacyAliasIndex >= 0 ? legacyAliasIndex : undefined);
     if (existingIndex === undefined) {
       contacts.push({ ...contact, name });
-      contactIndex.set(identity, contacts.length - 1);
+      contactIndex.set(idIdentity, contacts.length - 1);
+      if (npcIdentity) contactIndex.set(npcIdentity, contacts.length - 1);
       idAliases.set(contact.id, contact.id);
       continue;
     }
     const existing = contacts[existingIndex];
     if (!existing) {
       contacts.push({ ...contact, name });
-      contactIndex.set(identity, contacts.length - 1);
+      contactIndex.set(idIdentity, contacts.length - 1);
+      if (npcIdentity) contactIndex.set(npcIdentity, contacts.length - 1);
       idAliases.set(contact.id, contact.id);
       continue;
     }
     idAliases.set(contact.id, existing.id);
+    contactIndex.set(idIdentity, existingIndex);
+    if (npcIdentity) contactIndex.set(npcIdentity, existingIndex);
     contacts[existingIndex] = {
       ...contact,
       ...existing,
       name: existing.name || name,
+      remark: existing.remark || contact.remark,
       npcId: existing.npcId || contact.npcId,
       avatar: existing.avatar || contact.avatar,
       relationLabel: existing.relationLabel || contact.relationLabel,

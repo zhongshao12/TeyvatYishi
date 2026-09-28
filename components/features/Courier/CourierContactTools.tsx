@@ -6,6 +6,7 @@ import {
   calculateCourierUnread,
 } from '@/services/ai/courierService';
 import { CLIP_ITEM } from '@/styles/clipPaths';
+import { displayCourierContactName, setCourierContactRemark } from '@/services/courierContactRemark';
 
 interface CourierContactToolsProps {
   courier: CourierSystem;
@@ -28,6 +29,8 @@ export const CourierContactTools = memo(function CourierContactTools({
   const [groupMemberSearch, setGroupMemberSearch] = useState('');
   const [groupDraftName, setGroupDraftName] = useState('');
   const [groupMemberIds, setGroupMemberIds] = useState<string[]>([]);
+  const [editingContactId, setEditingContactId] = useState<string | null>(null);
+  const [remarkDraft, setRemarkDraft] = useState('');
   const pendingPrivateChats = useRef(new Map<string, string>());
   useEffect(() => { pendingPrivateChats.current.clear(); }, [courier]);
   const contactById = useMemo(
@@ -37,7 +40,8 @@ export const CourierContactTools = memo(function CourierContactTools({
   const validGroupMemberIds = groupMemberIds.filter((id) => contactById.has(id));
   const contactQuery = contactSearch.trim().toLocaleLowerCase();
   const groupMemberQuery = groupMemberSearch.trim().toLocaleLowerCase();
-  const filteredContacts = courier.contacts.filter((contact) => contact.name.toLocaleLowerCase().includes(contactQuery));
+  const filteredContacts = courier.contacts.filter((contact) =>
+    contact.name.toLocaleLowerCase().includes(contactQuery) || displayCourierContactName(contact).toLocaleLowerCase().includes(contactQuery));
   const filteredEligibleNpcContacts = eligibleNpcContacts.filter((npc) => npc.姓名.toLocaleLowerCase().includes(contactQuery));
   const filteredGroupMembers = courier.contacts.filter((contact) => contact.name.toLocaleLowerCase().includes(groupMemberQuery));
 
@@ -154,7 +158,7 @@ export const CourierContactTools = memo(function CourierContactTools({
           }}
         >
           {filteredContacts.map((contact) => (
-            <div key={contact.id} className="flex items-center justify-between gap-2">
+            <div key={contact.id} className="flex flex-wrap items-center justify-between gap-2">
               <button
                 type="button"
                 onClick={() => openContactConversation(contact.id)}
@@ -162,11 +166,37 @@ export const CourierContactTools = memo(function CourierContactTools({
                 className="min-h-11 min-w-0 flex-1 truncate px-2 py-1 text-left text-sm"
                 style={{ color: 'rgba(45,38,30,0.92)' }}
               >
-                {contact.name}
+                {displayCourierContactName(contact)}
               </button>
+              <button
+                type="button"
+                onClick={() => { setEditingContactId(contact.id); setRemarkDraft(contact.remark ?? ''); }}
+                aria-label={`编辑联系人备注 ${contact.name}`}
+                className="min-h-11 shrink-0 px-2 text-xs"
+                style={{ color: 'rgba(69,56,42,0.88)' }}
+              >备注</button>
               <button type="button" onClick={() => commit((previous) => ({ ...previous, contacts: previous.contacts.filter((item) => item.id !== contact.id) }))} aria-label={`删除联系人 ${contact.name}`} className="min-h-11 shrink-0 px-3 text-xs" style={{ color: 'rgba(var(--tj-danger),0.9)' }}>
                 删除
               </button>
+              {editingContactId === contact.id && (
+                <div className="flex w-full flex-wrap items-center gap-1 px-2 pb-1">
+                  <input
+                    aria-label="联系人备注" value={remarkDraft} maxLength={40}
+                    onChange={(event) => setRemarkDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                      commit((previous) => setCourierContactRemark(previous, contact.id, remarkDraft));
+                      setEditingContactId(null);
+                    }}
+                    placeholder={`给 ${contact.name} 写备注`}
+                    className="min-h-11 min-w-0 flex-1 px-2 text-sm"
+                    style={{ background: 'rgba(255,252,240,0.8)', color: 'rgb(var(--tj-text-primary))' }}
+                  />
+                  <button type="button" aria-label="保存联系人备注" onClick={() => { commit((previous) => setCourierContactRemark(previous, contact.id, remarkDraft)); setEditingContactId(null); }} className="min-h-11 px-2 text-xs">保存</button>
+                  <button type="button" aria-label="清除联系人备注" onClick={() => { commit((previous) => setCourierContactRemark(previous, contact.id, '')); setEditingContactId(null); }} className="min-h-11 px-2 text-xs">清除</button>
+                  <button type="button" onClick={() => setEditingContactId(null)} className="min-h-11 px-2 text-xs">取消</button>
+                </div>
+              )}
             </div>
           ))}
           {filteredEligibleNpcContacts.length > 0 ? (

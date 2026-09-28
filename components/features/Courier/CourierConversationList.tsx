@@ -4,6 +4,7 @@ import { CLIP_ITEM } from '@/styles/clipPaths';
 
 interface CourierConversationListProps {
   conversations: CourierConversation[];
+  displayTitleByConversationId?: ReadonlyMap<string, string>;
   selectedId?: string;
   hiddenConversationCount: number;
   onSelect: (conversationId: string) => void;
@@ -23,10 +24,12 @@ const VISIBLE_CONVERSATION_INCREMENT = 60;
 
 const CourierConversationListItem = memo(function CourierConversationListItem({
   conversation,
+  displayTitle,
   active,
   onSelect,
 }: {
   conversation: CourierConversation;
+  displayTitle?: string;
   active: boolean;
   onSelect: (conversationId: string) => void;
 }) {
@@ -44,7 +47,7 @@ const CourierConversationListItem = memo(function CourierConversationListItem({
     >
       <div className="flex items-center justify-between gap-2">
         <strong className="min-w-0 truncate font-serif text-sm tracking-wide" style={{ color: ink(0.96) }}>
-          {conversation.pinned ? '📌 ' : ''}{conversation.title || '未命名会话'}
+          {conversation.pinned ? '📌 ' : ''}{displayTitle || conversation.title || '未命名会话'}
         </strong>
         {conversation.unread > 0 && (
           <span className="shrink-0 px-1.5 text-[11px] font-bold" style={{ color: 'rgb(var(--tj-on-accent))', background: goldSoft(0.9) }}>
@@ -66,6 +69,7 @@ const CourierConversationListItem = memo(function CourierConversationListItem({
 
 export const CourierConversationList = memo(function CourierConversationList({
   conversations,
+  displayTitleByConversationId,
   selectedId,
   hiddenConversationCount,
   onSelect,
@@ -82,6 +86,7 @@ export const CourierConversationList = memo(function CourierConversationList({
         <CourierConversationListItem
           key={conversation.id}
           conversation={conversation}
+          displayTitle={displayTitleByConversationId?.get(conversation.id)}
           active={selectedId === conversation.id}
           onSelect={onSelect}
         />

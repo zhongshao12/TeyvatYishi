@@ -161,11 +161,11 @@ export function canAddNpcToCourierContacts(npc: NPC记录): boolean {
     || Boolean(npc.共同经历?.length);
 }
 
-/** 将已经建立关系的同伴加入手机；按 NPC id/姓名统一去重。 */
+/** 将已经建立关系的同伴加入手机；只按明确的 NPC id 去重。 */
 export function addNpcToCourierContacts(system: CourierSystem, npc: NPC记录): CourierSystem {
   const name = npc.姓名.trim();
   if (!name || !canAddNpcToCourierContacts(npc)) return system;
-  const existing = system.contacts.find((contact) => contact.npcId === npc.id || contact.name === name);
+  const existing = system.contacts.find((contact) => contact.npcId === npc.id || contact.id === `contact_${npc.id}`);
   if (existing) {
     const contacts = system.contacts.map((contact) => contact !== existing ? contact : {
       ...contact,
@@ -874,7 +874,7 @@ export function deliverDueCourierSeeds(
       ?? seed.relatedNpcIds.map((id) => (context.npcs ?? []).find((item) => item.id === id)).find(Boolean);
     const knownContact = contacts.find((contact) => contact.id === seed.senderId)
       ?? (npc ? contacts.find((contact) => contact.npcId === npc.id) : undefined)
-      ?? contacts.find((contact) => contact.name.trim() === deriveSenderName(seed, npc));
+      ?? (!npc ? contacts.find((contact) => contact.name.trim() === deriveSenderName(seed, npc)) : undefined);
     const senderName = knownContact?.name?.trim() || deriveSenderName(seed, npc);
     const senderId = knownContact?.id ?? seed.senderId;
     if (!knownContact) {

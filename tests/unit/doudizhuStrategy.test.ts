@@ -48,6 +48,17 @@ describe('offline Dou Dizhu NPC decisions', () => {
     expect(chooseDoudizhuNpcMove(view, profile(0))).toMatchObject({ type: 'play', cards: [card(6)] });
   });
 
+  it('uses the public teammate card count to distinguish medium and high trust against an opponent', () => {
+    const trick = { seat: 2 as const, cards: [card(5)], pattern: classifyDoudizhuPlay([card(5)])! };
+    const view: DoudizhuNpcView = {
+      seat: 1, hand: [card(6), card(9)], phase: 'playing', landlord: 2, activeSeat: 1,
+      highestBid: 2, bids: [0, 1, 2], trick, publicLog: [{ type: 'play', seat: 0, cards: [card(3)] }], seed: 9, redeals: 0,
+      handCounts: [1, 2, 5],
+    };
+    expect(chooseDoudizhuNpcMove(view, profile(50))).toMatchObject({ type: 'play', cards: [card(6)] });
+    expect(chooseDoudizhuNpcMove(view, profile(120))).toMatchObject({ type: 'play', cards: [card(9)] });
+  });
+
   it('bids and leads legally even with no outside API', () => {
     const view: DoudizhuNpcView = {
       seat: 2, hand: [card(3), card(4), card(5)], phase: 'bidding', landlord: null,

@@ -5,6 +5,7 @@ import { applyDoudizhuMove, startDoudizhuGame } from '../../services/doudizhu/ga
 import { applyDoudizhuGameAction } from '../../services/doudizhu/settlement';
 import { 提取好感变化事件 } from '../../utils/relationshipGraph';
 import { toLegacyVariableBatches } from '../../hooks/useGameState';
+import { findDoudizhuTerminalTurn } from '../helpers/doudizhuScenario';
 
 const npcIds = ['npc-a', 'npc-b'] as const;
 const root = (affinityA = 20, affinityB = 20) => {
@@ -16,6 +17,14 @@ const root = (affinityA = 20, affinityB = 20) => {
   ]);
   state.turnCount = 9;
   return state;
+};
+const terminalCache = new Map<'landlord' | 'farmers', ReturnType<typeof findDoudizhuTerminalTurn>>();
+const terminal = (side: 'landlord' | 'farmers') => {
+  const cached = terminalCache.get(side);
+  if (cached) return cached;
+  const found = findDoudizhuTerminalTurn(() => root(), npcIds, side);
+  terminalCache.set(side, found);
+  return found;
 };
 
 const nearFinish = (winner: 0 | 1): DoudizhuGame => {
@@ -42,10 +51,8 @@ const nearFinish = (winner: 0 | 1): DoudizhuGame => {
 describe('Dou Dizhu atomic settlement', () => {
   it('awards both invited NPCs +5 and one actual-match memory, regardless of winner', () => {
     for (const winner of [0, 1] as const) {
-      const state = root();
-      state.斗地主.currentGame = nearFinish(winner);
-      const card = state.斗地主.currentGame.hands[0][0]!;
-      const settled = applyDoudizhuGameAction(state, { type: 'play', cards: [card] });
+      const { before: state, action } = terminal(winner === 0 ? 'landlord' : 'farmers');
+      const settled = applyDoudizhuGameAction(state, action);
       expect(settled.斗地主.currentGame?.result?.winningSide).toBe(winner === 0 ? 'landlord' : 'farmers');
       expect(settled.NPC.map((npc) => npc.affinity)).toEqual([25, 25]);
       expect(settled.NPC.map((npc) => npc.sharedMemories.length)).toEqual([1, 1]);
@@ -57,40 +64,36 @@ describe('Dou Dizhu atomic settlement', () => {
   });
 
   it('replay, rapid click and reload cannot grant a second reward', () => {
-    const state = root();
-    state.斗地主.currentGame = nearFinish(0);
-    const card = state.斗地主.currentGame.hands[0][0]!;
-    const once = applyDoudizhuGameAction(state, { type: 'play', cards: [card] });
-    const twice = applyDoudizhuGameAction(once, { type: 'play', cards: [card] });
+    const { before: state, action } = terminal('landlord');
+    const once = applyDoudizhuGameAction(state, action);
+    const twice = applyDoudizhuGameAction(once, action);
     const reloaded = normalizeTeyvatGameState(JSON.parse(JSON.stringify(twice)));
-    const thrice = applyDoudizhuGameAction(reloaded, { type: 'play', cards: [card] });
+    const thrice = applyDoudizhuGameAction(reloaded, action);
     expect(thrice.NPC.map((npc) => npc.affinity)).toEqual([25, 25]);
     expect(thrice.NPC.map((npc) => npc.sharedMemories.length)).toEqual([1, 1]);
     expect(thrice.叙事.variableBatches.filter((batch) => batch.source === 'doudizhu')).toHaveLength(1);
-    expect(thrice.斗地主.settledGameIds).toEqual(['game-0']);
+    expect(thrice.斗地主.settledGameIds).toEqual([state.斗地主.currentGame!.id]);
   });
 
   it('clamps at the existing affinity maximum and derives the relationship stage', () => {
-    const state = root(149, 150);
-    state.斗地主.currentGame = nearFinish(0);
-    const settled = applyDoudizhuGameAction(state, { type: 'play', cards: [state.斗地主.currentGame.hands[0][0]!] });
+    const { before, action } = terminal('landlord');
+    const state = { ...before, NPC: before.NPC.map((npc, index) => ({ ...npc, affinity: index === 0 ? 149 : 150 })) };
+    const settled = applyDoudizhuGameAction(state, action);
     expect(settled.NPC.map((npc) => npc.affinity)).toEqual([150, 150]);
     expect(settled.NPC[0]?.relationshipLedger.currentStage).toBe('生死挚友');
     expect(提取好感变化事件(toLegacyVariableBatches(settled.叙事.variableBatches)).map((event) => event.delta)).toEqual([1, 0]);
   });
 
   it('never credits a same-name stranger when an invited ID disappears or is archived', () => {
-    const state = root();
-    state.斗地主.currentGame = nearFinish(0);
-    const card = state.斗地主.currentGame.hands[0][0]!;
+    const { before, action } = terminal('landlord');
+    const state = { ...before, NPC: [...before.NPC] };
     state.NPC = [state.NPC[1]!, { ...state.NPC[0]!, id: 'impostor' }];
-    const missing = applyDoudizhuGameAction(state, { type: 'play', cards: [card] });
+    const missing = applyDoudizhuGameAction(state, action);
     expect(missing.NPC).toBe(state.NPC);
     expect(missing.斗地主.lastError).toMatch(/同伴|归档|找不到/);
-    const archivedState = root();
-    archivedState.斗地主.currentGame = nearFinish(0);
+    const archivedState = { ...before, NPC: [...before.NPC] };
     archivedState.NPC[1] = { ...archivedState.NPC[1]!, archived: true };
-    const archived = applyDoudizhuGameAction(archivedState, { type: 'play', cards: [card] });
+    const archived = applyDoudizhuGameAction(archivedState, action);
     expect(archived.NPC).toBe(archivedState.NPC);
     expect(archived.叙事.variableBatches).toHaveLength(0);
   });
@@ -107,5 +110,27 @@ describe('Dou Dizhu atomic settlement', () => {
     expect(abandoned.斗地主.currentGame).toBeNull();
     expect(abandoned.NPC.map((npc) => npc.affinity)).toEqual([20, 20]);
     expect(abandoned.叙事.variableBatches).toHaveLength(0);
+  });
+
+  it('does not settle a card-conserving forged hand with no matching action history', () => {
+    const state = root();
+    state.斗地主.currentGame = nearFinish(0);
+    const card = state.斗地主.currentGame.hands[0][0]!;
+    const result = applyDoudizhuGameAction(state, { type: 'play', cards: [card] });
+    expect(result.NPC).toBe(state.NPC);
+    expect(result.斗地主.lastError).toMatch(/损坏|无效/);
+  });
+
+  it('preserves existing non-game memories and shared experiences at their previous limits', () => {
+    const { before, action } = terminal('landlord');
+    const state = { ...before, NPC: [...before.NPC] };
+    state.NPC[0] = {
+      ...state.NPC[0]!,
+      sharedMemories: Array.from({ length: 120 }, (_, index) => ({ id: `story-${index}`, turn: index, summary: `故事${index}`, relatedNpcIds: [] })),
+      relationshipLedger: { ...state.NPC[0]!.relationshipLedger, sharedExperiences: Array.from({ length: 30 }, (_, index) => `旅程${index}`) },
+    };
+    const result = applyDoudizhuGameAction(state, action);
+    expect(result.NPC[0]?.sharedMemories.some((memory) => memory.id === 'story-0')).toBe(true);
+    expect(result.NPC[0]?.relationshipLedger.sharedExperiences).toContain('旅程0');
   });
 });

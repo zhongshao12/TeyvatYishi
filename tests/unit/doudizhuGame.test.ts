@@ -93,4 +93,16 @@ describe('Dou Dizhu persisted game state', () => {
     expect(normalizeDoudizhuState({ currentGame: duplicate }).lastError).toMatch(/损坏|无效/);
     expect(normalizeDoudizhuState({ currentGame: { ...game, activeSeat: 3 } }).currentGame).toBeNull();
   });
+
+  it('rejects card-conserving but unreachable hands and malformed public actions', () => {
+    const game = bidToPlay();
+    const forged = {
+      ...game,
+      hands: [[game.hands[0][0]!], game.hands[1], game.hands[2]] as typeof game.hands,
+      played: game.hands[0].slice(1),
+    };
+    expect(normalizeDoudizhuState({ currentGame: forged }).currentGame).toBeNull();
+    const malformed = { ...game, publicLog: [...game.publicLog, { seat: 1, type: 'play', cards: 'not-cards' }] };
+    expect(normalizeDoudizhuState({ currentGame: malformed }).currentGame).toBeNull();
+  });
 });

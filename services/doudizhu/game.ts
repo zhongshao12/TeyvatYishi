@@ -5,7 +5,7 @@ import { canBeatDoudizhuPlay, classifyDoudizhuPlay } from './rules';
 export class DoudizhuGameError extends Error {}
 
 const nextSeat = (seat: DoudizhuSeat): DoudizhuSeat => ((seat + 1) % 3) as DoudizhuSeat;
-const boundedLog = (game: DoudizhuGame, entry: DoudizhuGame['publicLog'][number]) => [...game.publicLog, entry].slice(-120);
+const boundedLog = (game: DoudizhuGame, entry: DoudizhuGame['publicLog'][number]) => [...game.publicLog, entry].slice(-180);
 
 function shuffle(seed: number): number[] {
   let value = (seed >>> 0) || 0x6d2b79f5;
@@ -120,4 +120,25 @@ export function applyDoudizhuMove(game: DoudizhuGame, move: DoudizhuMove): Doudi
     publicLog,
     result,
   };
+}
+
+/** Replay every public action from the seeded deal. The log bound exceeds a game's
+ * maximum possible three-seat actions (54 plays plus at most two passes per play). */
+export function isReachableDoudizhuGame(game: DoudizhuGame): boolean {
+  if (!isValidDoudizhuGame(game)) return false;
+  try {
+    let replay: DoudizhuGame = { ...startDoudizhuGame(game.npcIds, game.seed, game.id), redeals: game.redeals };
+    for (const entry of game.publicLog) {
+      const move: DoudizhuMove = entry.type === 'bid'
+        ? { type: 'bid', seat: entry.seat, points: entry.points as 0 | 1 | 2 | 3 }
+        : entry.type === 'play'
+          ? { type: 'play', seat: entry.seat, cards: entry.cards! }
+          : { type: 'pass', seat: entry.seat };
+      replay = applyDoudizhuMove(replay, move);
+      if (replay.redeals !== game.redeals) return false;
+    }
+    return JSON.stringify({ ...replay, settled: game.settled }) === JSON.stringify(game);
+  } catch {
+    return false;
+  }
 }

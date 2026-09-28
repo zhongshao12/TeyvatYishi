@@ -1,4 +1,5 @@
 import { classifyDoudizhuPlay, type DoudizhuPattern } from '../../services/doudizhu/rules';
+import { isReachableDoudizhuGame } from '../../services/doudizhu/game';
 
 export type DoudizhuSeat = 0 | 1 | 2;
 export type DoudizhuSide = 'landlord' | 'farmers';
@@ -83,7 +84,14 @@ export function isValidDoudizhuGame(value: unknown): value is DoudizhuGame {
   if (!unique(all)) return false;
   if (!Array.isArray(game.bids) || game.bids.length !== 3 || game.bids.some((bid) => bid !== null && ![0, 1, 2, 3].includes(bid))) return false;
   if (![0, 1, 2, 3].includes(game.highestBid as number) || !seat(game.activeSeat) || ![0, 1].includes(game.passCount as number)) return false;
-  if (!Array.isArray(game.publicLog) || game.publicLog.length > 120 || game.publicLog.some((entry) => !record(entry) || !seat(entry.seat))) return false;
+  if (!Array.isArray(game.publicLog) || game.publicLog.length > 180 || game.publicLog.some((value) => {
+    const entry = record(value);
+    if (!entry || !seat(entry.seat)) return true;
+    if (entry.type === 'bid') return ![0, 1, 2, 3].includes(entry.points as number) || entry.cards !== undefined;
+    if (entry.type === 'play') return !cardList(entry.cards) || entry.cards.length === 0 || !unique(entry.cards) || entry.points !== undefined;
+    if (entry.type === 'pass') return entry.cards !== undefined || entry.points !== undefined;
+    return true;
+  })) return false;
   if (typeof game.settled !== 'boolean') return false;
   if (game.phase === 'bidding') {
     if (game.landlord !== null || game.result !== null || game.trick !== null || game.settled || game.passCount !== 0 || played.length !== 0) return false;
@@ -109,7 +117,7 @@ export function isValidDoudizhuGame(value: unknown): value is DoudizhuGame {
 export function normalizeDoudizhuState(raw: unknown): DoudizhuState {
   const input = record(raw);
   if (!input) return createEmptyDoudizhuState();
-  const currentGame = input.currentGame == null ? null : isValidDoudizhuGame(input.currentGame) ? input.currentGame : null;
+  const currentGame = input.currentGame == null ? null : isValidDoudizhuGame(input.currentGame) && isReachableDoudizhuGame(input.currentGame) ? input.currentGame : null;
   const recentGames = Array.isArray(input.recentGames) ? input.recentGames.filter((value): value is DoudizhuGameSummary => {
     const summary = record(value);
     return !!summary && typeof summary.id === 'string' && summary.id.length <= 128

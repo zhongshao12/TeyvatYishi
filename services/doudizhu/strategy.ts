@@ -14,6 +14,8 @@ export interface DoudizhuNpcView {
   bids: DoudizhuGame['bids'];
   trick: DoudizhuGame['trick'];
   publicLog: DoudizhuGame['publicLog'];
+  /** Publicly visible remaining card counts, never the other seats' card IDs. */
+  handCounts?: [number, number, number];
   seed: number;
   redeals: number;
 }
@@ -29,6 +31,7 @@ export function createDoudizhuNpcView(game: DoudizhuGame, seat: 1 | 2): Doudizhu
     bids: [...game.bids] as DoudizhuGame['bids'],
     trick: game.trick ? { ...game.trick, cards: [...game.trick.cards] } : null,
     publicLog: game.publicLog.map((entry) => ({ ...entry, ...(entry.cards ? { cards: [...entry.cards] } : {}) })),
+    handCounts: game.hands.map((hand) => hand.length) as [number, number, number],
     seed: game.seed,
     redeals: game.redeals,
   };
@@ -52,6 +55,18 @@ export function chooseDoudizhuNpcMove(view: DoudizhuNpcView, profile: NpcProfile
     const immediateWin = legal.find((cards) => cards.length === view.hand.length);
     if (immediateWin) return { type: 'play', seat: view.seat, cards: immediateWin };
     if (profile.affinity >= 20) return { type: 'pass', seat: view.seat };
+  }
+  if (profile.affinity > 100 && view.trick && view.landlord === view.trick.seat
+    && view.landlord !== view.seat && view.handCounts?.[0] === 1
+    && view.publicLog.slice(-8).some((entry) => entry.seat === 0 && entry.type === 'play' && entry.cards?.length === 1)) {
+    const safeResponses = legal.filter((cards) => {
+      const kind = classifyDoudizhuPlay(cards)?.kind;
+      return kind !== 'bomb' && kind !== 'rocket';
+    });
+    if (safeResponses.length > 0) {
+      safeResponses.sort((a, b) => classifyDoudizhuPlay(b)!.mainRank - classifyDoudizhuPlay(a)!.mainRank);
+      return { type: 'play', seat: view.seat, cards: safeResponses[0]! };
+    }
   }
   const scored = legal.map((cards) => {
     const pattern = classifyDoudizhuPlay(cards)!;

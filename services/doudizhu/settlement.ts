@@ -2,7 +2,7 @@ import { 格式化NPC关系, 获取NPC兼容关系, 限制NPC好感度 } from '.
 import type { TeyvatNpcRecord } from '../../models/teyvat/character';
 import { isValidDoudizhuGame, type DoudizhuGame, type DoudizhuUiAction } from '../../models/teyvat/doudizhu';
 import type { TeyvatGameState } from '../../models/teyvat/state';
-import { applyDoudizhuMove, startDoudizhuGame } from './game';
+import { applyDoudizhuMove, isReachableDoudizhuGame, startDoudizhuGame } from './game';
 import { chooseDoudizhuNpcMove, createDoudizhuNpcView } from './strategy';
 
 const withError = (state: TeyvatGameState, message: string): TeyvatGameState => ({
@@ -37,24 +37,28 @@ function settle(state: TeyvatGameState, game: DoudizhuGame, roster: [TeyvatNpcRe
     const affinity = 限制NPC好感度(npc.affinity + 5);
     const side = (index + 1) === game.landlord ? '地主' : '农民';
     const won = (result.winningSide === 'landlord') === ((index + 1) === game.landlord);
-    const summary = `${npc.姓名}与${playerName}、${roster[1 - index]!.姓名}完成一局斗地主；作为${side}${won ? '获胜' : '虽败仍完成对局'}。${moment}`;
+    const summary = `【斗地主】${npc.姓名}与${playerName}、${roster[1 - index]!.姓名}完成一局斗地主；作为${side}${won ? '获胜' : '虽败仍完成对局'}。${moment}`;
     const memoryId = `doudizhu:${game.id}:${npc.id}`;
+    const storyMemories = npc.sharedMemories.filter((memory) => !memory.id.startsWith('doudizhu:'));
+    const cardMemories = npc.sharedMemories.filter((memory) => memory.id.startsWith('doudizhu:') && memory.id !== memoryId);
+    const storyExperiences = npc.relationshipLedger.sharedExperiences.filter((item) => !item.startsWith('【斗地主】'));
+    const cardExperiences = npc.relationshipLedger.sharedExperiences.filter((item) => item.startsWith('【斗地主】') && item !== summary);
     return {
       ...npc,
       affinity,
       relationship: 获取NPC兼容关系(affinity),
-      sharedMemories: [...npc.sharedMemories.filter((memory) => memory.id !== memoryId), {
+      sharedMemories: [...storyMemories, ...cardMemories.slice(-49), {
         id: memoryId,
         turn: state.turnCount,
         summary,
         source: 'other' as const,
         relatedNpcIds: roster.map((participant) => participant.id).filter((id) => id !== npc.id),
-      }].slice(-120),
+      }],
       relationshipLedger: {
         ...npc.relationshipLedger,
         recentInteraction: summary,
         currentStage: 格式化NPC关系(affinity, npc.intimate),
-        sharedExperiences: [...npc.relationshipLedger.sharedExperiences.filter((item) => item !== summary), summary].slice(-30),
+        sharedExperiences: [...storyExperiences, ...cardExperiences.slice(-49), summary],
       },
     };
   });
@@ -119,7 +123,7 @@ export function applyDoudizhuGameAction(state: TeyvatGameState, action: Doudizhu
   }
 
   const game = state.斗地主.currentGame;
-  if (!game || !isValidDoudizhuGame(game)) return withError(state, '牌局数据损坏或无效，请返回选人重新开始。');
+  if (!game || !isValidDoudizhuGame(game) || !isReachableDoudizhuGame(game)) return withError(state, '牌局数据损坏或无效，请返回选人重新开始。');
   const roster = participants(state, game.npcIds);
   if (!roster) return withError(state, '受邀同伴找不到或已归档，请退出牌局后重新选人。');
   if (game.phase === 'finished' || game.settled || state.斗地主.settledGameIds.includes(game.id)) {

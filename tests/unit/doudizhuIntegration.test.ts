@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyTeyvatGameState, normalizeTeyvatGameState, normalizeTeyvatNpcRecords } from '../../models/teyvat';
-import { applyDoudizhuMove, startDoudizhuGame } from '../../services/doudizhu/game';
+import { startDoudizhuGame } from '../../services/doudizhu/game';
 import { applyDoudizhuGameAction } from '../../services/doudizhu/settlement';
 import { buildDeltaOnlyStoredSave, buildSaveNodeDeltaRecord, restoreSaveFromDelta } from '../../utils/saveDeltaStorage';
+import { findDoudizhuTerminalTurn } from '../helpers/doudizhuScenario';
 
 const ids = ['npc-one', 'npc-two'] as const;
 const state = () => {
@@ -31,30 +32,13 @@ describe('Dou Dizhu save and resume boundary', () => {
   });
 
   it('continues after a JSON save round-trip, lets NPC finish, and settles only once', () => {
-    const root = state();
-    let game = startDoudizhuGame(ids, 5, 'resume-win');
-    game = applyDoudizhuMove(game, { type: 'bid', seat: 0, points: 1 });
-    game = applyDoudizhuMove(game, { type: 'bid', seat: 1, points: 0 });
-    game = applyDoudizhuMove(game, { type: 'bid', seat: 2, points: 0 });
-    const deck = game.hands.flat();
-    const low = deck.find((id) => id < 4)!;
-    const high = 53;
-    const spare = deck.find((id) => id !== low && id !== high)!;
-    const third = deck.find((id) => id !== low && id !== high && id !== spare)!;
-    root.斗地主.currentGame = {
-      ...game,
-      hands: [[low, spare], [high], [third]],
-      played: deck.filter((id) => ![low, spare, high, third].includes(id)),
-      activeSeat: 0,
-      trick: null,
-      passCount: 0,
-    };
-    const loaded = normalizeTeyvatGameState(JSON.parse(JSON.stringify(root)));
-    const finished = applyDoudizhuGameAction(loaded, { type: 'play', cards: [low] });
+    const { before, action } = findDoudizhuTerminalTurn(state, ids, 'farmers');
+    const loaded = normalizeTeyvatGameState(JSON.parse(JSON.stringify(before)));
+    const finished = applyDoudizhuGameAction(loaded, action);
     expect(finished.斗地主.currentGame?.result?.winningSide).toBe('farmers');
     expect(finished.NPC.map((npc) => npc.affinity)).toEqual([25, 25]);
     const reloaded = normalizeTeyvatGameState(JSON.parse(JSON.stringify(finished)));
-    const duplicate = applyDoudizhuGameAction(reloaded, { type: 'play', cards: [spare] });
+    const duplicate = applyDoudizhuGameAction(reloaded, action);
     expect(duplicate.NPC.map((npc) => npc.affinity)).toEqual([25, 25]);
     expect(duplicate.NPC.map((npc) => npc.sharedMemories.length)).toEqual([1, 1]);
     expect(duplicate.世界.当前时间).toBe('18:00');

@@ -7,6 +7,8 @@ import { GAME_MENU_ITEMS } from '../../data/gameMenu';
 import { createEmptyDoudizhuState } from '../../models/teyvat/doudizhu';
 import { normalizeTeyvatNpcRecords } from '../../models/teyvat/character';
 import { applyDoudizhuMove, startDoudizhuGame } from '../../services/doudizhu/game';
+import { createEmptyTeyvatGameState } from '../../models/teyvat/state';
+import { findDoudizhuTerminalTurn } from '../helpers/doudizhuScenario';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const roots: Array<ReturnType<typeof createRoot>> = [];
@@ -65,11 +67,20 @@ describe('Dou Dizhu panel', () => {
     const { host, onAction } = renderPanel({ ...createEmptyDoudizhuState(), currentGame: game });
     expect(host.textContent).toContain('叫分');
     expect(host.textContent).toContain('17');
+    expect(host.querySelectorAll('button[data-card-id]')).toHaveLength(17);
     const bid = [...host.querySelectorAll('button')].find((button) => button.textContent?.includes('叫 1 分'))!;
     expect(bid instanceof HTMLButtonElement).toBe(true);
     expect(bid.tabIndex).toBeGreaterThanOrEqual(0);
     click(bid);
     expect(onAction).toHaveBeenCalledWith({ type: 'bid', points: 1 });
+  });
+
+  it('reveals the landlord bottom cards after bidding', () => {
+    let game = startDoudizhuGame(['amber-id', 'lisa-id'], 3, 'g');
+    game = applyDoudizhuMove(game, { type: 'bid', seat: 0, points: 3 });
+    const { host } = renderPanel({ ...createEmptyDoudizhuState(), currentGame: game });
+    expect(host.textContent).toContain('底牌');
+    expect(host.querySelectorAll('button[data-card-id]')).toHaveLength(20);
   });
 
   it('selects hand cards, explains invalid play, and shows recent public moves', () => {
@@ -88,14 +99,18 @@ describe('Dou Dizhu panel', () => {
     const restored = renderPanel({ ...createEmptyDoudizhuState(), currentGame: passed });
     expect(restored.host.textContent).toContain('最近出牌');
     expect(restored.host.textContent).toContain('不要');
+    expect(restored.host.textContent).toMatch(/交给你|由你继续|表现一下|观察下一轮|这轮不要/);
   });
 
   it('shows result rewards and recovery when an invited companion was archived', () => {
     let game = startDoudizhuGame(['amber-id', 'lisa-id'], 3, 'g');
     game = applyDoudizhuMove(game, { type: 'bid', seat: 0, points: 3 });
-    const winningCard = game.hands[0][0]!;
-    const ready = { ...game, hands: [[winningCard], game.hands[1], game.hands[2]] as typeof game.hands, played: game.hands[0].slice(1) };
-    const finished = { ...applyDoudizhuMove(ready, { type: 'play', seat: 0, cards: [winningCard] }), settled: true };
+    const { after } = findDoudizhuTerminalTurn(() => {
+      const state = createEmptyTeyvatGameState();
+      state.NPC = npcs;
+      return state;
+    }, ['amber-id', 'lisa-id'], 'landlord');
+    const finished = after.斗地主.currentGame!;
     const { host } = renderPanel({ ...createEmptyDoudizhuState(), currentGame: finished });
     expect(host.textContent).toContain('地主获胜');
     expect(host.textContent).toContain('+5');

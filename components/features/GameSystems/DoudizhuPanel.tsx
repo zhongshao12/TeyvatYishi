@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { TeyvatNpcRecord } from '@/models/teyvat/character';
-import { isValidDoudizhuGame, type DoudizhuState, type DoudizhuUiAction } from '@/models/teyvat/doudizhu';
+import { isValidDoudizhuGame, type DoudizhuLogEntry, type DoudizhuMove, type DoudizhuState, type DoudizhuUiAction } from '@/models/teyvat/doudizhu';
 import { canBeatDoudizhuPlay, classifyDoudizhuPlay, rankOfCard } from '@/services/doudizhu/rules';
+import { describeDoudizhuNpcMove } from '@/services/doudizhu/strategy';
 import { CLIP_SECTION, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 
 interface DoudizhuPanelProps {
@@ -30,8 +31,9 @@ export function DoudizhuPanel({ state, npcs, onAction }: DoudizhuPanelProps) {
   const [localError, setLocalError] = useState('');
   const eligible = useMemo(() => npcs.filter((npc) => npc.id && !npc.archived), [npcs]);
   const game = state.currentGame;
-  const roster = game ? game.npcIds.map((id) => npcs.find((npc) => npc.id === id)) : [];
-  const unavailable = Boolean(game && (roster.some((npc) => !npc || npc.archived) || !isValidDoudizhuGame(game)));
+  const gameValid = game ? isValidDoudizhuGame(game) : false;
+  const roster = game && gameValid ? game.npcIds.map((id) => npcs.find((npc) => npc.id === id)) : [];
+  const unavailable = Boolean(game && roster.some((npc) => !npc || npc.archived));
 
   useEffect(() => {
     setSelected([]);
@@ -64,12 +66,28 @@ export function DoudizhuPanel({ state, npcs, onAction }: DoudizhuPanelProps) {
     setLocalError('');
     onAction({ type: 'play', cards: selected });
   };
+  const npcLine = (entry: DoudizhuLogEntry): string => {
+    if (entry.seat === 0) return '';
+    const npc = roster[entry.seat - 1];
+    if (!npc) return '';
+    const move: DoudizhuMove = entry.type === 'bid'
+      ? { type: 'bid', seat: entry.seat, points: entry.points as 0 | 1 | 2 | 3 }
+      : entry.type === 'play' ? { type: 'play', seat: entry.seat, cards: entry.cards ?? [] }
+        : { type: 'pass', seat: entry.seat };
+    return describeDoudizhuNpcMove(move, npc);
+  };
+
+  if (game && !gameValid) return <section className="space-y-3 text-sm" style={{ color: 'rgb(var(--tj-text-primary))' }}>
+    <h2 className="font-serif text-lg">同伴斗地主</h2>
+    <p role="alert">牌局数据损坏或无效，无法继续，也不会结算好感。</p>
+    <button type="button" onClick={() => onAction({ type: 'abandon' })}>退出牌局并重新选人</button>
+  </section>;
 
   return (
     <section className="space-y-4 text-sm" style={{ color: 'rgb(var(--tj-text-primary))' }}>
       <div className="px-4 py-4" style={{ background: 'linear-gradient(135deg,rgba(var(--tj-accent-primary),0.14),rgba(var(--tj-surface-strong),0.9))', boxShadow: insetRing(0.22), clipPath: CLIP_SECTION }}>
         <div className="font-serif text-lg tracking-[0.18em]">✦ 同伴斗地主</div>
-        <p className="mt-1 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary),0.95)' }}>约两位熟识的旅伴围桌打牌。牌局可随存档继续；每局结束两位同伴各获好感 +5，不改变旅程时间。</p>
+        <p className="mt-1 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary),0.95)' }}>约两位熟识的旅伴围桌打牌。牌局可随存档继续；每局结束两位同伴各获好感最多 +5（受上限限制），不改变旅程时间。</p>
       </div>
 
       {(localError || state.lastError) && <p role="alert" className="px-3 py-2 text-xs" style={{ background: 'rgba(var(--tj-ui-danger),0.13)', boxShadow: insetRing(0.25), clipPath: CLIP_SMALL }}>{localError || state.lastError}</p>}
@@ -104,19 +122,21 @@ export function DoudizhuPanel({ state, npcs, onAction }: DoudizhuPanelProps) {
               </div>)}
             </div>
             {game.trick && <div className="mt-3 text-xs">桌面：{seatName(game.trick.seat, roster)} · {game.trick.cards.map(face).join(' ')}</div>}
+            {game.landlord !== null && <div className="mt-2 text-xs">底牌：{game.bottom.map(face).join(' ')}</div>}
           </div>
+
+          {!unavailable && game.phase !== 'finished' && <div className="flex flex-wrap gap-2" aria-label="你的手牌">
+            {[...game.hands[0]].sort((a, b) => rankOfCard(a) - rankOfCard(b) || a - b).map((id) => <button key={id} data-card-id={id} type="button" disabled={game.phase !== 'playing' || game.activeSeat !== 0} aria-label={`选择 ${face(id)}`} aria-pressed={selected.includes(id)} onClick={() => { setLocalError(''); setSelected((previous) => previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id]); }} className="min-w-9 rounded px-2 py-3 font-semibold transition-transform disabled:cursor-default" style={{ background: selected.includes(id) ? 'rgba(var(--tj-accent-primary),0.33)' : 'rgba(var(--tj-surface-strong),0.9)', boxShadow: insetRing(selected.includes(id) ? 0.6 : 0.25), transform: selected.includes(id) ? 'translateY(-6px)' : 'none' }}>{face(id)}</button>)}
+          </div>}
 
           {unavailable ? <p className="px-4 py-3 text-xs" style={{ boxShadow: insetRing(0.24) }}>受邀同伴已归档、找不到，或牌局数据无法继续。请退出牌局后重新选人；不会结算好感。</p>
             : game.phase === 'finished' ? <div className="px-4 py-4" style={{ boxShadow: insetRing(0.2), clipPath: CLIP_SECTION }}>
               <div className="font-serif text-base">{game.result?.winningSide === 'landlord' ? '地主获胜' : '农民获胜'}</div>
-              <p className="mt-1 text-xs">{game.settled ? '牌局已结算：两位同伴各获好感 +5，并留下同行记忆。' : '牌局结果待结算。'}</p>
+              <p className="mt-1 text-xs">{game.settled ? '牌局已结算：两位同伴各获好感最多 +5，并留下同行记忆。' : '牌局结果待结算。'}</p>
             </div> : game.activeSeat !== 0 ? <p className="text-xs">同伴正在出牌……</p>
               : game.phase === 'bidding' ? <div className="flex flex-wrap gap-2">
                 {[0, 1, 2, 3].map((points) => <button key={points} type="button" disabled={points > 0 && points <= game.highestBid} onClick={() => onAction({ type: 'bid', points: points as 0 | 1 | 2 | 3 })} className="px-3 py-2 disabled:opacity-40" style={{ boxShadow: insetRing(0.24), clipPath: CLIP_SMALL }}>{points === 0 ? '不叫' : `叫 ${points} 分`}</button>)}
               </div> : <div className="space-y-3">
-                <div className="flex flex-wrap gap-2" aria-label="你的手牌">
-                  {[...game.hands[0]].sort((a, b) => rankOfCard(a) - rankOfCard(b) || a - b).map((id) => <button key={id} data-card-id={id} type="button" aria-label={`选择 ${face(id)}`} aria-pressed={selected.includes(id)} onClick={() => { setLocalError(''); setSelected((previous) => previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id]); }} className="min-w-9 rounded px-2 py-3 font-semibold transition-transform" style={{ background: selected.includes(id) ? 'rgba(var(--tj-accent-primary),0.33)' : 'rgba(var(--tj-surface-strong),0.9)', boxShadow: insetRing(selected.includes(id) ? 0.6 : 0.25), transform: selected.includes(id) ? 'translateY(-6px)' : 'none' }}>{face(id)}</button>)}
-                </div>
                 <div className="flex gap-2"><button type="button" onClick={play} className="px-4 py-2" style={{ background: 'rgba(var(--tj-accent-primary),0.2)', boxShadow: insetRing(0.3), clipPath: CLIP_SMALL }}>出牌</button>
                   {game.trick && <button type="button" onClick={() => { setSelected([]); setLocalError(''); onAction({ type: 'pass' }); }} className="px-4 py-2" style={{ boxShadow: insetRing(0.2), clipPath: CLIP_SMALL }}>不要</button>}</div>
               </div>}
@@ -124,7 +144,7 @@ export function DoudizhuPanel({ state, npcs, onAction }: DoudizhuPanelProps) {
           <div className="px-4 py-3 text-xs" style={{ background: 'rgba(var(--tj-bg-primary),0.5)', boxShadow: insetRing(0.14), clipPath: CLIP_SECTION }}>
             <div className="font-serif">最近出牌</div>
             <ul className="mt-2 space-y-1" aria-label="最近出牌">
-              {game.publicLog.slice(-8).map((entry, index) => <li key={`${game.id}-${index}-${entry.seat}-${entry.type}`}>{seatName(entry.seat, roster)} · {entry.type === 'bid' ? entry.points ? `叫 ${entry.points} 分` : '不叫' : entry.type === 'pass' ? '不要' : `打出 ${entry.cards?.map(face).join(' ')}`}</li>)}
+              {game.publicLog.slice(-8).map((entry, index) => <li key={`${game.id}-${index}-${entry.seat}-${entry.type}`}>{seatName(entry.seat, roster)} · {entry.type === 'bid' ? entry.points ? `叫 ${entry.points} 分` : '不叫' : entry.type === 'pass' ? '不要' : `打出 ${entry.cards?.map(face).join(' ')}`}{entry.seat !== 0 && <span className="ml-2 italic" style={{ color: 'rgba(var(--tj-text-secondary),0.95)' }}>“{npcLine(entry)}”</span>}</li>)}
               {game.publicLog.length === 0 && <li>尚无行动。</li>}
             </ul>
           </div>

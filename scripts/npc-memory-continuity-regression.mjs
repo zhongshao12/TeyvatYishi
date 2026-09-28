@@ -31,9 +31,9 @@ assert(
   'NPC 连续性核对表必须注入 NPC 同行记忆摘要并隔离人物知识边界。',
 );
 assert(builder.includes('RECENT_EXTRA_NPC_PROMPT_TURN_WINDOW = 15'), '近期 NPC 注入窗口必须覆盖低回合连续互动。');
-assert(builder.includes('buildNpcContinuitySection(worldState, npcRecords, _turnCount, worldbookCtx?.npcNames)'), 'buildSystemPrompt 必须把近期/预期相关人物接入 NPC 连续性核对表。');
-assert(builder.indexOf('buildNpcContinuitySection(worldState, npcRecords, _turnCount, worldbookCtx?.npcNames)') < builder.indexOf('buildCompanionsSection(npcRecords, _turnCount)'), 'NPC 连续性核对表应早于伙伴档案注入。');
-assert(builder.includes('buildNpcPresenceSection(worldState, npcRecords, _turnCount, worldbookCtx?.recentUserInput, worldbookCtx?.npcNames)'), '角色在场状态必须接入近期/预期相关人物。');
+assert(builder.includes('buildNpcContinuitySection(worldState, activeNpcRecords, _turnCount, worldbookCtx?.npcNames)'), 'buildSystemPrompt 必须把近期/预期相关人物接入 NPC 连续性核对表。');
+assert(builder.indexOf('buildNpcContinuitySection(worldState, activeNpcRecords, _turnCount, worldbookCtx?.npcNames)') < builder.indexOf('buildCompanionsSection(activeNpcRecords, _turnCount)'), 'NPC 连续性核对表应早于伙伴档案注入。');
+assert(builder.includes('buildNpcPresenceSection(worldState, activeNpcRecords, _turnCount, worldbookCtx?.recentUserInput, worldbookCtx?.npcNames, npcRecords)'), '角色在场状态必须接入近期/预期相关人物。');
 assert(builder.includes('近期正文/玩家输入明确人物或预期相关'), '角色在场状态必须显示近期正文/玩家输入明确人物或预期相关人物。');
 assert(builder.includes('档案尚未落库'), 'NPC 连续性核对必须在变量档案未落库时提供兜底行。');
 assert(builder.includes('最近正文锚点'), 'NPC 连续性兜底必须要求读取最近正文锚点承接刚发生事实。');

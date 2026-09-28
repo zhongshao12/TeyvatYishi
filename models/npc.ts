@@ -292,6 +292,8 @@ export interface NPC记录 {
   姓名: string;
   别名?: string;
   阶位: NPC阶位;                     // companion=进 AI prompt;extra=只存档
+  已归档?: boolean;
+  归档前阶位?: NPC阶位;
   好感度: number;                    // -50..150
   关系: NPC关系类型;                 // 兼容字段，由好感度确定性派生
   亲密关系?: boolean;                // 普通关系状态，不受 NSFW 开关控制
@@ -426,6 +428,9 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
   const rawImage = source.图像档案 ?? source.image ?? source.images;
   const canonical = 匹配NPC原著角色(name, typeof rawAlias === 'string' ? rawAlias : undefined);
   const shouldForceCompanion = Boolean(canonical || source.原著角色 || source.canonical);
+  const archived = source.已归档 === true || source.archived === true;
+  const tierBeforeArchive = source.归档前阶位 === 'companion' || source.tierBeforeArchive === 'companion'
+    ? 'companion' : source.归档前阶位 === 'extra' || source.tierBeforeArchive === 'extra' ? 'extra' : undefined;
 
   return {
     id: typeof source.id === 'string' && source.id.trim()
@@ -433,11 +438,12 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
       : `npc-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
     姓名: name,
     别名: typeof rawAlias === 'string' ? rawAlias : undefined,
-    阶位: shouldForceCompanion ? 'companion' : tier,
+    阶位: archived ? 'extra' : shouldForceCompanion ? 'companion' : tier,
+    ...(archived ? { 已归档: true, 归档前阶位: tierBeforeArchive ?? (shouldForceCompanion ? 'companion' : tier) } : {}),
     好感度: affinity,
     关系: 获取NPC兼容关系(affinity),
     亲密关系: intimateRelationship,
-    同行: Boolean(source.同行 ?? source.isTraveling ?? source.在场) && (shouldForceCompanion || tier === 'companion'),
+    同行: !archived && Boolean(source.同行 ?? source.isTraveling ?? source.在场) && (shouldForceCompanion || tier === 'companion'),
     初见回合: Number.isFinite(firstTurn) ? firstTurn : 1,
     最近回合: Number.isFinite(recentTurn)
       ? recentTurn
@@ -474,15 +480,17 @@ function 合并NPC记录(base: NPC记录, incoming: NPC记录): NPC记录 {
   const preferred = 选择更完整的NPC记录(base, incoming);
   const affinity = 限制NPC好感度(选择更可信的好感度(base, incoming, preferred));
   const intimateRelationship = 选择较新的亲密关系(base, incoming, preferred);
+  const archived = base.已归档 === true || incoming.已归档 === true;
   return {
     ...preferred,
     姓名: 选择NPC显示姓名(base, incoming, preferred),
     别名: 选择NPC别名(base, incoming, preferred),
-    阶位: base.阶位 === 'companion' || incoming.阶位 === 'companion' ? 'companion' : preferred.阶位,
+    阶位: archived ? 'extra' : base.阶位 === 'companion' || incoming.阶位 === 'companion' ? 'companion' : preferred.阶位,
+    ...(archived ? { 已归档: true, 归档前阶位: base.归档前阶位 ?? incoming.归档前阶位 ?? 'companion' } : {}),
     关系: 获取NPC兼容关系(affinity),
     亲密关系: intimateRelationship,
     // 阶位代表重要程度，同行代表当前是否在场；原著角色/伙伴不能自动等于同行中。
-    同行: Boolean(base.同行 || incoming.同行),
+    同行: !archived && Boolean(base.同行 || incoming.同行),
     初见回合: Math.min(base.初见回合 ?? incoming.初见回合, incoming.初见回合 ?? base.初见回合),
     最近回合: Math.max(base.最近回合 ?? 0, incoming.最近回合 ?? 0),
     好感度: affinity,

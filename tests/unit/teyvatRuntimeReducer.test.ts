@@ -5,6 +5,14 @@ import { updateTeyvatState } from '../../hooks/useTeyvatRuntime';
 import * as saveLoadWorkflow from '../../hooks/useGame/saveLoadWorkflow';
 
 describe('updateTeyvatState', () => {
+  it('keeps a canonical archived NPC outside the active companion tier after normalization', () => {
+    const game = createEmptyTeyvatGameState();
+    const normalized = normalizeTeyvatGameState({
+      ...game,
+      NPC: [{ id: 'npc_amber', 姓名: '安柏', roleTier: 'extra', archived: true, tierBeforeArchive: 'companion', travelingTogether: true }],
+    });
+    expect(normalized.NPC[0]).toMatchObject({ archived: true, roleTier: 'extra', tierBeforeArchive: 'companion', travelingTogether: false });
+  });
   it('returns the next root without mutating the current root', () => {
     const initial = createEmptyTeyvatGameState();
 

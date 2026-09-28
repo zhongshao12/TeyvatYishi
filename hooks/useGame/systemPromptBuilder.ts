@@ -234,31 +234,35 @@ export function buildSystemPrompt(
 
   // ── 高波动 NPC 连续性块后置。 ──
   // 内容仍然完整注入，且位于 system prompt 尾部，对正文生成保持强承接优先级。
-  const npcLedgerSelection = npcLedgerSelectionOverride ?? selectNpcLedgersForTurn({
-    records: npcRecords,
+  const activeNpcRecords = npcRecords?.filter((npc) => !npc.已归档);
+  const npcLedgerSelection = npcLedgerSelectionOverride ? {
+    ...npcLedgerSelectionOverride,
+    selected: npcLedgerSelectionOverride.selected.filter((item) => !item.npc.已归档),
+  } : selectNpcLedgersForTurn({
+    records: activeNpcRecords,
     turnCount: _turnCount,
     explicitNames: worldbookCtx?.npcNames,
     sceneNames: worldState.当前时段?.人物?.map((npc) => npc.姓名),
     recalledNames: worldbookCtx?.npcNames,
   });
-  const npcPresenceSection = buildNpcPresenceSection(worldState, npcRecords, _turnCount, worldbookCtx?.recentUserInput, worldbookCtx?.npcNames);
+  const npcPresenceSection = buildNpcPresenceSection(worldState, activeNpcRecords, _turnCount, worldbookCtx?.recentUserInput, worldbookCtx?.npcNames, npcRecords);
   if (npcPresenceSection) parts.push(npcPresenceSection);
 
   const npcLedgerSection = buildNpcLedgerContinuitySection(npcLedgerSelection);
   if (npcLedgerSection) parts.push(npcLedgerSection);
 
-  const npcContinuitySection = buildNpcContinuitySection(worldState, npcRecords, _turnCount, worldbookCtx?.npcNames);
+  const npcContinuitySection = buildNpcContinuitySection(worldState, activeNpcRecords, _turnCount, worldbookCtx?.npcNames);
   if (npcContinuitySection) parts.push(npcContinuitySection);
 
   // ── 已知伙伴（只把 tier='companion' 的喂给 AI，路人不进上下文） ──
-  const companionsSection = buildCompanionsSection(npcRecords, _turnCount);
+  const companionsSection = buildCompanionsSection(activeNpcRecords, _turnCount);
   if (companionsSection) parts.push(companionsSection);
 
   // ── 成人关系长期事实（仅 NSFW 开启时注入）──
   // 这些是玩家与角色**已经确立**的私密长期事实、边界与偏好。此前它们只存在档案里、
   // 从不进入提示词，于是「长期事实没有发生作用」。放在 NPC 区块之后，保持承接优先级。
   const nsfwArchiveSection = buildNsfwArchiveContinuitySection(
-    npcRecords,
+    activeNpcRecords,
     settings.enableNsfw === true,
     settings.enableMaleNsfwArchive === true,
   );
@@ -834,8 +838,12 @@ function buildNpcPresenceSection(
   turnCount = 0,
   userInput = '',
   explicitNpcNames: string[] = [],
+  allNpcRecords: NPC记录[] = [],
 ): string {
-  const sceneNames = (worldState.当前时段?.人物 ?? []).map((npc) => npc.姓名.trim()).filter(Boolean);
+  const activeNames = new Set((npcRecords ?? []).flatMap((npc) => [npc.姓名, npc.别名 ?? '']).filter(Boolean));
+  const archivedNames = new Set(allNpcRecords.filter((npc) => npc.已归档)
+    .flatMap((npc) => [npc.姓名, npc.别名 ?? '']).filter((name) => Boolean(name) && !activeNames.has(name)));
+  const sceneNames = (worldState.当前时段?.人物 ?? []).map((npc) => npc.姓名.trim()).filter((name) => Boolean(name) && !archivedNames.has(name));
   const records = npcRecords ?? [];
   const explicitNames = normalizeExplicitNpcNames(explicitNpcNames);
   const current = records
@@ -852,7 +860,8 @@ function buildNpcPresenceSection(
     .slice(0, 8)
     .map((npc) => `${npc.姓名}（最近第${Math.max(1, Number(npc.最近回合 || 1))}回合）`);
   const sceneOnly = sceneNames.filter((name) => !current.some((item) => item === name));
-  const anticipated = getAnticipatedNpcNamesForTurn({ world: worldState, userInput, npcRecords });
+  const anticipated = getAnticipatedNpcNamesForTurn({ world: worldState, userInput, npcRecords })
+    .filter((name) => !archivedNames.has(name));
   if (!current.length && !nearby.length && !sceneOnly.length && !anticipated.length && !explicitNames.length) return '';
 
   return [

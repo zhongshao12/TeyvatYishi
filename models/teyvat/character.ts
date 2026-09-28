@@ -61,6 +61,8 @@ export interface TeyvatNpcRecord {
   说明: string;
   aliases: string[];
   roleTier: 'companion' | 'extra';
+  archived?: boolean;
+  tierBeforeArchive?: 'companion' | 'extra';
   affinity: number;
   relationship: string;
   intimate: boolean;
@@ -307,14 +309,18 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
     const rawName = text(entry.姓名);
     const rawAliases = textList(entry.aliases);
     const canonical = matchCanonicalIdentity({ id: rawId, name: rawName, aliases: rawAliases });
-    const roleTier = canonical || entry.roleTier === 'companion' ? 'companion' : 'extra';
+    const archived = entry.archived === true;
+    const roleTier = archived ? 'extra' : canonical || entry.roleTier === 'companion' ? 'companion' : 'extra';
+    const tierBeforeArchive = entry.tierBeforeArchive === 'companion' || entry.tierBeforeArchive === 'extra'
+      ? entry.tierBeforeArchive : canonical || entry.roleTier === 'companion' ? 'companion' : 'extra';
     return [{
       id: rawId, 姓名: canonical?.name ?? rawName, 地区: text(entry.地区), 身份: text(entry.身份),
       ...(normalizeElementId(entry.元素) ? { 元素: normalizeElementId(entry.元素) } : {}),
       ...(normalizePowerSource(entry.力量来源) ? { 力量来源: normalizePowerSource(entry.力量来源) } : {}),
       天赋: Array.isArray(entry.天赋) ? entry.天赋.flatMap((talent) => normalizeTalent(talent) ?? []) : [],
-      说明: text(entry.说明), aliases: canonical?.aliases ? Array.from(new Set([...canonical.aliases, ...rawAliases])) : rawAliases, roleTier, affinity: finiteNumber(entry.affinity),
-      relationship: text(entry.relationship), intimate: entry.intimate === true, travelingTogether: entry.travelingTogether === true,
+      说明: text(entry.说明), aliases: canonical?.aliases ? Array.from(new Set([...canonical.aliases, ...rawAliases])) : rawAliases, roleTier,
+      ...(archived ? { archived: true, tierBeforeArchive } : {}), affinity: finiteNumber(entry.affinity),
+      relationship: text(entry.relationship), intimate: entry.intimate === true, travelingTogether: !archived && entry.travelingTogether === true,
       firstSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.firstSeenTurn))), lastSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.lastSeenTurn))),
       gender: text(entry.gender) || canonical?.gender || '', playerAddress: text(entry.playerAddress), appearance: text(entry.appearance) || canonical?.appearance || '', clothing: text(entry.clothing),
       speechStyle: text(entry.speechStyle), personality: canonical?.personality || text(entry.personality), equipmentSummary: text(entry.equipmentSummary),

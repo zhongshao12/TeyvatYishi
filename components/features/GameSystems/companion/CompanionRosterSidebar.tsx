@@ -25,10 +25,11 @@ const activeSurface = 'linear-gradient(90deg, rgba(var(--tj-btn-primary-start), 
 const quietSurface = 'linear-gradient(135deg, rgba(var(--tj-ui-panel), 0.62), rgba(var(--tj-ui-panel-strong), 0.72))';
 
 interface CompanionRosterSidebarProps {
-  tab: NPC阶位;
-  onTabChange: (tab: NPC阶位) => void;
+  tab: NPC阶位 | 'archived';
+  onTabChange: (tab: NPC阶位 | 'archived') => void;
   companions: NPC记录[];
   extras: NPC记录[];
+  archived: NPC记录[];
   visible: NPC记录[];
   hiddenNpcCount: number;
   nextPageCount: number;
@@ -49,6 +50,7 @@ export const CompanionRosterSidebar = memo(function CompanionRosterSidebar({
   onTabChange,
   companions,
   extras,
+  archived,
   visible,
   hiddenNpcCount,
   nextPageCount,
@@ -77,12 +79,15 @@ export const CompanionRosterSidebar = memo(function CompanionRosterSidebar({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <TabButton active={tab === 'companion'} onClick={() => onTabChange('companion')}>
           伙伴 {companions.length}
         </TabButton>
         <TabButton active={tab === 'extra'} onClick={() => onTabChange('extra')}>
           路人 {extras.length}
+        </TabButton>
+        <TabButton active={tab === 'archived'} onClick={() => onTabChange('archived')}>
+          已归档 {archived.length}
         </TabButton>
       </div>
 
@@ -265,12 +270,12 @@ export function getAffinityTone(value: number) {
   return { color: 'rgba(var(--tj-arcane-blue),0.86)', stroke: 'rgba(var(--tj-arcane-blue),0.34)', fill: 'linear-gradient(90deg, rgba(var(--tj-panel-bg-start),0.75), rgba(var(--tj-arcane-blue),0.62))' };
 }
 
-function EmptyRoster({ tab }: { tab: NPC阶位 }) {
+function EmptyRoster({ tab }: { tab: NPC阶位 | 'archived' }) {
   return (
     <div className="px-4 py-8 text-center" style={panelStyle}>
       <div className="font-serif text-[20px]" style={{ color: 'rgba(var(--tj-btn-primary-start), 0.45)' }}>✦</div>
       <div className="mt-2 font-serif text-[13px] tracking-[0.18em]" style={{ color: faintColor }}>
-        {tab === 'companion' ? '尚未结识伙伴' : '尚无路人档案'}
+        {tab === 'companion' ? '尚未结识伙伴' : tab === 'extra' ? '尚无路人档案' : '暂无已归档角色'}
       </div>
     </div>
   );

@@ -536,7 +536,8 @@ function applyLegacyCodex(game: TeyvatGameState, codex: 旧图鉴系统): Teyvat
 
 export function mapTeyvatNpcsToLegacy(game: TeyvatGameState): NPC记录[] {
   return game.NPC.map((npc) => ({
-    id: npc.id, 姓名: npc.姓名, 别名: npc.aliases[0], 阶位: npc.roleTier, 好感度: npc.affinity,
+    id: npc.id, 姓名: npc.姓名, 别名: npc.aliases[0], 阶位: npc.roleTier,
+    ...(npc.archived ? { 已归档: true, 归档前阶位: npc.tierBeforeArchive ?? 'companion' } : {}), 好感度: npc.affinity,
     关系: npc.relationship as NPC记录['关系'], 亲密关系: npc.intimate, 同行: npc.travelingTogether,
     初见回合: npc.firstSeenTurn, 最近回合: npc.lastSeenTurn, 性别: npc.gender as NPC记录['性别'],
     对玩家称呼: npc.playerAddress, 外貌: npc.appearance, 穿着: npc.clothing, 说话方式: npc.speechStyle,
@@ -574,7 +575,9 @@ export function applyLegacyNpcRecords(game: TeyvatGameState, records: NPC记录[
     ...(existing?.元素 ? { 元素: existing.元素 } : {}),
     ...(existing?.力量来源 ? { 力量来源: existing.力量来源 } : {}),
     天赋: existing?.天赋.map((talent) => ({ ...talent })) ?? [], 说明: npc.介绍 ?? existing?.说明 ?? '',
-    aliases: npc.别名 ? [npc.别名] : [], roleTier: npc.阶位, affinity: npc.好感度, relationship: npc.关系,
+    aliases: npc.别名 ? [npc.别名] : [], roleTier: npc.阶位,
+    ...(npc.已归档 ? { archived: true, tierBeforeArchive: npc.归档前阶位 ?? npc.阶位 } : {}),
+    affinity: npc.好感度, relationship: npc.关系,
     intimate: npc.亲密关系 === true, travelingTogether: npc.同行, firstSeenTurn: npc.初见回合, lastSeenTurn: npc.最近回合,
     gender: npc.性别 ?? '', playerAddress: npc.对玩家称呼 ?? '', appearance: npc.外貌 ?? '', clothing: npc.穿着 ?? '',
     speechStyle: npc.说话方式 ?? '', personality: npc.性格 ?? '', equipmentSummary: npc.装备摘要 ?? '',

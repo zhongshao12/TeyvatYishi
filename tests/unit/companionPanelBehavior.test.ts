@@ -25,6 +25,32 @@ function changeInput(host: HTMLElement, label: string, value: string): void {
 }
 
 describe('CompanionPanel behavior', () => {
+  it('archives a companion, shows the archived list, and restores without rejoining the party', async () => {
+    const record = { ...创建NPC记录({ 姓名: '阿明', 阶位: 'companion', 初见回合: 1, 原著角色: false }), id: 'npc_aming', 同行: true };
+    let records = [record];
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = async () => act(async () => root.render(createElement(CompanionPanel, {
+      npcRecords: records, onNpcRecordsChange: (update) => { records = typeof update === 'function' ? update(records) : update; },
+      turnCount: 2, nsfwEnabled: false,
+    })));
+    try {
+      await render();
+      await act(async () => findButton('归档角色').click());
+      await render();
+      expect(records[0]).toMatchObject({ id: 'npc_aming', 已归档: true, 同行: false });
+      await act(async () => findButton('已归档 1').click());
+      expect(host.textContent).toContain('阿明');
+      await act(async () => findButton('恢复角色').click());
+      await render();
+      expect(records[0]).toMatchObject({ id: 'npc_aming', 阶位: 'companion', 同行: false });
+      expect(records[0]?.已归档).not.toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
   let host: HTMLDivElement;
   let root: Root;
 

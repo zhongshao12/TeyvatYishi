@@ -15,6 +15,7 @@ import { addNpcToCourierContacts } from '@/services/ai/courierService';
 import { displayFirstPartner } from '@/utils/npcFirstPartner';
 import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
 import { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveEnrichment';
+import { archiveNpc, restoreNpc } from '@/services/npcArchiving';
 import {
   AffinityMeter,
   CompanionAvatar as Avatar,
@@ -82,7 +83,7 @@ const quietSurface = 'linear-gradient(135deg, rgba(var(--tj-ui-panel), 0.62), rg
 const ROSTER_PAGE_SIZE = 60;
 
 export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved, album, turnCount, nsfwEnabled, maleNsfwArchiveEnabled = false, codex, devMode = false, focusNpcId, focusNpcRequest = 0, courier, onCourierChange, travelerName }: CompanionPanelProps) {
-  const [tab, setTab] = useState<NPC阶位>('companion');
+  const [tab, setTab] = useState<NPC阶位 | 'archived'>('companion');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [correctionDraft, setCorrectionDraft] = useState('');
   const [partyHint, setPartyHint] = useState('');
@@ -106,16 +107,17 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
   }, [enrichedRecords, onNpcRecordsChange]);
 
   const companions = useMemo(
-    () => sortNpcRecords(normalizedRecords.filter((n) => n.阶位 === 'companion')),
+    () => sortNpcRecords(normalizedRecords.filter((n) => !n.已归档 && n.阶位 === 'companion')),
     [normalizedRecords],
   );
   const extras = useMemo(
-    () => sortNpcRecords(normalizedRecords.filter((n) => n.阶位 === 'extra' && n.关系 !== 'enemy')),
+    () => sortNpcRecords(normalizedRecords.filter((n) => !n.已归档 && n.阶位 === 'extra' && n.关系 !== 'enemy')),
     [normalizedRecords],
   );
+  const archived = useMemo(() => sortNpcRecords(normalizedRecords.filter((n) => n.已归档)), [normalizedRecords]);
   const filteredRoster = useMemo(
-    () => filterNpcRoster(tab === 'companion' ? companions : extras, searchQuery),
-    [companions, extras, searchQuery, tab],
+    () => filterNpcRoster(tab === 'companion' ? companions : tab === 'extra' ? extras : archived, searchQuery),
+    [companions, extras, archived, searchQuery, tab],
   );
   const visible = useMemo(
     () => filteredRoster.slice(0, visibleNpcCount),
@@ -124,12 +126,12 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
   const hiddenNpcCount = Math.max(0, filteredRoster.length - visible.length);
 
   useEffect(() => {
-    const roster = tab === 'companion' ? companions : extras;
+    const roster = tab === 'companion' ? companions : tab === 'extra' ? extras : archived;
     const focusedIndex = !searchQuery && focusNpcId ? roster.findIndex((npc) => npc.id === focusNpcId) : -1;
     setVisibleNpcCount(focusedIndex < 0
       ? ROSTER_PAGE_SIZE
       : Math.max(ROSTER_PAGE_SIZE, Math.ceil((focusedIndex + 1) / ROSTER_PAGE_SIZE) * ROSTER_PAGE_SIZE));
-  }, [searchQuery, tab, focusNpcId, companions, extras]);
+  }, [searchQuery, tab, focusNpcId, companions, extras, archived]);
 
   const travelingCount = companions.filter((n) => n.同行).length;
   const friendCount = companions.filter((n) => ['friend', 'close'].includes(n.关系)).length;
@@ -146,18 +148,18 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
     const record = normalizedRecords.find((npc) => npc.id === focusNpcId);
     if (!record) return;
     handledFocusRequest.current = requestKey;
-    const targetTab: NPC阶位 = record.阶位 === 'extra' ? 'extra' : 'companion';
-    const roster = targetTab === 'extra' ? extras : companions;
+    const targetTab: NPC阶位 | 'archived' = record.已归档 ? 'archived' : record.阶位 === 'extra' ? 'extra' : 'companion';
+    const roster = targetTab === 'archived' ? archived : targetTab === 'extra' ? extras : companions;
     const index = roster.findIndex((npc) => npc.id === focusNpcId);
     setSearchQuery('');
     setTab(targetTab);
     setVisibleNpcCount(Math.max(ROSTER_PAGE_SIZE, Math.ceil((index + 1) / ROSTER_PAGE_SIZE) * ROSTER_PAGE_SIZE));
     setSelectedId(focusNpcId);
-  }, [focusNpcId, focusNpcRequest, normalizedRecords, companions, extras]);
+  }, [focusNpcId, focusNpcRequest, normalizedRecords, companions, extras, archived]);
 
   const selected = visible.find((n) => n.id === selectedId) ?? null;
   const relationshipPlanning = useMemo(
-    () => buildNpcRelationshipPlanning(normalizedRecords, Math.max(1, turnCount)),
+    () => buildNpcRelationshipPlanning(normalizedRecords.filter((npc) => !npc.已归档), Math.max(1, turnCount)),
     [normalizedRecords, turnCount],
   );
   const selectedPlanning = selected ? relationshipPlanning.条目.find((item) => item.npcId === selected.id) : undefined;
@@ -188,6 +190,18 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
   const handleShowMoreNpcs = useCallback(() => {
     setVisibleNpcCount((count) => count + ROSTER_PAGE_SIZE);
   }, []);
+  const handleArchiveNpc = useCallback((id: string) => {
+    onNpcRecordsChange((previous) => previous.map((npc) => npc.id === id ? archiveNpc(npc) : npc));
+    setTab('archived');
+    setSelectedId(id);
+    onProfileSaved?.();
+  }, [onNpcRecordsChange, onProfileSaved]);
+  const handleRestoreNpc = useCallback((record: NPC记录) => {
+    onNpcRecordsChange((previous) => previous.map((npc) => npc.id === record.id ? restoreNpc(npc) : npc));
+    setTab(record.归档前阶位 ?? 'extra');
+    setSelectedId(record.id);
+    onProfileSaved?.();
+  }, [onNpcRecordsChange, onProfileSaved]);
   const handleSaveProfile = useCallback((npc: NPC记录, draft: NpcProfileDraft): string | null => {
     const name = npc.原著角色 ? npc.姓名 : draft.姓名.trim();
     const alias = draft.别名.trim();
@@ -223,6 +237,7 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
         onTabChange={setTab}
         companions={companions}
         extras={extras}
+        archived={archived}
         visible={visible}
         hiddenNpcCount={hiddenNpcCount}
         nextPageCount={Math.min(ROSTER_PAGE_SIZE, hiddenNpcCount)}
@@ -239,7 +254,7 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
       />
 
       <main className="min-h-0 min-w-0 flex-1 overflow-y-visible md:overflow-y-auto md:pr-1">
-        {selected && (
+        {selected && !selected.已归档 && (
           <div className="mb-2 flex gap-2 px-1">
             <input
               value={correctionDraft}
@@ -256,8 +271,18 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
             }} className="shrink-0 px-3 py-2 text-xs" style={{ color: 'rgb(var(--tj-text-primary))', background: 'rgba(var(--tj-accent-primary),0.12)', boxShadow: insetRing(0.4), clipPath: CLIP_ITEM }}>记录</button>
           </div>
         )}
-        {selected ? (
+        {selected?.已归档 ? (
+          <section className="space-y-3 px-4 py-4" style={panelStyle} aria-label="已归档角色资料">
+            <h2 className="font-serif text-lg" style={{ color: titleColor }}>{selected.姓名}</h2>
+            <p className="text-xs" style={{ color: bodyColor }}>这位角色已从活跃同伴与主剧情自动提示中移出。人物记忆、好感度和手机联系人均保留。</p>
+            <p className="text-xs" style={{ color: mutedColor }}>好感度 {selected.好感度} · 同行记忆 {selected.同行记忆?.length ?? 0} 条</p>
+            <button type="button" onClick={() => handleRestoreNpc(selected)} className="teyvat-btn px-4 py-2 text-sm">恢复角色</button>
+          </section>
+        ) : selected ? (
           <>
+          <div className="mb-2 flex justify-end px-1">
+            <button type="button" onClick={() => handleArchiveNpc(selected.id)} className="teyvat-btn px-3 py-2 text-xs">归档角色</button>
+          </div>
           {partyHint && (
             <p className="px-3 py-1.5 text-[11px]" style={{ color: 'var(--tj-danger)' }}>{partyHint}</p>
           )}
@@ -1207,7 +1232,7 @@ function Chip({ tone, children }: { tone: 'gold' | 'silver'; children: ReactNode
   );
 }
 
-function NoSelection({ tab }: { tab: NPC阶位 }) {
+function NoSelection({ tab }: { tab: NPC阶位 | 'archived' }) {
   return (
     <div className="flex h-full items-center justify-center px-6 text-center" style={panelStyle}>
       <div>
@@ -1215,7 +1240,7 @@ function NoSelection({ tab }: { tab: NPC阶位 }) {
           ✦
         </div>
         <div className="mt-3 font-serif text-[14px] tracking-[0.22em]" style={{ color: faintColor }}>
-          从左侧选择一位{tab === 'companion' ? '伙伴' : '路人'}
+          从左侧选择一位{tab === 'companion' ? '伙伴' : tab === 'extra' ? '路人' : '已归档角色'}
         </div>
       </div>
     </div>

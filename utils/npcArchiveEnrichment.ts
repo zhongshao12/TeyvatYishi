@@ -308,7 +308,7 @@ export function enrichNpcArchives(
     // 只有真正命中内置原著角色库时，才升级为原著同伴。
     if (canonical) {
       if (!updated.原著角色) patch.原著角色 = true;
-      if (updated.阶位 !== 'companion') patch.阶位 = 'companion';
+      if (!updated.已归档 && updated.阶位 !== 'companion') patch.阶位 = 'companion';
     } else if (updated.原著角色 === undefined) {
       patch.原著角色 = false;
     }

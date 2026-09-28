@@ -29,7 +29,12 @@ assert(enrichment.includes('shouldCreateNsfwBaseline'), '必须提供 NSFW 基�
 assert(enrichment.includes('nsfwEnabled') && enrichment.includes('maleNsfwArchiveEnabled'), 'NSFW 基线必须受总开关与男性档案开关约束。');
 assert(!enrichment.includes('if (!baseline) return false'), 'NSFW 保守基线不能依赖少数手写角色基线，否则多数伙伴永远空档。');
 assert(enrichment.includes('未建立'), 'NSFW 基线必须保留亲密阶段空壳，等待后续剧情事实补充。');
-assert(enrichment.includes('基线档案只建一个干净空壳') && enrichment.includes('不再写「保守基线」'), 'NSFW 基线必须保持可更新空壳，不得恢复会阻塞后续补充的保守占位。');
+{
+  const fnStart = enrichment.indexOf('function buildNsfwBaseline');
+  const fnEnd = enrichment.indexOf('\n}', fnStart);
+  const fnBody = enrichment.slice(fnStart, fnEnd);
+  assert(fnStart >= 0 && !fnBody.includes('保守基线'), 'NSFW 基线必须保持可更新空壳，不得恢复会阻塞后续补充的保守占位。');
+}
 assert(enrichment.includes('return !bodyFilled && !hasPrefs && !hasSensitive && !hasExperiences'), 'NSFW 空壳档案必须仍被视为需要后续事实补充。');
 // 迁移: 原来这里是 `!enrichment.includes('不代表已发生亲密剧情')`（整文件扫描）。
 // 理由: 现在档案补全器里多了一段「只清理旧版占位文案」的逻辑，它的正则**必须**包含这些字面量，
@@ -46,7 +51,7 @@ assert(
   /清理旧版NSFW占位\(updated\.NSFW档案\)/.test(enrichment),
   '补全器必须调用「按占位文案精确清理」的辅助函数，不得回到按「字段非空」整体删除。',
 );
-assert(enrichment.includes('getNsfwArchiveBlockReason'), 'NSFW 基线必须使用集中资格策略。');
+assert(enrichment.includes('resolveNpcAdultEligibility'), 'NSFW 基线必须使用集中资格策略。');
 assert(nsfwPolicy.includes('派蒙') && nsfwPolicy.includes('七七') && nsfwPolicy.includes('机械') && nsfwPolicy.includes('人偶'), '集中策略必须屏蔽提瓦特幼态角色、机械和普通人偶。');
 assert(!/帕姆|史瓦罗|HERTA_IDENTITY_RE/u.test(nsfwPolicy), '集中策略不得保留旧世界角色例外。');
 
@@ -91,7 +96,7 @@ assert(canonicalCharacters.includes("name: '派蒙'") && canonicalCharacters.inc
 // NSFW 长期事实必须真正影响正文：此前 matureArchive 只在面板展示、从不进入提示词。
 assert(promptBuilder.includes('buildNsfwArchiveContinuitySection'), '正文提示词必须注入已确立的亲密长期事实。');
 assert(
-  promptBuilder.includes('buildNsfwArchiveContinuitySection(\n    npcRecords,\n    settings.enableNsfw === true,\n    settings.enableMaleNsfwArchive === true,\n  )'),
+  promptBuilder.includes('buildNsfwArchiveContinuitySection(\n    activeNpcRecords,\n    settings.enableNsfw === true,\n    settings.enableMaleNsfwArchive === true,\n  )'),
   '亲密长期事实必须同时受总开关与男性档案开关约束（写入与注入两侧口径一致）。',
 );
 assert(

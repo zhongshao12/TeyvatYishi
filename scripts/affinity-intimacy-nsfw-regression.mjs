@@ -262,7 +262,20 @@ const customNpc = {
   性别: '女', 备注: [],
 };
 const enabled = enrichment.enrichNpcArchives([customNpc], { nsfwEnabled: true, maleNsfwArchiveEnabled: false });
-assert(enabled.records[0].NSFW档案?.enabled !== true, '未知年龄的自定义 NPC 不得自动获得成年私密档案。');
+assert(enabled.records[0].NSFW档案?.enabled === true, '未命中硬闸的自定义 NPC 必须能建立 NSFW 档案（放宽契约）。');
+assert(enabled.records[0].NSFW档案?.年龄确认 !== 'adult', '年龄未知的自定义 NPC 不得被伪造成 adult。');
+assert(enabled.records[0].NSFW档案?.是否处女 === '是', '未命中硬闸的女角色默认 是否处女=是。');
+assert(enabled.records[0].NSFW档案?.首次性行为对象 === '无', '未命中硬闸的女角色默认 首次性行为对象=无。');
+const minorEvidenceNpc = enrichment.enrichNpcArchives(
+  [{ ...customNpc, id: 'npc_minor_girl', 姓名: '小满', 介绍: '十岁的学徒' }],
+  { nsfwEnabled: true, maleNsfwArchiveEnabled: false },
+);
+assert(
+  minorEvidenceNpc.records[0].NSFW档案?.enabled !== true
+    && minorEvidenceNpc.records[0].NSFW档案?.是否处女 === undefined
+    && minorEvidenceNpc.records[0].NSFW档案?.首次性行为对象 === undefined,
+  '命中未成年年龄证据的角色必须仍然被拦住（硬闸不可放宽）。',
+);
 const manuallyConfirmed = enrichment.enrichNpcArchives([{
   ...customNpc, NSFW档案: { 年龄确认: 'adult', 年龄确认来源: 'manual' },
 }], { nsfwEnabled: true, maleNsfwArchiveEnabled: false });

@@ -171,7 +171,8 @@ function shouldCreateNsfwBaseline(
   }).confirmed) return false;
   const gender = baseline?.性别 ?? npc.性别;
   if (gender === '男' && !options.maleNsfwArchiveEnabled) return false;
-  return npc.阶位 === 'companion' || npc.同行 || npc.原著角色 === true;
+  // 放宽：档案资格不再区分阶位。伙伴 / 同行 / 原著 / 普通路人，只要通过硬闸判定即可建档。
+  return true;
 }
 
 function buildNsfwBaseline(npc: NPC记录, baseline?: CanonicalArchiveBaseline): NPC_NSFW档案 {
@@ -186,8 +187,9 @@ function buildNsfwBaseline(npc: NPC记录, baseline?: CanonicalArchiveBaseline):
     enabled: true,
     年龄确认: age,
     年龄确认来源: ageSource,
-    ...(gender === '女' && age === 'adult' ? {
-      // 女角色默认「是」，性爱事件结算后会由 nsfw_archive 事实改为「否」。
+    ...(gender === '女' ? {
+      // 女角色默认「是 / 无」，性爱事件结算后会由 nsfw_archive 事实改为「否 / 玩家」。
+      // 资格由 resolveNpcAdultEligibility 的硬闸把关，这里不再按年龄确认二次过滤。
       是否处女: existing.是否处女 ?? '是',
       首次性行为对象: existing.首次性行为对象 ?? '无',
     } : {}),
@@ -198,7 +200,7 @@ function buildNsfwBaseline(npc: NPC记录, baseline?: CanonicalArchiveBaseline):
 /**
  * 女角色档案默认值的补写条件（老存档也要生效）：
  * 年龄确认还不是 adult，或缺少「是否处女」字段时，用 buildNsfwBaseline 补齐。
- * 只覆盖与建档相同的对象范围（伙伴 / 同行 / 原著角色），不碰路人。
+ * 放宽后覆盖全部通过硬闸判定的女角色（伙伴 / 同行 / 原著 / 普通路人都包含），只受 NSFW 总开关约束。
  */
 function shouldBackfillFemaleNsfwDefaults(
   npc: NPC记录,
@@ -214,7 +216,6 @@ function shouldBackfillFemaleNsfwDefaults(
     canonicalBaselineAge: baseline?.nsfw年龄确认,
   }).confirmed) return false;
   if ((baseline?.性别 ?? npc.性别) !== '女') return false;
-  if (!(npc.阶位 === 'companion' || npc.同行 || npc.原著角色 === true)) return false;
   const archive = npc.NSFW档案;
   if (!archive?.enabled) return false;
   if (archive.年龄确认 === 'minor_blocked') return false;

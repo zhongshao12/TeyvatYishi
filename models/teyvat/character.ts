@@ -1,7 +1,7 @@
 import { ELEMENT_IDS, type ElementalAttunement, type ElementId, type PowerSource } from './elements';
 import { isReservedNpcIdentityName, type NPC外貌档案 } from '../npc';
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
-import { canRevealNpcMeasurements, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
+import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 
 export type TalentCategory = 'normal_attack' | 'elemental_skill' | 'elemental_burst' | 'passive';
 
@@ -279,19 +279,21 @@ export function normalizeTeyvatNpcMatureArchive(value: unknown): TeyvatNpcMature
   const ageSource = ['canonical', 'manual'].includes(text(value.ageConfirmationSource))
     ? text(value.ageConfirmationSource) as TeyvatNpcMatureArchive['ageConfirmationSource']
     : age ? 'legacy_unverified' : undefined;
-  const virginityStatus = age === 'adult' && ['virgin', 'not_virgin', 'unknown'].includes(text(value.virginityStatus))
+  // 私密字段的唯一年龄硬闸是 minor_blocked；未确认年龄不再拦（资格由 resolveNpcAdultEligibility 把关）。
+  const privateFieldsAllowed = age !== 'minor_blocked';
+  const virginityStatus = privateFieldsAllowed && ['virgin', 'not_virgin', 'unknown'].includes(text(value.virginityStatus))
     ? text(value.virginityStatus) as NonNullable<TeyvatNpcMatureArchive['virginityStatus']>
     : undefined;
   return {
     ...(typeof value.enabled === 'boolean' ? { enabled: value.enabled } : {}), ...(age ? { ageConfirmation: age } : {}),
     ...(ageSource ? { ageConfirmationSource: ageSource } : {}),
-    ...(age === 'adult' && optionalText(value.usualUnderwear) ? { usualUnderwear: text(value.usualUnderwear).slice(0, 120) } : {}),
+    ...(privateFieldsAllowed && optionalText(value.usualUnderwear) ? { usualUnderwear: text(value.usualUnderwear).slice(0, 120) } : {}),
     ...(virginityStatus ? { virginityStatus } : {}),
-    ...(age === 'adult' && optionalText(value.firstSexualPartner) ? { firstSexualPartner: text(value.firstSexualPartner) } : {}),
-    ...(age === 'adult' && value.firstSexualPartnerRef === 'player' ? { firstSexualPartnerRef: 'player' as const } : {}),
-    ...(age === 'adult' && ['narrative', 'legacy_assumed', 'manual'].includes(text(value.firstSexualPartnerSource))
+    ...(privateFieldsAllowed && optionalText(value.firstSexualPartner) ? { firstSexualPartner: text(value.firstSexualPartner) } : {}),
+    ...(privateFieldsAllowed && value.firstSexualPartnerRef === 'player' ? { firstSexualPartnerRef: 'player' as const } : {}),
+    ...(privateFieldsAllowed && ['narrative', 'legacy_assumed', 'manual'].includes(text(value.firstSexualPartnerSource))
       ? { firstSexualPartnerSource: text(value.firstSexualPartnerSource) as TeyvatNpcMatureArchive['firstSexualPartnerSource'] } : {}),
-    ...(age === 'adult' && Number.isInteger(value.firstSexualPartnerTurn) && Number(value.firstSexualPartnerTurn) > 0
+    ...(privateFieldsAllowed && Number.isInteger(value.firstSexualPartnerTurn) && Number(value.firstSexualPartnerTurn) > 0
       ? { firstSexualPartnerTurn: Number(value.firstSexualPartnerTurn) } : {}),
     ...(optionalText(value.intimacyStage) ? { intimacyStage: text(value.intimacyStage) } : {}),
     ...(optionalText(value.boundaries) ? { boundaries: text(value.boundaries) } : {}),
@@ -321,6 +323,12 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
       ageConfirmation: matureArchive?.ageConfirmation, ageSource: matureArchive?.ageConfirmationSource,
     });
     const appearanceFacts = normalizeNpcAppearanceFacts(entry.appearanceFacts, eligibleForMeasurements);
+    // NSFW 私密字段的资格：放宽后只受三条硬闸约束（与三围的严格成年口径不同）。
+    const nsfwPrivateAllowed = canUseNsfwPrivateFields({
+      name: canonical?.name ?? rawName, aliases: rawAliases,
+      description: [text(entry.说明), text(entry.appearance), ...textList(entry.notes)].filter(Boolean).join(' '),
+      ageConfirmation: matureArchive?.ageConfirmation, ageSource: matureArchive?.ageConfirmationSource,
+    });
     const archived = entry.archived === true;
     const roleTier = archived ? 'extra' : canonical || entry.roleTier === 'companion' ? 'companion' : 'extra';
     const tierBeforeArchive = entry.tierBeforeArchive === 'companion' || entry.tierBeforeArchive === 'extra'
@@ -346,7 +354,15 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
       },
       notes: textList(entry.notes), playerCorrections: textList(entry.playerCorrections), canonical: entry.canonical === true || Boolean(canonical),
       avatar: text(entry.avatar), visualArchive: normalizeTeyvatNpcVisualArchive(entry.visualArchive),
-      matureArchive: matureArchive && !eligibleForMeasurements ? { ...matureArchive, usualUnderwear: undefined } : matureArchive,
+      matureArchive: matureArchive && !nsfwPrivateAllowed ? {
+        ...matureArchive,
+        usualUnderwear: undefined,
+        virginityStatus: undefined,
+        firstSexualPartner: undefined,
+        firstSexualPartnerRef: undefined,
+        firstSexualPartnerSource: undefined,
+        firstSexualPartnerTurn: undefined,
+      } : matureArchive,
     }];
   });
 }

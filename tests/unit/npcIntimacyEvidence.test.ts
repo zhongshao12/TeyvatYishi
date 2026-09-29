@@ -35,11 +35,19 @@ describe('玩家与 NPC 的直接亲密事件证据', () => {
     expect(deriveNarrativeIntimacyFacts(body, [adult()], options)).toEqual([]);
   });
 
-  it('requires a trusted adult even for lower intimacy tiers', () => {
+  it('requires passing the hard gate even for lower intimacy tiers', () => {
+    // 放宽后，年龄未知但未命中硬闸的角色可以正常结算亲密事件；
+    // 未成年证据与受保护名单仍然全档位拦截。
+    // 注意：detectNpcIntimacyEvent 要求子句长度 ≥ 8，所以用例句子必须足够长，
+    // 否则会因长度被跳过、让硬闸断言「假绿」。
     const unknown = normalizeTeyvatNpcRecords([{ id: 'npc_custom', 姓名: '阿岚', gender: '女' }])[0]!;
-    expect(deriveNarrativeIntimacyFacts('阿岚亲吻了云。', [unknown], options)).toEqual([]);
+    expect(deriveNarrativeIntimacyFacts('阿岚在窗边亲吻了云。', [unknown], options))
+      .toContainEqual(expect.objectContaining({ type: 'npc', affinityDelta: 5 }));
+
+    const minor = normalizeTeyvatNpcRecords([{ id: 'npc_minor', 姓名: '小满', gender: '女', 说明: '十岁的学徒' }])[0]!;
+    expect(deriveNarrativeIntimacyFacts('小满在走廊亲吻了云。', [minor], options)).toEqual([]);
     const protectedNpc = normalizeTeyvatNpcRecords([{ id: 'npc_klee', 姓名: '可莉', gender: '女' }])[0]!;
-    expect(deriveNarrativeIntimacyFacts('可莉亲吻了云。', [protectedNpc], options)).toEqual([]);
+    expect(deriveNarrativeIntimacyFacts('可莉踮起脚亲吻了云。', [protectedNpc], options)).toEqual([]);
   });
 
   it('does not award an ambiguous shared action to both named NPCs', () => {

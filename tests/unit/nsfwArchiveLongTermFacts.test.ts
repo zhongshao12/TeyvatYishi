@@ -45,18 +45,19 @@ const buildPrompt = (records: NPC记录[], enableNsfw: boolean) => buildSystemPr
 ).systemPrompt;
 
 describe('NSFW 档案长期事实的持久化', () => {
-  it('adult_underwear_roundtrip_but_unknown_age_is_blocked', () => {
+  it('adult_underwear_roundtrip_and_unknown_age_roundtrip', () => {
     const adult = npc({ 姓名: '阿明', id: 'npc_adult', 性别: '女', 穿着: '常用制服', NSFW档案: {
       enabled: true, 年龄确认: 'adult', 年龄确认来源: 'manual', 常用内衣: '浅色棉质内衣',
     } });
+    // 放宽契约：未确认年龄但未命中硬闸的女角色，常用内衣同样保留（minor_blocked 才是硬闸）。
     const unknown = npc({ 姓名: '阿华', id: 'npc_unknown', 性别: '女', NSFW档案: {
-      enabled: true, 年龄确认: 'unknown', 常用内衣: '不应出现的旧档内容',
+      enabled: true, 年龄确认: 'unknown', 常用内衣: '浅灰色内衣',
     } });
     const loaded = normalizeTeyvatGameState(applyLegacyNpcRecords(createEmptyTeyvatGameState(), [adult, unknown]));
     const records = mapTeyvatNpcsToLegacy(loaded);
     expect(records.find((entry) => entry.id === adult.id)?.穿着).toBe('常用制服');
     expect(records.find((entry) => entry.id === adult.id)?.NSFW档案?.常用内衣).toBe('浅色棉质内衣');
-    expect(records.find((entry) => entry.id === unknown.id)?.NSFW档案?.常用内衣).toBeUndefined();
+    expect(records.find((entry) => entry.id === unknown.id)?.NSFW档案?.常用内衣).toBe('浅灰色内衣');
   });
   it('keeps durable facts through archive enrichment', () => {
     const result = enrich(npc({ NSFW档案: { ...DURABLE } }));
@@ -111,5 +112,36 @@ describe('NSFW 长期事实进入正文提示词', () => {
     const prompt = buildPrompt([npc({ NSFW档案: { enabled: true, 年龄确认: 'adult', 偏好: [], 长期事实: [] } })], true);
 
     expect(prompt).not.toContain('已确立的亲密长期事实');
+  });
+
+  it('injects body archive, virginity, first partner and underwear for eligible females', () => {
+    const prompt = buildPrompt([npc({ 性别: '女', NSFW档案: {
+      enabled: true, 年龄确认: 'unknown', 是否处女: '是', 首次性行为对象: '无',
+      常用内衣: '浅色棉质内衣', 女性身体档案: { 胸部: '胸型浑圆', 体态: '身形轻盈' },
+    } })], true);
+
+    expect(prompt).toContain('常用内衣：浅色棉质内衣');
+    expect(prompt).toContain('是否处女：是');
+    expect(prompt).toContain('首次对象：无');
+    expect(prompt).toContain('身体档案：');
+    expect(prompt).toContain('胸部=胸型浑圆');
+  });
+
+  it('resolves a player first-partner reference to 玩家 when injecting', () => {
+    const prompt = buildPrompt([npc({ 性别: '女', NSFW档案: {
+      enabled: true, 年龄确认: 'adult', 是否处女: '否',
+      首次性行为对象引用: 'player', 首次性行为对象来源: 'narrative',
+    } })], true);
+
+    expect(prompt).toContain('首次对象：玩家');
+  });
+
+  it('never injects a hard-gated record even when stray private fields exist in the save', () => {
+    const prompt = buildPrompt([npc({ 姓名: '可莉', 原著角色: true, 性别: '女', NSFW档案: {
+      enabled: true, 年龄确认: 'adult', 是否处女: '是',
+      常用内衣: '不应出现', 女性身体档案: { 胸部: '不应出现' },
+    } })], true);
+
+    expect(prompt).not.toContain('不应出现');
   });
 });

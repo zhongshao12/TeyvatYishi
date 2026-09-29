@@ -63,12 +63,14 @@ describe('third user-reported UX regression batch', () => {
     ], { nsfwEnabled: true, maleNsfwArchiveEnabled: false }).records[0];
     expect(adult!.NSFW档案).toMatchObject({ 是否处女: '是', 首次性行为对象: '无' });
 
-    // 未确认年龄的旧档不能仅因角色为女性就自动解锁私密字段。
+    // 放宽契约：未确认年龄、但未命中硬闸的女角色同样拿到女性默认字段；
+    // 年龄标签只作展示，不伪造成 adult。
     const unknownAge = enrichNpcArchives([
       legacyNpc('原创女性旅人', { 性别: '女', NSFW档案: { enabled: true, 年龄确认: 'unknown' } }),
     ], { nsfwEnabled: true, maleNsfwArchiveEnabled: false }).records[0];
     expect(unknownAge!.NSFW档案?.年龄确认).toBe('unknown');
-    expect(unknownAge!.NSFW档案?.是否处女).toBeUndefined();
+    expect(unknownAge!.NSFW档案?.是否处女).toBe('是');
+    expect(unknownAge!.NSFW档案?.首次性行为对象).toBe('无');
 
     // 安全边界：受保护的非成年角色永远拿不到成年标记与处女基线。
     const protectedMinor = enrichNpcArchives([
@@ -90,6 +92,25 @@ describe('third user-reported UX regression batch', () => {
     } }]);
     const command = factsToTeyvatDomainCommands(parsed.facts, state, 3).commands.find((item) => item.path.includes('matureArchive'));
     expect(command?.value).toMatchObject({ virginityStatus: 'not_virgin', firstSexualPartner: '旅行者' });
+  });
+
+  it('writes usualUnderwear from an nsfw_archive fact for a female NPC and never for a male one', () => {
+    const state = createEmptyTeyvatGameState();
+    state.NPC = normalizeTeyvatNpcRecords([
+      { id: 'npc_lisa', 姓名: '丽莎', gender: '女', matureArchive: { enabled: true, ageConfirmation: 'adult', ageConfirmationSource: 'manual' } },
+      { id: 'npc_kaeya', 姓名: '凯亚', gender: '男', matureArchive: { enabled: true, ageConfirmation: 'adult', ageConfirmationSource: 'manual' } },
+    ]);
+    const parsed = parseVariableFacts(`<变量事实>${JSON.stringify({ facts: [
+      { type: 'nsfw_archive', npcId: 'npc_lisa', npcName: '丽莎', usualUnderwear: '浅色棉质内衣', evidence: '正文写明她今天穿着浅色棉质内衣。' },
+      { type: 'nsfw_archive', npcId: 'npc_kaeya', npcName: '凯亚', usualUnderwear: '不该写入', evidence: '正文提及。' },
+    ] })}</变量事实>`);
+    const commands = factsToTeyvatDomainCommands(parsed.facts, state, 3).commands;
+
+    const female = commands.find((item) => item.path.includes('npc_lisa') && item.path.includes('matureArchive'));
+    expect(female?.value).toMatchObject({ usualUnderwear: '浅色棉质内衣' });
+
+    const male = commands.find((item) => item.path.includes('npc_kaeya') && item.path.includes('matureArchive'));
+    expect(male?.value ?? {}).not.toMatchObject({ usualUnderwear: '不该写入' });
   });
 
   it('parses explicit item use/give/loss and subtracts it from the native inventory', () => {

@@ -18,6 +18,7 @@ import type { ItemCategory, TeyvatInventory, TeyvatItem } from '@/models/teyvat/
 import { getStartingScenario } from '@/data/journeyPresets';
 import { buildPromptLikeWorldbookInjection, buildWorldbookChatModuleMessages, buildWorldbookInjection, replaceWorldbookPlaceholders, type FilterContext } from '@/utils/worldbook';
 import { retrieveCodexEntries } from '@/services/codexRetrieval';
+import { canUseNsfwPrivateFields } from '@/services/npcAppearanceFacts';
 import { retrieveIrminsulEntries } from '@/services/irminsulRetrieval';
 import { buildStoryWeavingInjection } from '@/services/storyWeaving';
 import {
@@ -907,7 +908,7 @@ function buildNpcLedgerContinuitySection(selection: NPC账本选择结果): stri
   ].join('\n');
 }
 
-/** 档案里是否存在需要正文承接的私密长期事实。 */
+/** 档案里是否存在需要正文承接的私密长期事实（含身体档案、性史与内衣等既定私密状态）。 */
 function hasDurableIntimateFacts(archive: NPC记录['NSFW档案'] | undefined): boolean {
   if (!archive?.enabled) return false;
   return Boolean(
@@ -916,13 +917,31 @@ function hasDurableIntimateFacts(archive: NPC记录['NSFW档案'] | undefined): 
     || archive.偏好?.length
     || archive.敏感点?.length
     || archive.禁忌?.length
-    || archive.亲密阶段?.trim(),
+    || archive.亲密阶段?.trim()
+    || archive.是否处女
+    || archive.首次性行为对象
+    || archive.首次性行为对象引用
+    || archive.常用内衣?.trim()
+    || Object.values(archive.女性身体档案 ?? {}).some((value) => Boolean(value?.trim()))
+    || Object.values(archive.男性身体档案 ?? {}).some((value) => Boolean(value?.trim())),
   );
 }
 
 function formatNsfwArchiveContinuityLine(npc: NPC记录, archive: NonNullable<NPC记录['NSFW档案']>): string {
+  // 与面板 bodyPane 口径一致：男性读男性身体档案，其余读女性身体档案。
+  const body = npc.性别 === '男' ? archive.男性身体档案 : archive.女性身体档案;
+  const bodyEntries = Object.entries(body ?? {}).filter(([, value]) => typeof value === 'string' && value.trim());
+  const firstPartner = archive.首次性行为对象引用 === 'player'
+    ? '玩家'
+    : clampNsfwItem(archive.首次性行为对象);
   const segments = [
     clampNsfwItem(archive.亲密阶段) ? `关系阶段：${clampNsfwItem(archive.亲密阶段)}` : '',
+    archive.是否处女 ? `是否处女：${archive.是否处女}` : '',
+    firstPartner ? `首次对象：${firstPartner}` : '',
+    clampNsfwItem(archive.常用内衣) ? `常用内衣：${clampNsfwItem(archive.常用内衣)}` : '',
+    bodyEntries.length
+      ? `身体档案：${bodyEntries.map(([key, value]) => `${key}=${clampNsfwItem(String(value))}`).join('，')}`
+      : '',
     archive.长期事实?.length ? `长期事实：${clampNsfwItems(archive.长期事实, 5).join('；')}` : '',
     clampNsfwItem(archive.边界) ? `边界：${clampNsfwItem(archive.边界)}` : '',
     archive.偏好?.length ? `偏好：${clampNsfwItems(archive.偏好, 6).join('、')}` : '',
@@ -960,6 +979,13 @@ function buildNsfwArchiveContinuitySection(
   if (!enabled) return '';
   const rows = (npcRecords ?? [])
     .filter((npc) => Boolean(npc.姓名?.trim()) && hasDurableIntimateFacts(npc.NSFW档案))
+    // 三条硬闸（受保护原著名单 / 未成年年龄证据 / 机械非人形）命中的角色，
+    // 即使旧档里残留私密字段也不注入正文提示词，与写入侧口径一致。
+    .filter((npc) => canUseNsfwPrivateFields({
+      name: npc.姓名, aliases: npc.别名 ? [npc.别名] : [],
+      description: [npc.介绍, npc.外貌, ...(npc.备注 ?? [])].filter(Boolean).join(' '),
+      ageConfirmation: npc.NSFW档案?.年龄确认, ageSource: npc.NSFW档案?.年龄确认来源,
+    }))
     // 男性档案开关关闭时不得注入男性角色的档案（写入侧受同一开关约束，两侧口径必须一致）。
     .filter((npc) => npc.性别 !== '男' || maleArchiveEnabled)
     .sort((a, b) => Number(b.最近回合 || 0) - Number(a.最近回合 || 0))
@@ -972,6 +998,7 @@ function buildNsfwArchiveContinuitySection(
     '- 已建立的关系、阶段、承诺与关键经历必须被承接：不得写成从未发生、初次接触或关系归零，也不得凭空推翻。',
     '- 「边界」与「禁忌」是硬约束：正文不得违反；需要改变时，必须先在正文里写出明确的重新协商过程，而不是直接越过。',
     '- 「偏好」与「敏感点」只作用于对应角色本人，不代表其他角色，也不得据此推断未写明的取向。',
+    '- 「是否处女 / 首次对象 / 常用内衣 / 身体档案」是该角色已确立的私密状态：正文引用必须一致，不得写反（已有首次对象不得写成初次、已记录的身体特征不得写成相反）。',
     '- 逐行隔离：某位角色的私密事实不是其他角色的知识；只能通过亲历、当面告知或公开事实传播。',
     '- 不在本回合镜头内的人物只能通过回忆、通讯或旁人提及承接，不得凭空出现在当前场景。',
     '- 与本回合玩家输入、当前地点和既有关系冲突时，以玩家输入为准并让角色做出符合人格的反应。',

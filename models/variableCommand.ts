@@ -147,12 +147,14 @@ export interface NSFW档案变量事实 {
   npcName: string;
   enabled?: boolean;
   ageConfirm?: 'adult' | 'unknown' | 'minor_blocked';
-  /** 仅已确认成年女性可写。 */
+  /** 仅通过年龄硬闸（非受保护名单 / 无未成年证据 / 非机械非人形）的女性角色可写。 */
   virginityStatus?: 'virgin' | 'not_virgin' | 'unknown';
   firstSexualPartner?: string;
   firstSexualPartnerRef?: 'player';
   firstSexualPartnerSource?: 'narrative' | 'legacy_assumed' | 'manual';
   firstSexualPartnerTurn?: number;
+  /** 仅女性角色写入；归一化时按 120 字截断。 */
+  usualUnderwear?: string;
   eventId?: string;
   intimacyStage?: string;
   boundaries?: string;

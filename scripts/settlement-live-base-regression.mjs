@@ -120,4 +120,54 @@ assertIncludes(
   '玩家发出的手机消息必须带当前活体回合号，否则同一回合的消息会连成一片、分割线消失。',
 );
 
+// ── F) 基线归属 + 恢复入口（对抗审查 2026-09-20 第 1 条：跨存档整份覆盖） ──
+assertIncludes(
+  rebase,
+  'export function isSettlementBaseCompatibleWithLiveRoot(',
+  '必须提供「结算基线是否属于当前活体存档」的判定（journal 里的冻结根属于旧档，CAS 拦不住跨档基线）。',
+);
+assertIncludes(
+  entry,
+  'isSettlementBaseCompatibleWithLiveRoot(settlement.baseGameSnapshot, liveBase)',
+  '结算入口必须在调用模型之前拒绝「来自另一份存档」的基线（纵深防御：不依赖调用方自觉）。',
+);
+const recoveryResumeSource = read('hooks/useGame/recoveryResume.ts');
+assertIncludes(
+  recoveryResumeSource,
+  'export function resolvePendingRecoveryEligibility(',
+  'settlement_pending 必须有身份校验（与 committed 阶段的 resolveCommittedRecoveryState 对称）。',
+);
+assertIncludes(
+  recoveryResumeSource,
+  'return resolvePendingRecoveryEligibility(journal, currentState, options).ok;',
+  'canAutoResume 必须与执行时共用同一个 pending 身份校验器（界面不得提供一个执行时必然被拒的入口）。',
+);
+assert(
+  recoveryResumeSource.indexOf('resolvePendingRecoveryEligibility(journal, input.currentState)')
+    < recoveryResumeSource.indexOf('input.settle('),
+  '身份校验必须在 settle 之前：settle 会把 journal 里旧档的冻结根写进当前活体存档。',
+);
+
+// ── G) 恢复尾流程不得整根替换（对抗审查 2026-09-20 第 2 条：A3 类） ──
+const postRecovery = read('hooks/useGame/postSettlementRecoveryWorkflow.ts');
+assertIncludes(
+  postRecovery,
+  'committed = rebaseSettlementState({ ancestor, next, current }).state;',
+  '恢复尾流程提交不得整根替换：长耗时生图等待期间的玩家改动必须按切片合并保留。',
+);
+assertIncludes(
+  postRecovery,
+  'commitPostSettlementBackgroundState(state, saveToken, backgroundState, liveBase, sessionId)',
+  '恢复尾流程必须拿到开始恢复时的活体根作合并祖先。',
+);
+
+// ── H) 手机回信的 NPC 写回（对抗审查 2026-09-20 第 4 条） ──
+const appSource = read('App.tsx');
+assertIncludes(
+  appSource,
+  'afterReveal.setNPC((previous) => mergeNpcWriteBack({',
+  '手机回信的 NPC 写回必须按 id 与活体根合并：整片 setNPC(result.npcs) 会把飞行期间结算/玩家的 NPC 写入顶掉。',
+);
+assert(!appSource.includes('state.setNPC(result.npcs);'), 'App 不得再整片写回回信作业的 NPC 快照。');
+
 console.log('settlement-live-base-regression: ok');

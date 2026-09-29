@@ -304,19 +304,20 @@ describe('CompanionPanel behavior', () => {
     expect(updater?.([record])[0]?.NSFW档案?.首次性行为对象引用).toBeUndefined();
   });
 
-  it('does not expose old unverified adult private fields in the companion page', async () => {
-    const record = 创建NPC记录({ 姓名: '原创冒险家', 阶位: 'companion', 初见回合: 1 });
+  it('keeps a hard-gated record private fields hidden in the companion page', async () => {
+    // 命中硬闸（未成年年龄证据）的记录：即使存档里带着 adult 标记也不展示私密字段。
+    const record = 创建NPC记录({ 姓名: '小满', 阶位: 'companion', 初见回合: 1, 介绍: '十岁的学徒' });
     record.性别 = '女';
-    record.NSFW档案 = { enabled: true, 年龄确认: 'adult', 年龄确认来源: 'legacy_unverified', 是否处女: '否' };
+    record.NSFW档案 = { enabled: true, 年龄确认: 'adult', 年龄确认来源: 'manual', 是否处女: '否' };
     await act(async () => root.render(createElement(CompanionPanel, {
       npcRecords: [record], onNpcRecordsChange: vi.fn(), turnCount: 2, nsfwEnabled: true, travelerName: '云',
     })));
     await act(async () => findButton('NSFW档案').click());
     expect(host.querySelector('[data-testid="adult-female-sexual-history"]')).toBeNull();
-    expect(host.textContent).toContain('待确认');
+    expect(host.textContent).toContain('成年资格待确认');
   });
 
-  it('allows confirmed adult female underwear correction but hides it for unknown age', async () => {
+  it('allows adult and unknown-age females to edit underwear but hides it for hard-gated records', async () => {
     const adult = { ...创建NPC记录({ 姓名: '阿明', 阶位: 'companion', 初见回合: 1, 性别: '女', NSFW档案: { 年龄确认: 'adult', 年龄确认来源: 'manual' } }), id: 'npc_adult' };
     let records = [adult];
     const render = async () => act(async () => root.render(createElement(CompanionPanel, {
@@ -329,7 +330,13 @@ describe('CompanionPanel behavior', () => {
     await act(async () => changeInput(host, '编辑常用内衣', '浅色棉质内衣'));
     await act(async () => findButton('保存常用内衣').click());
     expect(records[0]?.NSFW档案?.常用内衣).toBe('浅色棉质内衣');
-    records = [{ ...adult, NSFW档案: { 年龄确认: 'unknown', 常用内衣: '不应展示' } }];
+    // 放宽契约：未确认年龄、但未命中硬闸的女角色同样可见可编辑。
+    records = [{ ...adult, NSFW档案: { 年龄确认: 'unknown', 常用内衣: '浅灰色内衣' } }];
+    await render();
+    expect(host.querySelector('input[aria-label="编辑常用内衣"]')).not.toBeNull();
+    expect(host.textContent).toContain('浅灰色内衣');
+    // 只有命中硬闸（未成年年龄证据）时才隐藏。
+    records = [{ ...adult, id: 'npc_minor_girl', 姓名: '小满', 介绍: '十岁的学徒', NSFW档案: { 年龄确认: 'unknown', 常用内衣: '不应展示' } }];
     await render();
     expect(host.querySelector('input[aria-label="编辑常用内衣"]')).toBeNull();
     expect(host.textContent).not.toContain('不应展示');

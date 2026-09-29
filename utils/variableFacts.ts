@@ -465,6 +465,7 @@ function 归一化事实(raw: unknown): 变量事实 | null {
       ageConfirm: 归一化年龄确认(raw.ageConfirm ?? raw.年龄确认),
       virginityStatus,
       firstSexualPartner: 读字符串(raw.firstSexualPartner ?? raw.首次性行为对象) || undefined,
+      usualUnderwear: 读字符串(raw.usualUnderwear ?? raw.常用内衣) || undefined,
       intimacyStage: 读字符串(raw.intimacyStage || raw.亲密阶段) || undefined,
       boundaries: 读字符串或数组(raw.boundaries ?? raw.边界) || undefined,
       preferences: 字符串数组(raw.preferences ?? raw.偏好),
@@ -1112,6 +1113,8 @@ function buildNsfwArchiveUpdate(existing: NPC记录, fact: Extract<变量事实,
   archive.年龄确认来源 = getCanonicalArchiveBaselineAge(existing.姓名) === 'adult' ? 'canonical' : current.年龄确认来源;
   if (existing.性别 === '女') {
     archive.是否处女 = fact.virginityStatus === 'virgin' ? '是' : fact.virginityStatus === 'not_virgin' ? '否' : fact.virginityStatus === 'unknown' ? '未知' : current.是否处女;
+    // 常用内衣只允许女性角色写入；未提供时保留旧值。
+    if (fact.usualUnderwear) archive.常用内衣 = fact.usualUnderwear;
     const hasFirstPartner = Boolean(current.首次性行为对象引用 || current.首次性行为对象来源
       || (current.首次性行为对象 && current.首次性行为对象 !== '无'));
     archive.首次性行为对象 = hasFirstPartner ? current.首次性行为对象 : fact.firstSexualPartner;
@@ -1807,8 +1810,11 @@ export function factsToTeyvatDomainCommands(
     if (fact.type === 'nsfw_archive') {
       const requestedId = fact.npcId?.trim();
       const id = requestedId && isTeyvatStableId(requestedId) ? requestedId : npcIdFromName(fact.npcName);
+      // 只有事实名命中原著库时才做规范化名比较：否则 `undefined === undefined` 会把任意两个
+      // 非原著角色判成同一身份，命中硬闸对象的 nsfw_archive 因此被写到列表里第一个 NPC 身上。
+      const factCanonicalName = matchCanonical(fact.npcName)?.name;
       let existing = state.NPC.find((entry) => entry.id === id || entry.姓名 === fact.npcName || entry.aliases.includes(fact.npcName)
-        || matchCanonical(entry.姓名)?.name === matchCanonical(fact.npcName)?.name);
+        || (factCanonicalName !== undefined && matchCanonical(entry.姓名)?.name === factCanonicalName));
       const canonicalBaselineAge = getCanonicalArchiveBaselineAge(existing?.姓名 ?? fact.npcName);
       const eligibility = resolveNpcAdultEligibility({
         name: existing?.姓名 ?? fact.npcName, aliases: existing?.aliases,
@@ -1846,6 +1852,8 @@ export function factsToTeyvatDomainCommands(
           intimacyStage: fact.intimacyStage ?? existing.matureArchive?.intimacyStage,
           boundaries: fact.boundaries ?? existing.matureArchive?.boundaries,
           ...(existing.gender === '女' ? {
+            // 常用内衣只允许女性角色写入；未提供时保留旧值（首部已展开现有档案）。
+            ...(fact.usualUnderwear ? { usualUnderwear: fact.usualUnderwear } : {}),
             virginityStatus: fact.virginityStatus ?? existing.matureArchive?.virginityStatus,
             firstSexualPartner: hasFirstPartner ? currentFirstPartner?.firstSexualPartner : fact.firstSexualPartner,
             firstSexualPartnerRef: hasFirstPartner ? currentFirstPartner?.firstSexualPartnerRef : fact.firstSexualPartnerRef,

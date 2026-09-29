@@ -306,7 +306,7 @@ export function buildVariableModelPrompt(
           '# 成人档案候选',
           ...baselineCandidates.map((candidate) => `- ${candidate.npcName}${candidate.gender ? `（${candidate.gender}）` : ''}`),
           '- 只在可见正文存在稳定长期事实时输出 nsfw_archive；没有证据时不要补写经历或偏好。',
-          '- 已确认成年女性可使用 virginityStatus（virgin / not_virgin / unknown）与 firstSexualPartner；只有正文明确改变时才更新，未成年或年龄不明角色绝不写这两个字段。',
+          '- 通过年龄硬闸（非受保护名单、无未成年证据、非机械/非人形）的女性角色可写 virginityStatus（virgin / not_virgin / unknown）、firstSexualPartner 与 usualUnderwear；只有正文明确改变时才更新，未成年或受保护角色绝不写这三个字段。',
           nsfwPolicy.maleArchiveEnabled ? '- 男性档案已启用。' : '- 男性身体档案未启用，不得输出男性身体字段。',
         ].join('\n')
       : '',

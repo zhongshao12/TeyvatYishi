@@ -55,7 +55,12 @@ assert(elementalEchoIndex >= 0, '主剧情必须显式构建元素回响运行�
 assert(npcLedgerIndex >= 0, '主剧情必须显式构建尾部 NPC 账本。');
 assert(elementalEchoIndex < npcLedgerIndex, '元素回响/近期事件/记忆等运行时资料应早于尾部 NPC 账本。');
 assert(builder.indexOf('const injection = buildWorldbookInjection(worldbooks, worldbookCtx);') < builder.indexOf('const npcLedgerSelection = npcLedgerSelectionOverride'), '普通世界书资料应早于尾部 NPC 高波动承接块。');
-assert(builder.indexOf('const npcLedgerSelection = npcLedgerSelectionOverride') < builder.indexOf('const companionsSection = buildCompanionsSection(npcRecords, _turnCount);'), '已知伙伴与路人表应跟随 NPC 尾部承接块后置，避免过早破坏前缀缓存。');
+// 断言字面量随 systemPromptBuilder 的变量重命名更新（npcRecords → activeNpcRecords）：
+// 旧字面量在 HEAD 上就已不存在，indexOf 恒为 -1，导致这条门禁在重命名后一直误报。
+// 顺序意图不变：伙伴/路人表必须排在尾部 NPC 承接块之后。
+const companionsIndex = builder.indexOf('const companionsSection = buildCompanionsSection(activeNpcRecords, _turnCount);');
+assert(companionsIndex >= 0, '主剧情必须显式构建已知伙伴与路人表。');
+assert(npcLedgerIndex < companionsIndex, '已知伙伴与路人表应跟随 NPC 尾部承接块后置，避免过早破坏前缀缓存。');
 const mainWorldbookInjectionCalls = [...builder.matchAll(/const injection = buildWorldbookInjection\(worldbooks, worldbookCtx\);/g)];
 assert(mainWorldbookInjectionCalls.length === 1, '主剧情普通世界书注入不得因重排重复进入 system prompt。');
 assert(builder.includes('RECENT_WORLD_EVENT_PROMPT_LIMIT = 12'), '近期事件必须有注入上限，避免世界全局事件无限膨胀。');

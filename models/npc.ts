@@ -5,7 +5,7 @@
 import { matchCanonical } from '@/data/canonicalCharacters';
 import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
-import { canRevealNpcMeasurements, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
+import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 export type NPC阶位 = 'companion' | 'extra';
 
 export type NPC性别 = '男' | '女' | '其他';
@@ -443,6 +443,12 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
     description: [rawIntro, rawAppearance, ...(Array.isArray(rawNotes) ? rawNotes : [])].filter((item): item is string => typeof item === 'string').join(' '),
     ageConfirmation: archive?.年龄确认, ageSource: archive?.年龄确认来源,
   });
+  // NSFW 私密字段的资格：放宽后只受三条硬闸约束（与三围的严格成年口径不同）。
+  const nsfwPrivateAllowed = canUseNsfwPrivateFields({
+    name, aliases: typeof rawAlias === 'string' ? [rawAlias] : [],
+    description: [rawIntro, rawAppearance, ...(Array.isArray(rawNotes) ? rawNotes : [])].filter((item): item is string => typeof item === 'string').join(' '),
+    ageConfirmation: archive?.年龄确认, ageSource: archive?.年龄确认来源,
+  });
   const appearanceFacts = normalizeNpcAppearanceFacts(source.外貌档案 ?? source.appearanceFacts, eligibleForMeasurements);
   const canonical = 匹配NPC原著角色(name, typeof rawAlias === 'string' ? rawAlias : undefined);
   const shouldForceCompanion = Boolean(canonical || source.原著角色 || source.canonical);
@@ -489,7 +495,15 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
       ? rawNotes.filter((note): note is string => typeof note === 'string')
       : [],
     原著角色: shouldForceCompanion,
-    NSFW档案: archive && !eligibleForMeasurements ? { ...archive, 常用内衣: undefined } : archive,
+    NSFW档案: archive && !nsfwPrivateAllowed ? {
+      ...archive,
+      常用内衣: undefined,
+      是否处女: undefined,
+      首次性行为对象: undefined,
+      首次性行为对象引用: undefined,
+      首次性行为对象来源: undefined,
+      首次性行为对象回合: undefined,
+    } : archive,
     图像档案: 归一化图像档案(rawImage, rawAvatar),
     头像: typeof rawAvatar === 'string' ? rawAvatar : undefined,
   };
@@ -903,14 +917,16 @@ function 归一化NSFW档案(raw: unknown): NPC记录['NSFW档案'] {
   }
   return {
     enabled,
-    常用内衣: age === 'adult' ? usualUnderwear : undefined,
+    // 私密字段（常用内衣 / 是否处女 / 首次性行为对象…）的唯一硬性年龄闸是 minor_blocked；
+    // 未确认年龄不再拦（资格由外层 resolveNpcAdultEligibility 的三条硬闸把关）。
+    常用内衣: age !== 'minor_blocked' ? usualUnderwear : undefined,
     年龄确认: age,
     年龄确认来源: ageSource,
-    是否处女: age === 'adult' ? virginity : undefined,
-    首次性行为对象: age === 'adult' ? firstPartner : undefined,
-    首次性行为对象引用: age === 'adult' ? firstPartnerRef : undefined,
-    首次性行为对象来源: age === 'adult' ? firstPartnerSource : undefined,
-    首次性行为对象回合: age === 'adult' ? firstPartnerTurn : undefined,
+    是否处女: age !== 'minor_blocked' ? virginity : undefined,
+    首次性行为对象: age !== 'minor_blocked' ? firstPartner : undefined,
+    首次性行为对象引用: age !== 'minor_blocked' ? firstPartnerRef : undefined,
+    首次性行为对象来源: age !== 'minor_blocked' ? firstPartnerSource : undefined,
+    首次性行为对象回合: age !== 'minor_blocked' ? firstPartnerTurn : undefined,
     亲密阶段: stage,
     边界: boundary,
     偏好: preferences,

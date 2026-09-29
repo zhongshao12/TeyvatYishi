@@ -63,6 +63,18 @@ describe('女角色 NSFW 档案默认值', () => {
     expect(result.NSFW档案?.是否处女).toBeUndefined();
   });
 
+  it('gives any non-blocked female the defaults regardless of tier or age confirmation', () => {
+    // 放宽契约：阶位（路人 extra）与「年龄必须确认为 adult」都不再是档案资格条件；
+    // 只要未命中三条硬闸（受保护名单 / 未成年证据 / 机械非人形）即可建档并拿到女性默认值。
+    const result = enrich(legacyNpc({ id: 'npc_extra_girl', 姓名: '旅店侍女', 阶位: 'extra', 性别: '女' }));
+
+    expect(result.NSFW档案?.enabled).toBe(true);
+    // 年龄确认只作展示信息：没有可信来源时保持 unknown，不伪造成 adult。
+    expect(result.NSFW档案?.年龄确认).not.toBe('adult');
+    expect(result.NSFW档案?.是否处女).toBe('是');
+    expect(result.NSFW档案?.首次性行为对象).toBe('无');
+  });
+
   it('does nothing while NSFW is disabled', () => {
     const result = enrich(
       legacyNpc({ id: 'npc_amber', 姓名: '安柏', 原著角色: true }),

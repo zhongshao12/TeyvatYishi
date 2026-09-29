@@ -21,7 +21,7 @@ import {
   deriveNarrativeInventoryGainFacts,
   deriveNarrativeIntimacyFacts,
   deriveNarrativeInventoryRemovalFacts,
-  deriveNarrativeTimeFact,
+  resolveTurnTimeFact,
   derivePartyPresenceFacts,
   deriveResolvedNpcLedgerFacts,
   factsToTeyvatDomainCommands,
@@ -239,7 +239,7 @@ export async function runVariableSettlementWorkflow(
     const modelClock = [...allowedFacts]
       .reverse()
       .find((fact): fact is Extract<变量事实, { type: 'time' }> => fact.type === 'time');
-    const narrativeClock = deriveNarrativeTimeFact(params.body, stateSnapshot.世界.当前时间, modelClock);
+    const timeDecision = resolveTurnTimeFact(params.body, stateSnapshot.世界.当前时间, modelClock);
     const derivedGains = deriveNarrativeInventoryGainFacts(params.body, stateSnapshot.背包.items);
     const inventoryFacts = mergeNarrativeInventoryFacts(allowedFacts, [
       ...derivedGains.facts,
@@ -276,9 +276,10 @@ export async function runVariableSettlementWorkflow(
       ...removeDuplicateModelIntimacyAffinity(factsWithPartyPresence, intimacyFacts, stateSnapshot.NPC),
       ...intimacyFacts,
     ];
-    const effectiveFacts = narrativeClock
-      ? [...factsWithIntimacy.filter((fact) => fact.type !== 'time'), narrativeClock]
-      : factsWithIntimacy;
+    const effectiveFacts = [
+      ...factsWithIntimacy.filter((fact) => fact.type !== 'time'),
+      ...(timeDecision.fact ? [timeDecision.fact] : []),
+    ];
     const factCommands = factsToTeyvatDomainCommands(effectiveFacts, stateSnapshot, params.turnAfter - 1, {
       courierSeedsEnabled: params.settings.手机系统.enabled && params.settings.手机系统.autoGenerateSeeds,
       maxCourierSeedsPerTurn: params.settings.手机系统.maxSeedsPerTurn,
@@ -302,7 +303,7 @@ export async function runVariableSettlementWorkflow(
       kind: 'error' as const,
       reason,
     }));
-    const allWarnings = [...derivedGains.warnings, ...factCommands.warnings];
+    const allWarnings = [...(timeDecision.warning ? [timeDecision.warning] : []), ...derivedGains.warnings, ...factCommands.warnings];
     const warningResults = allWarnings.map((reason) => ({
       command: { action: 'set' as const, key: '(事实忽略)', value: null },
       ok: false,

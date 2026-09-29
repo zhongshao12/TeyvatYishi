@@ -46,6 +46,8 @@ export interface 时间变量事实 {
   /** no_change 表示明确不推进；elapsed 表示推进若干分钟；set_time 表示同日设定目标时刻；overnight / next_day 表示跨日。 */
   mode: 'no_change' | 'elapsed' | 'set_time' | 'overnight' | 'next_day';
   minutes?: number;
+  /** Explicit multi-day next_day jump; one means the next calendar day. */
+  days?: number;
   targetTime?: string;
   evidence?: string;
 }

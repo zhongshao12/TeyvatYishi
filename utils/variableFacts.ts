@@ -316,6 +316,7 @@ function 归一化事实(raw: unknown): 变量事实 | null {
       type: 'time',
       mode: normalizedMode as 'no_change' | 'elapsed' | 'set_time' | 'overnight' | 'next_day',
       minutes: 数字(raw.minutes ?? raw.分钟),
+      days: 数字(raw.days ?? raw.天数),
       targetTime: 读字符串(raw.targetTime || raw.目标时间 || raw.time || raw.时间) || undefined,
       evidence: 读字符串(raw.evidence || raw.证据) || undefined,
     };
@@ -625,6 +626,16 @@ function 读取时间证据句(body: string, index: number, end: number): string
   return body.slice(sentenceStart, sentenceEnd).trim();
 }
 
+function 读取正文跨日天数(body: string): { days: number; index: number; evidence: string } | null {
+  const matches = [...body.matchAll(/(\d+|[一二两三四五六七八九十]+)\s*天(?:之)?后/gu)];
+  const last = matches.at(-1);
+  if (!last) return null;
+  const days = 解析中文整数(last[1] ?? '');
+  if (days === null || !Number.isSafeInteger(days) || days < 1 || days > 7) return null;
+  const index = last.index ?? 0;
+  return { days, index, evidence: 读取时间证据句(body, index, index + last[0].length) };
+}
+
 /** 从正文里提取明确钟点，作为模型漏报时间事实时的确定性兜底。 */
 export function deriveNarrativeClockFact(
   body: string,
@@ -634,22 +645,33 @@ export function deriveNarrativeClockFact(
   const durations = 读取正文耗时候选(body);
   const finalClock = clocks.at(-1);
   const finalDuration = durations.at(-1);
+  const multiDay = 读取正文跨日天数(body);
 
-  if (finalDuration && (!finalClock || finalDuration.index > finalClock.index)) {
+  if (finalDuration && (!finalClock || finalDuration.index > finalClock.index) && (!multiDay || finalDuration.index > multiDay.index)) {
     const evidence = 读取时间证据句(body, finalDuration.index, finalDuration.end);
     return { type: 'time', mode: 'elapsed', minutes: finalDuration.minutes, evidence };
+  }
+
+  if (multiDay && (!finalClock || multiDay.index > finalClock.index)) {
+    return { type: 'time', mode: 'next_day', days: multiDay.days,
+      targetTime: 推断跨日目标时间(multiDay.evidence, currentTime), evidence: multiDay.evidence };
   }
 
   if (finalClock) {
     const evidence = 读取时间证据句(body, finalClock.index, finalClock.end);
     const current = 分钟序数(currentTime);
     const target = 分钟序数(finalClock.targetTime);
-    const explicitDayAdvance = 有明确跨日证据(evidence);
+    const explicitDayAdvance = 有明确跨日证据(evidence) || Boolean(multiDay && multiDay.index < finalClock.index);
     const overnightClock = current !== null && target !== null && current >= 20 * 60 && target <= 8 * 60 && /凌晨|清晨|早上/.test(evidence);
     const mode = explicitDayAdvance || overnightClock ? 'next_day' : 'set_time';
     if (finalClock.targetTime === currentTime && mode === 'set_time') return null;
-    return { type: 'time', mode, targetTime: finalClock.targetTime, evidence };
+    return { type: 'time', mode, targetTime: finalClock.targetTime,
+      ...(multiDay && multiDay.index < finalClock.index ? { days: multiDay.days } : {}),
+      evidence: multiDay && multiDay.index < finalClock.index ? `${multiDay.evidence} ${evidence}`.trim() : evidence };
   }
+
+  if (multiDay) return { type: 'time', mode: 'next_day', days: multiDay.days,
+    targetTime: 推断跨日目标时间(multiDay.evidence, currentTime), evidence: multiDay.evidence };
 
   const explicitDayMatch = [...body.matchAll(/次日|第二天|翌日|隔天|跨日|跨夜|过夜|一夜(?:过去|过后|之后|后)|睡醒|醒来/gu)].at(-1);
   if (explicitDayMatch) {
@@ -661,23 +683,45 @@ export function deriveNarrativeClockFact(
   return null;
 }
 
-/** 正文未给出明确时间时，优先沿用变量模型的时间事实；仍无结果则保证普通剧情至少前进 3 分钟。 */
+/** Decide the one time fact for a turn; explicit conflicts never become fabricated elapsed time. */
+export function resolveTurnTimeFact(
+  body: string,
+  currentTime: string,
+  modelFact?: Extract<变量事实, { type: 'time' }>,
+): { fact: Extract<变量事实, { type: 'time' }> | null; warning: string | null } {
+  const explicit = deriveNarrativeClockFact(body, currentTime);
+  const current = 分钟序数(currentTime);
+  const clockLike = body.match(/(?:时间|现在|此时|钟楼)[^。！？\n]{0,12}?(\d{1,2}:\d{2})/u);
+  if (clockLike && 分钟序数(clockLike[1]) === null) {
+    return { fact: null, warning: `正文时刻 ${clockLike[1]} 无效，时间未推进。` };
+  }
+  const validate = (fact: Extract<变量事实, { type: 'time' }>): string | null => {
+    if (fact.mode === 'next_day' && fact.days !== undefined && (!Number.isSafeInteger(fact.days) || fact.days < 1 || fact.days > 7)) return '时间跳转天数无效，已阻止结算。';
+    if (fact.mode === 'elapsed' && (fact.minutes === undefined || !Number.isFinite(fact.minutes) || fact.minutes <= 0)) return '耗时分钟无效，已阻止结算。';
+    if ((fact.mode === 'set_time' || fact.targetTime !== undefined) && 分钟序数(fact.targetTime) === null) return '目标时间格式无效，已阻止结算。';
+    if (fact.mode !== 'set_time' || 有跨日证据(fact.evidence)) return null;
+    const target = 分钟序数(fact.targetTime);
+    return current !== null && target !== null && target < current ? `同日时间回退：当前 ${currentTime}，正文目标 ${fact.targetTime}；时间未推进。` : null;
+  };
+  if (explicit) {
+    const warning = validate(explicit);
+    return { fact: warning ? null : explicit, warning };
+  }
+  if (modelFact) {
+    if (modelFact.mode === 'no_change') return { fact: null, warning: null };
+    const warning = validate(modelFact);
+    return { fact: warning ? null : modelFact, warning };
+  }
+  const evidence = body.replace(/\s+/g, ' ').trim().slice(0, 100);
+  return { fact: evidence ? { type: 'time', mode: 'elapsed', minutes: 3, evidence } : null, warning: null };
+}
+
 export function deriveNarrativeTimeFact(
   body: string,
   currentTime: string,
   modelFact?: Extract<变量事实, { type: 'time' }>,
 ): Extract<变量事实, { type: 'time' }> | null {
-  const explicit = deriveNarrativeClockFact(body, currentTime);
-  const current = 分钟序数(currentTime);
-  const isContradictorySameDayClock = (fact: Extract<变量事实, { type: 'time' }>): boolean => {
-    if (fact.mode !== 'set_time' || 有跨日证据(fact.evidence)) return false;
-    const target = 分钟序数(fact.targetTime);
-    return current !== null && target !== null && target <= current;
-  };
-  if (explicit && !isContradictorySameDayClock(explicit)) return explicit;
-  if (modelFact && modelFact.mode !== 'no_change' && !isContradictorySameDayClock(modelFact)) return modelFact;
-  const evidence = body.replace(/\s+/g, ' ').trim().slice(0, 100);
-  return evidence ? { type: 'time', mode: 'elapsed', minutes: 3, evidence } : null;
+  return resolveTurnTimeFact(body, currentTime, modelFact).fact;
 }
 
 function escapeRegExp(value: string): string {
@@ -1336,6 +1380,7 @@ export function factsToVariableCommands(
   const courierSeedsEnabled = options.courierSeedsEnabled !== false;
   const maxCourierSeedsPerTurn = Math.max(0, Math.trunc(options.maxCourierSeedsPerTurn ?? 2));
   let courierSeedsWritten = 0;
+  let timeSettled = false;
 
   const push = (command: 变量命令) => commands.push(command);
 
@@ -1346,6 +1391,8 @@ export function factsToVariableCommands(
     }
 
     if (fact.type === 'time') {
+      if (timeSettled) continue;
+      timeSettled = true;
       const current = 分钟序数(world?.当前时间);
       if (fact.mode === 'no_change') continue;
       if (fact.mode === 'elapsed') {
@@ -1385,8 +1432,9 @@ export function factsToVariableCommands(
         continue;
       }
       if (fact.mode === 'overnight' || fact.mode === 'next_day') {
-        const nextDate = 推进旅行日期(world?.当前日期 ?? '');
-        const aligned = 对齐世界日期与天数((world?.旅程天数 ?? 1) + 1, nextDate);
+        const days = fact.mode === 'next_day' && Number.isSafeInteger(fact.days) && (fact.days ?? 0) >= 1 ? Math.min(7, fact.days ?? 1) : 1;
+        const nextDate = 推进旅行日期(world?.当前日期 ?? '', days);
+        const aligned = 对齐世界日期与天数((world?.旅程天数 ?? 1) + days, nextDate);
         push({ action: 'set', key: '世界.旅程天数', value: aligned.旅程天数 });
         push({ action: 'set', key: '世界.当前日期', value: aligned.当前日期 });
         push({ action: 'set', key: '世界.当前时间', value: fact.targetTime || 推断跨日目标时间(fact.evidence, world?.当前时间 ?? '') });
@@ -1668,6 +1716,7 @@ export function factsToTeyvatDomainCommands(
   const maxCourierSeedsPerTurn = Math.max(0, Math.trunc(options.maxCourierSeedsPerTurn ?? 2));
   let courierSeedsWritten = 0;
   let dailyPartyRewardIssued = false;
+  let timeSettled = false;
   const projectedInventory = (state.背包?.items ?? []).map((item) => ({ ...item }));
   const push = (command: Omit<TeyvatDomainCommand, 'evidence'>, evidence?: string) => commands.push({
     ...command,
@@ -1697,6 +1746,8 @@ export function factsToTeyvatDomainCommands(
       continue;
     }
     if (fact.type === 'time') {
+      if (timeSettled) continue;
+      timeSettled = true;
       if (fact.mode === 'no_change') continue;
       const current = 分钟序数(world.当前时间);
       if (fact.mode === 'elapsed') {
@@ -1726,9 +1777,10 @@ export function factsToTeyvatDomainCommands(
         }
         continue;
       }
-      push({ action: 'add', root: '世界', path: '旅程天数', value: 1 }, fact.evidence);
-      push({ action: 'set', root: '世界', path: '当前日期', value: 推进旅行日期(world.当前日期) }, fact.evidence);
-      rewardCurrentPartyForNewDay(fact.evidence);
+      const days = fact.mode === 'next_day' && Number.isSafeInteger(fact.days) && (fact.days ?? 0) >= 1 ? Math.min(7, fact.days ?? 1) : 1;
+      push({ action: 'add', root: '世界', path: '旅程天数', value: days }, fact.evidence);
+      push({ action: 'set', root: '世界', path: '当前日期', value: 推进旅行日期(world.当前日期, days) }, fact.evidence);
+      rewardCurrentPartyForNewDay(fact.evidence, days);
       push({ action: 'set', root: '世界', path: '当前时间', value: fact.targetTime || 推断跨日目标时间(fact.evidence, world.当前时间) }, fact.evidence);
       continue;
     }

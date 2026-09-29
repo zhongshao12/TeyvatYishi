@@ -65,10 +65,10 @@ describe('fourth user-reported time progression batch', () => {
     )).toMatchObject({ mode: 'elapsed', minutes: 3 });
   });
 
-  it('replaces a contradictory same-day backward clock with a minimal forward step', () => {
+  it('does not replace a contradictory same-day backward clock with fabricated progress', () => {
     expect(deriveNarrativeTimeFact(
       '此时上午九点，安柏仍在城门口等待。',
       '10:00',
-    )).toMatchObject({ mode: 'elapsed', minutes: 3 });
+    )).toBeNull();
   });
 });

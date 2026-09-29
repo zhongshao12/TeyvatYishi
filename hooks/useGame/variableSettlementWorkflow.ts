@@ -14,6 +14,7 @@ import { callVariableModel, type NsfwBaselineCandidate } from '@/services/ai/var
 import { commitPreflightedTeyvatTurn, commitTeyvatTurn, preflightTeyvatTurn } from '@/services/teyvatTurnTransaction';
 import { compactVariableBatchHistory } from '@/utils/longSessionRetention';
 import { projectCommittedSettlementChanges } from '@/utils/committedSettlementChanges';
+import { captureWorldMoment } from '@/services/worldMoment';
 import { needsNsfwBaseline } from '@/utils/npcArchiveEnrichment';
 import { mentionsIntimacyAct } from '@/utils/npcIntimacyEvidence';
 import {
@@ -356,8 +357,10 @@ export async function runVariableSettlementWorkflow(
       : [...commands];
     const commitGameState = (nextState: TeyvatGameState) => {
       const projection = projectCommittedSettlementChanges(stateSnapshot, nextState);
+      const worldMoment = captureWorldMoment(nextState.世界, params.turnAfter, params.settlementId ?? batch.id);
       const candidateBatch: 变量命令批次 = {
         ...batch,
+        worldMoment,
         committedChanges: projection.changes,
         ...(projection.omitted > 0 ? { omittedCommittedChanges: projection.omitted } : {}),
       };
@@ -365,6 +368,7 @@ export async function runVariableSettlementWorkflow(
         ...nextState,
         叙事: {
           ...nextState.叙事,
+          lastCommittedMoment: worldMoment,
           variableBatches: fromLegacyVariableBatches(compactVariableBatchHistory([
             ...toLegacyVariableBatches(stateSnapshot.叙事.variableBatches),
             candidateBatch,

@@ -12,6 +12,7 @@
 import {
   applyLegacyGameStateOverrides,
   readLiveGameState,
+  toLegacyStoryWeaving,
   type UseGameStateReturn} from '@/hooks/useGameState';
 import type { SteambirdNews } from '@/models/teyvat/steambird';
 import {
@@ -170,10 +171,11 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         // 两种来源：等待期间存档已切换（CAS 拒绝）/ 流程已被取消（shouldCommit 为 false，走 abort 分支）。
         throw new Error('TEYVAT_SETTLEMENT_REJECTED：本次变量结算未写入活体存档（等待期间存档已切换或流程已取消）。');
       }
-      const committedSettlementGame = variableOverrides.committedGame;
+      let committedSettlementGame = variableOverrides.committedGame;
       const {
         applyStoryProgressNpcMemory,
         buildSettlementCommitFeedback,
+        commitTurnContext,
         planPostSettlementStoryAlignment,
         preparePostSettlementNpcState,
         publishSettlementCommitFeedback,
@@ -220,9 +222,10 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
 
       let memoryAfterStoryProgress = variableOverrides?.记忆 ?? mem;
       let memoryChangedAfterSettlement = false;
+      const storyWeavingBase = toLegacyStoryWeaving(committedSettlementGame.叙事.storyWeaving);
       const storyPlan = planPostSettlementStoryAlignment({
         openingSystemTurn: isOpeningSystemTrigger,
-        storyWeaving: state.剧情编织,
+        storyWeaving: storyWeavingBase,
         turn: state.turnCount + 1,
         userInput,
         body: displayText,
@@ -232,19 +235,23 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       });
       const storyAlignment = storyPlan.alignment;
       const storyProgressMemoryLine = storyPlan.memoryLine;
-      let storyWeavingForSave = storyAlignment.system;
+      let storyWeavingForSave = toLegacyStoryWeaving(readLiveGameState(state).叙事.storyWeaving);
       let storyWeavingConcurrentChange = false;
       if (storyAlignment.changed) {
         assertWorkflowActive();
-        const resolvedStory = await resolveStoryWeavingForBackgroundWrite({
-          workflowBase: state.剧情编织,
+        const liveStory = await resolveStoryWeavingForBackgroundWrite({
+          workflowBase: storyWeavingBase,
+          proposed: storyAlignment.system,
+          loadLatest: async () => toLegacyStoryWeaving(readLiveGameState(state).叙事.storyWeaving),
+        });
+        const resolvedStory = liveStory.concurrentChange ? liveStory : await resolveStoryWeavingForBackgroundWrite({
+          workflowBase: storyWeavingBase,
           proposed: storyAlignment.system,
           loadLatest: () => loadSetting('storyWeavingSystem'),
         });
         storyWeavingForSave = resolvedStory.system;
         storyWeavingConcurrentChange = resolvedStory.concurrentChange;
         if (!storyWeavingConcurrentChange) {
-          state.set剧情编织(storyWeavingForSave);
           await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(storyWeavingForSave));
         } else {
           pushQueueTask(state, 'codex', 'success', {
@@ -267,6 +274,31 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
           }
         }
       }
+      const committedTurn = commitTurnContext({
+        game: committedSettlementGame,
+        storyWeaving: storyWeavingForSave,
+        settlementId: recoveryJournal.workflowId,
+        warnings: storyWeavingConcurrentChange
+          ? ['剧情编织面板发生并发修改，本回合自动推进未覆盖较新的设置。']
+          : storyPlan.warning ? [storyPlan.warning] : [],
+      });
+      committedSettlementGame = committedTurn.game;
+      const committedTurnContext = committedTurn.context;
+      state.updateGameState((current) => {
+        if (current.叙事.lastCommittedMoment?.settlementId !== committedTurnContext.settlementId) return current;
+        return {
+          ...current,
+          叙事: {
+            ...current.叙事,
+            lastCommittedMoment: committedTurnContext.moment,
+            ...(storyAlignment.changed && !storyWeavingConcurrentChange
+              ? { storyWeaving: committedSettlementGame.叙事.storyWeaving } : {}),
+          },
+        };
+      });
+      recoveryJournal = updateWorkflowRecoveryJournal(recoveryJournal, { committedState: committedSettlementGame });
+      deps.onJournalUpdated(recoveryJournal);
+      await persistWorkflowRecoveryJournal(recoveryJournal);
       if (npcChanged || memoryChangedAfterSettlement) {
         state.updateGameState((current) => applyLegacyGameStateOverrides(current, {
           ...(npcChanged ? { NPC: npcAfterCompression } : {}),
@@ -535,6 +567,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
   return {
     variableOverrides,
     committedSettlementGame,
+    committedTurnContext,
     npcAfterCompression,
     memoryAfterStoryProgress,
     storyWeavingForSave,

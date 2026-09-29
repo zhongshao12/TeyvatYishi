@@ -1,5 +1,7 @@
 export type TechnicalJsonValue = null | boolean | number | string | TechnicalJsonValue[] | TechnicalJsonObject;
 import type { CommittedSettlementChange } from '@/models/variableCommand';
+import type { WorldMoment } from './worldMoment';
+import { normalizeWorldMoment } from '@/services/worldMoment';
 import { ELEMENT_IDS, type ElementId } from './elements';
 import { createEmptyElementalField, MAX_ELEMENT_EVENTS, type ElementalFieldState, type ElementalReactionEvent } from './elementalGauge';
 import { readLegacyCodexDebugMetadata } from '@/compat/legacy-hsr/readOnly';
@@ -297,11 +299,12 @@ export interface StoryWeavingDto { series: StorySeriesDto[]; activeSeriesId?: st
 
 export interface VariableCommandDto { action: 'set' | 'add' | 'sub' | 'push' | 'delete'; key: string; value: TechnicalJsonValue }
 export interface VariableCommandResultDto { command: VariableCommandDto; ok: boolean; kind?: 'command' | 'warning' | 'error' | 'rejected'; reason?: string; evidence?: string }
-export interface VariableBatchDto { id: string; turn: number; timestamp: number; source: 'main' | 'calibration' | 'doudizhu'; modelName?: string; results: VariableCommandResultDto[]; report?: string; rawText?: string; committedChanges?: CommittedSettlementChange[]; omittedCommittedChanges?: number; retentionSummary?: { totalResults: number; succeededResults: number; diagnosticResults: number; omittedDiagnosticResults: number } }
+export interface VariableBatchDto { id: string; turn: number; timestamp: number; source: 'main' | 'calibration' | 'doudizhu'; worldMoment?: WorldMoment; modelName?: string; results: VariableCommandResultDto[]; report?: string; rawText?: string; committedChanges?: CommittedSettlementChange[]; omittedCommittedChanges?: number; retentionSummary?: { totalResults: number; succeededResults: number; diagnosticResults: number; omittedDiagnosticResults: number } }
 export interface NarrativeRuntime {
   plotNodes: PlotNodeDto[];
   storyWeaving: StoryWeavingDto | null;
   variableBatches: VariableBatchDto[];
+  lastCommittedMoment?: WorldMoment;
   /** G1 场面元素附着（极简：无量槽无衰减）。 */
   元素场面: ElementalFieldState;
   /** G1 元素反应事件记录（最近 30 条）。 */
@@ -620,6 +623,7 @@ function normalizeCommittedChange(value: unknown): CommittedSettlementChange[] {
 }
 function normalizeVariableBatch(value: unknown): VariableBatchDto | null {
   if (!isRecord(value)) return null;
+  const worldMoment = normalizeWorldMoment(value.worldMoment);
   const results: VariableCommandResultDto[] = Array.isArray(value.results) ? value.results.flatMap((entry) => {
     if (!isRecord(entry) || !isRecord(entry.command)) return [];
     const action = entry.command.action === 'add' || entry.command.action === 'sub' || entry.command.action === 'push' || entry.command.action === 'delete' ? entry.command.action : 'set';
@@ -628,6 +632,7 @@ function normalizeVariableBatch(value: unknown): VariableBatchDto | null {
   }) : [];
   return {
     id: text(value.id), turn: integer(value.turn), timestamp: number(value.timestamp),
+    ...(worldMoment ? { worldMoment } : {}),
     source: value.source === 'doudizhu' ? 'doudizhu' : value.source === 'calibration' ? 'calibration' : 'main',
     ...(optionalText(value.modelName) ? { modelName: text(value.modelName) } : {}),
     results,
@@ -641,10 +646,12 @@ function normalizeVariableBatch(value: unknown): VariableBatchDto | null {
 }
 export function normalizeNarrativeRuntime(value: unknown): NarrativeRuntime {
   const raw = isRecord(value) ? value : {};
+  const lastCommittedMoment = normalizeWorldMoment(raw.lastCommittedMoment);
   return {
     plotNodes: Array.isArray(raw.plotNodes) ? raw.plotNodes.flatMap((entry) => normalizePlotNode(entry) ?? []) : [],
     storyWeaving: normalizeStoryWeaving(raw.storyWeaving),
     variableBatches: Array.isArray(raw.variableBatches) ? raw.variableBatches.flatMap((entry) => normalizeVariableBatch(entry) ?? []) : [],
+    ...(lastCommittedMoment ? { lastCommittedMoment } : {}),
     元素场面: normalizeElementalField(raw.元素场面),
     元素事件: normalizeElementalEvents(raw.元素事件),
   };

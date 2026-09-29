@@ -222,6 +222,8 @@ export interface 变量命令批次 {
   id: string;
   turn: number;
   timestamp: number;
+  /** Frozen game-world time of the successful settlement; timestamp remains technical time. */
+  worldMoment?: import('./teyvat/worldMoment').WorldMoment;
   /** 触发来源：'main' 主模型直接输出，'calibration' 变量模型二次校准 */
   source: 'main' | 'calibration' | 'doudizhu';
   /** 是否调用了变量模型（false = 主模型直接出，true = 走了二次校准） */

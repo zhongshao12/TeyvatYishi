@@ -942,6 +942,7 @@ export async function executeSendWorkflow(
     const {
       variableOverrides,
       committedSettlementGame,
+      committedTurnContext,
       npcAfterCompression,
       memoryAfterStoryProgress,
       storyWeavingForSave,
@@ -951,6 +952,7 @@ export async function executeSendWorkflow(
       courierAfterFallbackSeed,
       finalHistoryForSave,
     } = variableCalibration;
+    void committedTurnContext;
     // 9.5 元素附着与反应结算（G1 极简版）（已抽到 elementalSettlementStage）。懒加载 + 登记 allowlist。
     const { runElementalSettlementStage } = await import('./elementalSettlementStage');
     const elementalSettlementStage = await runElementalSettlementStage({

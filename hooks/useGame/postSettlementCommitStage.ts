@@ -9,6 +9,41 @@ import type { 剧情编织门禁快照 } from '@/services/storyWeaving';
 import { enrichNpcArchives } from '@/utils/npcArchiveEnrichment';
 import { compressNpcMemoryLedger } from './memoryUtils';
 import type { NpcLedgerUpdateDebug } from './turnDebugContext';
+import type { TeyvatGameState } from '@/models/teyvat/state';
+import type { WorldMoment } from '@/models/teyvat/worldMoment';
+import { captureWorldMoment } from '@/services/worldMoment';
+import { fromLegacyStoryWeaving } from '@/hooks/useGameState';
+
+export interface CommittedTurnContext {
+  settlementId: string;
+  moment: WorldMoment;
+  storyWeaving: 剧情编织系统;
+  warnings: string[];
+}
+
+/** Bind the already-settled clock and resolved chapter to the same save root. */
+export function commitTurnContext(input: {
+  game: TeyvatGameState;
+  storyWeaving: 剧情编织系统;
+  settlementId: string;
+  warnings?: string[];
+}): { game: TeyvatGameState; context: CommittedTurnContext } {
+  const moment = input.game.叙事.lastCommittedMoment?.settlementId === input.settlementId
+    ? input.game.叙事.lastCommittedMoment
+    : captureWorldMoment(input.game.世界, input.game.turnCount, input.settlementId);
+  const storyWeaving = 归一化剧情编织系统(input.storyWeaving);
+  return {
+    game: {
+      ...input.game,
+      叙事: {
+        ...input.game.叙事,
+        lastCommittedMoment: moment,
+        storyWeaving: fromLegacyStoryWeaving(storyWeaving),
+      },
+    },
+    context: { settlementId: input.settlementId, moment, storyWeaving, warnings: [...(input.warnings ?? [])] },
+  };
+}
 
 interface TalentLevelView {
   id: string;
@@ -219,6 +254,7 @@ export function planPostSettlementStoryAlignment(input: {
 }): {
   alignment: ReturnType<typeof autoAlignCanonStoryProgress>;
   memoryLine: string;
+  warning: string | null;
 } {
   const alignment = input.openingSystemTurn
     ? { system: input.storyWeaving, changed: false, progressed: false }
@@ -236,6 +272,9 @@ export function planPostSettlementStoryAlignment(input: {
     memoryLine: alignment.progressed
       ? buildStoryProgressMemoryLine(input.storyWeaving, alignment.system)
       : '',
+    warning: !input.openingSystemTurn && !alignment.progressed && input.gateSnapshot?.mode === 'soft'
+      ? `当前篇章未推进：${input.gateSnapshot.reasons.join('；') || '剧情门禁条件尚未满足'}。`
+      : null,
   };
 }
 

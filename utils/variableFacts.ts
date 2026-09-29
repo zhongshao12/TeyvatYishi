@@ -664,7 +664,6 @@ export function deriveNarrativeClockFact(
     const explicitDayAdvance = 有明确跨日证据(evidence) || Boolean(multiDay && multiDay.index < finalClock.index);
     const overnightClock = current !== null && target !== null && current >= 20 * 60 && target <= 8 * 60 && /凌晨|清晨|早上/.test(evidence);
     const mode = explicitDayAdvance || overnightClock ? 'next_day' : 'set_time';
-    if (finalClock.targetTime === currentTime && mode === 'set_time') return null;
     return { type: 'time', mode, targetTime: finalClock.targetTime,
       ...(multiDay && multiDay.index < finalClock.index ? { days: multiDay.days } : {}),
       evidence: multiDay && multiDay.index < finalClock.index ? `${multiDay.evidence} ${evidence}`.trim() : evidence };
@@ -705,6 +704,9 @@ export function resolveTurnTimeFact(
   };
   if (explicit) {
     const warning = validate(explicit);
+    if (!warning && explicit.mode === 'set_time' && explicit.targetTime === currentTime) {
+      return { fact: null, warning: null };
+    }
     return { fact: warning ? null : explicit, warning };
   }
   if (modelFact) {

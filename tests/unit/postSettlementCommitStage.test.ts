@@ -135,6 +135,7 @@ describe('post settlement commit stage', () => {
     expect(plan).toEqual({
       alignment: { system: story, changed: false, progressed: false },
       memoryLine: '',
+      warning: null,
     });
   });
 });

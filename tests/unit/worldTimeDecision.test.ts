@@ -47,4 +47,9 @@ describe('single turn time decision', () => {
     expect(resolveTurnTimeFact('钟楼显示现在是 25:70。', '10:00'))
       .toEqual({ fact: null, warning: expect.stringContaining('无效') });
   });
+
+  it('does not advance when the narrative explicitly keeps the current clock', () => {
+    expect(resolveTurnTimeFact('钟楼显示现在是 10:00。', '10:00'))
+      .toEqual({ fact: null, warning: null });
+  });
 });

@@ -491,6 +491,14 @@ function buildMimoAuthHeaders(apiKey: string): Record<string, string> {
   };
 }
 
+/** Persisted settings can contain 0; only values in (0, 1] are safe to send. */
+function validTopP(request: ChatCompletionRequest, config: API配置项): number | undefined {
+  const value = request.topP ?? config.topP;
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 1
+    ? value
+    : undefined;
+}
+
 function buildOpenAICompatibleRequestBody(
   config: API配置项,
   messages: ChatMessagePayload[],
@@ -515,8 +523,8 @@ function buildOpenAICompatibleRequestBody(
     body.temperature = request.temperature ?? config.temperature ?? 0.8;
     // Phase 3：采样参数贯通（OpenAI 兼容 / DeepSeek / Ark / Pioneer 等）
     // top_p / frequency_penalty / presence_penalty / repetition_penalty 大多数 OpenAI 兼容端点支持
-    const topP = request.topP ?? config.topP;
-    if (typeof topP === 'number') body.top_p = topP;
+    const topP = validTopP(request, config);
+    if (topP !== undefined) body.top_p = topP;
     const freqPenalty = request.frequencyPenalty ?? config.frequencyPenalty;
     if (typeof freqPenalty === 'number') body.frequency_penalty = freqPenalty;
     const presPenalty = request.presencePenalty ?? config.presencePenalty;
@@ -1221,8 +1229,8 @@ function buildOpenCodeResponsesBody(
     stream,
   };
   // Phase 3：OpenCode GPT 系列支持 top_p / frequency_penalty / presence_penalty
-  const topP = request.topP ?? config.topP;
-  if (typeof topP === 'number') bodyObj.top_p = topP;
+  const topP = validTopP(request, config);
+  if (topP !== undefined) bodyObj.top_p = topP;
   const freqPenalty = request.frequencyPenalty ?? config.frequencyPenalty;
   if (typeof freqPenalty === 'number') bodyObj.frequency_penalty = freqPenalty;
   const presPenalty = request.presencePenalty ?? config.presencePenalty;
@@ -1252,8 +1260,8 @@ function buildOpenCodeGeminiBody(
     temperature: request.temperature ?? config.temperature ?? 0.8,
   };
   // Phase 3：Gemini 支持 top_p / top_k / repetition_penalty / frequency_penalty / presence_penalty
-  const topP = request.topP ?? config.topP;
-  if (typeof topP === 'number') generationConfig.topP = topP;
+  const topP = validTopP(request, config);
+  if (topP !== undefined) generationConfig.topP = topP;
   const topK = request.topK ?? config.topK;
   if (typeof topK === 'number') generationConfig.topK = topK;
   const repPenalty = request.repetitionPenalty ?? config.repetitionPenalty;
@@ -1719,8 +1727,8 @@ async function streamGemini(
     temperature: request.temperature ?? config.temperature ?? 0.8,
   };
   // Phase 3：Gemini 原生支持 top_p / top_k / repetition_penalty / frequency_penalty / presence_penalty
-  const topP = request.topP ?? config.topP;
-  if (typeof topP === 'number') geminiGenConfig.topP = topP;
+  const topP = validTopP(request, config);
+  if (topP !== undefined) geminiGenConfig.topP = topP;
   const topK = request.topK ?? config.topK;
   if (typeof topK === 'number') geminiGenConfig.topK = topK;
   const repPenalty = request.repetitionPenalty ?? config.repetitionPenalty;

@@ -1,7 +1,7 @@
 export type TechnicalJsonValue = null | boolean | number | string | TechnicalJsonValue[] | TechnicalJsonObject;
 import type { CommittedSettlementChange } from '@/models/variableCommand';
-import type { WorldMoment } from './worldMoment';
-import { normalizeWorldMoment } from '@/services/worldMoment';
+import type { WorldMoment, WorldMomentRange } from './worldMoment';
+import { normalizeWorldMoment, normalizeWorldMomentRange } from '@/services/worldMoment';
 import { ELEMENT_IDS, type ElementId } from './elements';
 import { createEmptyElementalField, MAX_ELEMENT_EVENTS, type ElementalFieldState, type ElementalReactionEvent } from './elementalGauge';
 import { readLegacyCodexDebugMetadata } from '@/compat/legacy-hsr/readOnly';
@@ -166,6 +166,8 @@ export interface MemoryFailedDraftDto {
 
 export interface MemoryLedger {
   immediate: string[];
+  immediateIds?: (string | null)[];
+  sourceMoments?: Record<string, WorldMomentRange>;
   shortTerm: string[];
   shortArchiveIds?: (string | null)[];
   mediumTerm: string[];
@@ -478,6 +480,7 @@ export function normalizeConversationLog(value: unknown): ConversationLog {
 function normalizeTurnRange(value: unknown): { start: number; end: number } { const raw = isRecord(value) ? value : {}; return { start: integer(raw.start), end: integer(raw.end) } }
 export function normalizeMemoryLedger(value: unknown): MemoryLedger {
   const raw = isRecord(value) ? value : {};
+  const immediate = textList(raw.immediate);
   const shortTerm = textList(raw.shortTerm);
   const mediumTerm = textList(raw.mediumTerm);
   const longTerm = textList(raw.longTerm);
@@ -486,7 +489,16 @@ export function normalizeMemoryLedger(value: unknown): MemoryLedger {
   const recoveryStatuses = ['pending', 'retrying', 'resolved', 'ignored'] as const;
   const draftKinds = ['short', 'middle', 'long'] as const;
   const failureCodes = ['unconfigured', 'request_failed', 'empty_output', 'source_changed'] as const;
-  return { immediate: textList(raw.immediate), shortTerm,
+  const sourceMoments = isRecord(raw.sourceMoments)
+    ? Object.fromEntries(Object.entries(raw.sourceMoments).slice(-2000).flatMap(([id, range]) => {
+        const normalized = id.trim() ? normalizeWorldMomentRange(range) : null;
+        return normalized ? [[id, normalized]] : [];
+      })) as Record<string, WorldMomentRange>
+    : undefined;
+  return { immediate,
+    ...(Array.isArray(raw.immediateIds) ? { immediateIds: archiveIds(raw.immediateIds, immediate.length) } : {}),
+    ...(sourceMoments ? { sourceMoments } : {}),
+    shortTerm,
     ...(Array.isArray(raw.shortArchiveIds) ? { shortArchiveIds: archiveIds(raw.shortArchiveIds, shortTerm.length) } : {}),
     mediumTerm, ...(Array.isArray(raw.mediumArchiveIds) ? { mediumArchiveIds: archiveIds(raw.mediumArchiveIds, mediumTerm.length) } : {}),
     longTerm, ...(Array.isArray(raw.longArchiveIds) ? { longArchiveIds: archiveIds(raw.longArchiveIds, longTerm.length) } : {}),

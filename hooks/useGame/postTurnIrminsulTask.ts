@@ -1,6 +1,7 @@
 import type { NarrativeTurn } from '@/models/teyvat/narrativeTurn';
 import type { IrminsulMemory } from '@/models/teyvat/irminsul';
 import type { TeyvatGameState } from '@/models/teyvat/state';
+import type { WorldMoment } from '@/models/teyvat/worldMoment';
 import { buildIrminsulArchiveEntry } from '@/services/irminsulArchive';
 import { deriveCommittedQuestArchiveFacts } from '@/services/questService';
 import { archiveCommittedQuestSettlement } from './questWorkflow';
@@ -14,6 +15,7 @@ export interface PostTurnIrminsulArchiveTaskInput {
   location?: string;
   worldEvents: string[];
   gameTime?: string;
+  moment?: WorldMoment;
   questFactCandidates: NarrativeTurn['factCandidates'];
   recallEnabled: boolean;
   recallEligible: boolean;
@@ -45,6 +47,9 @@ export function runPostTurnIrminsulArchiveTask(
     archiveType: 'short',
     sourceText: input.body,
     turn: input.turn,
+    ...(input.moment ? { sourceMomentRange: {
+      start: input.moment, end: input.moment, sourceIds: [input.moment.settlementId],
+    } } : {}),
   });
   let memory = mergeIrminsulMemories(input.base, { entries: [archiveEntry] });
   const questFacts = deriveCommittedQuestArchiveFacts(

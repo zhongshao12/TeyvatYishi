@@ -1,3 +1,6 @@
+import type { WorldMomentRange } from './teyvat/worldMoment';
+import { normalizeWorldMomentRange } from '@/services/worldMoment';
+
 export const MEMORY_LAYER_COMPRESSION_THRESHOLD = 15;
 
 export type 记忆压缩层级 = 'short' | 'middle' | 'long';
@@ -38,6 +41,10 @@ export interface 记忆失败草稿 {
 
 export interface 记忆系统 {
   即时记忆: string[];
+  /** Stable same-index IDs; legacy text-only memories have null entries. */
+  即时记忆ID?: (string | null)[];
+  /** Original event moment or summary span, keyed by memory/archive ID. */
+  来源时刻?: Record<string, WorldMomentRange>;
   短期记忆: string[];
   /** Same-index world-tree IDs; absent/null on legacy text-only memories. */
   短期归档ID?: (string | null)[];
@@ -144,11 +151,18 @@ export async function deserializeMemoryFailureSource(snapshot: 记忆失败来�
 }
 
 export function normalizeMemorySystem(raw?: Partial<记忆系统> | null): 记忆系统 {
+  const immediate = Array.isArray(raw?.即时记忆) ? raw!.即时记忆 : [];
   const short = Array.isArray(raw?.短期记忆) ? raw!.短期记忆 : [];
   const middle = Array.isArray(raw?.中期记忆) ? raw!.中期记忆 : [];
   const long = Array.isArray(raw?.长期记忆) ? raw!.长期记忆 : [];
   return {
-    即时记忆: Array.isArray(raw?.即时记忆) ? raw!.即时记忆 : [],
+    即时记忆: immediate,
+    ...(Array.isArray(raw?.即时记忆ID) ? { 即时记忆ID: immediate.map((_, index) => typeof raw.即时记忆ID?.[index] === 'string' ? raw.即时记忆ID[index] : null) } : {}),
+    ...(raw?.来源时刻 && typeof raw.来源时刻 === 'object' && !Array.isArray(raw.来源时刻)
+      ? { 来源时刻: Object.fromEntries(Object.entries(raw.来源时刻).flatMap(([id, range]) => {
+          const normalized = id.trim() ? normalizeWorldMomentRange(range) : null;
+          return normalized ? [[id, normalized]] : [];
+        })) } : {}),
     短期记忆: short,
     ...(Array.isArray(raw?.短期归档ID) ? { 短期归档ID: short.map((_, index) => typeof raw.短期归档ID?.[index] === 'string' ? raw.短期归档ID[index] : null) } : {}),
     中期记忆: middle,

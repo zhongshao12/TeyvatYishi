@@ -15,6 +15,9 @@ import type { UseGameStateReturn } from '@/hooks/useGameState';
 import type { API配置项 } from '@/models/settings';
 import type { NarrativeTurn } from '@/models/teyvat/narrativeTurn';
 import { 创建默认记忆系统设置 } from '@/models/settings';
+import type { 记忆系统 } from '@/models/memory';
+import type { IrminsulMemory } from '@/models/teyvat/irminsul';
+import type { WorldMoment } from '@/models/teyvat/worldMoment';
 
 export interface RunMemoryUpdateStageDeps {
   state: UseGameStateReturn;
@@ -24,6 +27,9 @@ export interface RunMemoryUpdateStageDeps {
   parsedForDisplay: NarrativeTurn;
   abortController: AbortController;
   assertWorkflowActive: () => void;
+  memory: 记忆系统;
+  irminsul: IrminsulMemory;
+  moment: WorldMoment;
 }
 
 export async function runMemoryUpdateStage(deps: RunMemoryUpdateStageDeps) {
@@ -40,12 +46,13 @@ export async function runMemoryUpdateStage(deps: RunMemoryUpdateStageDeps) {
     // 6. Update memory
     pushQueueTask(state, 'memory', 'pending', { detail: '正在写入即时记忆并检查压缩阈值。' });
     const memorySettlement = await settlePostNarrativeMemory({
-      memory: state.记忆,
-      irminsul: state.世界树,
+      memory: deps.memory,
+      irminsul: deps.irminsul,
       userInput,
       narrativeSummary: parsedForDisplay.continuation.summary,
       body: displayText,
-      turn: state.turnCount,
+      turn: deps.moment.turn,
+      moment: deps.moment,
       settings: state.gameSettings.记忆系统 ?? 创建默认记忆系统设置(),
       mainConfig: config,
       signal: abortController.signal,

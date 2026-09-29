@@ -473,8 +473,10 @@ function withLegacyChat(game: TeyvatGameState, messages: 聊天消息[]): Teyvat
   };
 }
 
-function toLegacyMemory(game: TeyvatGameState): 记忆系统 {
+export function toLegacyMemory(game: TeyvatGameState): 记忆系统 {
   return { 即时记忆: [...game.记忆.immediate], 短期记忆: [...game.记忆.shortTerm],
+    ...(game.记忆.immediateIds ? { 即时记忆ID: [...game.记忆.immediateIds] } : {}),
+    ...(game.记忆.sourceMoments ? { 来源时刻: { ...game.记忆.sourceMoments } } : {}),
     ...(game.记忆.shortArchiveIds ? { 短期归档ID: [...game.记忆.shortArchiveIds] } : {}),
     中期记忆: [...game.记忆.mediumTerm], ...(game.记忆.mediumArchiveIds ? { 中期归档ID: [...game.记忆.mediumArchiveIds] } : {}),
     长期记忆: [...game.记忆.longTerm], ...(game.记忆.longArchiveIds ? { 长期归档ID: [...game.记忆.longArchiveIds] } : {}),
@@ -490,6 +492,8 @@ function toLegacyMemory(game: TeyvatGameState): 记忆系统 {
 function withLegacyMemory(game: TeyvatGameState, memory: 记忆系统): TeyvatGameState {
   return { ...game, 记忆: normalizeMemoryLedger({
     immediate: memory.即时记忆, shortTerm: memory.短期记忆,
+    ...(memory.即时记忆ID ? { immediateIds: memory.即时记忆ID } : {}),
+    ...(memory.来源时刻 ? { sourceMoments: memory.来源时刻 } : {}),
     ...(memory.短期归档ID ? { shortArchiveIds: memory.短期归档ID } : {}),
     mediumTerm: memory.中期记忆, ...(memory.中期归档ID ? { mediumArchiveIds: memory.中期归档ID } : {}),
     longTerm: memory.长期记忆, ...(memory.长期归档ID ? { longArchiveIds: memory.长期归档ID } : {}),

@@ -1,6 +1,7 @@
 import type { 记忆系统 } from '@/models/memory';
 import type { API配置项, 记忆系统设置 } from '@/models/settings';
 import type { IrminsulMemory } from '@/models/teyvat/irminsul';
+import type { WorldMoment } from '@/models/teyvat/worldMoment';
 import { promoteIrminsulEntry } from '@/services/irminsulPromotion';
 import {
   addImmediateMemory,
@@ -32,6 +33,7 @@ export interface PostNarrativeMemoryStageInput {
   narrativeSummary: string;
   body: string;
   turn: number;
+  moment?: WorldMoment;
   settings: 记忆系统设置;
   mainConfig: API配置项;
   signal?: AbortSignal;
@@ -51,7 +53,7 @@ export async function settlePostNarrativeMemory(
     input.narrativeSummary ? `本回合小结：${input.narrativeSummary}` : '',
     input.body,
   ].filter(Boolean).join('\n\n'));
-  const memoryWithImmediate = addImmediateMemory(input.memory, rawMemory, input.turn);
+  const memoryWithImmediate = addImmediateMemory(input.memory, rawMemory, input.turn, input.moment);
   const compress = input.compress ?? autoCompressMemorySystemWithArchivesAsync;
   const compression = await compress(
     memoryWithImmediate,

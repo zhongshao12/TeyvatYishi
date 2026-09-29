@@ -23,6 +23,11 @@ it('shows_active_archive_and_pending_retry_status', () => {
   const promoted: IrminsulEntry = {
     ...source, id: 'medium-1', title: '蒙德开端', summary: '安柏陪同玩家进入蒙德', archiveType: 'medium',
     coveredEntryIds: ['short-1'],
+    sourceMomentRange: {
+      start: { worldName: '提瓦特', date: '旅行历 1000.03.07', clock: '10:00', weather: '晴', location: '蒙德城', travelDay: 1, turn: 1, settlementId: 'turn-1' },
+      end: { worldName: '提瓦特', date: '旅行历 1000.03.08', clock: '18:00', weather: '雨', location: '风起地', travelDay: 2, turn: 2, settlementId: 'turn-2' },
+      sourceIds: ['turn-1', 'turn-2'],
+    },
   };
   const pending: IrminsulEntry = {
     ...source, id: 'pending-1', title: '压缩待重试', summary: '本地回退摘要', status: 'pending',
@@ -41,6 +46,9 @@ it('shows_active_archive_and_pending_retry_status', () => {
   expect(host.textContent).toContain('可召回 2');
   expect(host.textContent).toContain('待重试 1');
   expect(host.textContent).toContain('来源回合 1、2');
+  expect(host.textContent).toContain('多地点');
+  expect(host.textContent).toContain('多天气');
+  expect(host.textContent).toContain('未记录');
   expect(host.textContent).toContain('旧档无覆盖链');
   expect(host.textContent).not.toContain('初遇安柏');
   expect(host.textContent).not.toContain('已压缩删除');

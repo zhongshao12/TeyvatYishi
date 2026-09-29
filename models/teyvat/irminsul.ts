@@ -8,6 +8,7 @@ export interface IrminsulEntry {
   archiveType: 'short' | 'medium' | 'long' | 'refined';
   sourceText: string;
   turn: number;
+  sourceMomentRange?: import('./worldMoment').WorldMomentRange;
   /** Exact lower-layer archive identities consumed by this summary; absent on unverifiable legacy entries. */
   coveredEntryIds?: string[];
   /** Missing on old entries means active. Pending summaries are visible but not recallable. */
@@ -36,6 +37,7 @@ export function normalizeIrminsulMemory(input: unknown): IrminsulMemory {
       keywords: Array.isArray(value.keywords) ? value.keywords.map(String) : [],
       recordedAt: String(value.recordedAt ?? ''), archiveType, sourceText: String(value.sourceText ?? ''),
       turn: Math.max(0, Math.trunc(Number(value.turn) || 0)),
+      ...(normalizeWorldMomentRange(value.sourceMomentRange) ? { sourceMomentRange: normalizeWorldMomentRange(value.sourceMomentRange)! } : {}),
       ...(Array.isArray(value.coveredEntryIds) ? {
         coveredEntryIds: [...new Set(value.coveredEntryIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map((id) => id.trim()))],
       } : {}),
@@ -54,3 +56,4 @@ export function normalizeIrminsulMemory(input: unknown): IrminsulMemory {
   };
 }
 import { isRecord } from '@/utils/valueGuards';
+import { normalizeWorldMomentRange } from '@/services/worldMoment';

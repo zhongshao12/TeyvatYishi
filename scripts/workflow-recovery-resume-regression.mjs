@@ -36,7 +36,9 @@ assert(!send.includes('gameTime: effectiveWorld?.当前日期'), 'live archive m
 assert(!send.includes('location: effectiveWorld?.当前地点'), 'live archive must not read pre-command location.');
 assert(send.includes('committedState: committedSettlementGame'), 'live committed barrier must persist the exact committed root.');
 assert(!send.includes("console.error('[quest] post-commit archive failed"), 'live quest archive failure must propagate to retain settlement_committed.');
-const liveCommit = send.indexOf('const committedSettlementGame = variableOverrides.committedGame');
+// The committed root is now read back from the live state after variable settlement,
+// so recovery and memory stages share the same persisted turn boundary.
+const liveCommit = send.indexOf('let committedSettlementGame = readLiveGameState(state)');
 const localCommittedPhase = send.indexOf("phase: 'settlement_committed'", liveCommit);
 const abortCheckpoint = send.indexOf('assertWorkflowActive();', liveCommit);
 // 顺序断言跑在拼接视图上：显式声明这三个标记必须落在同一个文件区间内，

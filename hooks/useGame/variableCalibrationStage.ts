@@ -12,6 +12,7 @@
 import {
   applyLegacyGameStateOverrides,
   readLiveGameState,
+  toLegacyMemory,
   toLegacyStoryWeaving,
   type UseGameStateReturn} from '@/hooks/useGameState';
 import type { SteambirdNews } from '@/models/teyvat/steambird';
@@ -99,13 +100,13 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
     irminsulEnabled,
     irminsulRecallEnabled,
     irminsulPreview,
-    irminsulWithCompression,
     worldAfter,
     travelerAfter,
     worldFactCandidates,
   } = deps;
   let finalHistory = deps.finalHistory;
   let mem = deps.mem;
+  let irminsulWithCompression = deps.irminsulWithCompression;
   let recoveryJournal = deps.recoveryJournal;
 
     // 8.5 变量模型校准：主回复完成 → 调用独立的变量模型分析正文，把结构化命令落地。
@@ -171,7 +172,8 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         // 两种来源：等待期间存档已切换（CAS 拒绝）/ 流程已被取消（shouldCommit 为 false，走 abort 分支）。
         throw new Error('TEYVAT_SETTLEMENT_REJECTED：本次变量结算未写入活体存档（等待期间存档已切换或流程已取消）。');
       }
-      let committedSettlementGame = variableOverrides.committedGame;
+      // The settlement callback may rebase concurrent player edits; use the actual live committed root.
+      let committedSettlementGame = readLiveGameState(state);
       const {
         applyStoryProgressNpcMemory,
         buildSettlementCommitFeedback,
@@ -202,6 +204,32 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         notifyQuest: (detail) => notifyCommittedQuestUpdate(state.gameSettings.notificationSettings, detail),
       });
 
+      const settledMoment = committedSettlementGame.叙事.lastCommittedMoment;
+      if (!settledMoment || settledMoment.settlementId !== recoveryJournal.workflowId) {
+        throw new Error('提交后的世界时刻缺失，已停止记忆写入。');
+      }
+      const { runMemoryUpdateStage } = await import('./memoryUpdateStage');
+      const memoryUpdate = await runMemoryUpdateStage({
+        state,
+        userInput,
+        config,
+        displayText,
+        parsedForDisplay,
+        abortController,
+        assertWorkflowActive,
+        memory: toLegacyMemory(committedSettlementGame),
+        irminsul: committedSettlementGame.世界树,
+        moment: settledMoment,
+      });
+      mem = memoryUpdate.mem;
+      irminsulWithCompression = memoryUpdate.irminsulWithCompression;
+      committedSettlementGame = {
+        ...applyLegacyGameStateOverrides(committedSettlementGame, { 记忆: mem }),
+        世界树: irminsulWithCompression,
+      };
+      state.set记忆(mem);
+      state.set世界树(irminsulWithCompression);
+
       const npcSource = variableOverrides?.NPC ?? state.NPC;
       const memorySettings = state.gameSettings.记忆系统 ?? 创建默认记忆系统设置();
       const preparedNpcs = preparePostSettlementNpcState({
@@ -220,7 +248,9 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         state.setChatHistory(finalHistory);
       }
 
-      let memoryAfterStoryProgress = variableOverrides?.记忆 ?? mem;
+      // The memory stage starts from the committed root (including variable overrides)
+      // and may have appended/compressed this turn; never replace it with the earlier batch projection.
+      let memoryAfterStoryProgress = mem;
       let memoryChangedAfterSettlement = false;
       const storyWeavingBase = toLegacyStoryWeaving(committedSettlementGame.叙事.storyWeaving);
       const storyPlan = planPostSettlementStoryAlignment({
@@ -260,7 +290,10 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         }
         assertWorkflowActive();
         if (storyProgressMemoryLine && !storyWeavingConcurrentChange) {
-          memoryAfterStoryProgress = addImmediateMemory(memoryAfterStoryProgress, storyProgressMemoryLine, state.turnCount + 1);
+          memoryAfterStoryProgress = addImmediateMemory(
+            memoryAfterStoryProgress, storyProgressMemoryLine, state.turnCount + 1,
+            settledMoment, `memory_story_${settledMoment.settlementId}`,
+          );
           mem = memoryAfterStoryProgress;
           memoryChangedAfterSettlement = true;
           const npcAfterStoryProgress = applyStoryProgressNpcMemory(
@@ -273,6 +306,9 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
             npcChanged = true;
           }
         }
+      }
+      if (memoryChangedAfterSettlement) {
+        committedSettlementGame = applyLegacyGameStateOverrides(committedSettlementGame, { 记忆: memoryAfterStoryProgress });
       }
       const committedTurn = commitTurnContext({
         game: committedSettlementGame,
@@ -388,6 +424,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
           location: turnRecallSource.location,
           worldEvents: turnRecallSource.worldEvents,
           gameTime: turnRecallSource.gameTime,
+          moment: committedTurnContext.moment,
           questFactCandidates: parsedForDisplay.factCandidates,
           recallEnabled: irminsulEnabled,
           recallEligible: irminsulRecallEnabled,

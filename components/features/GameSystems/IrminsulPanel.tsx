@@ -2,6 +2,7 @@ import { CLIP_ITEM, insetRing } from '@/styles/clipPaths';
 import { useMemo, useState } from 'react';
 import type { IrminsulMemory, IrminsulEntry } from '@/models/teyvat/irminsul';
 import { getActiveIrminsulEntries } from '@/services/irminsulPromotion';
+import { formatWorldMomentRange } from '@/services/worldMoment';
 
 const ARCHIVE_TYPE_LABELS: Record<IrminsulEntry['archiveType'], string> = {
   short: '短期归档',
@@ -33,7 +34,7 @@ export function IrminsulPanel({ memory }: { memory: IrminsulMemory }) {
     return entries.filter((entry) => {
       if (typeFilter !== 'all' && entry.archiveType !== typeFilter) return false;
       if (terms.length === 0) return true;
-      const source = [entry.title, entry.summary, entry.sourceText, ...entry.keywords].join('\n').toLocaleLowerCase();
+      const source = [entry.title, entry.summary, entry.sourceText, formatWorldMomentRange(entry.sourceMomentRange), ...entry.keywords].join('\n').toLocaleLowerCase();
       return terms.every((term) => source.includes(term));
     });
   }, [entries, typeFilter, query]);
@@ -124,6 +125,9 @@ export function IrminsulPanel({ memory }: { memory: IrminsulMemory }) {
                   </div>
                   <h3 className="mt-1.5 font-serif text-lg">{entry.title}</h3>
                   <p className="mt-1.5 text-sm leading-6" style={{ color: 'rgba(var(--tj-text-secondary),0.92)' }}>{entry.summary}</p>
+                  <p className="mt-1 text-xs leading-5" style={{ color: 'rgba(var(--tj-text-secondary),0.82)' }}>
+                    {formatWorldMomentRange(entry.sourceMomentRange)}
+                  </p>
                   {entry.sourceTurns.length > 0 && (
                     <p className="mt-1 text-xs" style={{ color: 'rgba(var(--tj-text-secondary),0.75)' }}>
                       来源回合 {entry.sourceTurns.join('、')}

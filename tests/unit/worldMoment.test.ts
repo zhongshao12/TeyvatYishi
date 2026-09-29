@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyTeyvatWorld } from '@/models/teyvat/world';
-import { captureWorldMoment, normalizeWorldMoment } from '@/services/worldMoment';
+import { captureWorldMoment, formatWorldMomentRange, normalizeWorldMoment } from '@/services/worldMoment';
 
 describe('committed world moment', () => {
   it('captures an immutable snapshot of the game-world clock and place', () => {
@@ -39,5 +39,25 @@ describe('committed world moment', () => {
     expect(() => captureWorldMoment(world, -1, 'settlement')).toThrow();
     expect(() => captureWorldMoment(world, 1, ' ')).toThrow();
     expect(normalizeWorldMoment({ turn: 0, settlementId: '' })).toBeNull();
+  });
+
+  it('formats mixed source locations and weather without inventing legacy values', () => {
+    const world = createEmptyTeyvatWorld();
+    world.当前日期 = '旅行历 1000.03.07';
+    world.当前时间 = '10:00';
+    world.当前天气 = '晴';
+    world.当前地点 = '蒙德城';
+    const start = captureWorldMoment(world, 1, 'first');
+    world.当前日期 = '旅行历 1000.03.08';
+    world.当前时间 = '18:00';
+    world.当前天气 = '雨';
+    world.当前地点 = '风起地';
+    world.旅程天数 = 2;
+    const end = captureWorldMoment(world, 2, 'second');
+    expect(formatWorldMomentRange({ start, end, sourceIds: ['a', 'b'] }))
+      .toContain('多天气');
+    expect(formatWorldMomentRange({ start, end, sourceIds: ['a', 'b'] }))
+      .toContain('多地点');
+    expect(formatWorldMomentRange(null)).toContain('未记录');
   });
 });

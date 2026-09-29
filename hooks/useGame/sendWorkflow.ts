@@ -859,19 +859,9 @@ export async function executeSendWorkflow(
     let finalHistory = aiMessageStage.finalHistory;
     const { displayText, parsedForDisplay, aiMsg } = aiMessageStage;
 
-    // 6. Update memory（已抽到 memoryUpdateStage）。懒加载 + 登记 allowlist。
-    const { runMemoryUpdateStage } = await import('./memoryUpdateStage');
-    const memoryUpdateStage = await runMemoryUpdateStage({
-      state,
-      userInput,
-      config,
-      displayText,
-      parsedForDisplay,
-      abortController,
-      assertWorkflowActive,
-    });
-    let mem = memoryUpdateStage.mem;
-    const { irminsulWithCompression } = memoryUpdateStage;
+    // Persistent memory is settled only after the variable commit produces a frozen world moment.
+    let mem = state.记忆;
+    const irminsulWithCompression = state.世界树;
 
     // 7 / 7a / 7b. 先在独立阶段结算世界事实、元素回响与天气，（已抽到 worldCommitStage）。懒加载 + 登记 allowlist。
     const { runWorldCommitStage } = await import('./worldCommitStage');

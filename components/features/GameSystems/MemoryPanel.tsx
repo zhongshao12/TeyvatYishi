@@ -7,6 +7,7 @@ import { MEMORY_LAYER_COMPRESSION_THRESHOLD, type 记忆失败草稿, type 记�
 import type { 记忆系统设置 } from '@/models/settings';
 import { pushToast } from '@/utils/toastStore';
 import { toUserFacingError } from '@/utils/userFacingError';
+import { formatWorldMomentRange } from '@/services/worldMoment';
 import {
   checkCompressionThreshold,
   checkMiddleTermThreshold,
@@ -88,7 +89,13 @@ export function MemoryPanel({
           onMemorySystemChange((current) => {
             if (layers.some((layer) => JSON.stringify(current[layer]) !== JSON.stringify(compressed[layer]))) return current;
             const restored = { ...current };
-            for (const layer of layers) restored[layer] = snapshot[layer];
+            for (const layer of layers) {
+              restored[layer] = snapshot[layer];
+              if (layer === '即时记忆') restored.即时记忆ID = snapshot.即时记忆ID;
+              if (layer === '短期记忆') restored.短期归档ID = snapshot.短期归档ID;
+              if (layer === '中期记忆') restored.中期归档ID = snapshot.中期归档ID;
+              if (layer === '长期记忆') restored.长期归档ID = snapshot.长期归档ID;
+            }
             return restored;
           });
         },
@@ -110,6 +117,10 @@ export function MemoryPanel({
           : activeLayer === 'long'
             ? memorySystem.长期记忆
             : [];
+  const visibleIds = activeLayer === 'immediate' ? memorySystem.即时记忆ID
+    : activeLayer === 'short' ? memorySystem.短期归档ID
+      : activeLayer === 'middle' ? memorySystem.中期归档ID
+        : activeLayer === 'long' ? memorySystem.长期归档ID : undefined;
 
   const handleCompressShort = () => {
     const threshold = settings.即时转短期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD;
@@ -305,7 +316,8 @@ export function MemoryPanel({
               <EmptyNotice title="空" text="这一层目前没有内容。" />
             ) : (
               visibleTextItems.map((item, index) => (
-                <MemoryRow key={`${activeLayer}-${index}-${item}`} index={index} text={item} />
+                <MemoryRow key={`${activeLayer}-${index}-${item}`} index={index} text={item}
+                  provenance={formatWorldMomentRange(visibleIds?.[index] ? memorySystem.来源时刻?.[visibleIds[index]!] : null)} />
               ))
             )}
           </div>
@@ -354,7 +366,7 @@ function MetricTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MemoryRow({ index, text }: { index: number; text: string }) {
+function MemoryRow({ index, text, provenance }: { index: number; text: string; provenance: string }) {
   return (
     <div
       className="px-3 py-3"
@@ -369,6 +381,9 @@ function MemoryRow({ index, text }: { index: number; text: string }) {
       </div>
       <div className="mt-1 whitespace-pre-wrap break-words font-serif text-[13px] leading-relaxed tracking-[0.04em]" style={{ color: 'rgba(var(--tj-text-primary), 0.95)' }}>
         {text}
+      </div>
+      <div className="mt-1 text-[11px] leading-5" style={{ color: 'rgba(var(--tj-text-secondary), 0.78)' }}>
+        {provenance}
       </div>
     </div>
   );

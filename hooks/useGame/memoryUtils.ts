@@ -12,6 +12,8 @@ import type { NPC同行记忆来源, NPC同行记忆条目, NPC总结记忆条�
 import { summarizeMemoryBatch } from '@/services/memoryCompression';
 import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
 import { getActiveIrminsulEntries, promoteIrminsulEntry } from '@/services/irminsulPromotion';
+import type { WorldMoment, WorldMomentRange } from '@/models/teyvat/worldMoment';
+import { combineWorldMomentRanges } from '@/services/worldMoment';
 
 const MEMORY_SNIPPET_LIMIT = 84;
 const NPC_MEMORY_SUMMARY_LIMIT = 160;
@@ -134,27 +136,62 @@ function dedupeLines(lines: string[]): string[] {
   return result;
 }
 
-export function addImmediateMemory(system: 记忆系统, memory: string, _turn: number): 记忆系统 {
+function pruneMemorySourceMoments(system: 记忆系统): 记忆系统 {
+  if (!system.来源时刻) return system;
+  const activeIds = new Set([
+    ...(system.即时记忆ID ?? []),
+    ...(system.短期归档ID ?? []),
+    ...(system.中期归档ID ?? []),
+    ...(system.长期归档ID ?? []),
+  ].filter((id): id is string => Boolean(id)));
+  const sourceMoments = Object.fromEntries(
+    Object.entries(system.来源时刻).filter(([id]) => activeIds.has(id)),
+  );
+  return { ...system, 来源时刻: sourceMoments };
+}
+
+export function addImmediateMemory(system: 记忆系统, memory: string, turn: number, moment?: WorldMoment, explicitId?: string): 记忆系统 {
+  const id = moment ? (explicitId?.trim() || `memory_${moment.settlementId}_${turn}`) : null;
+  if (id && system.即时记忆ID?.includes(id)) return system;
   const newMemories = [...system.即时记忆, memory];
   const trimmed = newMemories.length > 50 ? newMemories.slice(-50) : newMemories;
-  return { ...system, 即时记忆: trimmed };
+  const newIds = [...(system.即时记忆ID ?? system.即时记忆.map(() => null)), id];
+  return pruneMemorySourceMoments({
+    ...system,
+    即时记忆: trimmed,
+    ...(moment || system.即时记忆ID ? { 即时记忆ID: newIds.slice(-50) } : {}),
+    ...(id && moment ? { 来源时刻: {
+      ...system.来源时刻,
+      [id]: { start: moment, end: moment, sourceIds: [id] },
+    } } : {}),
+  });
 }
 
 export function checkCompressionThreshold(system: 记忆系统, threshold = MEMORY_LAYER_COMPRESSION_THRESHOLD): boolean {
   return system.即时记忆.length >= Math.max(1, Math.trunc(threshold));
 }
 
+function sourceRangeForIds(system: 记忆系统, ids: readonly (string | null)[]): WorldMomentRange | null {
+  const ranges = ids.map((id) => id ? system.来源时刻?.[id] ?? null : null);
+  return ranges.some(Boolean) ? combineWorldMomentRanges(ranges) : null;
+}
+
 export function compressToShortTerm(system: 记忆系统, turn: number, batchSize = MEMORY_LAYER_COMPRESSION_THRESHOLD): 记忆系统 {
   const size = Math.max(1, Math.trunc(batchSize));
   const recentRaw = system.即时记忆.slice(0, size);
   const summary = buildArchiveSummary(recentRaw, turn, 'short');
+  const immediateIds = (system.即时记忆ID ?? system.即时记忆.map(() => null)).slice(0, size);
+  const sourceMomentRange = sourceRangeForIds(system, immediateIds);
+  const archiveId = sourceMomentRange ? archiveIdentity('short', turn, recentRaw, immediateIds.filter((id): id is string => Boolean(id)), 0) : null;
 
-  return {
+  return pruneMemorySourceMoments({
     ...system,
     即时记忆: system.即时记忆.slice(size),
+    ...(system.即时记忆ID ? { 即时记忆ID: system.即时记忆ID.slice(size) } : {}),
     短期记忆: [...system.短期记忆, summary],
-    短期归档ID: [...(system.短期归档ID ?? system.短期记忆.map(() => null)), null],
-  };
+    短期归档ID: [...(system.短期归档ID ?? system.短期记忆.map(() => null)), archiveId],
+    ...(archiveId && sourceMomentRange ? { 来源时刻: { ...system.来源时刻, [archiveId]: sourceMomentRange } } : {}),
+  });
 }
 
 export function createShortTermArchiveEntry(rawMemories: string[], turn: number, summaryOverride?: string): IrminsulEntry {
@@ -179,13 +216,17 @@ export function compressToMiddleTerm(system: 记忆系统, turn: number, batchSi
   const size = Math.max(1, Math.trunc(batchSize));
   const oldest = system.短期记忆.slice(0, size);
   const compressed = buildArchiveSummary(oldest, turn, 'middle');
-  return {
+  const sourceIds = (system.短期归档ID ?? system.短期记忆.map(() => null)).slice(0, size);
+  const sourceMomentRange = sourceRangeForIds(system, sourceIds);
+  const archiveId = sourceMomentRange ? archiveIdentity('medium', turn, oldest, sourceIds.filter((id): id is string => Boolean(id)), 0) : null;
+  return pruneMemorySourceMoments({
     ...system,
     短期记忆: system.短期记忆.slice(size),
     短期归档ID: (system.短期归档ID ?? system.短期记忆.map(() => null)).slice(size),
     中期记忆: [...(system.中期记忆 ?? []), compressed],
-    中期归档ID: [...(system.中期归档ID ?? (system.中期记忆 ?? []).map(() => null)), null],
-  };
+    中期归档ID: [...(system.中期归档ID ?? (system.中期记忆 ?? []).map(() => null)), archiveId],
+    ...(archiveId && sourceMomentRange ? { 来源时刻: { ...system.来源时刻, [archiveId]: sourceMomentRange } } : {}),
+  });
 }
 
 export function createMiddleTermArchiveEntry(shortMemories: string[], turn: number, summaryOverride?: string): IrminsulEntry {
@@ -210,13 +251,17 @@ export function compressToLongTerm(system: 记忆系统, turn: number, batchSize
   const size = Math.max(1, Math.trunc(batchSize));
   const oldest = (system.中期记忆 ?? []).slice(0, size);
   const compressed = buildArchiveSummary(oldest, turn, 'long');
-  return {
+  const sourceIds = (system.中期归档ID ?? system.中期记忆.map(() => null)).slice(0, size);
+  const sourceMomentRange = sourceRangeForIds(system, sourceIds);
+  const archiveId = sourceMomentRange ? archiveIdentity('long', turn, oldest, sourceIds.filter((id): id is string => Boolean(id)), 0) : null;
+  return pruneMemorySourceMoments({
     ...system,
     中期记忆: (system.中期记忆 ?? []).slice(size),
     中期归档ID: (system.中期归档ID ?? (system.中期记忆 ?? []).map(() => null)).slice(size),
     长期记忆: [...system.长期记忆, compressed],
-    长期归档ID: [...(system.长期归档ID ?? system.长期记忆.map(() => null)), null],
-  };
+    长期归档ID: [...(system.长期归档ID ?? system.长期记忆.map(() => null)), archiveId],
+    ...(archiveId && sourceMomentRange ? { 来源时刻: { ...system.来源时刻, [archiveId]: sourceMomentRange } } : {}),
+  });
 }
 
 export function createLongTermArchiveEntry(shortMemories: string[], turn: number, summaryOverride?: string): IrminsulEntry {
@@ -325,17 +370,23 @@ function archiveWithProvenance(
   sourceIds: readonly (string | null)[],
   memory: IrminsulMemory,
   pending: boolean,
+  sourceRanges: readonly (WorldMomentRange | null | undefined)[] = [],
 ): IrminsulEntry {
   const sources = sourceArchiveType ? exactArchiveSources(memory, raw, sourceIds, sourceArchiveType) : null;
   const coveredEntryIds = sources?.map((source) => source.id);
   const sourceTurns = sources?.length
     ? [...new Set(sources.flatMap((source) => source.sourceTurns))].sort((a, b) => a - b)
     : [turn];
+  const ranges = sources?.map((source, index) => source.sourceMomentRange ?? sourceRanges[index] ?? null) ?? sourceRanges;
+  const sourceMomentRange = ranges.length
+    ? combineWorldMomentRanges(ranges)
+    : null;
   return {
     ...base,
     id: archiveIdentity(base.archiveType as 'short' | 'medium' | 'long', turn, raw, coveredEntryIds ?? [], index),
     sourceTurns,
     ...(coveredEntryIds?.length ? { coveredEntryIds } : {}),
+    ...(sourceMomentRange ? { sourceMomentRange } : {}),
     status: pending ? 'pending' : 'active',
   };
 }
@@ -508,16 +559,20 @@ export async function autoCompressMemorySystemWithArchivesAsync(
     usedFallback = usedFallback || result.usedFallback;
     usedModel = usedModel || result.usedModel;
     usedLocal = usedLocal || result.usedLocal;
+    const immediateIds = picked.indexes.map((index) => next.即时记忆ID?.[index] ?? null);
     const archive = archiveWithProvenance(createShortTermArchiveEntry(raw, turn, result.summary), raw, turn,
-      archives.filter((entry) => entry.archiveType === 'short').length, null, [], workingIrminsul, Boolean(result.failureCode));
+      archives.filter((entry) => entry.archiveType === 'short').length, null, immediateIds, workingIrminsul, Boolean(result.failureCode),
+      immediateIds.map((id) => id ? next.来源时刻?.[id] ?? null : null));
     await appendFailure({ kind: 'short', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result, archive.id);
     archives.push(archive);
     workingIrminsul = promoteIrminsulEntry(workingIrminsul, archive);
     next = {
       ...next,
       即时记忆: removeIndexes(next.即时记忆, picked.indexes),
+      ...(next.即时记忆ID ? { 即时记忆ID: removeIndexes(next.即时记忆ID, picked.indexes) } : {}),
       短期记忆: [...next.短期记忆, result.summary],
       短期归档ID: [...(next.短期归档ID ?? next.短期记忆.map(() => null)), archive.id],
+      ...(archive.sourceMomentRange ? { 来源时刻: { ...next.来源时刻, [archive.id]: archive.sourceMomentRange } } : {}),
     };
   }
 
@@ -542,7 +597,8 @@ export async function autoCompressMemorySystemWithArchivesAsync(
     usedLocal = usedLocal || result.usedLocal;
     const sourceIds = picked.indexes.map((index) => next.短期归档ID?.[index] ?? null);
     const archive = archiveWithProvenance(createMiddleTermArchiveEntry(raw, turn, result.summary), raw, turn,
-      archives.filter((entry) => entry.archiveType === 'medium').length, 'short', sourceIds, workingIrminsul, Boolean(result.failureCode));
+      archives.filter((entry) => entry.archiveType === 'medium').length, 'short', sourceIds, workingIrminsul, Boolean(result.failureCode),
+      sourceIds.map((id) => id ? next.来源时刻?.[id] ?? null : null));
     await appendFailure({ kind: 'middle', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result, archive.id);
     archives.push(archive);
     workingIrminsul = promoteIrminsulEntry(workingIrminsul, archive);
@@ -552,6 +608,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
       短期归档ID: removeIndexes(next.短期归档ID ?? next.短期记忆.map(() => null), picked.indexes),
       中期记忆: [...(next.中期记忆 ?? []), result.summary],
       中期归档ID: [...(next.中期归档ID ?? (next.中期记忆 ?? []).map(() => null)), archive.id],
+      ...(archive.sourceMomentRange ? { 来源时刻: { ...next.来源时刻, [archive.id]: archive.sourceMomentRange } } : {}),
     };
   }
 
@@ -576,7 +633,8 @@ export async function autoCompressMemorySystemWithArchivesAsync(
     usedLocal = usedLocal || result.usedLocal;
     const sourceIds = picked.indexes.map((index) => next.中期归档ID?.[index] ?? null);
     const archive = archiveWithProvenance(createLongTermArchiveEntry(raw, turn, result.summary), raw, turn,
-      archives.filter((entry) => entry.archiveType === 'long').length, 'medium', sourceIds, workingIrminsul, Boolean(result.failureCode));
+      archives.filter((entry) => entry.archiveType === 'long').length, 'medium', sourceIds, workingIrminsul, Boolean(result.failureCode),
+      sourceIds.map((id) => id ? next.来源时刻?.[id] ?? null : null));
     await appendFailure({ kind: 'long', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result, archive.id);
     archives.push(archive);
     workingIrminsul = promoteIrminsulEntry(workingIrminsul, archive);
@@ -586,10 +644,11 @@ export async function autoCompressMemorySystemWithArchivesAsync(
       中期归档ID: removeIndexes(next.中期归档ID ?? (next.中期记忆 ?? []).map(() => null), picked.indexes),
       长期记忆: [...next.长期记忆, result.summary],
       长期归档ID: [...(next.长期归档ID ?? next.长期记忆.map(() => null)), archive.id],
+      ...(archive.sourceMomentRange ? { 来源时刻: { ...next.来源时刻, [archive.id]: archive.sourceMomentRange } } : {}),
     };
   }
 
-  return { memory: next, archives, failures, usedFallback, usedModel, usedLocal };
+  return { memory: pruneMemorySourceMoments(next), archives, failures, usedFallback, usedModel, usedLocal };
 }
 
 export interface RetryMemoryFailureDraftResult {

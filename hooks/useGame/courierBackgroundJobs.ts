@@ -384,6 +384,14 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
       const memberIds = selectGroupReplyMembers(conversation, playerMessage, input.maxGroupReplies ?? 3, updated.contacts);
       let nextCourier = updated;
       let memberReplied = 0;
+      // 成员级隔离（2026-09-29，用户报的「@全体成员 老是回信失败」）：
+      // `@全体成员` 会按**全群人数**逐个调用手机模型，旧实现是「全或无 + fail-fast」——
+      // 任何一位成员失败就整批抛出，已经生成的回复也一并丢弃，界面只剩
+      // 「回信失败，消息已保留。请稍后重试。」。现在：单成员失败只记下来并继续，
+      // 已成功的回复立即累积进 `updated`；**只有全员都失败**才抛出（保住 fail-fast 下界，
+      // 也保住「不用本地模板伪装成功」的契约）。
+      let firstMemberError: unknown;
+      let failedMembers = 0;
       for (const memberId of memberIds) {
         const contact = updated.contacts.find((item) => item.id === memberId);
         const provisionalName = contact?.name?.trim() || memberId;
@@ -408,14 +416,21 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
           try {
             text = await (input.groupReplyGenerator ?? generateCourierGroupReply)(input.letterApiConfig, groupContext);
           } catch (error) {
-            if (input.fallbackPolicy === 'error') throw error;
-            console.warn('[phone-message] 群聊 AI 回复失败，已使用本地回复：', error instanceof Error ? error.message : String(error));
+            // 诊断一律记录（尽力而为，失败不影响回复本身）；是否中断整批只取决于「是否全员失败」。
             void appendApiErrorReport({
               source: '手机消息群聊',
               config: input.letterApiConfig,
               requestMode: 'non-stream',
               error,
-            });
+            }).catch(() => undefined);
+            if (input.fallbackPolicy === 'error') {
+              firstMemberError = firstMemberError ?? error;
+              failedMembers += 1;
+              // 已生成的回复必须在抛出前落地，否则「部分成功」也会变成 0 条。
+              updated = nextCourier;
+              continue;
+            }
+            console.warn('[phone-message] 群聊 AI 回复失败，已使用本地回复：', error instanceof Error ? error.message : String(error));
             text = composeCourierGroupReplyLocally(groupContext);
           }
         } else {
@@ -445,8 +460,13 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
           });
         }
         memberReplied += 1;
+        updated = nextCourier;
       }
       updated = nextCourier;
+      // 全员失败：保留 fail-fast（调用方据此显示「回信失败」并提供重试）。
+      if (memberIds.length > 0 && failedMembers >= memberIds.length) {
+        throw firstMemberError ?? new Error('PHONE_REPLY_ALL_MEMBERS_FAILED');
+      }
       if (memberReplied > 0) replied += 1;
         continue;
       }

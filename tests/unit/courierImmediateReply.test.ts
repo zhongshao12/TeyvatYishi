@@ -79,6 +79,59 @@ it('rejects an incomplete batch and preserves the input after a model failure', 
   expect(courier.conversations[0]?.messages).toHaveLength(2);
 });
 
+const multiMemberConversation: CourierConversation = {
+  id: 'group-of-three', title: '蒙德小队', participantIds: ['player', 'amber', 'lisa', 'kaeya'],
+  type: 'group', unread: 0, typingMemberIds: [], updatedAt: 2,
+  messages: [{
+    id: 'q1', senderId: 'player', senderName: '旅人', role: 'user',
+    content: '@全体成员 出发了', turn: 2, timestamp: 1, readBy: ['player'],
+  }],
+};
+const multiMemberCourier: CourierSystem = {
+  ...createEmptyCourierSystem(),
+  contacts: [
+    { id: 'amber', name: '安柏', available: true },
+    { id: 'lisa', name: '丽莎', available: true },
+    { id: 'kaeya', name: '凯亚', available: true },
+  ],
+  conversations: [multiMemberConversation],
+};
+
+/**
+ * 2026-09-29 回归：`@全体成员` 会把一次请求放大成「全群人数次」串行模型调用，
+ * 旧实现是「全或无 + fail-fast」——任何一位成员失败就整批抛出、已成功的回复一并丢弃，
+ * 于是玩家看到「回信失败，消息已保留。请稍后重试。」（这就是用户报的第 8 项）。
+ * 现在改为成员级隔离：只有**全员失败**才抛。
+ */
+it('keeps the other members replies when one group member fails', async () => {
+  let calls = 0;
+  const result = await runCourierReplyPass({
+    courier: multiMemberCourier, npcs: [], letterApiConfig: config, turn: 2,
+    replyBatch: { conversationId: 'group-of-three', messageIds: ['q1'] },
+    fallbackPolicy: 'error',
+    groupReplyGenerator: async () => {
+      calls += 1;
+      if (calls === 2) throw new Error('MODEL_DOWN');
+      return '收到。';
+    },
+  });
+  const replies = result.courier.conversations[0]?.messages.filter((message) => message.role === 'contact') ?? [];
+  expect(result.replied).toBe(1);
+  expect(replies).toHaveLength(2);
+  expect(replies.every((message) => message.content === '收到。')).toBe(true);
+  // 输入对象不得被就地修改（其它调用方仍持有同一份快照）。
+  expect(multiMemberCourier.conversations[0]?.messages).toHaveLength(1);
+});
+
+it('still rejects when every group member fails', async () => {
+  await expect(runCourierReplyPass({
+    courier: multiMemberCourier, npcs: [], letterApiConfig: config, turn: 2,
+    replyBatch: { conversationId: 'group-of-three', messageIds: ['q1'] },
+    fallbackPolicy: 'error',
+    groupReplyGenerator: async () => { throw new Error('MODEL_DOWN'); },
+  })).rejects.toThrow('MODEL_DOWN');
+});
+
 it('instructs the model to answer consecutive messages as one exchange', () => {
   const playerMessage = { ...conversation.messages[1]!, content: '1. 第一句\n2. 第二句' };
   const groupPrompt = buildCourierGroupReplyPrompt({ conversation, playerMessage });

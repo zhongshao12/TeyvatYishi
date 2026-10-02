@@ -81,6 +81,31 @@ it('holds model failure for explicit retry but automatically defers a transient 
   queue.dispose();
 });
 
+/**
+ * 2026-09-29 回归（用户报的第 8 项）：一次模型失败会把会话标成 failed，旧实现 `enqueue` 里
+ * `if (!entry.failed) schedule(...)` 于是**之后的新消息永远不再自动派发** —— 界面横幅一直挂着，
+ * 此后同一会话的每条消息都「没有回信」，玩家只能看到「回信失败，消息已保留。请稍后重试。」。
+ * 现在：新消息照常自动派发；失败的那一批仍留给手动重试，且重试只重发失败批次。
+ */
+it('still auto-dispatches new messages after a failed batch, and retry only resends the failed ones', async () => {
+  vi.useFakeTimers();
+  const dispatched: string[][] = [];
+  const queue = createCourierReplyQueue({
+    getSessionId: () => 7,
+    dispatch: async (batch) => { dispatched.push(batch.messageIds); return dispatched.length === 1 ? 'retry' : 'sent'; },
+  });
+  queue.enqueue({ conversationId: 'amber', messageId: 'p1', sessionId: 7 });
+  await vi.advanceTimersByTimeAsync(500);
+  expect(dispatched).toEqual([['p1']]);
+  queue.enqueue({ conversationId: 'amber', messageId: 'p2', sessionId: 7 });
+  await vi.advanceTimersByTimeAsync(500);
+  expect(dispatched).toEqual([['p1'], ['p2']]);
+  queue.retry('amber');
+  await vi.advanceTimersByTimeAsync(0);
+  expect(dispatched).toEqual([['p1'], ['p2'], ['p1']]);
+  queue.dispose();
+});
+
 it('discards old-session timers and never starts a disposed queue', async () => {
   vi.useFakeTimers();
   let sessionId = 7;

@@ -20,13 +20,26 @@ export interface CourierReplyQueueOptions {
 
 interface PendingConversation {
   sessionId: number;
+  /** 尚未拿到回信的玩家消息 id（含等待手动重试的那一批）。 */
   pendingIds: string[];
+  /** 模型失败、需要玩家手动重试的 id；自动派发**不会**重发它们。 */
+  failedIds: string[];
+  /** 本次 ready 由玩家点「重试回信」触发 → 只重发 `failedIds`。 */
+  retryRequested: boolean;
   ready: boolean;
-  failed: boolean;
   timer?: ReturnType<typeof setTimeout>;
 }
 
-/** Serializes phone model work without losing messages sent during an active request. */
+/**
+ * Serializes phone model work without losing messages sent during an active request.
+ *
+ * 2026-09-29 修正（用户报的第 8 项「群聊 @全体成员 老是回信失败」的第二层）：
+ * 旧实现在一次失败后把会话标成 `failed`，而 `enqueue` 里是 `if (!entry.failed) schedule(...)`
+ * —— 于是**之后的新消息再也不自动派发**，界面横幅一直挂着、同会话此后每条消息都「没有回信」。
+ * 现在把「失败批次」与「新消息」分开记账：
+ * - 新消息照常自动派发（只发未失败的那些 id）；
+ * - 失败的那一批仍留给手动 `retry()`，且重试**只**重发这一批，不会把新消息一起再发一遍。
+ */
 export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
   const delayMs = Math.max(0, options.delayMs ?? 500);
   const pending = new Map<string, PendingConversation>();
@@ -58,15 +71,23 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
     }
   };
 
+  /** 本次可以自动派发的 id（排除等待手动重试的失败批次）。 */
+  const autoIds = (entry: PendingConversation) => entry.pendingIds.filter((id) => !entry.failedIds.includes(id));
+  const readyToSend = (entry: PendingConversation) => (entry.retryRequested
+    ? entry.failedIds.length > 0
+    : autoIds(entry).length > 0);
+
   const pump = async (): Promise<void> => {
     if (disposed) return;
     removeOldSessions();
     if (activeToken !== null) return;
-    const next = [...pending].find(([, entry]) => entry.ready && !entry.failed && entry.pendingIds.length);
+    const next = [...pending].find(([, entry]) => entry.ready && readyToSend(entry));
     if (!next) return;
     const [conversationId, entry] = next;
     entry.ready = false;
-    const messageIds = entry.pendingIds.splice(0);
+    const sendIds = entry.retryRequested ? [...entry.failedIds] : autoIds(entry);
+    const messageIds = sendIds;
+    entry.pendingIds = entry.pendingIds.filter((id) => !messageIds.includes(id));
     const token = ++nextToken;
     activeToken = token;
     activeSessionId = entry.sessionId;
@@ -83,18 +104,32 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
     if (disposed) return;
     removeOldSessions();
     if (pending.get(conversationId) === entry) {
-      if (result !== 'sent') {
-        entry.pendingIds = [...messageIds, ...entry.pendingIds.filter((id) => !messageIds.includes(id))];
+      if (result === 'sent') {
+        entry.retryRequested = false;
+        entry.failedIds = entry.failedIds.filter((id) => !messageIds.includes(id));
+        if (!entry.pendingIds.length && !entry.failedIds.length) {
+          clearTimer(entry);
+          pending.delete(conversationId);
+        } else if (!autoIds(entry).length && !entry.ready) {
+          // 只剩等待手动重试的失败批次：不再自动重发（契约：模型失败不自动重试）。
+          clearTimer(entry);
+        }
+        // 仍有新消息时**不重新计时**：它可能已被等待窗标记为 ready，
+        // 交给末尾的 pump 立刻派发（与既有「飞行中新消息」行为一致）。
+      } else {
+        // 把本次的 id 放回队首。
+        entry.pendingIds = [...messageIds, ...entry.pendingIds];
         if (result === 'retry') {
+          entry.failedIds = [...new Set([...entry.failedIds, ...messageIds])];
+          entry.retryRequested = false;
           clearTimer(entry);
           entry.ready = false;
-          entry.failed = true;
         } else {
+          // 'defer' = 认领被占用这类**瞬时**冲突：不记为失败，保持本次意图（自动批或玩家手动重试），
+          // 500 毫秒后按原节奏自动再试。
+          if (!entry.retryRequested) entry.failedIds = entry.failedIds.filter((id) => !messageIds.includes(id));
           schedule(conversationId, entry);
         }
-      } else if (!entry.pendingIds.length) {
-        clearTimer(entry);
-        pending.delete(conversationId);
       }
     }
     void pump();
@@ -122,18 +157,24 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
       if (intent.sessionId !== options.getSessionId()) return;
       let entry = pending.get(intent.conversationId);
       if (!entry) {
-        entry = { sessionId: intent.sessionId, pendingIds: [], ready: false, failed: false };
+        entry = {
+          sessionId: intent.sessionId, pendingIds: [], failedIds: [], retryRequested: false, ready: false,
+        };
         pending.set(intent.conversationId, entry);
       }
-      if (!entry.pendingIds.includes(intent.messageId)) entry.pendingIds.push(intent.messageId);
-      if (!entry.failed) schedule(intent.conversationId, entry);
+      if (!entry.pendingIds.includes(intent.messageId) && !entry.failedIds.includes(intent.messageId)) {
+        entry.pendingIds.push(intent.messageId);
+      }
+      // 关键改动：不再因为「这个会话上一批失败过」就拒绝调度 —— 新消息必须照常派发，
+      // 失败的旧批次由 failedIds 单独记账、只等手动重试。
+      if (!entry.failedIds.includes(intent.messageId)) schedule(intent.conversationId, entry);
     },
     retry(conversationId: string): void {
       if (disposed) return;
       removeOldSessions();
       const entry = pending.get(conversationId);
-      if (!entry?.failed || !entry.pendingIds.length) return;
-      entry.failed = false;
+      if (!entry?.failedIds.length) return;
+      entry.retryRequested = true;
       entry.ready = true;
       void pump();
     },

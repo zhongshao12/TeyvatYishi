@@ -25,10 +25,10 @@ import {
 } from '@/models/teyvat/domainCommand';
 import { extractJsonLikeText, parseJsonWithRepair } from '@/services/ai/structuredOutputRepair';
 import { 天气列表 } from '@/data/weatherRules';
-import { getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
 import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
 import { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveEnrichment';
-import { detectNpcIntimacyEvent } from '@/utils/npcIntimacyEvidence';
+import { getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
+import { scanNpcIntimacyEvents, type NpcIntimacySubject } from '@/utils/npcIntimacyEvidence';
 import {
   normalizeLegacyFactKind,
   readLegacyNpcKeyFromName,
@@ -750,7 +750,10 @@ export const 每日同行好感加成 = 10;
  * 同一回合同一角色**只按命中的最高档结算一次**，不逐档相加：
  * 这几档在实践中是包含关系（性爱场景必然同时出现亲吻与拥抱），
  * 相加会让一次剧情涨 30+5+3+3 = 41 点，与「亲吻 +5」的口径明显不符。
- * 需要改成叠加时，只要把 deriveNarrativeIntimacyFacts 里的取最高档换成累加即可。
+ *
+ * 要改成叠加，只需改 `utils/npcIntimacyEvidence.ts` 的 `scanNpcIntimacyEvents`：
+ * 它现在对每个 NPC 只保留 rank 最小（档位最高）的一条命中；把那段 `best` 逻辑换成
+ * 逐档累加即可 —— 数值本身集中在下面的 `亲密事件档位数值`，不会漏改第二处。
  */
 export const 亲密事件好感规则 = {
   性爱事件: 30,
@@ -759,13 +762,35 @@ export const 亲密事件好感规则 = {
   肢体接触: 3,
 } as const;
 
+/**
+ * 档位 → 固定数值的**唯一**映射点。
+ * 这里直接引用 `亲密事件好感规则`，不再写第二份字面量：
+ * 旧实现里 `event.tier === 'sex' ? 30 : event.tier === 'kiss' ? 5 : 3` 与常量各写一份，
+ * 于是「改一处即可换成累加」的注释是假的（2026-09-29 修正）。
+ */
+const 亲密事件档位数值: Record<'sex' | 'kiss' | 'flirt' | 'touch', number> = {
+  sex: 亲密事件好感规则.性爱事件,
+  kiss: 亲密事件好感规则.亲吻,
+  flirt: 亲密事件好感规则.暧昧,
+  touch: 亲密事件好感规则.肢体接触,
+};
+
 export function buildNpcIntimacyEventId(settlementId: string, turn: number, npcId: string, tier: string): string {
   return `npc_intimacy:${JSON.stringify([settlementId, turn, npcId, tier])}`;
 }
 
 /**
  * 正文里的直接玩家↔NPC亲密事件 → 固定好感度事实。
- * 第三方、模糊指代、尚未发生的动作及未确认成年角色均不自动结算。
+ *
+ * 归属、代词回指、跨子句、引号与否定窗口全部交给 `scanNpcIntimacyEvents`（2026-09-29 重写）：
+ * 旧版在这里按子句共现判定，并要求子句 ≥ 8 字，导致 `安柏亲吻了你。`、`安柏俯下身，轻轻吻住了云。`、
+ * `她轻轻吻住了云。`、`「不要停……」安柏吻住了云。` 这类真实行文全部漏判 —— 而变量模型被明确要求
+ * 「亲密事件不要输出 affinityDelta」，于是漏判等于好感度静默不涨。
+ *
+ * 本函数只负责：① 逐角色的成年硬闸；② 把命中的档位换成固定数值；③ 性爱档的女角色档案事实。
+ * 旧的「证据里出现任何其他 NPC 名字就整条丢弃」已删除 —— 它会被单字名/别名的**子串**误杀
+ * （`琴声`、`派蒙`、`Lisa`），现在改为由扫描器的**归属竞争**（`ambiguous`）处理：
+ * 只有同句多人共同完成同一动作才丢弃，第三方仅在旁出现不再牵连。
  */
 export function deriveNarrativeIntimacyFacts(
   body: string,
@@ -784,11 +809,11 @@ export function deriveNarrativeIntimacyFacts(
   options: { nsfwEnabled?: boolean; playerName?: string; turn?: number; settlementId?: string } = {},
 ): 变量事实[] {
   if (!body.trim()) return [];
-  const facts: 变量事实[] = [];
+  const byId = new Map(records.map((record) => [record.id, record]));
+  const subjects: NpcIntimacySubject[] = [];
   for (const record of records) {
     const name = (record.姓名 ?? '').trim();
     if (!name) continue;
-    const names = [name, ...(record.aliases ?? [])].map((item) => item.trim()).filter(Boolean);
     // 描述文本里可能写着年龄（自定义角色没有原著名单可依）。
     const identityText = [record.说明, record.appearance, ...(record.notes ?? [])]
       .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
@@ -799,16 +824,35 @@ export function deriveNarrativeIntimacyFacts(
       ageSource: record.matureArchive?.ageConfirmationSource ?? record.NSFW档案?.年龄确认来源,
       canonicalBaselineAge: getCanonicalArchiveBaselineAge(name),
     });
-    if (!eligibility.confirmed) continue;
-    const sexTierAllowed = options.nsfwEnabled !== false
-      && getNsfwArchiveBlockReason(undefined, name, `${names.join(' ')} ${identityText}`) === null;
-    const event = detectNpcIntimacyEvent(body, record, options.playerName ?? '', sexTierAllowed);
-    if (!event) continue;
-    if (records.some((other) => other.id !== record.id
-      && [other.姓名, ...(other.aliases ?? [])].some((otherName) => otherName.trim() && event.evidence.includes(otherName.trim())))) continue;
-    const delta = event.tier === 'sex' ? 30 : event.tier === 'kiss' ? 5 : 3;
+    // 事实层**显式**再过一次集中 NSFW 资格策略（`getNsfwArchiveBlockReason`）：
+    // 硬禁名单 / 未成年证据 / 机械非人形命中时，这个角色连性爱档都不参与 ——
+    // 与 `resolveNpcAdultEligibility` 内部那次调用同源，但在这里写明白，避免「间接调用」被重构掉。
+    const sexArchiveBlocked = getNsfwArchiveBlockReason(undefined, name, `${[name, ...(record.aliases ?? [])].join(' ')} ${identityText}`) !== null;
+    // 未通过硬闸的角色既不结算、也不参与主体竞争（否则它会以名字子串的形式把别人的事件带走）。
+    subjects.push({
+      id: record.id,
+      姓名: name,
+      aliases: record.aliases,
+      eligible: eligibility.confirmed,
+      allowSex: !sexArchiveBlocked,
+    });
+  }
+  if (!subjects.some((subject) => subject.eligible !== false)) return [];
+  const matches = scanNpcIntimacyEvents(body, subjects, {
+    playerName: options.playerName ?? '',
+    allowSex: options.nsfwEnabled !== false,
+  });
+
+  const facts: 变量事实[] = [];
+  for (const match of matches) {
+    const record = byId.get(match.npcId);
+    const name = (record?.姓名 ?? '').trim();
+    if (!record || !name) continue;
+    // 归属不唯一（同句多人共同完成同一动作）→ 不结算，交由模型的普通关系变化处理。
+    if (match.ambiguous) continue;
+    const delta = 亲密事件档位数值[match.tier];
     const eventId = options.settlementId && options.turn
-      ? buildNpcIntimacyEventId(options.settlementId, options.turn, record.id, event.tier)
+      ? buildNpcIntimacyEventId(options.settlementId, options.turn, record.id, match.tier)
       : undefined;
     facts.push({
       type: 'npc',
@@ -816,9 +860,9 @@ export function deriveNarrativeIntimacyFacts(
       name,
       affinityDelta: delta,
       eventId,
-      evidence: event.evidence,
+      evidence: match.evidence,
     });
-    if (event.tier === 'sex' && record.gender === '女') {
+    if (match.tier === 'sex' && record.gender === '女') {
       facts.push({
         type: 'nsfw_archive',
         npcId: record.id,
@@ -829,7 +873,7 @@ export function deriveNarrativeIntimacyFacts(
         firstSexualPartnerTurn: options.turn,
         eventId,
         experiences: [options.turn ? `第${options.turn}回合：与玩家建立亲密关系` : '与玩家建立亲密关系'],
-        evidence: event.evidence,
+        evidence: match.evidence,
       });
     }
   }

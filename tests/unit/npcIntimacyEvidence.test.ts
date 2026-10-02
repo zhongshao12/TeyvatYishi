@@ -103,3 +103,89 @@ describe('玩家与 NPC 的直接亲密事件证据', () => {
     expect(otherResult.nextState.NPC[0]?.matureArchive?.firstSexualPartnerRef).toBeUndefined();
   });
 });
+
+/**
+ * 2026-09-29：识别器从「子句内共现 + 子句 ≥ 8 字」放宽到「句子内位置归属 + 代词回指」。
+ *
+ * 这批用例全部是**真实行文**形态；旧实现在它们上全部返回 `[]`（这就是「明明亲密却不涨好感度」），
+ * 因此它们同时是本次修复的红→绿证据。旧实现的具体死因见每条的注释。
+ */
+describe('真实行文的亲密事件识别（2026-09-29 回归）', () => {
+  const tints = (body: string, records = [adult()]) => deriveNarrativeIntimacyFacts(body, records, options);
+  const delta = (body: string, records = [adult()]) => tints(body, records)
+    .filter((fact) => fact.type === 'npc')
+    .map((fact) => (fact.type === 'npc' ? fact.affinityDelta : undefined));
+
+  it('短句也结算：安柏亲吻了你。（旧版死于「子句 < 8 字」）', () => {
+    expect(delta('安柏亲吻了你。')).toEqual([5]);
+  });
+
+  it('跨一个逗号也结算：安柏俯下身，轻轻吻住了云。（旧版死于按逗号切子句）', () => {
+    expect(delta('安柏俯下身，轻轻吻住了云。')).toEqual([5]);
+  });
+
+  it('代词回指前两句内最近点名的角色：安柏走到窗边。她轻轻吻住了云。', () => {
+    expect(delta('安柏走到窗边。她轻轻吻住了云。')).toEqual([5]);
+  });
+
+  it('代词没有先行词时不猜：她轻轻吻住了云。', () => {
+    expect(delta('她轻轻吻住了云。')).toEqual([]);
+  });
+
+  it('第一人称玩家主动也结算：我俯身吻住了安柏。', () => {
+    expect(delta('我俯身吻住了安柏。')).toEqual([5]);
+  });
+
+  it('引号只屏蔽对白内容：动作在引号外照算', () => {
+    expect(delta('“不要停……”安柏吻住了云。')).toEqual([5]);
+  });
+
+  it('补词表：相拥按肢体接触 +3', () => {
+    expect(delta('安柏与云在月光下相拥了很久。')).toEqual([3]);
+  });
+
+  it('单字名的子串不算点名：琴声里的安柏仍能拿分', () => {
+    const qin = normalizeTeyvatNpcRecords([{ id: 'npc_qin', 姓名: '琴', gender: '女' }])[0]!;
+    expect(delta('安柏在琴声里轻轻亲吻了云。', [adult(), qin])).toEqual([5]);
+  });
+
+  it('第三方仅在旁出现不再牵连：安柏亲吻了云，丽莎在旁边看着。', () => {
+    const lisa = normalizeTeyvatNpcRecords([{ id: 'npc_lisa', 姓名: '丽莎', gender: '女' }])[0]!;
+    expect(delta('安柏亲吻了云，丽莎在旁边看着。', [adult(), lisa])).toEqual([5]);
+  });
+
+  it('同句共同完成仍然丢弃（归属不唯一）：安柏和丽莎一起拥抱了云。', () => {
+    const lisa = normalizeTeyvatNpcRecords([{ id: 'npc_lisa', 姓名: '丽莎', gender: '女' }])[0]!;
+    expect(delta('安柏和丽莎一起拥抱了云。', [adult(), lisa])).toEqual([]);
+  });
+
+  it('玩家没参与就不结算：安柏亲吻了丽莎。', () => {
+    const lisa = normalizeTeyvatNpcRecords([{ id: 'npc_lisa', 姓名: '丽莎', gender: '女' }])[0]!;
+    expect(delta('安柏亲吻了丽莎。', [adult(), lisa])).toEqual([]);
+  });
+
+  it('否定词只在动作前的窗口内生效：想起从前之后仍能结算后一个动作', () => {
+    expect(delta('安柏想起从前的吻，随后又吻住了云。')).toEqual([5]);
+  });
+
+  it.each([
+    ['安柏俯下身去轻轻吻住了云。', [5]],
+    ['安柏轻轻吻住了你。', [5]],
+    ['云俯身吻住了安柏。', [5]],
+    ['俯身吻住了安柏。', []],
+    ['安柏在云耳边低语，随后相拥而眠。', []],
+  ])('真实行文矩阵 %s', (body, expected) => {
+    expect(delta(body)).toEqual(expected);
+  });
+  // 两处**有意保持保守**的边界：
+  // - 「俯身吻住了安柏。」没有主语也没有玩家指代 → 不猜归属；
+  // - 「…随后相拥而眠。」玩家只出现在前一个小句，动作所在子句没有玩家指代 → 不结算。
+  //   精度优先：宁可少算，也不能把旁人的动作算到玩家头上。
+
+  it('NSFW 关闭时语义不变：性爱档为 0，亲吻仍 +5', () => {
+    const noNsfw = { ...options, nsfwEnabled: false };
+    expect(deriveNarrativeIntimacyFacts('安柏与云发生了性爱关系。', [adult()], noNsfw)).toEqual([]);
+    expect(deriveNarrativeIntimacyFacts('安柏亲吻了你。', [adult()], noNsfw))
+      .toContainEqual(expect.objectContaining({ type: 'npc', affinityDelta: 5 }));
+  });
+});

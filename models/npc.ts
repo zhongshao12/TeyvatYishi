@@ -4,6 +4,7 @@
 
 import { matchCanonical } from '@/data/canonicalCharacters';
 import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
+import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
 import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
 import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 export type NPC阶位 = 'companion' | 'extra';
@@ -659,6 +660,13 @@ function 匹配NPC原著角色(name: string, alias?: string): ReturnType<typeof 
     if (!text) continue;
     const canonical = matchCanonical(规范化NPC身份文本(text));
     if (canonical) return canonical;
+  }
+  // 「有官方头像即原著角色」（2026-09-29 第 9 项）：精简原著名单只有 58 个角色，
+  // 而头像注册表有 127 个 —— 相差的那些此前既显示头像、又不是原著角色。
+  // 这里只补身份（返回不带性别/外貌/性格的合成条目，调用方的 `canonical?.x ?? 记录自身值`
+  // 兜底逻辑全部保持有效），从而让 `shouldForceCompanion` / `原著角色` / 性格保护一并生效。
+  if (hasBuiltinAvatarIdentity(name, alias ? [alias] : undefined)) {
+    return { name: 规范化NPC身份文本(name) || name };
   }
   return null;
 }

@@ -1,6 +1,7 @@
 import { ELEMENT_IDS, type ElementalAttunement, type ElementId, type PowerSource } from './elements';
 import { isReservedNpcIdentityName, type NPC外貌档案 } from '../npc';
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
+import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
 import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 
 export type TalentCategory = 'normal_attack' | 'elemental_skill' | 'elemental_burst' | 'passive';
@@ -315,7 +316,11 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
     const rawId = text(entry.id);
     const rawName = text(entry.姓名);
     const rawAliases = textList(entry.aliases);
-    const canonical = matchCanonicalIdentity({ id: rawId, name: rawName, aliases: rawAliases });
+    const canonical = matchCanonicalIdentity({ id: rawId, name: rawName, aliases: rawAliases })
+      // 「有官方头像即原著角色」（2026-09-29 第 9 项）：精简原著名单 58 个 vs 头像注册表 127 个，
+      // 相差的角色此前拿到 canonical:false + roleTier:'extra'（却照显示头像）。
+      // 合成条目只补身份，不带性别/外貌/性格 —— 下面所有 `canonical?.x ?? 记录自身值` 兜底保持不变。
+      ?? (hasBuiltinAvatarIdentity(rawName, rawAliases) ? { name: rawName } : null);
     const matureArchive = normalizeTeyvatNpcMatureArchive(entry.matureArchive);
     const eligibleForMeasurements = canRevealNpcMeasurements({
       name: canonical?.name ?? rawName, aliases: rawAliases, gender: text(entry.gender) || canonical?.gender,

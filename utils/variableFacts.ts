@@ -5,6 +5,7 @@ import { 对齐世界日期与天数, 推进旅行日期 } from '@/models/world'
 import type { NPC记录, NPC关系类型 } from '@/models/npc';
 import { isReservedNpcIdentityName, 获取NPC关系阶段, 获取NPC兼容关系, 限制NPC好感度 } from '@/models/npc';
 import { CANONICAL_CHARACTERS, matchCanonical, matchCanonicalIdentity } from '@/data/canonicalCharacters';
+import { isCanonicalIdentity } from '@/data/canonicalIdentity';
 import {
   ARTIFACT_SLOTS,
   ITEM_CATEGORIES,
@@ -1107,7 +1108,9 @@ function findNpc(records: NPC记录[], id: string, name: string): NPC记录 | un
 }
 
 function isCanonicalNpcPersonalityProtected(npc: NPC记录 | undefined, name: string): boolean {
-  return Boolean(npc?.原著角色 || matchCanonical(npc?.姓名 ?? name) || matchCanonical(name));
+  // 「有官方头像即原著角色」（2026-09-29 第 9 项）：`matchCanonical` 只认 58 个精简名单，
+  // 而头像注册表有 127 个 —— 统一走 isCanonicalIdentity，避免那批角色的长期性格被变量模型改写。
+  return Boolean(npc?.原著角色 || isCanonicalIdentity(npc?.姓名) || isCanonicalIdentity(name));
 }
 
 function 数组已有文本(value: unknown, text: string): boolean {

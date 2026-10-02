@@ -15,6 +15,22 @@ export function getCurrentStoryChapterLabel(system: 剧情编织系统): string 
   return `${series.标题} · ${chapter}`;
 }
 
+/**
+ * 「该分段能否参与**推进**」——与「能否**注入正文**」是两件事（2026-09-29，用户第 2 项）。
+ *
+ * `处理状态` 表达的是「本段是否已被模型分解」（有 `本段概括`/`原文摘要` 才能注入正文），
+ * 但推进只需要分段本身可用。旧实现把两件事混成一个条件（`处理状态 === '已完成'`），
+ * 于是**自定义导入的章节**（只有大纲、分段停在 `待处理`）永远无法推进：
+ * `services/storyProgressService.ts` 的候选集与当前段闸门、跨系列候选全部把它挡在外面，
+ * 玩家看到的就是「主线明明到了另一节点，当前篇章一直不变」。
+ *
+ * 注入侧（`services/storyWeaving.ts` 的注入窗口、`models/storyWeaving.ts` 的已完成统计）
+ * 仍要求 `已完成` —— 未分解的分段没有正文可注入，这是对的。
+ */
+export function 分段可参与推进(segment: 剧情编织分段): boolean {
+  return segment.启用注入 !== false && segment.处理状态 !== '失败';
+}
+
 export function autoAlignCanonStoryProgress(params: {
   storyWeaving: 剧情编织系统;
   turnCount: number;
@@ -35,7 +51,7 @@ export function autoAlignCanonStoryProgress(params: {
     return { system: deactivated, changed: deactivated !== normalized, progressed: false };
   }
   const segments = [...series.分段列表]
-    .filter((segment) => segment.启用注入 !== false && segment.处理状态 === '已完成')
+    .filter(分段可参与推进)
     .sort((a, b) => a.组号 - b.组号);
   const rawCurrent = getCurrentSegment(series, normalized.当前进度);
   if (rawCurrent && ['已经历', '已跳过', '已偏离', '暂停'].includes(rawCurrent.运行状态)) {
@@ -70,7 +86,10 @@ export function autoAlignCanonStoryProgress(params: {
     }
   }
   const current = rawCurrent;
-  if (!current || current.处理状态 !== '已完成') {
+  // 旧实现是 `current.处理状态 !== '已完成'` → 直接 return 原系统：自定义导入的章节
+  // （分段停在「待处理」）连诊断理由都不会写。改为「可参与推进」后，
+  // 证据不足时仍会走到 refreshProgressDiagnostics 留下「为什么不推进」。
+  if (!current || !分段可参与推进(current)) {
     return { system: normalized, changed: false, progressed: false };
   }
   const sceneAnchorForSettlement = normalized.当前进度 && advanceStorySceneProgress({
@@ -292,7 +311,7 @@ function findCrossSeriesCanonAlignment(
     .map((series) => {
       const score = scoreCanonSeriesPresence(series, source);
       const completedSegments = series.分段列表
-        .filter((segment) => segment.启用注入 !== false && segment.处理状态 === '已完成')
+        .filter(分段可参与推进)
         .sort((a, b) => a.组号 - b.组号);
       const segmentScores = completedSegments
         .map((segment) => ({ segment, score: scoreSegmentPresence(segment, source) }))

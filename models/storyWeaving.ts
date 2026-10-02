@@ -579,6 +579,7 @@ export function 归一化剧情编织系列(raw: Partial<剧情编织系列>): �
       ? { ...segment, 运行状态: '当前' as const }
       : segment;
   });
+  const runningSegment = 分段列表.find((segment) => segment.运行状态 === '当前');
   const 系列 = {
     id,
     标题: 读文本(raw.标题).trim() || 读文本(raw.作品名).trim() || '未命名剧情',
@@ -592,7 +593,11 @@ export function 归一化剧情编织系列(raw: Partial<剧情编织系列>): �
     分段列表,
     每段章数: Math.max(1, Math.trunc(Number(raw.每段章数 ?? 1) || 1)),
     激活注入: raw.激活注入 !== false,
-    当前分段组号,
+    // 「当前分段组号」是「哪一段在跑」的镜像，必须跟随 `运行状态 === '当前'` 的分段
+    // （2026-09-29 第 2 项）：旧实现直接照抄 raw 字段，归一化回落把某段置为「当前」后
+    // 这个镜像仍指向旧组号，读表兜底路径（getCurrentSegment 的 series.当前分段组号 分支）
+    // 会把「当前篇章」指回已归档的分段。
+    当前分段组号: runningSegment?.组号 ?? 当前分段组号,
     当前阶段概括: 读文本(raw.当前阶段概括).trim(),
     核心角色摘要: 去重文本列表(文本列表(raw.核心角色摘要), 12),
     核心角色: 去重文本列表(文本列表(raw.核心角色), 12),

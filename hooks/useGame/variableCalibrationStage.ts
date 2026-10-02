@@ -27,6 +27,7 @@ import {
 import { resolveCourierApiConfig } from '@/services/ai/courierLetterModel';
 import { mergeCourierSystemUpdates } from '@/services/ai/courierService';
 import { runCourierDeliveryTask, runCourierReplyTask } from './courierBackgroundJobs';
+import { planProactiveContacts } from '@/services/proactiveContacts';
 import { mergeNpcWriteBack } from '@/utils/npcWriteBack';
 import { applyStoryArchiveCodexRuntimeUnlock } from '@/services/codexRuntimeUnlock';
 import { buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
@@ -386,6 +387,21 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         const taskBaseCourier = courierAfterFallbackSeed;
         const taskBaseNpc = npcAfterCompression;
         const taskSessionId = state.getGameSessionId();
+        // 「角色主动行为」（2026-09-29 第 4 项）：由纯函数按仓库规格算出本回合该不该有人主动联系
+        // （只限已有手机联系人、好感度 ≥ 100、每 15 回合最多一位、全局冷却），
+        // 再交给同一条投递链路（来信 → 未读 → 记忆回写），不新增 schema 与 UI。
+        const proactivePlan = planProactiveContacts({
+          courier: courierAfterFallbackSeed,
+          npcs: taskBaseNpc,
+          turn: state.turnCount + 1,
+          travelDay: Number(committedSettlementGame.世界.旅程天数 ?? 0),
+          ...(committedSettlementGame.世界.当前地点 ? { location: committedSettlementGame.世界.当前地点 } : {}),
+          ...(committedSettlementGame.世界.当前时间 ? { clock: committedSettlementGame.世界.当前时间 } : {}),
+        });
+        if (state.gameSettings.手机系统.enabled && !proactivePlan.seeds.length && proactivePlan.skippedReason) {
+          // 不静默：主动联系没发生也要留下可查原因（诊断面板/失败结算中心消费）。
+          pushQueueTask(state, 'courier', 'skipped', { detail: `本回合无角色主动联系：${proactivePlan.skippedReason}。` });
+        }
         const taskResult = await runCourierDeliveryTask({
           enabled: state.gameSettings.手机系统.enabled,
           autoGenerateSeeds: state.gameSettings.手机系统.autoGenerateSeeds,
@@ -400,6 +416,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
           environment: courierEnvironment,
           travelerName: courierTravelerName,
           letterApiConfig: courierLetterApiConfig,
+          ...(proactivePlan.seeds.length ? { proactiveSeeds: proactivePlan.seeds } : {}),
         });
         assertWorkflowActive();
         courierAfterFallbackSeed = taskResult.courier;

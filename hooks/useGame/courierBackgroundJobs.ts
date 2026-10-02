@@ -74,6 +74,11 @@ export interface CourierDeliveryTaskInput {
   environment?: CourierLetterEnvironment;
   travelerName?: string;
   letterApiConfig: API配置项 | null;
+  /**
+   * 「角色主动行为」（2026-09-29 第 4 项）：由 `services/proactiveContacts.ts` 的纯函数算出。
+   * 有主动来信时优先投递它、**不再叠加**通用跟进兜底，避免同一回合两封。
+   */
+  proactiveSeeds?: CourierDeliverySeed[];
 }
 
 export interface CourierDeliveryTaskResult {
@@ -95,21 +100,31 @@ export async function runCourierDeliveryTask(input: CourierDeliveryTaskInput): P
   let courier = input.courier;
   let npcs = input.npcs;
   if (input.autoGenerateSeeds) {
-    const fallbackSeed = buildFallbackCourierSeed({
-      courier,
-      npcs,
-      turn: input.turn,
-      userInput: input.userInput,
-      body: input.body,
-      maxSeedsPerTurn: input.maxSeedsPerTurn,
-      contactCooldownTurns: input.contactCooldownTurns,
-    });
-    if (fallbackSeed) {
+    // 主动联系优先占用本回合的种子额度；它与通用跟进兜底互斥（同回合只出一封）。
+    const proactiveSeeds = (input.proactiveSeeds ?? []).slice(0, Math.max(1, Math.trunc(input.maxSeedsPerTurn || 0)));
+    if (proactiveSeeds.length) {
       courier = {
         ...courier,
-        deliverySeeds: [...courier.deliverySeeds, fallbackSeed],
-        unreadTotal: courier.unreadTotal + 1,
+        deliverySeeds: [...courier.deliverySeeds, ...proactiveSeeds],
+        unreadTotal: courier.unreadTotal + proactiveSeeds.length,
       };
+    } else {
+      const fallbackSeed = buildFallbackCourierSeed({
+        courier,
+        npcs,
+        turn: input.turn,
+        userInput: input.userInput,
+        body: input.body,
+        maxSeedsPerTurn: input.maxSeedsPerTurn,
+        contactCooldownTurns: input.contactCooldownTurns,
+      });
+      if (fallbackSeed) {
+        courier = {
+          ...courier,
+          deliverySeeds: [...courier.deliverySeeds, fallbackSeed],
+          unreadTotal: courier.unreadTotal + 1,
+        };
+      }
     }
   }
 

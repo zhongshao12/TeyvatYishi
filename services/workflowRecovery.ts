@@ -27,7 +27,10 @@ export async function loadWorkflowRecoveryJournal(
     }
     return journal;
   } catch (error) {
+    // 静默失败会让玩家误以为「没有未完成回合」（用户第 5 项点名的静默失败之一）：
+    // 这里必须留下可查记录，而不是只写 console。
     console.warn('[workflow-recovery] failed to load journal', error);
+    void recordRecoveryFailure('recovery_journal_unreadable', '恢复日志读取失败：无法确认是否有未完成回合。', error);
     return null;
   }
 }
@@ -48,6 +51,24 @@ export async function clearWorkflowRecoveryJournal(workflowId?: string): Promise
     await deleteSetting(WORKFLOW_RECOVERY_KEY);
   } catch (error) {
     console.warn('[workflow-recovery] failed to clear journal', error);
+    void recordRecoveryFailure('recovery_journal_unclearable', '恢复日志清除失败：未完成回合可能被重复提示。', error);
+  }
+}
+
+/** 恢复流程自身的失败也要进失败结算中心（2026-09-29 第 5 项）。 */
+async function recordRecoveryFailure(reasonCode: string, humanReason: string, error: unknown): Promise<void> {
+  try {
+    const { reportFailure } = await import('@/utils/failureCenterStore');
+    reportFailure({
+      source: 'recovery',
+      reasonCode,
+      humanReason,
+      dedupeKey: reasonCode,
+      retryable: 'none',
+      diagnostic: { visibleTo: 'developer', text: error instanceof Error ? error.message : String(error) },
+    });
+  } catch (reportError) {
+    console.warn('[workflow-recovery] 失败结算登记失败', reportError);
   }
 }
 

@@ -111,6 +111,12 @@ export function pushToast(input: PushToastInput): number {
     detail: input.detail?.trim() ? input.detail : undefined,
     action: input.action,
   };
+  // 失败结算中心（2026-09-29 第 5 项）：error toast 是「瞬时通知」，但**不能只活一次**——
+  // 这里把同一条失败同时登记进持久清单，toast 消失后仍可在面板里查看/重试/忽略。
+  // 动态导入避免 toastStore 与中心存储互相牵扯（沿用本文件「服务层可推送、不过全局状态」的边界）。
+  if (kind === 'error') {
+    void reportFailureFromToast(item);
+  }
   toasts = [...toasts, item];
   enforceToastLimit();
   emitChange();
@@ -119,4 +125,21 @@ export function pushToast(input: PushToastInput): number {
   const timer = setTimeout(() => dismissToast(item.id), durationMs);
   timers.set(item.id, timer);
   return item.id;
+}
+
+async function reportFailureFromToast(item: ToastItem): Promise<void> {
+  try {
+    const { reportFailure } = await import('@/utils/failureCenterStore');
+    reportFailure({
+      source: 'settings',
+      reasonCode: 'error_toast',
+      humanReason: [item.title, item.detail].filter(Boolean).join('：'),
+      dedupeKey: `${item.title}`,
+      retryable: item.action ? 'manual' : 'none',
+      ...(item.action ? { retryLabel: item.action.label } : {}),
+      ...(item.detail ? { diagnostic: { visibleTo: 'developer' as const, text: item.detail } } : {}),
+    });
+  } catch (error) {
+    console.warn('[toast] 失败结算登记失败', error);
+  }
 }

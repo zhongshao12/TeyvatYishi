@@ -52,6 +52,8 @@ import type { CodexEntry } from '@/models/teyvat/codex';
 import { pushToast } from '@/utils/toastStore';
 
 import { cancelPendingWorkflowTasks, pushWorkflowQueueTask as pushQueueTask } from './workflowQueue';
+import { failureItemId } from '@/models/failureCenter';
+import { registerFailureRetry } from '@/utils/failureCenterStore';
 import { getActiveSaveTreeNodeId } from './saveLoadWorkflow';
 import type {
   VariableSettlementParams,
@@ -1031,13 +1033,19 @@ export async function executeSendWorkflow(
         kind: 'error',
         title: '回合结算失败',
         detail,
-        durationMs: 10000,
+        // 2026-09-29 第 5 项：这里原先是 `durationMs: 10000` —— 全应用**唯一**带
+        // 「重试本回合」按钮的失败提示，10 秒后连同按钮一起消失。错误提示必须由玩家手动关闭
+        // （见 utils/toastStore.ts 的 resolveDurationMs 约定）；失败结算中心还会另留一条持久记录。
         action: {
           label: '重试本回合',
           run: () => {
             void retryQueueTask(state, () => config, failedTask, 'retry').catch(() => undefined);
           },
         },
+      });
+      // 同一个重试入口也注册到失败结算中心：toast 被关掉后，面板里的重试仍然可用。
+      registerFailureRetry(failureItemId('main_story', `main_story:${failedTask.turn}`), () => {
+        void retryQueueTask(state, () => config, failedTask, 'retry').catch(() => undefined);
       });
     }
   } finally {

@@ -1,5 +1,23 @@
 import type { UseGameStateReturn } from '@/hooks/useGameState';
 import type { 队列任务ID, 队列任务记录, 队列任务状态 } from '@/models/queueTask';
+import type { FailureSource } from '@/models/failureCenter';
+import { reportFailure } from '@/utils/failureCenterStore';
+
+/** 队列任务 → 失败结算中心来源（2026-09-29 第 5 项）：让清单能按子系统分组、给出门禁断言。 */
+const QUEUE_FAILURE_SOURCE: Record<队列任务ID, FailureSource> = {
+  main_story: 'main_story',
+  memory: 'memory',
+  variable: 'variable',
+  steambird: 'steambird',
+  world_evolution: 'world_evolution',
+  irminsul: 'irminsul',
+  codex: 'codex',
+  courier: 'courier',
+  autosave: 'autosave',
+  narrative_image_parse: 'image',
+  narrative_image_generate: 'image',
+  quest: 'quest',
+};
 
 const TITLE_BY_ID: Record<队列任务ID, string> = {
   main_story: '主剧情生成',
@@ -87,5 +105,19 @@ export function pushWorkflowQueueTask(
     cancelled: patch?.cancelled,
   };
   state.setQueueTasks((previous) => [...previous.slice(-24), record]);
+  // 失败结算中心（2026-09-29 第 5 项）：队列是全部后台任务失败的**唯一漏斗**，
+  // 在这里上报一次就能覆盖所有子系统；队列本身只保留 25 条，中心才是持久清单。
+  if (status === 'failed') {
+    reportFailure({
+      source: QUEUE_FAILURE_SOURCE[id] ?? 'variable',
+      reasonCode: `${id}_failed`,
+      humanReason: record.detail?.trim() || `${record.title}失败`,
+      dedupeKey: `${id}:${record.turn}`,
+      retryable: 'manual',
+      retryLabel: '重试',
+      turn: record.turn,
+      ...(record.detail ? { diagnostic: { visibleTo: 'developer' as const, text: record.detail } } : {}),
+    });
+  }
   return record;
 }

@@ -1,7 +1,16 @@
 import { CLIP_SMALL, insetRing } from '@/styles/clipPaths';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { 变量命令批次, 变量命令结果, 变量命令动作 } from '@/models/variableCommand';
 import type { 队列任务ID, 队列任务记录, 队列任务状态 } from '@/models/queueTask';
+import {
+  ensureFailureCenterLoaded,
+  getFailureCenter,
+  hasFailureRetryRunner,
+  ignoreFailure,
+  resolveFailure,
+  runFailureRetry,
+  subscribeFailureCenter,
+} from '@/utils/failureCenterStore';
 
 interface Props {
   batches: 变量命令批次[];
@@ -231,9 +240,71 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
               onRetry={onRetryTask}
             />
           ))}
+          {/* 失败结算中心（2026-09-29 第 5 项）：toast 会消失、队列只留 25 条，
+              这里是「现在还有什么没解决」的持久清单。 */}
+          <FailureCenterSection />
         </div>
       </aside>
     </>
+  );
+}
+
+// ── 失败结算 ──
+
+const FAILURE_SOURCE_LABEL: Record<string, string> = {
+  main_story: '主剧情', variable: '变量', memory: '记忆', irminsul: '世界树', autosave: '自动存档',
+  save: '存档', quest: '任务', courier: '手机消息', courier_reply: '手机回信', moments: '朋友圈',
+  image: '故事快照', codex: '图鉴', world_evolution: '世界演变', content_resource: '内容资源',
+  settings: '设置', recovery: '恢复流程', diagnostics: '诊断', npc: '角色', steambird: '蒸汽鸟报', chapter: '篇章',
+};
+
+function FailureCenterSection() {
+  const failures = useSyncExternalStore(subscribeFailureCenter, getFailureCenter, getFailureCenter);
+  // 首次渲染时补载历史清单（自包含，不依赖 App 启动顺序）。
+  useEffect(() => {
+    void ensureFailureCenterLoaded();
+  }, []);
+  const open = failures.filter((item) => item.status === 'open' || item.status === 'retrying');
+  if (!open.length) return null;
+  return (
+    <section className="rounded-lg border border-[rgba(var(--tj-danger),0.45)] p-3" aria-label="失败结算">
+      <h4 className="font-serif text-sm" style={{ color: 'rgb(var(--tj-danger))' }}>
+        失败结算 · 还有 {open.length} 项未解决
+      </h4>
+      <p className="mt-1 text-[11px] leading-5" style={{ color: 'rgba(var(--tj-text-primary), 0.72)' }}>
+        提示条会消失、队列只保留最近 25 条；这里的记录会一直留着，直到你重试成功、标记已解决或忽略。
+      </p>
+      <ul className="mt-2 space-y-2">
+        {open.map((item) => (
+          <li key={item.id} className="rounded border border-[rgba(var(--tj-danger),0.28)] p-2 text-xs">
+            <p className="font-medium">
+              [{FAILURE_SOURCE_LABEL[item.source] ?? item.source}]{item.humanReason}
+            </p>
+            <p className="mt-1 text-[11px]" style={{ color: 'rgba(var(--tj-text-primary), 0.66)' }}>
+              第 {item.turn ?? '—'} 回合 · 发生 {item.attemptCount} 次
+              {item.context?.date ? ` · ${item.context.date}` : ''}
+              {item.context?.time ? ` ${item.context.time}` : ''}
+              {item.context?.location ? ` · ${item.context.location}` : ''}
+            </p>
+            {item.diagnostic && (
+              <details className="mt-1">
+                <summary className="cursor-pointer text-[11px] underline">查看原始材料</summary>
+                <p className="mt-1 whitespace-pre-wrap break-words text-[11px]">{item.diagnostic.text}</p>
+              </details>
+            )}
+            <div className="mt-2 flex flex-wrap gap-3">
+              {item.retryable !== 'none' && hasFailureRetryRunner(item.id) && (
+                <button type="button" className="text-[11px] underline" onClick={() => { void runFailureRetry(item.id); }}>
+                  {item.retryLabel ?? '重试'}
+                </button>
+              )}
+              <button type="button" className="text-[11px] underline" onClick={() => resolveFailure(item.id)}>标记已解决</button>
+              <button type="button" className="text-[11px] underline" onClick={() => ignoreFailure(item.id)}>忽略</button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

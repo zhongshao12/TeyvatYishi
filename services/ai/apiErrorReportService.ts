@@ -74,7 +74,22 @@ export async function appendApiErrorReport(input: {
     const next = [report, ...retained].slice(0, MAX_API_ERROR_REPORTS);
     await saveSetting(API_ERROR_REPORTS_KEY, next);
   } catch (err) {
+    // 诊断报告**自身**写失败不能完全静默（用户第 5 项点名的静默失败之一）：
+    // 否则「没有报错报告」会被误读成「没有出错」。
     console.warn('[apiErrorReport] failed to persist report', err);
+    try {
+      const { reportFailure } = await import('@/utils/failureCenterStore');
+      reportFailure({
+        source: 'diagnostics',
+        reasonCode: 'api_error_report_unwritable',
+        humanReason: '接口错误报告写入失败：本次接口异常未被留档。',
+        dedupeKey: 'api_error_report_unwritable',
+        retryable: 'none',
+        diagnostic: { visibleTo: 'developer', text: err instanceof Error ? err.message : String(err) },
+      });
+    } catch (reportError) {
+      console.warn('[apiErrorReport] 失败结算登记失败', reportError);
+    }
   }
 }
 

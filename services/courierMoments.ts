@@ -8,7 +8,7 @@ function validatedContent(input: string): string {
   return content;
 }
 
-export function createMoment(system: CourierSystem, input: { id: string; content: string; turn: number; now: number }): CourierSystem {
+export function createMoment(system: CourierSystem, input: { id: string; content: string; turn: number; now: number; mentionIds?: string[] }): CourierSystem {
   const content = validatedContent(input.content);
   const existing = system.moments ?? [];
   if (existing.length >= 500) throw new Error('MOMENT_LIMIT');
@@ -17,14 +17,30 @@ export function createMoment(system: CourierSystem, input: { id: string; content
     id: input.id, authorId: 'player', content, turn: input.turn,
     createdAt: input.now, updatedAt: input.now, revision: 1,
     targets: [], comments: [],
+    ...(input.mentionIds?.length ? { mentionIds: [...new Set(input.mentionIds)] } : {}),
   }, ...existing] };
 }
 
-export function editMoment(system: CourierSystem, id: string, contentInput: string, now: number): CourierSystem {
+export function editMoment(
+  system: CourierSystem,
+  id: string,
+  contentInput: string,
+  now: number,
+  mentionIds?: string[],
+): CourierSystem {
   const content = validatedContent(contentInput);
   if (!(system.moments ?? []).some((post) => post.id === id)) throw new Error('MOMENT_NOT_FOUND');
   return { ...system, moments: (system.moments ?? []).map((post) => post.id === id
-    ? { ...post, content, updatedAt: now, revision: post.revision + 1, targets: [], comments: [] }
+    ? {
+        ...post,
+        content,
+        updatedAt: now,
+        revision: post.revision + 1,
+        targets: [],
+        comments: [],
+        // 编辑后重新解析 @：正文可能已经删掉或新增了点名（2026-09-29 第 7 项）。
+        ...(mentionIds?.length ? { mentionIds: [...new Set(mentionIds)] } : { mentionIds: undefined }),
+      }
     : post) };
 }
 
@@ -64,11 +80,69 @@ export function selectMomentCommenters(momentId: string, contacts: readonly Cour
   return [...eligible.slice(start), ...eligible.slice(0, start)].slice(0, 3);
 }
 
+/** 自动评论名额（与好感度资格绑定）；@ 点名的人**不占**这个名额。 */
+export const MOMENT_AUTO_COMMENT_LIMIT = 3;
+
+/**
+ * 该条动态允许的评论总数 = 自动评论名额 + 被点名的角色数（2026-09-29 第 7 项）。
+ * 运行时（`markMomentTarget` / `appendMomentComment`）、工作流与存档归一化必须共用这一个口径，
+ * 否则「@ 了 4 个人」会在读档后被静默截断。
+ */
+export function momentCommentCapacity(post: Pick<CourierMoment, 'mentionIds'>): number {
+  return MOMENT_AUTO_COMMENT_LIMIT + (post.mentionIds?.length ?? 0);
+}
+
+/**
+ * 解析正文里的 `@角色`（2026-09-29 第 7 项）。
+ *
+ * 与群聊解析（`services/ai/courierService.ts`）的差别：那里用 `(?=\s|$|标点)` 前瞻，
+ * `@安柏你好` 这种**没有空格**的写法不会命中；朋友圈是玩家自己写的正文，
+ * 必须按**最长联系人姓名前缀**匹配。只有已建立且可用的手机联系人能被点名。
+ */
+export function parseMomentMentions(
+  content: string,
+  contacts: readonly CourierContact[],
+): string[] {
+  const text = content ?? '';
+  if (!text.includes('@') && !text.includes('＠')) return [];
+  const named = contacts
+    .filter((contact) => contact.available !== false && contact.npcId && contact.name?.trim())
+    .map((contact) => ({ npcId: contact.npcId!, name: contact.name!.trim() }))
+    // 最长名字优先：避免「安」这类短名把「安柏」的前缀抢走。
+    .sort((a, b) => b.name.length - a.name.length);
+  const found: string[] = [];
+  for (const match of text.matchAll(/[@＠]/gu)) {
+    const rest = text.slice((match.index ?? 0) + 1);
+    const hit = named.find((candidate) => rest.startsWith(candidate.name));
+    if (hit && !found.includes(hit.npcId)) found.push(hit.npcId);
+  }
+  return found;
+}
+
+/**
+ * @ 点名角色的**确定性**本地回应（2026-09-29 第 7 项）。
+ *
+ * 契约修订说明：原契约（`docs/superpowers/plans/2026-09-23-phone-moments.md:19`）要求
+ * 「失败不能用固定套话伪装为评论」，那条约束保护的是**自动评论**（不能假装模型写了评论）。
+ * 玩家**显式 @** 是直接请求「一定要回」，因此这里给 @ 目标补一条本地写成的回应，
+ * 并把它标记为 `source: 'local'`、在界面显式标注「本地回应」—— 既不伪装成模型输出，
+ * 也不让玩家的点名落空。自动评论通道保持原契约（失败即 `failed`，可手动重试）。
+ */
+export function composeMomentCommentLocally(npc: NPC记录, post: Pick<CourierMoment, 'content'>): string {
+  const 主题 = (post.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 24);
+  const 阶段 = npc.好感度 >= 150 ? '挚友' : npc.好感度 > NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD ? '知交' : '朋友';
+  const 开头 = npc.同行 ? '我就在旁边看着' : 阶段 === '挚友' ? '看到你这条，我立刻就想回' : '看到你的动态了';
+  const 正文 = `「${主题}」——${开头}。等见面时我想听你亲口讲讲，别一个人扛着。`;
+  // 面板已经把角色名渲染在评论前面（`{npcName}：`），正文不再重复署名；
+  // 必须落在句末标点上（评论校验与既有契约都要求），并且不超过 120 字上限。
+  return [...正文].length > 120 ? `${[...正文].slice(0, 118).join('').replace(/[，、；：\s]+$/u, '')}。` : 正文;
+}
+
 export function markMomentTarget(system: CourierSystem, postId: string, revision: number, npcId: string, status: CourierMomentTarget['status']): CourierSystem {
   return { ...system, moments: (system.moments ?? []).map((post) => {
     if (post.id !== postId || post.revision !== revision) return post;
     const existing = post.targets.find((target) => target.npcId === npcId);
-    if (!existing && post.targets.length >= 3) return post;
+    if (!existing && post.targets.length >= momentCommentCapacity(post)) return post;
     return { ...post, targets: existing
       ? post.targets.map((target) => target.npcId === npcId ? { ...target, status } : target)
       : [...post.targets, { npcId, status }] };
@@ -79,7 +153,7 @@ export function appendMomentComment(system: CourierSystem, postId: string, revis
   const content = comment.content.trim();
   if (!content || content.length > 120) throw new Error('MOMENT_COMMENT_INVALID');
   return { ...system, moments: (system.moments ?? []).map((post) => {
-    if (post.id !== postId || post.revision !== revision || post.comments.length >= 3
+    if (post.id !== postId || post.revision !== revision || post.comments.length >= momentCommentCapacity(post)
       || post.comments.some((existing) => existing.npcId === comment.npcId)) return post;
     return {
       ...post,

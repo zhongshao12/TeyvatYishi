@@ -43,7 +43,8 @@ it('lets the player publish, edit, and delete a phone Moment without fake NPC po
   expect(host.textContent).toContain('仅你可以发布动态');
   expect(host.textContent).toContain('当前有 0 位角色符合评论条件');
   expect(host.textContent).toContain('生死挚友（好感度超过 100）');
-  expect(host.textContent).toContain('暂无符合条件的角色，不会收到评论');
+  // 2026-09-29 第 7 项：文案改为区分「自动评论」与「@ 点名一定回应」，断言随契约更新。
+  expect(host.textContent).toContain('暂无符合条件的角色，不会收到自动评论；但 @ 点名的联系人仍会回应');
   const composer = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="写朋友圈"]');
   expect(composer).not.toBeNull();
   await act(async () => typeInto(composer!, '今天的风很温柔'));
@@ -74,7 +75,7 @@ it('explains missing local phone API while allowing the player to publish and ca
   })));
   await act(async () => button('朋友圈').click());
   expect(host.textContent).toContain('当前有 1 位角色符合评论条件');
-  expect(host.textContent).toContain('手机评论接口未配置，不会收到新评论');
+  expect(host.textContent).toContain('手机评论接口未配置：自动评论不会生成，@ 点名的联系人会由本地回应补上');
   await act(async () => button('编辑').click());
   await act(async () => button('取消').click());
   expect(host.textContent).toContain('晨风');

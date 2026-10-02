@@ -13,7 +13,7 @@ import { CourierConversationList } from './CourierConversationList';
 import { CourierMessageTimeline } from './CourierMessageTimeline';
 import { CourierContactTools } from './CourierContactTools';
 import { CourierMomentsPanel } from './CourierMomentsPanel';
-import { countEligibleMomentCommenters, createMoment, deleteMoment, editMoment, restoreMoment } from '@/services/courierMoments';
+import { countEligibleMomentCommenters, createMoment, deleteMoment, editMoment, parseMomentMentions, restoreMoment } from '@/services/courierMoments';
 import { createCourierPlayerMessageId } from '@/utils/courierReplyBatch';
 import { displayCourierContactName } from '@/services/courierContactRemark';
 
@@ -331,14 +331,20 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
     }
     const id = `moment_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const now = Date.now();
-    commit((previous) => (previous.moments?.length ?? 0) >= 500 ? previous : createMoment(previous, { id, content, turn: currentTurn, now }));
+    // @ 点名（2026-09-29 第 7 项）：发布时即解析并落库；被点名的角色一定会回应一次。
+    const mentionIds = parseMomentMentions(content, courier.contacts);
+    commit((previous) => (previous.moments?.length ?? 0) >= 500
+      ? previous
+      : createMoment(previous, { id, content, turn: currentTurn, now, mentionIds }));
     onRequestMomentComments?.(id, 1);
     return true;
   };
   const reviseMoment = (id: string, content: string) => {
     const post = courier.moments?.find((item) => item.id === id);
     if (!post) return;
-    commit((previous) => editMoment(previous, id, content, Date.now()));
+    // 编辑后必须重新解析 @：正文里可能已经删掉或新增了点名。
+    const mentionIds = parseMomentMentions(content, courier.contacts);
+    commit((previous) => editMoment(previous, id, content, Date.now(), mentionIds));
     onRequestMomentComments?.(id, post.revision + 1);
   };
   const removeMoment = (id: string) => {
@@ -487,6 +493,9 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
                moments={courier.moments ?? []} travelerName={travelerName ?? '旅行者'}
                eligibleCommenterCount={eligibleMomentCommenterCount} canGenerateComments={canGenerateMomentComments}
                commenterNames={momentCommenterNames}
+               mentionCandidates={courier.contacts
+                 .filter((contact) => contact.available && contact.npcId && contact.name?.trim())
+                 .map((contact) => ({ npcId: contact.npcId!, name: contact.name!.trim() }))}
                onPublish={publishMoment} onEdit={reviseMoment} onDelete={removeMoment}
                onRetry={(id, revision, npcId) => onRequestMomentComments?.(id, revision, npcId)}
              />

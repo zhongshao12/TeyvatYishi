@@ -103,6 +103,11 @@ export interface CourierMomentComment {
   npcName: string;
   content: string;
   createdAt: number;
+  /**
+   * 评论来源（2026-09-29 第 7 项）：`local` = 玩家 @ 点名后模型失败时由本地写作器补的回应。
+   * 界面必须显式标注，避免把本地文案伪装成模型输出（原契约关心的正是这一点）。
+   */
+  source?: 'model' | 'local';
 }
 
 export interface CourierMomentTarget {
@@ -120,6 +125,8 @@ export interface CourierMoment {
   revision: number;
   targets: CourierMomentTarget[];
   comments: CourierMomentComment[];
+  /** 玩家在正文里 @ 的角色（2026-09-29 第 7 项）：他们不占自动评论名额，且一定会回应一次。 */
+  mentionIds?: string[];
 }
 
 export interface CourierSystem {
@@ -267,20 +274,34 @@ function normalizeMoment(value: unknown): CourierMoment | null {
   const id = text(value.id).trim();
   const content = text(value.content).trim();
   if (!id || !content || content.length > 500) return null;
+  // @ 点名的角色（2026-09-29 第 7 项）：先归一化，因为评论/目标名额 = 3 + 点名人数，
+  // 顺序反了会在读档时把 @ 目标的回应静默截断。
+  const seenMentions = new Set<string>();
+  const mentionIds = (Array.isArray(value.mentionIds) ? value.mentionIds : []).flatMap((entry) => {
+    const npcId = text(entry).trim();
+    if (!npcId || seenMentions.has(npcId)) return [];
+    seenMentions.add(npcId);
+    return [npcId];
+  });
+  const capacity = 3 + mentionIds.length;
   const seenComments = new Set<string>();
   const comments: CourierMomentComment[] = (Array.isArray(value.comments) ? value.comments : []).flatMap((entry) => {
     if (!isRecord(entry)) return [];
     const npcId = text(entry.npcId).trim();
     const comment = text(entry.content).trim();
-    if (!npcId || !comment || comment.length > 120 || seenComments.has(npcId) || seenComments.size >= 3) return [];
+    if (!npcId || !comment || comment.length > 120 || seenComments.has(npcId) || seenComments.size >= capacity) return [];
     seenComments.add(npcId);
-    return [{ id: text(entry.id), npcId, npcName: text(entry.npcName), content: comment, createdAt: Number(entry.createdAt) || 0 }];
+    return [{
+      id: text(entry.id), npcId, npcName: text(entry.npcName), content: comment,
+      createdAt: Number(entry.createdAt) || 0,
+      ...(entry.source === 'local' ? { source: 'local' as const } : entry.source === 'model' ? { source: 'model' as const } : {}),
+    }];
   });
   const seenTargets = new Set<string>();
   const targets: CourierMomentTarget[] = (Array.isArray(value.targets) ? value.targets : []).flatMap((target) => {
     if (!isRecord(target)) return [];
     const npcId = text(target.npcId).trim();
-    if (!npcId || seenTargets.has(npcId) || seenTargets.size >= 3) return [];
+    if (!npcId || seenTargets.has(npcId) || seenTargets.size >= capacity) return [];
     seenTargets.add(npcId);
     const status: CourierMomentTarget['status'] = target.status === 'done' && comments.some((comment) => comment.npcId === npcId)
       ? 'done' : 'failed';
@@ -292,6 +313,7 @@ function normalizeMoment(value: unknown): CourierMoment | null {
     updatedAt: Number(value.updatedAt) || 0,
     revision: Math.max(1, integer(value.revision)),
     targets, comments,
+    ...(mentionIds.length ? { mentionIds } : {}),
   };
 }
 

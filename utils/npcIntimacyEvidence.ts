@@ -297,5 +297,20 @@ export function detectNpcIntimacyEvent(
   return match ? { tier: match.tier, evidence: match.evidence, ambiguous: match.ambiguous } : null;
 }
 
+/**
+ * 「这段文字在说亲密接触」的**宽松**提示（不用于结算，只用于去重判断）。
+ *
+ * 用途：模型在系统已经按固定档位结算了同一角色的亲密事件时又自报了一份 affinityDelta，
+ * 但它的 evidence 是**改写**而不是逐字引用 —— 这时逐字比对（`removeDuplicateModelIntimacyAffinity`）
+ * 会漏判，导致 +5/+30 被双计。这里只问「这段证据是不是在说亲密动作」，用一个刻意放宽的词表
+ * （含单独的「吻」「抱」「牵」），代价是偶尔会把同回合另一条正面变化的模型增量一起丢掉；
+ * 而模型本就被要求不要为已识别的亲密事件再写一份增量，所以这个代价可接受。
+ */
+const INTIMACY_PARAPHRASE_HINT = /(吻|做爱|性爱|缠绵|亲热|温存|相拥|拥抱|搂|牵起|牵手|依偎|表白|告白|示爱|暧昧|情话|亲密)/u;
+
+export function mentionsIntimacyAct(text: string): boolean {
+  return INTIMACY_PARAPHRASE_HINT.test(text);
+}
+
 /** 正则转义的调试入口（保持导出，便于单测与排查）。 */
 export const __intimacyRegexEscape = escapeRegex;

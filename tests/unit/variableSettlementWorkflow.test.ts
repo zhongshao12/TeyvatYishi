@@ -149,6 +149,18 @@ describe('intimacy settlement replay and selective model de-duplication', () => 
       .toEqual([undefined, 2]);
   });
 
+  it('strips a paraphrased duplicate too, but keeps an unrelated negative change', () => {
+    // 模型没有逐字引用、而是改写了同一处亲密事件 → 仍须剔除，否则固定档位会被双计。
+    const npc = root().NPC;
+    const derived = [{ type: 'npc' as const, id: 'npc_amber', name: '安柏', affinityDelta: 5, evidence: '安柏俯下身，轻轻吻住了云。' }];
+    const modelFacts = [
+      { type: 'npc' as const, id: 'npc_amber', name: '安柏', affinityDelta: 3, evidence: '两人在窗边有了亲密的接触。' },
+      { type: 'npc' as const, id: 'npc_amber', name: '安柏', affinityDelta: -3, evidence: '安柏因云失约而生气。' },
+    ];
+    expect(removeDuplicateModelIntimacyAffinity(modelFacts, derived, npc).map((fact) => fact.type === 'npc' ? fact.affinityDelta : null))
+      .toEqual([undefined, -3]);
+  });
+
   it('a rejected live commit does not claim the fixed affinity was applied', async () => {
     model.call.mockResolvedValue({ rawText: '<变量事实>{"facts":[]}</变量事实>' });
     const initial = root();

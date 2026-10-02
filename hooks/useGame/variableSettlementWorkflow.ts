@@ -15,6 +15,7 @@ import { commitPreflightedTeyvatTurn, commitTeyvatTurn, preflightTeyvatTurn } fr
 import { compactVariableBatchHistory } from '@/utils/longSessionRetention';
 import { projectCommittedSettlementChanges } from '@/utils/committedSettlementChanges';
 import { needsNsfwBaseline } from '@/utils/npcArchiveEnrichment';
+import { mentionsIntimacyAct } from '@/utils/npcIntimacyEvidence';
 import {
   deriveNarrativeCanonicalNpcFacts,
   deriveNarrativeInventoryGainFacts,
@@ -125,7 +126,16 @@ function normalizedEvidence(value: string | undefined): string {
   return (value ?? '').toLowerCase().replace(/[\s，。！？、,.!?:：；;“”‘’"']/gu, '');
 }
 
-/** Remove only a positive model estimate backed by the same excerpt as an accepted fixed event. */
+/**
+ * 剔除「模型自报的、与系统固定档位同事件」的亲密好感增量，避免 +5/+30 双计。
+ *
+ * 两条判定（任一成立即剔除）：
+ * 1. **逐字同证据**：模型的 evidence 与系统命中的证据互为子串（原实现）；
+ * 2. **改写同事件**（2026-09-29 新增）：模型没有逐字引用、但它的证据本身就在描述亲密动作，
+ *    而该 NPC 本回合确实有系统确定的固定档位事件 —— 此时那份增量几乎必然是同一次接触的重复
+ *    （模型被明确要求不要为已识别的亲密事件再写 affinityDelta）。
+ *    只对「同 NPC + 证据提到亲密动作」生效，因此「协助巡逻 +2」这类可独立举证的正面变化仍然保留。
+ */
 export function removeDuplicateModelIntimacyAffinity(
   facts: readonly 变量事实[],
   intimacyFacts: readonly 变量事实[],
@@ -140,7 +150,9 @@ export function removeDuplicateModelIntimacyAffinity(
     const sameEvent = intimacyFacts.some((derived) => {
       if (derived.type !== 'npc' || derived.id !== matches[0]?.id) return false;
       const eventEvidence = normalizedEvidence(derived.evidence);
-      return eventEvidence.length >= 6 && (eventEvidence.includes(modelEvidence) || modelEvidence.includes(eventEvidence));
+      const identical = eventEvidence.length >= 6
+        && (eventEvidence.includes(modelEvidence) || modelEvidence.includes(eventEvidence));
+      return identical || mentionsIntimacyAct(modelEvidence);
     });
     return sameEvent ? { ...fact, affinityDelta: undefined, affinitySet: undefined } : fact;
   });

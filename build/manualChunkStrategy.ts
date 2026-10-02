@@ -12,7 +12,11 @@ export function resolveManualChunk(rawId: string): string | undefined {
       return 'app-content';
     }
     // 内容数据直接使用的运行时工具与其调用方同包，避免 app-content 反向导入 app-core。
-    if (/\/(?:models\/(?:prompts|codexArchive|codexGovernance|teyvat\/elements)|services\/elementalAttunementService|compat\/legacy-hsr\/readOnly|utils\/valueGuards)\.ts$/.test(id)) return 'app-content';
+    // 2026-09-29 补：`models/codex.ts`、`services/promptDelivery.ts`、`services/contentResourceStatus.ts`
+    // 被 app-content 的数据模块**运行时**导入（data/codexPreset.ts、data/codexCustomGovernance.ts、
+    // data/builtinPromptModules.ts），它们是 `Circular chunk: app-content -> app-core -> app-content`
+    // 的全部非 type-only 环边。三者自身运行时依赖为 0（实测），因此划入 app-content 不会再引入新环边。
+    if (/\/(?:models\/(?:prompts|codex|codexArchive|codexGovernance|teyvat\/elements)|services\/(?:elementalAttunementService|promptDelivery|contentResourceStatus)|compat\/legacy-hsr\/readOnly|utils\/valueGuards)\.ts$/.test(id)) return 'app-content';
     if (id.includes('/services/') || id.includes('/hooks/') || id.includes('/models/')) return 'app-core';
     return undefined;
   }

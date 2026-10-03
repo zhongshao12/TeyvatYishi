@@ -100,7 +100,11 @@ assert(
   'settlementRebase 不得再引用渲染快照/归一化快照当基准（引用必然不等 → 全部切片被误判成冲突）。',
 );
 assertIncludes(rebase, 'if (currentSlice === ancestorRecord[key]) continue;', '只有「引用变了」才算等待期间的并发写入。');
-assertIncludes(rebase, "const SETTLEMENT_MERGED_SLICES = new Set(['对话']);", '对话必须走合并而不是「冲突即保留活体值」。');
+// B06（PROJECT_AUDIT_2026-10-03）：叙事切片改为**结算专属子字段合并**
+// （lastCommittedMoment / variableBatches 取结算结果，玩家编辑的剧情字段以活体为底保留），
+// 对话仍按 id 合并。契约不变：并发编辑不得被顶掉，本回合的时刻也不得丢。
+assertIncludes(rebase, "const SETTLEMENT_MERGED_SLICES = new Set(['对话', '叙事']);", '对话与叙事必须走合并而不是「冲突即保留活体值」。');
+assertIncludes(rebase, 'SETTLEMENT_OWNED_NARRATIVE_FIELDS', '叙事必须按结算专属子字段合并（时刻不丢、玩家编辑保留）。');
 assertIncludes(rebase, 'function mergeConversation(', '对话合并必须按 id 取活体版本 + 保留结算新增条目。');
 
 // ── E) 手机回合分割线（用户可见症状 3） ──

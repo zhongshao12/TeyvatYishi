@@ -6,6 +6,7 @@ function assert(condition, message) {
 }
 
 const enrichment = fs.readFileSync('utils/npcArchiveEnrichment.ts', 'utf8');
+const calibration = fs.readFileSync('hooks/useGame/variableCalibrationStage.ts', 'utf8');
 const sendWorkflow = readWorkflowSources();
 const canonicalCharacters = fs.readFileSync('data/canonicalCharacters.ts', 'utf8');
 const companionPanel = fs.readFileSync('components/features/GameSystems/CompanionPanel.tsx', 'utf8');
@@ -76,7 +77,13 @@ assert(sendWorkflow.includes('const records = enrichment.records.map((npc) => {'
 // 迁移: 旧 `archiveEnrichment.changed` -> `const changed = enrichment.changed`（preparePostSettlementNpcState 的返回值），
 //      再由 sendWorkflow 汇总成 npcChanged 写回 state。理由: 补全产生变化仍必须写回 NPC state。
 assert(sendWorkflow.includes('const changed = enrichment.changed'), '补全产生变化时必须写回 NPC state。');
-assert(sendWorkflow.includes('...(npcChanged ? { NPC: npcAfterCompression } : {}),'), '补全/压缩产生的 NPC 变化必须回写 state.updateGameState。');
+// B07（PROJECT_AUDIT_2026-10-03）：提交点不再用「旧整片 npcAfterCompression 无条件替换当前切片」，
+// 改为读 live + delta 合并（mergeSettlementSliceWriteBack）。契约仍是「补全/压缩产生的变化必须回写」，
+// 断言随当前实现更新，而不是把整片覆盖的旧写法恢复回来。
+assert(sendWorkflow.includes('npcChanged') || sendWorkflow.includes('mergeSettlementSliceWriteBack'),
+  '补全/压缩产生的 NPC 变化必须回写 state.updateGameState。');
+assert(calibration.includes('mergeSettlementSliceWriteBack('),
+  '结算后的 NPC 整理必须走 delta 合并（读 live、只补整理结果），不得重放旧整片。');
 // 迁移: 面板入参名 normalized -> npcRecords（`enrichNpcArchives(normalized` -> `enrichNpcArchives(npcRecords, {`）。
 // 理由: “展示前补全旧档案”契约不变，只是入参随状态边界命名统一。
 assert(companionPanel.includes('enrichNpcArchives(npcRecords, {'), '伙伴面板展示前也必须补全旧档案，避免旧存档空字段一直显示为空。');

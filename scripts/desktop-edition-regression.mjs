@@ -114,7 +114,13 @@ for (const command of ['desktop_read_text', 'desktop_write_text', 'desktop_write
   assert(rustLib.includes(command), `Rust bridge must expose ${command}`);
 }
 assert(rustLib.includes('write_text_atomically'), 'Rust bridge must implement atomic desktop text writes');
-assert(rustLib.includes('fs::rename(&temp_path, file_path)'), 'Rust atomic text writes must rename temp files into place');
+// B18（PROJECT_AUDIT_2026-10-03）：原子写不再「先删目标再 rename」（中断/rename 失败会丢掉旧副本），
+// 改为唯一临时名 + 排他锁 + 替换式 rename。断言随当前行为更新，而不是把旧实现恢复回来。
+assert(rustLib.includes('unique_temp_path(file_path)'), 'Rust atomic text writes must use a unique temp path');
+assert(rustLib.includes('atomic_replace_path(file_path, &temp_path)'), 'Rust atomic text writes must replace the target via atomic_replace_path');
+assert(rustLib.includes('fs::rename(temp_path, file_path)'), 'Rust atomic text writes must rename temp files into place');
+assert(!/fs::remove_file\(file_path\)[\s\S]{0,400}?fs::rename\(/u.test(rustLib),
+  'Rust atomic text writes must not delete the target before renaming (the old copy must survive a failed replace)');
 assert(rustLib.includes('.sync_all()'), 'Rust atomic text writes must sync temp files before rename');
 assert(rustLib.includes('let _ = fs::remove_file(&temp_path)'), 'Rust atomic text writes must clean temp files after failures');
 assert(rustLib.includes('open_desktop_data_dir'), 'Rust bridge must expose a fixed local data directory opener');

@@ -21,8 +21,11 @@ assert(!/action === "sub" \? -numeric : numeric/.test(graph), 'set 命令是绝�
 assert(panel.includes('RelationshipGraphPanel'), 'relationship graph panel must exist.');
 assert(panel.includes('最近好感变化'), 'graph panel must show affinity history.');
 assert(panel.includes('resolveNpcName'), '关系图面板必须把批次里的稳定 id 解析成显示名。');
-assert(companion.includes('关系图'), 'CompanionPanel must expose a graph tab.');
-assert(companion.includes('RelationshipGraphPanel'), 'CompanionPanel must render the graph panel.');
-assert(companion.includes('variableBatches'), 'CompanionPanel must accept variable batches.');
+// R02（PROJECT_AUDIT_2026-10-03）：关系图入口已从伙伴面板页签迁移到旅人档案弹窗
+// （`components/features/Character/TravelerProfileModal.tsx`）。契约不变（玩家能打开关系图并看到
+// 好感历史、稳定 id 解析成显示名），断言随当前入口更新，而不是把页签恢复回伙伴面板。
+const travelerProfile = fs.readFileSync('components/features/Character/TravelerProfileModal.tsx', 'utf8');
+assert(travelerProfile.includes('RelationshipGraphPanel'), 'TravelerProfileModal must render the graph panel.');
+assert(panel.includes('关系图'), 'relationship graph panel must show its 关系图 label.');
 assert(app.includes('variableBatches: state.variableBatches'), 'App must pass variable batches.');
 console.log('relationship graph regression ok');

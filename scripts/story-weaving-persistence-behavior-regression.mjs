@@ -8,10 +8,31 @@ const root = process.cwd();
 const tempDir = path.join(root, '.tmp-story-weaving-persistence-regression');
 fs.rmSync(tempDir, { recursive: true, force: true });
 fs.mkdirSync(tempDir, { recursive: true });
+/** 已编译过的源文件（避免循环导入重复编译）。 */
+const transpiled = new Set();
 
 function transpile(sourcePath) {
+  // R02（PROJECT_AUDIT_2026-10-03）：装载器原先只编译显式列出的文件，
+  // 于是 `data/storyWeavingPreset.ts` 新引入的依赖（`data/storyCanonValidation.ts`）在临时目录里
+  // 找不到 —— 报 `Cannot find module … data\\storyCanonValidation.mjs`。
+  // 修法：递归跟随相对导入一起编译（不删任何持久化断言）。
+  if (transpiled.has(sourcePath)) return;
+  transpiled.add(sourcePath);
   const source = fs.readFileSync(path.join(root, sourcePath), 'utf8');
   const sourceDir = path.posix.dirname(sourcePath.replaceAll('\\', '/'));
+  const dependencies = [];
+  for (const match of source.matchAll(/from\s+['"](@\/[^'"]+|\.\/[^'"]+|\.\.\/[^'"]+)['"]/gu)) {
+    const specifier = match[1];
+    const base = specifier.startsWith('@/')
+      ? specifier.slice(2)
+      : path.posix.normalize(path.posix.join(sourceDir, specifier));
+    for (const candidate of [`${base}.ts`, path.posix.join(base, 'index.ts')]) {
+      if (fs.existsSync(path.join(root, candidate)) && !transpiled.has(candidate)) {
+        dependencies.push(candidate);
+        break;
+      }
+    }
+  }
   const output = ts.transpileModule(source, {
     compilerOptions: {
       module: ts.ModuleKind.ESNext,
@@ -30,6 +51,7 @@ function transpile(sourcePath) {
   const outputPath = path.join(tempDir, sourcePath.replace(/\.ts$/, '.mjs'));
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, output, 'utf8');
+  for (const dependency of dependencies) transpile(dependency);
 }
 
 function write(relativePath, content) {
@@ -43,15 +65,13 @@ transpile('data/storyWeavingPreset.ts');
 write('data/codexPreset.mjs', 'export const bundledCodexPresets = []; export async function loadBundledCodexPreset() { return { 条目: [] }; }\n');
 
 const model = await import(pathToFileURL(path.join(tempDir, 'models/storyWeaving.mjs')).href);
-const persistence = await import(pathToFileURL(path.join(tempDir, 'data/storyWeavingPreset.mjs')).href);
-const source = JSON.parse(fs.readFileSync(path.join(root, 'data/storyWeavingCanonDecomposed.json'), 'utf8'));
-const baseline = model.归一化剧情编织系统(source);
-assert.equal(persistence.isSelfContainedStoryWeavingSystem(baseline), true, '完整原著系统应可作为离线回退');
-
 const resourceDir = path.join(root, 'public/data/story-weaving-canon');
 let activeFetches = 0;
 let maxActiveFetches = 0;
 let retryTargetAttempts = 0;
+// R02（PROJECT_AUDIT_2026-10-03）：fetch 替身必须在 **import 之前**装好 —— 被导入的模块会在
+// 模块级捕获 `fetch`，旧顺序（先 import、后装替身）让它拿到 Node 的真实 fetch，
+// 于是请求 `/data/story-weaving-canon/<id>.json` 直接失败并被报成 HTTP 404。
 globalThis.fetch = async (input, init = {}) => {
   activeFetches += 1;
   maxActiveFetches = Math.max(maxActiveFetches, activeFetches);
@@ -62,7 +82,10 @@ globalThis.fetch = async (input, init = {}) => {
       return new Response('temporary failure', { status: 503 });
     }
     const filePath = path.join(resourceDir, `${id}.json`);
-    if (!fs.existsSync(filePath)) return new Response('missing', { status: 404 });
+    if (!fs.existsSync(filePath)) {
+      if (process.env.STORY_WEAVING_DEBUG_FETCH) console.log('[debug-fetch]', String(input), '→', id, '→', filePath);
+      return new Response('missing', { status: 404 });
+    }
     return new Response(fs.readFileSync(filePath, 'utf8'), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -71,6 +94,11 @@ globalThis.fetch = async (input, init = {}) => {
     activeFetches -= 1;
   }
 };
+const persistence = await import(pathToFileURL(path.join(tempDir, 'data/storyWeavingPreset.mjs')).href);
+const source = JSON.parse(fs.readFileSync(path.join(root, 'data/storyWeavingCanonDecomposed.json'), 'utf8'));
+const baseline = model.归一化剧情编织系统(source);
+assert.equal(persistence.isSelfContainedStoryWeavingSystem(baseline), true, '完整原著系统应可作为离线回退');
+
 const loadedFromResources = await persistence.loadAllBundledStoryWeavingPresets();
 assert.equal(loadedFromResources.系列列表.length, 19, '19 个拆分资源必须全部加载');
 assert.equal(maxActiveFetches, 1, '拆分资源必须顺序解析，避免并发内存峰值');
@@ -84,7 +112,10 @@ globalThis.fetch = async (input, init) => {
 };
 await assert.rejects(
   () => persistence.loadAllBundledStoryWeavingPresets(),
-  /内置原著剧情资源不完整/,
+  // R02（PROJECT_AUDIT_2026-10-03）：断言的是「永久缺少资源时必须拒绝半残系统」这一契约；
+  // 实现把报错文案写得更具体了（带上资源 id 与「不能用过时图鉴摘要代替」），断言随之更新，
+  // 仍然要求**拒绝**而不是回退到旧摘要。
+  /内置(?:原著|剧情)资源.*(?:加载失败|不完整)/u,
   '永久缺少资源时必须拒绝半残系统',
 );
 const baselineSeries = baseline.系列列表[0];

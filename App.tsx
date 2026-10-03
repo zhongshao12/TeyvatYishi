@@ -428,6 +428,25 @@ export default function App() {
         delete next[batch.conversationId];
         return next;
       });
+      // U04（PROJECT_AUDIT_2026-10-03）：部分成功时明确告诉玩家「谁没回」，避免误以为角色故意不理人。
+      if (result.failedMemberNames?.length) {
+        const failureId = failureItemId('courier_reply', `${batch.conversationId}:members`);
+        reportFailure({
+          source: 'courier_reply',
+          reasonCode: 'phone_reply_partial_members',
+          humanReason: `群聊回信部分完成：${result.failedMemberNames!.join('、')}没有回复。`,
+          dedupeKey: `${batch.conversationId}:members`,
+          retryable: 'manual',
+          retryLabel: '重试未回复成员',
+          turn: currentLive.turnCount,
+        });
+        registerFailureRetry(failureId, () => courierReplyQueue.retry(batch.conversationId));
+        pushToast({
+          kind: 'info',
+          title: '群聊回信部分完成',
+          detail: `${result.failedMemberNames!.join('、')}没有回复；其余成员已回信，可在失败结算里重试。`,
+        });
+      }
       return result.replied > 0 ? 'sent' : 'retry';
     } catch (error) {
       const currentLive = latestStateRef.current;
@@ -1580,6 +1599,9 @@ function renderSystemPanel(
           nsfwEnabled={ctx.gameSettings.enableNsfw}
           nsfwImageEnabled={ctx.gameSettings.文生图系统.enableNsfwImageGeneration}
           mainChatHistory={ctx.mainChatHistory}
+          // B02（PROJECT_AUDIT_2026-10-03）：把当前游戏 session 交给相册面板，
+          // 异步生图/锚点写回在提交前核对身份，避免 A 档的请求写进 B 档。
+          getGameSessionId={ctx.getGameSessionId}
         />
       );
     case 'timeline':

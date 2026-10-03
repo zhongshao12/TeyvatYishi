@@ -118,8 +118,48 @@ function mergeConversation(current: unknown, next: unknown): unknown {
   };
 }
 
+/**
+ * 叙事切片里**属于结算**的子字段：本回合唯一的世界时刻与变量批次（B06）。
+ *
+ * 旧实现把整个 `叙事` 当成一个不可分的冲突单元：玩家在变量请求在途时编辑剧情
+ * （`plotNodes` / `storyWeaving`）会让这个切片整体以活体为准，于是**本次结算的
+ * `lastCommittedMoment` 一并丢失** —— 随后 `variableCalibrationStage` 检查
+ * `lastCommittedMoment.settlementId` 直接抛错，本回合后续记忆写入被停止。
+ * 因此这几个键一律取结算结果，其余叙事子字段保留活体编辑，并且整体以活体为底。
+ */
+export const SETTLEMENT_OWNED_NARRATIVE_FIELDS = ['lastCommittedMoment', 'variableBatches'] as const;
+
+/** 叙事切片在结算专属子字段之外，是否真的有玩家可编辑的改动（决定要不要如实上报冲突）。 */
+function narrativeHasPlayerEdit(ancestor: unknown, current: unknown): boolean {
+  const before = (ancestor ?? {}) as MutableRoot;
+  const after = (current ?? {}) as MutableRoot;
+  return Object.keys({ ...before, ...after }).some((key) => {
+    if ((SETTLEMENT_OWNED_NARRATIVE_FIELDS as readonly string[]).includes(key)) return false;
+    return before[key] !== after[key];
+  });
+}
+
+/**
+ * 叙事合并：**活体为底**（玩家编辑全部保留、不做整份覆盖），只有结算专属子字段取本次结算结果；
+ * 变量批次走并集，既补回本次结算的批次（关系图「最近好感变化」依赖它），
+ * 又不会在重放时重复追加同 id 的批次。
+ */
+function mergeNarrative(current: unknown, next: unknown): unknown {
+  const live = (current ?? {}) as MutableRoot;
+  const produced = (next ?? {}) as MutableRoot;
+  const settlementOwned: MutableRoot = {};
+  for (const field of SETTLEMENT_OWNED_NARRATIVE_FIELDS) {
+    if (field === 'variableBatches') {
+      settlementOwned[field] = mergeVariableBatches(live, produced);
+      continue;
+    }
+    if (produced[field] !== undefined) settlementOwned[field] = produced[field];
+  }
+  return { ...live, ...settlementOwned };
+}
+
 /** 结算自身就是唯一合法写者、且活体值可能缺失本次产物的切片。 */
-const SETTLEMENT_MERGED_SLICES = new Set(['对话']);
+const SETTLEMENT_MERGED_SLICES = new Set(['对话', '叙事']);
 
 /**
  * 这三个由存档 / 结算机制统一维护，不参与「等待期间被改过」判定，一律取结算结果：
@@ -142,23 +182,14 @@ export function rebaseSettlementState(input: SettlementRebaseInput): SettlementR
     const currentSlice = currentRecord[key];
     if (currentSlice === ancestorRecord[key]) continue;
     if (SETTLEMENT_MERGED_SLICES.has(key)) {
-      merged[key] = mergeConversation(currentSlice, nextRecord[key]);
+      merged[key] = key === '叙事'
+        ? mergeNarrative(currentSlice, nextRecord[key])
+        : mergeConversation(currentSlice, nextRecord[key]);
+      if (key === '叙事' && narrativeHasPlayerEdit(ancestorRecord[key], currentSlice)) preservedSlices.push(key);
       continue;
     }
     preservedSlices.push(key);
     merged[key] = currentSlice;
-  }
-
-  // 叙事冲突时，用批次并集补回本次结算的变量批次（关系图「最近好感变化」依赖它）。
-  if (preservedSlices.includes('叙事')) {
-    const currentNarrative = currentRecord.叙事;
-    const nextNarrative = nextRecord.叙事;
-    if (currentNarrative && nextNarrative) {
-      merged.叙事 = {
-        ...(currentNarrative as MutableRoot),
-        variableBatches: mergeVariableBatches(currentNarrative, nextNarrative),
-      };
-    }
   }
 
   return { state: merged as unknown as TeyvatGameState, preservedSlices };

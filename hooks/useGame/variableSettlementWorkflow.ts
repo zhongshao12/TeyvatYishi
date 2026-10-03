@@ -255,11 +255,21 @@ export async function runVariableSettlementWorkflow(
       .filter((derived) => !allowedFacts.some((fact) => fact.type === 'npc'
         && (fact.id === derived.id || fact.name === derived.name)));
     const partyPresenceFacts = derivePartyPresenceFacts(params.body, stateSnapshot.NPC);
-    const presenceNames = new Set(partyPresenceFacts.map((fact) => fact.name));
+    // B11：系统派生的事实只覆盖它**真正判定为离队**的那个角色。旧实现会按名字整条丢掉
+    // 模型的事实，于是「模型正确报了 following=true、而正文里只是出现「离队」字样」时
+    // 正确的 true 被静默滤掉；现在只按「同名且系统确实判了离队」这一个理由覆盖。
+    const presenceByNpcId = new Map(partyPresenceFacts.map((fact) => {
+      const matched = stateSnapshot.NPC.find((npc) =>
+        npc.id === fact.id || npc.姓名 === fact.name || npc.aliases.includes(fact.name));
+      return [matched?.id ?? fact.id, fact] as const;
+    }));
     const factsWithPartyPresence = [
-      ...inventoryFacts.filter((fact) => fact.type !== 'npc'
-        || !presenceNames.has(fact.name)
-        || typeof fact.following !== 'boolean'),
+      ...inventoryFacts.filter((fact) => {
+        if (fact.type !== 'npc' || typeof fact.following !== 'boolean') return true;
+        const matched = stateSnapshot.NPC.find((npc) =>
+          npc.id === fact.id || npc.姓名 === fact.name || npc.aliases.includes(fact.name));
+        return !matched || !presenceByNpcId.has(matched.id);
+      }),
       ...resolvedNpcFacts,
       ...narrativeCanonicalNpcFacts,
       ...partyPresenceFacts,
@@ -286,6 +296,14 @@ export async function runVariableSettlementWorkflow(
       courierSeedsEnabled: params.settings.手机系统.enabled && params.settings.手机系统.autoGenerateSeeds,
       maxCourierSeedsPerTurn: params.settings.手机系统.maxSeedsPerTurn,
     });
+    // B14：预览与正式提交共用同一个证据上下文。旧实现给预览传的是严格逐字匹配
+    // （只有 factCandidates），而正式提交是 lenient + 任务证据白名单 ——
+    // 于是「预览失败 → 任务命令被悄悄丢掉 → 位置更新了但抵达任务计数是 0」。
+    const modelEvidenceContext = {
+      factCandidates: params.factCandidates ?? [],
+      trustedEvidence: [] as string[],
+      lenientEvidence: true as const,
+    };
     const composedSettlement = composeQuestSettlementCommands({
       state: stateSnapshot,
       narrativeCommands: factCommands.commands,
@@ -295,6 +313,7 @@ export async function runVariableSettlementWorkflow(
       variableFacts: effectiveFacts.map((fact) => ({ 路径: fact.type, 值: JSON.stringify(fact) })),
       factCandidates: params.factCandidates ?? [],
       turn: params.turnAfter,
+      evidenceContext: modelEvidenceContext,
     });
     const questSettlement = composedSettlement.quest;
     const commands = composedSettlement.commands;
@@ -331,6 +350,11 @@ export async function runVariableSettlementWorkflow(
         `变量事实：${effectiveFacts.length} 条，生成正式领域命令 ${factCommands.commands.length} 条；任务命令 ${questSettlement.commands.length} 条。`,
         '兼容旧命令：0 条（新回合只接受正式领域命令）。',
         allWarnings.length ? `事实警告：${allWarnings.length} 条。` : '事实警告：0 条。',
+        // B14：预览失败必须可见 —— 旧实现把 previewErrors 丢掉，玩家只看到
+        // 「位置更新了、抵达任务计数还是 0」这一半结果。
+        composedSettlement.previewErrors.length
+          ? `任务预览未通过 ${composedSettlement.previewErrors.length} 条命令：${composedSettlement.previewErrors.map((item) => `${item.code}(${item.root ?? '?'}.${item.path ?? ''})`).join('、')}；本回合任务推进已跳过，其余命令照常结算。`
+          : '',
         ...intimacyFacts.flatMap((fact) => fact.type === 'npc' && fact.eventId ? [`亲密事件：${fact.eventId}`] : []),
         ...factCommands.notes,
       ].filter(Boolean).join('\n'),
@@ -341,10 +365,10 @@ export async function runVariableSettlementWorkflow(
     let committedGame: TeyvatGameState | undefined;
     /** 提交是否真的落到活体根上。CAS 拒绝（等待期间换存档）时为 false，此时绝不能把结算结果当已生效。 */
     let committedApplied = false;
+    // 正式提交使用**同一个**证据上下文，只加上任务自证证据（预览阶段还不可能有它）。
     const evidenceContext = {
-      factCandidates: params.factCandidates ?? [],
+      ...modelEvidenceContext,
       trustedEvidence: questSettlement.commands.length ? [questSettlement.evidence] : [],
-      lenientEvidence: true,
     };
     const dry = preflightTeyvatTurn(stateSnapshot, commands, evidenceContext);
     if (dry.status === 'rejected') {

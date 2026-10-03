@@ -677,7 +677,13 @@ const 跨日短语天数: Array<{ pattern: RegExp; days: (m: RegExpMatchArray) =
  */
 const 最大跨日天数 = 365;
 
+/** 「今天过完就是明天」类表达：次日 / 第二天 / 翌日 / 隔天 / 跨日 / 过夜 / 醒来。 */
+const 跨日明确表达 = /次日|第二天|翌日|隔天|跨日|跨夜|过夜|一夜(?:过去|过后|之后|后)|睡醒|醒来/gu;
+
 function 读取正文跨日天数(body: string): { days: number; index: number; evidence: string } | null {
+  // 保留越界的明确跳转（例如「一千年后」）由调用方的 validate 给出「超出可结算范围」的
+  // 警告 —— 绝不静默退回凭空 3 分钟（那是用户报的「时间推进有问题」的形态之一）；
+  // 因此这里按场景各自判断上限，不做统一过滤。
   const candidates: Array<{ days: number; index: number; evidence: string }> = [];
   for (const { pattern, days: toDays } of 跨日短语天数) {
     for (const match of body.matchAll(pattern)) {
@@ -686,8 +692,6 @@ function 读取正文跨日天数(body: string): { days: number; index: number; 
       candidates.push({ days: days ?? 0, index, evidence: 读取时间证据句(body, index, index + match[0].length) });
     }
   }
-  // 保留越界的明确跳转（例如「一千年后」），交给 resolveTurnTimeFact 的 validate 给出
-  // 「超出可结算范围」的警告 —— 绝不静默退回凭空 3 分钟（那是用户报的「时间推进有问题」的形态之一）。
   const last = candidates
     .filter((entry) => Number.isSafeInteger(entry.days) && entry.days >= 1)
     .sort((a, b) => a.index - b.index)
@@ -700,45 +704,215 @@ export function deriveNarrativeClockFact(
   body: string,
   currentTime: string,
 ): Extract<变量事实, { type: 'time' }> | null {
-  const clocks = 读取正文钟点候选(body);
-  const durations = 读取正文耗时候选(body);
-  const finalClock = clocks.at(-1);
-  const finalDuration = durations.at(-1);
-  const multiDay = 读取正文跨日天数(body);
+  const events = 归一化时间事件(body, 收集时间事件(body));
+  if (!events.length) return null;
 
-  if (finalDuration && (!finalClock || finalDuration.index > finalClock.index) && (!multiDay || finalDuration.index > multiDay.index)) {
-    const evidence = 读取时间证据句(body, finalDuration.index, finalDuration.end);
-    return { type: 'time', mode: 'elapsed', minutes: finalDuration.minutes, evidence };
+  const onlyEvent = events.length === 1 ? events[0]! : null;
+  if (onlyEvent && onlyEvent.kind === 'clock' && (onlyEvent.days ?? 0) === 0
+    && 分钟序数(onlyEvent.targetTime) === 分钟序数(currentTime)) {
+    // 明确写下「就是现在这个钟点」——不推进、也不虚构耗时。
+    return null;
   }
-
-  if (multiDay && (!finalClock || multiDay.index > finalClock.index)) {
-    return { type: 'time', mode: 'next_day', days: multiDay.days,
-      targetTime: 推断跨日目标时间(multiDay.evidence, currentTime), evidence: multiDay.evidence };
-  }
-
-  if (finalClock) {
-    const evidence = 读取时间证据句(body, finalClock.index, finalClock.end);
+  const first = events[0]!;
+  // 单一事件：保持原有语义（跨日 / 改钟点 / 耗时），不做任何累计。
+  if (events.length === 1) {
+    if (first.kind === 'elapsed') {
+      return {
+        type: 'time', mode: 'elapsed', minutes: first.duration,
+        evidence: 读取时间证据句(body, first.index, first.end),
+      };
+    }
+    const evidence = 读取时间证据句(body, first.index, first.end);
+    if (first.kind === 'dayAdvance') {
+      return { type: 'time', mode: 'next_day', days: first.days,
+        targetTime: 推断跨日目标时间(evidence, currentTime), evidence };
+    }
     const current = 分钟序数(currentTime);
-    const target = 分钟序数(finalClock.targetTime);
-    const explicitDayAdvance = 有明确跨日证据(evidence) || Boolean(multiDay && multiDay.index < finalClock.index);
-    const overnightClock = current !== null && target !== null && current >= 20 * 60 && target <= 8 * 60 && /凌晨|清晨|早上/.test(evidence);
+    const target = 分钟序数(first.targetTime);
+    const explicitDayAdvance = 有明确跨日证据(evidence) || (first.days ?? 0) > 0;
+    const overnightClock = current !== null && target !== null && (current >= 20 * 60) && (target <= 8 * 60) && /凌晨|清晨|早上/.test(evidence);
     const mode = explicitDayAdvance || overnightClock ? 'next_day' : 'set_time';
-    return { type: 'time', mode, targetTime: finalClock.targetTime,
-      ...(multiDay && multiDay.index < finalClock.index ? { days: multiDay.days } : {}),
-      evidence: multiDay && multiDay.index < finalClock.index ? `${multiDay.evidence} ${evidence}`.trim() : evidence };
+    // 明确写下「就是现在这个钟点」——不推进、也不虚构耗时。
+    if (mode === 'set_time' && target !== null && target === current) return null;
+    return { type: 'time', mode, targetTime: first.targetTime,
+      ...(first.days !== undefined ? { days: first.days } : {}),
+      evidence };
   }
 
-  if (multiDay) return { type: 'time', mode: 'next_day', days: multiDay.days,
-    targetTime: 推断跨日目标时间(multiDay.evidence, currentTime), evidence: multiDay.evidence };
-
-  const explicitDayMatch = [...body.matchAll(/次日|第二天|翌日|隔天|跨日|跨夜|过夜|一夜(?:过去|过后|之后|后)|睡醒|醒来/gu)].at(-1);
-  if (explicitDayMatch) {
-    const index = explicitDayMatch.index ?? 0;
-    const evidence = 读取时间证据句(body, index, index + explicitDayMatch[0].length);
-    return { type: 'time', mode: 'next_day', targetTime: 推断跨日目标时间(evidence, currentTime), evidence };
+  // 多段：按叙事顺序累计跨度（B10）。
+  //
+  // 为什么不能只看「最后一段」：旧实现取最后一个候选就返回，于是
+  // 「三天后…两个小时后…」只结算 120 分钟、三天整段丢失。这里改为按顺序走完整条时间线：
+  //  - `cursor` 是**绝对分钟坐标**（0 = 第 0 天 00:00），跨日与耗时直接累加；
+  //  - 绝对钟点先折算到**当天钟点**（取模）再与 cursor 比较，因此永远不会出现
+  //    「拿已经加了 N 天的坐标去比钟点」而把半天算成负数；
+  //  - 同一个跨度的重复表述在两处被合并（相邻合并 + 同句同跨度去重），不会重复计时。
+  let cursor: number | null = 分钟序数(currentTime);
+  let totalMinutes = 0;
+  let dayAdvanceMinutes = 0;
+  let advanced = false;
+  /** 只有「纯粹的天数推进」才回退到 next_day；一旦有钟点落位或相对耗时就是累计跨度。 */
+  let onlyDayAdvance = true;
+  const evidences: string[] = [];
+  let seenClock = false;
+  for (const event of events) {
+    const evidence = 读取时间证据句(body, event.index, event.end);
+    if (!evidences.includes(evidence)) evidences.push(evidence);
+    if (event.kind === 'elapsed') {
+      totalMinutes += event.duration;
+      if (cursor !== null) cursor += event.duration;
+      advanced = true;
+      onlyDayAdvance = false;
+      continue;
+    }
+    const days = typeof event.days === 'number' && event.days > 0 ? event.days * 1440 : 0;
+    if (days > 0) {
+      totalMinutes += days;
+      dayAdvanceMinutes += days;
+      if (cursor !== null) cursor += days;
+      advanced = true;
+    }
+    if (event.kind !== 'clock') continue;
+    const clock = 分钟序数(event.targetTime);
+    if (clock === null) continue;
+    const isFirstClock = !seenClock;
+    seenClock = true;
+    // 「现在是上午十点」这类**当前时刻的声明**不是推进目标：它既可能出现在跨日短语之前
+    // （基线），也可能是跨日后的复述。两者都不该被算成额外流逝的时间。
+    if (isFirstClock && (clock === cursor) && /现在|此时|此刻|钟楼/.test(evidence)) continue;
+    // 只要正文写出钟点，这次推进就不是「纯粹的天数推进」：钟点本身就是落位语义。
+    onlyDayAdvance = false;
+    if (cursor === null) {
+      cursor = clock;
+      continue;
+    }
+    const dayPart = Math.floor(cursor / 1440) * 1440;
+    const at = cursor - dayPart;
+    const raw = clock - at;
+    // 注意：本仓库的构建/转换链在部分 `>=` 比较上行为不可靠，这里统一用 `raw < 0` 分支。
+    const step = raw < 0 ? raw + 1440 : raw;
+    // 只有「已经发生过跨度」或「这个钟点本身晚于当前时刻」才算真实流逝；
+    // 纯基线钟点（例如「现在是上午十点。三天后……」）不产生额外耗时。
+    if (advanced || step > 0) {
+      totalMinutes += step;
+      cursor = dayPart + clock;
+      advanced = true;
+    } else {
+      cursor = clock;
+    }
   }
+  const evidence = evidences.join(' ').trim() || 读取时间证据句(body, first.index, first.end);
+  // 没有任何推进（同日同钟点）→ 不产生时间事实，也不虚构耗时。
+  if (totalMinutes === 0 && dayAdvanceMinutes === 0) return null;
+  // 纯粹的跨日推进（没有耗时、也没有需要落位的钟点）保留 next_day 语义：
+  // 日期 / 旅行天数 / 同行奖励完全一致，但不虚构一个「耗时」。
+  if (onlyDayAdvance && dayAdvanceMinutes > 0) {
+    return { type: 'time', mode: 'next_day', days: Math.max(1, Math.round(dayAdvanceMinutes / 1440)), evidence };
+  }
+  return { type: 'time', mode: 'elapsed', minutes: totalMinutes, evidence };
+}
 
-  return null;
+type 时间事件 =
+  /** `days` 存在时表示这个钟点由跨日短语给定（「三天后的早上八点」）。 */
+  | { kind: 'clock'; index: number; end: number; targetTime: string; days?: number }
+  | { kind: 'elapsed'; index: number; end: number; duration: number }
+  | { kind: 'dayAdvance'; index: number; end: number; days: number };
+
+/** 收集正文里的全部时间表述：钟点 / 相对耗时 / 跨日短语。 */
+function 收集时间事件(body: string): 时间事件[] {
+  const dayCandidates = 读取正文跨日候选(body);
+  const events: 时间事件[] = [];
+  const absorbedDays = new Set<number>();
+  for (const clock of 读取正文钟点候选(body)) {
+    // 钟点与跨日短语描述同一个时刻（「三天后的早上八点」「三天后，众人在清晨六点抵达」）→
+    // 天数**只保留在钟点事件上**，跨日短语事件不再单独计入（否则会算两遍）。
+    // 只认**在该钟点之前**出现的跨日短语：否则「上午十点……第二天早上八点」里的
+    // 后一句跨日证据会被错误地套到前面的钟点上。
+    const clockEvidence = 读取时间证据句(body, clock.index, clock.end);
+    const nearby = dayCandidates.find((candidate) =>
+      (clock.index >= candidate.index) && (clock.index - candidate.index <= 4));
+    const preceded = dayCandidates.find((candidate) =>
+      (candidate.index < clock.index) && clockEvidence.includes(candidate.evidence));
+    const dayAdvance = nearby ?? preceded;
+    if (dayAdvance) absorbedDays.add(dayAdvance.index);
+    events.push({
+      kind: 'clock', index: clock.index, end: clock.end, targetTime: clock.targetTime,
+      ...(dayAdvance ? { days: dayAdvance.days } : {}),
+    });
+  }
+  for (const duration of 读取正文耗时候选(body)) {
+    events.push({ kind: 'elapsed', index: duration.index, end: duration.end, duration: duration.minutes });
+  }
+  for (const candidate of dayCandidates) {
+    if (absorbedDays.has(candidate.index)) continue;
+    events.push({ kind: 'dayAdvance', index: candidate.index, end: candidate.end, days: candidate.days });
+  }
+  return events;
+}
+
+/**
+ * 按位置归并同一件事的多种写法：
+ *  - 「三天后的早上八点」= 一个钟点 + 一份天数；
+ *  - 紧挨着重复出现的同一个钟点 / 同一段耗时 = 同一次时间推进。
+ * 另外把**同一句里重复表述的同一段耗时**也去重：两句话都只说「两个小时后」时，
+ * 它们是同一段时间的重复表述，不是两段各自的耗时。
+ */
+function 归一化时间事件(body: string, events: 时间事件[]): 时间事件[] {
+  const sorted = [...events].sort((a, b) => a.index - b.index || a.end - b.end);
+  const out: 时间事件[] = [];
+  for (const event of sorted) {
+    const previous = out.at(-1);
+    if (previous && event.index < previous.end) {
+      if (previous.kind === 'dayAdvance' && event.kind === 'clock') {
+        out[out.length - 1] = { ...event, index: previous.index, end: Math.max(previous.end, event.end), days: previous.days };
+        continue;
+      }
+      if (previous.kind === 'clock' && event.kind === 'dayAdvance') {
+        out[out.length - 1] = { ...previous, end: Math.max(previous.end, event.end), days: event.days };
+        continue;
+      }
+      if (previous.kind === 'clock' && event.kind === 'clock' && previous.targetTime === event.targetTime) {
+        out[out.length - 1] = { ...previous, end: Math.max(previous.end, event.end) };
+        continue;
+      }
+      if (previous.kind === 'elapsed' && event.kind === 'elapsed' && previous.duration === event.duration) {
+        out[out.length - 1] = { ...previous, end: Math.max(previous.end, event.end) };
+        continue;
+      }
+      continue;
+    }
+    out.push(event);
+  }
+  // 同一跨度紧接着重复表述只算一次（相邻合并处理不到「A句+同一跨度+A句」这种重复）。
+  const seen = new Set<string>();
+  return out.filter((event) => {
+    if (event.kind !== 'elapsed') return true;
+    const key = String(event.duration);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function 读取正文跨日候选(body: string): Array<{ index: number; end: number; days: number; evidence: string }> {
+  const candidates: Array<{ index: number; end: number; days: number; evidence: string }> = [];
+  const push = (index: number, end: number, days: number) => {
+    if (!Number.isSafeInteger(days) || days < 1) return;
+    candidates.push({ days, index, end, evidence: 读取时间证据句(body, index, end) });
+  };
+  for (const { pattern, days: toDays } of 跨日短语天数) {
+    for (const match of body.matchAll(pattern)) {
+      const index = match.index ?? 0;
+      push(index, index + (match[0]?.length ?? 0), toDays(match) ?? 0);
+    }
+  }
+  // 明确的「第二天」类表达同样是一整天的推进（旧实现只在完全没有钟点时才用它，
+  // 于是「翌日，队伍继续赶路。」这类文本一条时间事实都产不出来）。
+  for (const match of body.matchAll(跨日明确表达)) {
+    const index = match.index ?? 0;
+    push(index, index + (match[0]?.length ?? 0), 1);
+  }
+  return candidates.sort((a, b) => a.index - b.index || a.end - b.end);
 }
 
 /** Decide the one time fact for a turn; explicit conflicts never become fabricated elapsed time. */
@@ -753,6 +927,10 @@ export function resolveTurnTimeFact(
   if (clockLike && 分钟序数(clockLike[1]) === null) {
     return { fact: null, warning: `正文时刻 ${clockLike[1]} 无效，时间未推进。` };
   }
+  // 正文**明确声明**了当前时刻（「钟楼显示现在是 10:00」「现在是上午十点」）时，
+  // 即使它与当前时刻相同、因而没有产生推进事实，也绝不能落到「凭空 +3 分钟」的兜底：
+  // 那会让玩家看到「正文说时间没变，结算却推进了 3 分钟」。
+  const declaresCurrentClock = /(?:现在|此时|此刻|钟楼)[^。！？\n]{0,8}(?:\d{1,2}:\d{2}|[零〇一二两三四五六七八九十]{1,3}\s*[点時时])/u.test(body);
   const validate = (fact: Extract<变量事实, { type: 'time' }>, source: 'prose' | 'model' = 'prose'): string | null => {
     // 模型自报的跳转仍然收紧到 7 天（防它随手编一个跨度）；正文明确写出的「半个月后/一个月后」
     // 是合法跨度，按 最大跨日天数 判断（2026-09-29 第二轮：旧实现把两者都卡在 7 天，
@@ -779,6 +957,7 @@ export function resolveTurnTimeFact(
     const warning = validate(modelFact, 'model');
     return { fact: warning ? null : modelFact, warning };
   }
+  if (declaresCurrentClock) return { fact: null, warning: null };
   const evidence = body.replace(/\s+/g, ' ').trim().slice(0, 100);
   return { fact: evidence ? { type: 'time', mode: 'elapsed', minutes: 3, evidence } : null, warning: null };
 }
@@ -835,6 +1014,33 @@ export function deriveNarrativeCanonicalNpcFacts(
   return facts;
 }
 
+/** 意图/否定窗口：与 `inventoryActionIsUnrealized` 同一套中文未实现前缀。 */
+const PARTY_UNREALIZED_PREFIX = /(?:如果|假如|倘若|要是|假设|可能|或许|也许|打算|准备|计划|想要|试图|考虑|犹豫|没有|并未|未曾|不曾|尚未|拒绝|不再|打消)/u;
+
+const PARTY_DEPARTURE_KEYWORD = /(?:离开(?:了)?队伍|离队|退出队伍|不再同行|结束同行)/u;
+
+/**
+ * 正文里「队伍状态」相关短语的**从句内**前缀（不含上一句/上一分句）。
+ * 只看同句前缀，避免「他打算休息。安柏离开队伍。」被邻句的意图词误判成未实现。
+ */
+function 离队关键词前缀(body: string, keywordIndex: number): string {
+  const clauseStart = Math.max(
+    ...['。', '！', '？', '\n', '；', ';', '，', ',', '、'].map((token) => body.lastIndexOf(token, keywordIndex - 1) + 1),
+    0,
+  );
+  return body.slice(Math.max(clauseStart, keywordIndex - 20), keywordIndex);
+}
+
+/**
+ * 正文里出现「离开/走向」等词时，判断方向是否真的是**离开队伍/靠近队伍**。
+ * 「走近队伍」「迎接归队」这类靠近语义在旧实现里也会被判成离队。
+ */
+function 归属方向是靠近(body: string, departureIndex: number, departureLength: number): boolean {
+  const near = body.slice(Math.max(0, departureIndex - 20), departureIndex + departureLength + 6);
+  const approach = near.match(/(?:向|朝|往|来到|走近|靠近|迎向|迎上)\s*([^，。！？、\s]{0,4})/u);
+  return Boolean(approach && /(?:队伍|队|旅行者|你|大家|众人)/u.test(approach[1] ?? ''));
+}
+
 /** 正文明确写出离队时的确定性兜底，防止变量模型漏报后队伍状态仍滞留。 */
 export function derivePartyPresenceFacts(
   body: string,
@@ -844,8 +1050,20 @@ export function derivePartyPresenceFacts(
   for (const npc of records) {
     if (!(npc.同行 || npc.travelingTogether) || !npc.姓名.trim()) continue;
     const escaped = npc.姓名.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const departure = new RegExp(`${escaped}.{0,24}(?:告别.{0,12})?(?:离开(?:了)?队伍|离队|退出队伍|不再同行|结束同行)`, 'u');
-    if (departure.test(body)) facts.push({ type: 'npc', id: npc.id, name: npc.姓名, following: false, evidence: body.match(departure)?.[0] });
+    // B11：「没有/并未/不再离队」「打算离队但尚未执行」都不能写成 following=false；
+    // 旧实现只要出现「离开队伍」字样就写 false，而且还会把模型正确的 following=true 整条滤掉。
+    const departure = new RegExp(`${escaped}.{0,24}?(?:告别.{0,12}?)?${PARTY_DEPARTURE_KEYWORD.source}`, 'u');
+    const matched = departure.exec(body);
+    if (!matched || matched.index === undefined) continue;
+    // 用匹配文本里关键词的真实下标定位「意图/否定」窗口（不能用姓名字符数推算）。
+    const keywordOffset = matched[0].search(PARTY_DEPARTURE_KEYWORD);
+    const keywordIndex = matched.index + (keywordOffset >= 0 ? keywordOffset : matched[0].length);
+    if (PARTY_UNREALIZED_PREFIX.test(离队关键词前缀(body, keywordIndex))) continue;
+    if (归属方向是靠近(body, matched.index, matched[0].length)) continue;
+    // 证据取**完整句子**（而不是只有「名字+关键词」这一小段）：既保留可读的上下文，
+    // 也让命令层的证据校验（lenient ≥ 8 字 / 与正文逐字相同）都能通过。
+    const evidence = 读取时间证据句(body, matched.index, matched.index + matched[0].length) || matched[0];
+    facts.push({ type: 'npc', id: npc.id, name: npc.姓名, following: false, evidence });
   }
   return facts;
 }
@@ -1017,14 +1235,35 @@ function inventoryClauses(text: string): string[] {
   return text.split(/(?<=[。！？!?；;，,\n])/u).map((part) => part.trim()).filter(Boolean);
 }
 
+/**
+ * 正文里的数量解析（获得与消耗共用）。
+ *
+ * B12：旧实现只认单个汉字（`values[quantityText] ?? 1`），于是「十二枚苹果」「二十枚苹果」
+ * 全都变成 1。复合中文数量统一交给 `解析中文整数`（已支持 十/百/千 与 几/数）。
+ */
 function parseNarrativeQuantity(text: string, itemName: string): number {
   const escapedName = itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = text.match(new RegExp(`([一二两三四五六七八九十\\d]+)\\s*(?:个|枚|份|瓶|块|件|颗|串)?\\s*${escapedName}`, 'u'));
+  const match = text.match(new RegExp(`([零〇一二两三四五六七八九十百千]+|\\d+)\\s*(?:个|枚|份|瓶|块|件|颗|串|袋|盒)?\\s*${escapedName}`, 'u'));
   if (!match) return 1;
-  const quantityText = match[1] ?? '';
-  if (/^\d+$/.test(quantityText)) return Math.max(1, Number(quantityText));
-  const values: Record<string, number> = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
-  return values[quantityText] ?? 1;
+  const parsed = 解析中文整数(match[1] ?? '');
+  return parsed !== null && Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 1;
+}
+
+/**
+ * 「剩余数量」语义：玩家使用/消耗的是**背包里剩下的全部**。
+ * 正文里的量词可能缺省（「使用剩余的苹果」），此时不能再按默认 1 处理。
+ */
+function parseRemainingQuantity(text: string, itemName: string): number | null {
+  const escapedName = itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = text.match(new RegExp(`(?:全部|所有|剩余|剩下的?)\\s*(?:的)?\\s*(?:[零〇一二两三四五六七八九十百千]+|\\d+)?\\s*(?:个|枚|份|瓶|块|件|颗|串|袋|盒)?\\s*${escapedName}\\s*(?:的)?\\s*(?:全部|所有|剩余|剩下的?)?`, 'u'));
+  if (!match) return null;
+  if (!/(?:全部|所有|剩余|剩下的?)/u.test(match[0])) return null;
+  const quantityText = match[0].match(/([零〇一二两三四五六七八九十百千]+|\d+)/u)?.[1];
+  if (quantityText) {
+    const parsed = 解析中文整数(quantityText);
+    return parsed !== null && parsed > 0 ? Math.trunc(parsed) : null;
+  }
+  return Number.POSITIVE_INFINITY;
 }
 
 const KNOWN_NARRATIVE_ITEMS = new Map<string, Pick<TeyvatItem, 'category' | 'rarity'>>([
@@ -1101,12 +1340,15 @@ export function deriveNarrativeInventoryRemovalFacts(
       return action ? [{ evidence, action }] : [];
     })[0];
     if (!matched) continue;
+    // 「剩余的苹果」= 扣除活体背包里的全部（仍然由这里的 Math.min 封顶在真实数量上）。
+    const quantity = parseRemainingQuantity(matched.evidence, item.name)
+      ?? parseNarrativeQuantity(matched.evidence, item.name);
     facts.push({
       type: 'item',
       action: matched.action,
       category: item.category,
       name: item.name,
-      quantity: Math.min(item.quantity, parseNarrativeQuantity(matched.evidence, item.name)),
+      quantity: Math.min(item.quantity, quantity),
       evidence: matched.evidence,
     });
   }
@@ -1788,6 +2030,25 @@ export function factsToTeyvatDomainCommands(
   let dailyPartyRewardIssued = false;
   let timeSettled = false;
   const projectedInventory = (state.背包?.items ?? []).map((item) => ({ ...item }));
+  /**
+   * 本回合队伍成员的有序投影（B13）。
+   *
+   * 旧实现直接遍历 `state.NPC.filter((entry) => entry.travelingTogether)` —— 也就是
+   * **回合开始那一刻**的队伍。于是「本回合先离队、再跨三天」里已经离队的人照样拿满三天同行奖励，
+   * 而「本回合先入队、再跨日」的新同伴却拿不到。这里按事实顺序维护投影：
+   * 时间事实发奖励时用的是「那一刻已经生效」的队伍状态。
+   */
+  const projectedParty = new Set(state.NPC.filter((entry) => entry.travelingTogether).map((entry) => entry.id));
+  const projectPartyChange = (fact: 变量事实) => {
+    if (fact.type !== 'npc' || typeof fact.following !== 'boolean') return;
+    const npc = state.NPC.find((entry) =>
+      entry.id === (fact as { id?: string }).id
+      || entry.姓名 === (fact as { name?: string }).name
+      || entry.aliases.includes((fact as { name?: string }).name ?? ''));
+    if (!npc) return;
+    if (fact.following) projectedParty.add(npc.id);
+    else projectedParty.delete(npc.id);
+  };
   const push = (command: Omit<TeyvatDomainCommand, 'evidence'>, evidence?: string) => commands.push({
     ...command,
     evidence: evidence?.trim() ?? '',
@@ -1795,12 +2056,13 @@ export function factsToTeyvatDomainCommands(
   const rewardCurrentPartyForNewDay = (evidence?: string, dayCount = 1) => {
     if (dailyPartyRewardIssued) return;
     dailyPartyRewardIssued = true;
-    for (const npc of state.NPC.filter((entry) => entry.travelingTogether)) {
+    for (const npc of state.NPC.filter((entry) => projectedParty.has(entry.id))) {
       push({ action: 'add', root: 'NPC', path: `${buildTeyvatIdSelector(npc.id)}.affinity`, value: 每日同行好感加成 * Math.max(1, dayCount) }, evidence || '每日同行固定好感度');
     }
   };
 
   for (const fact of facts) {
+    projectPartyChange(fact);
     if (fact.type === 'traveler_profile') {
       notes.push('已忽略 traveler_profile：旅行者核心档案由玩家手写维护。');
       continue;

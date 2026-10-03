@@ -39,8 +39,16 @@ describe('single turn time decision', () => {
   });
 
   it('uses a later multi-day marker instead of an earlier clock', () => {
-    expect(resolveTurnTimeFact('现在是上午十点。三天后，队伍终于抵达营地。', '09:00'))
-      .toMatchObject({ fact: { mode: 'next_day', days: 3 }, warning: null });
+    // 契约修订（2026-10-03，第 3 批 B10）：多段相对时间改为按叙事顺序累计跨度，
+    // 「现在的钟点 + 三天后」= 三天。日期 / 旅行天数 / 同行奖励与旧的 next_day 语义完全一致，
+    // 因此这里断言**同一个结果**（3 天整），只把表达方式从 next_day 换成累计跨度。
+    const decided = resolveTurnTimeFact('现在是上午十点。三天后，队伍终于抵达营地。', '09:00');
+    expect(decided.warning).toBeNull();
+    const days = decided.fact?.mode === 'next_day'
+      ? decided.fact.days
+      : Math.floor((decided.fact?.minutes ?? 0) / 1440);
+    expect(days).toBe(3);
+    expect(decided.fact?.targetTime === undefined || decided.fact?.targetTime === '10:00').toBe(true);
   });
 
   it('rejects a malformed explicit clock instead of applying default elapsed time', () => {

@@ -32,7 +32,7 @@ import { resolveCourierApiConfig } from '@/services/ai/courierLetterModel';
 import { mergeCourierSystemUpdates } from '@/services/ai/courierService';
 import { runCourierDeliveryTask, runCourierReplyTask } from './courierBackgroundJobs';
 import { planProactiveContacts } from '@/services/proactiveContacts';
-import { mergeNpcWriteBack } from '@/utils/npcWriteBack';
+import { mergeNpcWriteBack, mergeSettlementSliceWriteBack, rebaseStoryProgressMemory } from '@/utils/npcWriteBack';
 import { applyStoryArchiveCodexRuntimeUnlock } from '@/services/codexRuntimeUnlock';
 import { buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 import { runPostTurnBackgroundTasks, runSteambirdPostTurnTask } from './postTurnBackgroundTasks';
@@ -271,6 +271,10 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         turn: state.turnCount,
         variableDebug: variableOverrides.npcLedgerUpdate,
       });
+      // B07：整理（记忆压缩）的输入快照就是提交点合并的基准；
+      // 之后还有剧情设置落库与恢复日志保存两处 await，那时玩家可能已经改过档案。
+      const npcAnchorForSettlement = npcSource;
+      let concurrentNpcWriteBacks: string[] = [];
       let npcAfterCompression = preparedNpcs.records;
       let npcChanged = preparedNpcs.changed;
       if (preparedNpcs.debug) {
@@ -281,7 +285,12 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       // The memory stage starts from the committed root (including variable overrides)
       // and may have appended/compressed this turn; never replace it with the earlier batch projection.
       let memoryAfterStoryProgress = mem;
+      // B07：剧情进度记忆是**追加式**写入，提交点只补这一条，不再整片重放旧数组。
+      // 基准是「加入剧情进度记忆之前」的记忆切片（`mem`），产出是加了那一条之后的切片。
+      let memoryBeforeStoryProgress = mem;
       let memoryChangedAfterSettlement = false;
+      // 剧情进度写进 NPC 同行记忆之前的那一份（同样只用于求 delta）。
+      let npcBeforeStoryProgress = npcAfterCompression;
       const storyWeavingBase = toLegacyStoryWeaving(committedSettlementGame.叙事.storyWeaving);
       const storyPlan = planPostSettlementStoryAlignment({
         openingSystemTurn: isOpeningSystemTrigger,
@@ -320,12 +329,16 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         }
         assertWorkflowActive();
         if (storyProgressMemoryLine && !storyWeavingConcurrentChange) {
+          memoryBeforeStoryProgress = memoryAfterStoryProgress;
           memoryAfterStoryProgress = addImmediateMemory(
             memoryAfterStoryProgress, storyProgressMemoryLine, state.turnCount + 1,
             settledMoment, `memory_story_${settledMoment.settlementId}`,
           );
           mem = memoryAfterStoryProgress;
           memoryChangedAfterSettlement = true;
+          // B07：这一段同样是「追加式」写入 —— 提交点只补这份 delta，
+          // 不再用旧投影整片替换等待期间被玩家改过的档案。
+          npcBeforeStoryProgress = npcAfterCompression;
           const npcAfterStoryProgress = applyStoryProgressNpcMemory(
             npcAfterCompression,
             storyWeavingForSave,
@@ -366,11 +379,29 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       recoveryJournal = updateWorkflowRecoveryJournal(recoveryJournal, { committedState: committedSettlementGame });
       deps.onJournalUpdated(recoveryJournal);
       await persistWorkflowRecoveryJournal(recoveryJournal);
-      if (npcChanged || memoryChangedAfterSettlement) {
-        state.updateGameState((current) => applyLegacyGameStateOverrides(current, {
-          ...(npcChanged ? { NPC: npcAfterCompression } : {}),
-          ...(memoryChangedAfterSettlement ? { 记忆: memoryAfterStoryProgress } : {}),
-        }));
+      // B07：提交点读取 **live**，按各自明确的追加/压缩 delta 合并 ——
+      // 不再用记忆压缩 await 之前算出的旧数组无条件替换当前切片。
+      // 这段等待（压缩 + 剧情设置落库 + 恢复日志保存）里玩家改的同伴资料与新增的记忆必须保留。
+      if (npcChanged) {
+        state.setNPC((current) => {
+          const merged = mergeSettlementSliceWriteBack({
+            base: npcAnchorForSettlement, next: npcAfterCompression, current,
+          });
+          concurrentNpcWriteBacks = merged.concurrentRecordIds;
+          return merged.records;
+        });
+        if (concurrentNpcWriteBacks.length) {
+          pushQueueTask(state, 'variable', 'success', {
+            detail: `等待期间角色档案也被改动：${concurrentNpcWriteBacks.length} 位同伴的档案以最新值为底并已补回本回合的记忆整理。`,
+          });
+        }
+      }
+      if (memoryChangedAfterSettlement) {
+        state.updateGameState((current) => withLegacyMemory(current, rebaseStoryProgressMemory({
+          base: memoryBeforeStoryProgress,
+          next: memoryAfterStoryProgress,
+          current: toLegacyMemory(current),
+        }).memory));
       }
       let codexAfterRuntimeUnlock = state.图鉴;
       if (storyAlignment.progressed && !storyWeavingConcurrentChange) {

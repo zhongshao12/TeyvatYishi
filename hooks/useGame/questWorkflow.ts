@@ -4,6 +4,7 @@ import type { IrminsulMemory } from '@/models/teyvat/irminsul';
 import type { NarrativeTurn } from '@/models/teyvat/narrativeTurn';
 import type { TeyvatDomainCommand, TeyvatTurnError } from '@/models/teyvat/domainCommand';
 import { reduceTeyvatTurn } from '@/services/teyvatTurnTransaction';
+import type { TeyvatEvidenceContext } from '@/utils/teyvatCommandRegistry';
 import {
   buildCommittedQuestArchive,
   deriveQuestDomainCommands,
@@ -29,6 +30,15 @@ export interface QuestSettlementPlan extends QuestDomainSettlement {
 
 export interface ComposedQuestSettlementInput extends QuestSettlementInput {
   narrativeCommands: readonly TeyvatDomainCommand[];
+  /**
+   * B14：预览必须与正式提交**共用同一证据上下文**。
+   *
+   * 旧实现给预览传的证据上下文只有 `factCandidates`（严格逐字匹配），而正式提交带
+   * `lenientEvidence: true` + 任务证据白名单。于是模型的改写型证据会被预览判定为
+   * `UNMATCHED_EVIDENCE` → 预览整批失败 → 任务命令被静默丢弃（位置已更新、抵达任务计数仍为 0），
+   * 而正式提交本身是会接受的。传入同一个上下文后两条路径结论一致。
+   */
+  evidenceContext?: TeyvatEvidenceContext;
 }
 
 export interface ComposedQuestSettlement {
@@ -101,9 +111,10 @@ export function deriveQuestSettlementPlan(input: QuestSettlementInput): QuestSet
  * committed exactly once by the caller.
  */
 export function composeQuestSettlementCommands(input: ComposedQuestSettlementInput): ComposedQuestSettlement {
-  const preview = reduceTeyvatTurn(input.state, input.narrativeCommands, {
-    factCandidates: input.factCandidates,
-  });
+  // 预览与正式提交同口径（B14）：没有显式上下文时退化成旧行为（仅字面候选），
+  // 但调用方（变量结算）必须传入与提交一致的证据上下文。
+  const evidenceContext: TeyvatEvidenceContext = input.evidenceContext ?? { factCandidates: input.factCandidates };
+  const preview = reduceTeyvatTurn(input.state, input.narrativeCommands, evidenceContext);
   if (preview.status === 'rejected') {
     return {
       commands: [...input.narrativeCommands],

@@ -8,10 +8,23 @@ import {
 
 describe('fourth user-reported time progression batch', () => {
   it('uses the final explicit clock in the narrative as the settled endpoint', () => {
-    expect(deriveNarrativeClockFact(
+    // 契约修订（2026-10-03，第 3 批 B10）：正文里两个钟点之间的**当天差值**现在也算进跨度
+    // （09:40 → 上午十点 = +20 分钟，→ 晚上八点 = +600 分钟）。
+    // 终点仍然是最后写出的那个钟点（20:00），这一点与旧契约一致。
+    const fact = deriveNarrativeClockFact(
       '上午十点，旅行者从蒙德城出发。经过一整天的调查，晚上八点回到猎鹿人餐馆。',
       '09:40',
-    )).toMatchObject({ mode: 'set_time', targetTime: '20:00' });
+    );
+    expect(fact?.mode).toBe('elapsed');
+    expect(fact?.minutes).toBe(620);
+    expect(fact?.targetTime).toBeUndefined();
+    // 落到命令层后，目标时刻仍然是「最后写出的钟点」。
+    const state = createEmptyTeyvatGameState();
+    state.世界.当前时间 = '09:40';
+    const commands = factsToTeyvatDomainCommands([fact!], state, 2).commands;
+    expect(commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({ root: '世界', path: '当前时间', action: 'set', value: '20:00' }),
+    ]));
   });
 
   it('keeps a second-day marker even when it is far from the final clock text', () => {

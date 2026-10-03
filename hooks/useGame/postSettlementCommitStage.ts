@@ -208,6 +208,7 @@ export function applyStoryProgressNpcMemory(
   npcs: NPC记录[],
   story: 剧情编织系统,
   turn: number,
+  moment?: WorldMoment,
 ): NPC记录[] {
   if (!story.当前进度) return npcs;
   const series = story.系列列表.find((item) => item.id === story.当前进度?.当前系列ID)
@@ -234,6 +235,7 @@ export function applyStoryProgressNpcMemory(
           摘要: cleanSummary,
           来源: '其他' as const,
           关联NPCID: [npc.id],
+          ...(moment ? { worldMoment: moment } : {}),
         },
       ],
       最近回合: Math.max(npc.最近回合, turn),

@@ -905,6 +905,9 @@ function normalizeNpcLedgerMemoryEntries(input: NpcMemoryLedgerCompressionInput)
           回合范围: typeof entry === 'string' || !entry.回合 ? undefined : `第${entry.回合}回合前`,
           条数: 1,
           摘要: cleaned,
+          ...(typeof entry !== 'string' && entry.worldMoment ? { sourceMomentRange: {
+            start: entry.worldMoment, end: entry.worldMoment, sourceIds: [entry.id],
+          } } : {}),
         },
         index,
         input.npcId,
@@ -977,6 +980,11 @@ export function compressNpcMemoryLedger(input: NpcMemoryLedgerCompressionInput):
         回合范围: buildNpcSummaryTurnRange(chunk, input.turn),
         条数: chunk.length,
         摘要: summary,
+        sourceMomentRange: combineWorldMomentRanges(chunk.map((entry) => ({
+          start: entry.worldMoment ?? null,
+          end: entry.worldMoment ?? null,
+          sourceIds: [entry.id],
+        }))),
         保留事实: chunk
           .map((entry) => entry.摘要)
           .filter(Boolean)

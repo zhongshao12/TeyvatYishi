@@ -2,6 +2,7 @@ import { normalizeNarrativeTurn } from '@/services/ai/narrativeTurnParser';
 import type { NarrativeTurn } from '@/models/teyvat/narrativeTurn';
 import { normalizeTeyvatGameState, type TeyvatGameState } from '@/models/teyvat/state';
 import { normalizeLegacyRecoveryPhase } from '@/compat/legacy-hsr/readOnly';
+import type { 剧情编织门禁快照 } from '@/services/storyWeaving';
 
 export type WorkflowRecoveryPhase =
   | 'narrative_received'
@@ -29,6 +30,8 @@ export interface WorkflowRecoveryJournal {
   };
   /** Exact normalized root after the one settlement commit; durable restart source for the post tail. */
   committedState?: TeyvatGameState;
+  /** Frozen chapter gate so a restart can replay only the decision for this turn. */
+  storyAlignment?: { openingSystemTurn: boolean; gateSnapshot: 剧情编织门禁快照 | null };
   phaseStartedAt: number;
 }
 
@@ -108,6 +111,28 @@ function parseCommittedState(value: unknown): TeyvatGameState | undefined {
   }
 }
 
+function parseStoryAlignment(value: unknown): WorkflowRecoveryJournal['storyAlignment'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.openingSystemTurn !== 'boolean') return undefined;
+  const gate = raw.gateSnapshot;
+  if (gate === null) return { openingSystemTurn: raw.openingSystemTurn, gateSnapshot: null };
+  if (!gate || typeof gate !== 'object' || Array.isArray(gate)) return undefined;
+  const candidate = gate as Record<string, unknown>;
+  if ((candidate.mode !== 'soft' && candidate.mode !== 'strong') || !Array.isArray(candidate.reasons)
+    || !candidate.reasons.every((reason) => typeof reason === 'string')) return undefined;
+  return {
+    openingSystemTurn: raw.openingSystemTurn,
+    gateSnapshot: {
+      mode: candidate.mode,
+      reasons: candidate.reasons as string[],
+      ...(typeof candidate.系列ID === 'string' ? { 系列ID: candidate.系列ID } : {}),
+      ...(typeof candidate.分段ID === 'string' ? { 分段ID: candidate.分段ID } : {}),
+      ...(Number.isFinite(Number(candidate.分段组号)) ? { 分段组号: Number(candidate.分段组号) } : {}),
+    },
+  };
+}
+
 export function parseWorkflowRecoveryJournal(value: unknown): WorkflowRecoveryJournal | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
@@ -127,6 +152,7 @@ export function parseWorkflowRecoveryJournal(value: unknown): WorkflowRecoveryJo
   const pendingNarrative = parsePendingNarrative(raw.pendingNarrative);
   const pendingSettlement = parsePendingSettlement(raw.pendingSettlement);
   const committedState = parseCommittedState(raw.committedState);
+  const storyAlignment = parseStoryAlignment(raw.storyAlignment);
   return {
     version: 3,
     workflowId: raw.workflowId,
@@ -143,6 +169,7 @@ export function parseWorkflowRecoveryJournal(value: unknown): WorkflowRecoveryJo
     ...(pendingNarrative ? { pendingNarrative } : {}),
     ...(pendingSettlement ? { pendingSettlement } : {}),
     ...(committedState ? { committedState } : {}),
+    ...(storyAlignment ? { storyAlignment } : {}),
     phaseStartedAt: raw.version === 3 && Number.isFinite(Number(raw.phaseStartedAt))
       ? Number(raw.phaseStartedAt)
       : startedAt,
@@ -151,7 +178,7 @@ export function parseWorkflowRecoveryJournal(value: unknown): WorkflowRecoveryJo
 
 export function updateWorkflowRecoveryJournal(
   journal: WorkflowRecoveryJournal,
-  patch: Partial<Pick<WorkflowRecoveryJournal, 'phase' | 'userMessageId' | 'assistantMessageId' | 'pendingNarrative' | 'pendingSettlement' | 'committedState'>>,
+  patch: Partial<Pick<WorkflowRecoveryJournal, 'phase' | 'userMessageId' | 'assistantMessageId' | 'pendingNarrative' | 'pendingSettlement' | 'committedState' | 'storyAlignment'>>,
 ): WorkflowRecoveryJournal {
   const now = Date.now();
   const changedPhase = patch.phase !== undefined && patch.phase !== journal.phase;

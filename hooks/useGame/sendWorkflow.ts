@@ -443,7 +443,9 @@ async function retrySteambirdQueueTask(
   task: 队列任务记录,
   mode: 'retry' | 'reroll',
 ): Promise<void> {
-  const assistant = findLatestAssistantMessage(state.chatHistory);
+  const assistant = task.targetMessageId
+    ? state.chatHistory.find((message) => message.id === task.targetMessageId && message.role === 'assistant')
+    : findLatestAssistantMessage(state.chatHistory);
   if (!assistant) {
     pushQueueTask(state, 'steambird', 'failed', {
       detail: '未找到可用于蒸汽鸟报重试的正文回合。',
@@ -462,10 +464,11 @@ async function retrySteambirdQueueTask(
   }
   const steambirdSettings = state.gameSettings.蒸汽鸟报系统;
   const interval = Math.max(5, Math.min(10, Math.trunc(steambirdSettings?.generateIntervalTurns ?? 5) || 5));
+  const retryContext = resolveSteambirdRetryContext(state.game, task);
   const abortController = new AbortController();
   pushQueueTask(state, 'steambird', 'pending', {
     detail: mode === 'reroll' ? '正在重生成蒸汽鸟报，本次不受回合间隔限制。' : '正在重试蒸汽鸟报，本次不受回合间隔限制。',
-    turn: Number(assistant.gameTime) || task.turn || state.turnCount,
+    turn: retryContext.turn,
     retrying: true,
     failCount: task.failCount,
     targetMessageId: assistant.id,
@@ -473,8 +476,9 @@ async function retrySteambirdQueueTask(
   try {
     const result = runSteambirdGenerationStep({
       current: state.蒸汽鸟报,
-      publicFacts: [{ title: `第 ${state.turnCount} 回公开见闻`, detail: `${userInput}\n${body}`.trim() }],
-      turnCount: state.turnCount,
+      publicFacts: [{ title: `第 ${retryContext.turn} 回公开见闻`, detail: `${userInput}\n${body}`.trim() }],
+      turnCount: retryContext.turn,
+      worldMoment: retryContext.worldMoment,
     });
     if (result?.changed) state.set蒸汽鸟报(result.steambird);
     pushQueueTask(state, 'steambird', result ? 'success' : 'failed', {
@@ -483,18 +487,27 @@ async function retrySteambirdQueueTask(
           ? `蒸汽鸟报已${mode === 'reroll' ? '重生成' : '重试更新'}，当前共 ${result.steambird.articles.length} 篇报道。`
           : '蒸汽鸟报已重试，但模型没有返回可写入的新变化。'
         : '蒸汽鸟报重试失败，请检查蒸汽鸟报 API 配置或模型返回。',
-      turn: Number(assistant.gameTime) || task.turn || state.turnCount,
+      turn: retryContext.turn,
       failCount: result ? task.failCount : (task.failCount ?? 0) + 1,
       targetMessageId: assistant.id,
     });
   } catch (err) {
     pushQueueTask(state, 'steambird', 'failed', {
       detail: `蒸汽鸟报重试失败：${(err as Error).message}`,
-      turn: Number(assistant.gameTime) || task.turn || state.turnCount,
+      turn: retryContext.turn,
       failCount: (task.failCount ?? 0) + 1,
       targetMessageId: assistant.id,
     });
   }
+}
+
+/** Manual newspaper retries use the failed turn, never the player's newer live clock. */
+export function resolveSteambirdRetryContext(game: TeyvatGameState, task: Pick<队列任务记录, 'turn'>) {
+  const turn = Number.isSafeInteger(task.turn) && task.turn > 0 ? task.turn : game.turnCount;
+  const worldMoment = [...game.叙事.variableBatches].reverse()
+    .find((batch) => batch.worldMoment?.turn === turn)?.worldMoment
+    ?? (game.叙事.lastCommittedMoment?.turn === turn ? game.叙事.lastCommittedMoment : undefined);
+  return { turn, ...(worldMoment ? { worldMoment } : {}) };
 }
 
 async function retryVariableQueueTask(

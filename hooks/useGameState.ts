@@ -489,7 +489,7 @@ export function toLegacyMemory(game: TeyvatGameState): 记忆系统 {
   })) };
 }
 
-function withLegacyMemory(game: TeyvatGameState, memory: 记忆系统): TeyvatGameState {
+export function withLegacyMemory(game: TeyvatGameState, memory: 记忆系统): TeyvatGameState {
   return { ...game, 记忆: normalizeMemoryLedger({
     immediate: memory.即时记忆, shortTerm: memory.短期记忆,
     ...(memory.即时记忆ID ? { immediateIds: memory.即时记忆ID } : {}),
@@ -552,7 +552,7 @@ export function mapTeyvatNpcsToLegacy(game: TeyvatGameState): NPC记录[] {
     当前关系阶段: npc.relationshipLedger.currentStage, 共同经历: npc.relationshipLedger.sharedExperiences,
     未完成事项: npc.relationshipLedger.unfinishedBusiness, 未解决冲突: npc.relationshipLedger.unresolvedConflicts,
     必须记得: npc.relationshipLedger.mustRemember, 禁止遗忘: npc.relationshipLedger.protectedFacts,
-    总结记忆: npc.relationshipLedger.summaries.map((memory) => ({ id: memory.id, 回合范围: memory.turnRange, 条数: memory.itemCount, 摘要: memory.summary, 保留事实: [...memory.retainedFacts], 关系变化: [...memory.relationshipChanges], 未完成事项: [...memory.unfinishedBusiness] })),
+    总结记忆: npc.relationshipLedger.summaries.map((memory) => ({ id: memory.id, 回合范围: memory.turnRange, 条数: memory.itemCount, 摘要: memory.summary, 保留事实: [...memory.retainedFacts], 关系变化: [...memory.relationshipChanges], 未完成事项: [...memory.unfinishedBusiness], ...(memory.sourceMomentRange ? { sourceMomentRange: memory.sourceMomentRange } : {}) })),
     备注: npc.notes, 玩家纠正记录: npc.playerCorrections, 原著角色: npc.canonical,
     NSFW档案: npc.matureArchive ? {
       enabled: npc.matureArchive.enabled, 年龄确认: npc.matureArchive.ageConfirmation, 年龄确认来源: npc.matureArchive.ageConfirmationSource, 亲密阶段: npc.matureArchive.intimacyStage,
@@ -593,7 +593,7 @@ export function applyLegacyNpcRecords(game: TeyvatGameState, records: NPC记录[
       recentInteraction: npc.最近互动 ?? '', longTermImpression: npc.对玩家长期印象 ?? '', currentStage: npc.当前关系阶段 ?? '',
       sharedExperiences: [...(npc.共同经历 ?? [])], unfinishedBusiness: [...(npc.未完成事项 ?? [])],
       unresolvedConflicts: [...(npc.未解决冲突 ?? [])], mustRemember: [...(npc.必须记得 ?? [])],
-      protectedFacts: [...(npc.禁止遗忘 ?? [])], summaries: (npc.总结记忆 ?? []).map((memory) => ({ id: memory.id, turnRange: memory.回合范围, itemCount: memory.条数, summary: memory.摘要, retainedFacts: [...(memory.保留事实 ?? [])], relationshipChanges: [...(memory.关系变化 ?? [])], unfinishedBusiness: [...(memory.未完成事项 ?? [])] })),
+      protectedFacts: [...(npc.禁止遗忘 ?? [])], summaries: (npc.总结记忆 ?? []).map((memory) => ({ id: memory.id, turnRange: memory.回合范围, itemCount: memory.条数, summary: memory.摘要, retainedFacts: [...(memory.保留事实 ?? [])], relationshipChanges: [...(memory.关系变化 ?? [])], unfinishedBusiness: [...(memory.未完成事项 ?? [])], ...(memory.sourceMomentRange ? { sourceMomentRange: memory.sourceMomentRange } : {}) })),
     },
     notes: [...npc.备注], playerCorrections: [...(npc.玩家纠正记录 ?? [])], canonical: npc.原著角色 === true,
     avatar: npc.头像 ?? '', visualArchive: npc.图像档案 ? {

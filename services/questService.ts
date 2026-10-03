@@ -260,7 +260,8 @@ export function buildCommittedQuestArchive(
 ): IrminsulMemory {
   const entries = [...current.entries];
   for (const fact of facts) {
-    if (!committedState.任务.completed.some((quest) => quest.id === fact.questId)) continue;
+    const quest = committedState.任务.completed.find((item) => item.id === fact.questId);
+    if (!quest) continue;
     const id = `irminsul_quest_${turn}_${fact.questId}`;
     if (entries.some((entry) => entry.id === id)) continue;
     entries.push({
@@ -273,6 +274,9 @@ export function buildCommittedQuestArchive(
       archiveType: 'short',
       sourceText: fact.summary,
       turn,
+      ...(quest.worldMoment ? { sourceMomentRange: {
+        start: quest.worldMoment, end: quest.worldMoment, sourceIds: [quest.id],
+      } } : {}),
     });
   }
   return { entries };

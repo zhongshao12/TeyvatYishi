@@ -49,6 +49,12 @@ export function normalizeWorldMoment(raw: unknown): WorldMoment | null {
   };
 }
 
+/** Compact label for chat timelines; never infer game time from a device timestamp. */
+export function formatWorldMomentBrief(moment: WorldMoment | null | undefined): string {
+  if (!moment) return '游戏时间未记录';
+  return `游戏时间：${moment.date ?? '日期未记录'} ${moment.clock ?? '时刻未记录'}`;
+}
+
 /** Combine source ranges in narrative order without inventing missing endpoints. */
 export function combineWorldMomentRanges(ranges: readonly (WorldMomentRange | null | undefined)[]): WorldMomentRange {
   const first = ranges[0];

@@ -1,17 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { settlePostNarrativeMemory } from '@/hooks/useGame/postNarrativeMemoryStage';
+import { rebasePostNarrativeMemorySettlement, settlePostNarrativeMemory } from '@/hooks/useGame/postNarrativeMemoryStage';
 import { autoCompressMemorySystemWithArchivesAsync, retryMemoryFailureDraft } from '@/hooks/useGame/memoryUtils';
 import { 创建空记忆系统, serializeMemoryFailureSource } from '@/models/memory';
 import { 创建默认记忆系统设置, type API配置项 } from '@/models/settings';
 import { createEmptyIrminsulMemory } from '@/models/teyvat/irminsul';
 import { getActiveIrminsulEntries } from '@/services/irminsulPromotion';
+import { captureWorldMoment } from '@/services/worldMoment';
+import { createEmptyTeyvatGameState } from '@/models/teyvat';
 
 const compressionModel = vi.hoisted(() => ({ summarize: vi.fn() }));
 vi.mock('@/services/memoryCompression', () => ({ summarizeMemoryBatch: compressionModel.summarize }));
 
 describe('post-narrative memory stage', () => {
   beforeEach(() => compressionModel.summarize.mockReset());
+  it('preserves edits made while compression awaited and still records the settled turn', () => {
+    const base = 创建空记忆系统();
+    const live = { ...base, 即时记忆: ['玩家手动补记'] };
+    const compressed = { ...base, 短期记忆: ['旧记忆的压缩结果'] };
+    const moment = captureWorldMoment({ ...createEmptyTeyvatGameState().世界, 当前时间: '14:00' }, 8, 'settled-8');
+    const result = rebasePostNarrativeMemorySettlement({
+      baseMemory: base, liveMemory: live, compressedMemory: compressed,
+      baseIrminsul: createEmptyIrminsulMemory(),
+      liveIrminsul: { entries: [{ id: 'player-edit', title: '手记', summary: '玩家补记', sourceText: '', keywords: [], sourceTurns: [8], turn: 8, recordedAt: '8', archiveType: 'short' }] },
+      compressedIrminsul: { entries: [{ id: 'stale-compression', title: '旧压缩', summary: '旧', sourceText: '', keywords: [], sourceTurns: [8], turn: 8, recordedAt: '8', archiveType: 'short' }] },
+      userInput: '与安柏交谈', narrativeSummary: '', body: '安柏回应。', moment,
+    });
+    expect(result.memory.即时记忆).toContain('玩家手动补记');
+    expect(result.memory.即时记忆.some((item) => item.includes('安柏回应'))).toBe(true);
+    expect(result.memory.来源时刻?.['memory_settled-8_8']?.start?.clock).toBe('14:00');
+    expect(result.irminsul.entries.map((entry) => entry.id)).toEqual(['player-edit']);
+  });
   it('adds immediate memory, archives compression output, and reports model success', async () => {
     const result = await settlePostNarrativeMemory({
       memory: 创建空记忆系统(),

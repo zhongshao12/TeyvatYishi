@@ -631,7 +631,9 @@ function 读取正文跨日天数(body: string): { days: number; index: number; 
   const last = matches.at(-1);
   if (!last) return null;
   const days = 解析中文整数(last[1] ?? '');
-  if (days === null || !Number.isSafeInteger(days) || days < 1 || days > 7) return null;
+  // Preserve an out-of-range explicit jump so resolveTurnTimeFact can reject it
+  // with a warning instead of silently falling back to an invented 3 minutes.
+  if (days === null || !Number.isSafeInteger(days) || days < 1) return null;
   const index = last.index ?? 0;
   return { days, index, evidence: 读取时间证据句(body, index, index + last[0].length) };
 }

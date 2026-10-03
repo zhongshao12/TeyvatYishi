@@ -2,6 +2,8 @@ import { flushSync } from 'react-dom';
 import {
   applyLegacyGameStateOverrides,
   readLiveGameState,
+  toLegacyMemory,
+  toLegacyStoryWeaving,
   toLegacyTurnCheckpoint,
   type UseGameStateReturn,
 } from '@/hooks/useGameState';
@@ -19,6 +21,8 @@ import { mergeIrminsulMemories } from './postTurnIrminsulTask';
 import { buildSavePayload, commitActiveSaveTreeMeta } from './saveLoadWorkflow';
 import { runTrackedSave, saveStatusStore } from '@/utils/saveStatus';
 import { runSteambirdGenerationStep } from './steambirdWorkflow';
+import { addImmediateMemory, buildImmediateMemory } from './memoryUtils';
+import { commitTurnContext, planPostSettlementStoryAlignment } from './postSettlementCommitStage';
 
 /**
  * 存档身份令牌。
@@ -132,8 +136,57 @@ export async function runPostSettlementRecoveryWorkflow(
   const userInput = assistantIndex >= 0
     ? [...committedHistory.slice(0, assistantIndex)].reverse().find((message) => message.role === 'user')?.content.trim() || journal.input
     : journal.input;
-  const turn = committed.turnCount;
   const stableNow = journal.startedAt;
+  const worldMoment = committed.叙事.lastCommittedMoment?.settlementId === journal.workflowId
+    ? committed.叙事.lastCommittedMoment
+    : undefined;
+  const turn = worldMoment?.turn ?? committed.turnCount;
+  // The durable settlement checkpoint precedes the normal memory stage. A restart
+  // must restore the immediate fact before archiving/saving; the settlement ID
+  // makes repeated recovery idempotent without inventing time for old journals.
+  const memoryText = buildImmediateMemory(userInput, [
+    assistant?.structuredResponse?.continuation.summary
+      ? `本回合小结：${assistant.structuredResponse.continuation.summary}` : '',
+    body,
+  ].filter(Boolean).join('\n\n'));
+  const legacyMemory = toLegacyMemory(committed);
+  let recoveredMemory = !assistant || !body
+    ? legacyMemory
+    : worldMoment
+      ? addImmediateMemory(legacyMemory, memoryText, turn, worldMoment)
+      : legacyMemory.即时记忆.includes(memoryText)
+        ? legacyMemory
+        : addImmediateMemory(legacyMemory, memoryText, turn);
+
+  let committedForBackground = committed;
+  const storyBase = toLegacyStoryWeaving(committed.叙事.storyWeaving);
+  // Only new journals carry the original gate. Replaying an old journal with
+  // missing gate would turn a soft hold into an accidental chapter advance.
+  if (journal.storyAlignment && assistant && body
+    && storyBase.当前进度?.最近一次推进判定回合 !== turn) {
+    const plan = planPostSettlementStoryAlignment({
+      openingSystemTurn: journal.storyAlignment.openingSystemTurn,
+      storyWeaving: storyBase,
+      turn,
+      userInput,
+      body,
+      currentLocation: committed.世界.当前地点,
+      gateSnapshot: journal.storyAlignment.gateSnapshot,
+      canonTrack: committed.原著轨道,
+    });
+    if (plan.alignment.changed) {
+      committedForBackground = commitTurnContext({
+        game: committed,
+        storyWeaving: plan.alignment.system,
+        settlementId: journal.workflowId,
+      }).game;
+      if (plan.memoryLine && worldMoment) {
+        recoveredMemory = addImmediateMemory(
+          recoveredMemory, plan.memoryLine, turn, worldMoment, `memory_story_${worldMoment.settlementId}`,
+        );
+      }
+    }
+  }
 
   let steambird = committed.蒸汽鸟报;
   const steambirdSettings = state.gameSettings.蒸汽鸟报系统;
@@ -150,6 +203,7 @@ export async function runPostSettlementRecoveryWorkflow(
       publicFacts: [{ title: `第 ${turn} 回公开见闻`, detail: sourceBody }],
       turnCount: turn,
       now: stableNow,
+      worldMoment,
     });
     if (result?.changed) steambird = result.steambird;
   }
@@ -172,6 +226,9 @@ export async function runPostSettlementRecoveryWorkflow(
       archiveType: 'short',
       sourceText: body,
       turn,
+      ...(worldMoment ? { sourceMomentRange: {
+        start: worldMoment, end: worldMoment, sourceIds: [`irminsul_recovery_${journal.workflowId}`],
+      } } : {}),
     })] });
   }
   const questFacts = deriveCommittedQuestArchiveFacts(
@@ -193,7 +250,7 @@ export async function runPostSettlementRecoveryWorkflow(
   const traveler = legacy.旅人 as UseGameStateReturn['旅人'];
   const npcs = legacy.NPC as UseGameStateReturn['NPC'];
   const committedAlbum = legacy.相册 as UseGameStateReturn['相册'];
-  let courier = processScheduledCourierSeeds(committed.手机, turn, stableNow).next;
+  let courier = processScheduledCourierSeeds(committed.手机, turn, stableNow, { worldMoment }).next;
   if (state.gameSettings.手机系统.enabled && state.gameSettings.手机系统.autoGenerateSeeds) {
     const fallbackSeed = buildFallbackCourierSeed({
       courier,
@@ -214,7 +271,7 @@ export async function runPostSettlementRecoveryWorkflow(
   }
 
   let backgroundState = normalizeTeyvatGameState({
-    ...committed,
+    ...applyLegacyGameStateOverrides(committedForBackground, { 记忆: recoveredMemory }),
     蒸汽鸟报: steambird,
     世界树: irminsul,
     手机: courier,

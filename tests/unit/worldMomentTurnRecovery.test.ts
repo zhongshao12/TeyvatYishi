@@ -91,4 +91,28 @@ describe('committed world moment recovery', () => {
     const replay = stampCommittedEventProvenance(before, normalizeTeyvatGameState(loaded), settled.context.moment);
     expect(replay.世界.世界事件记录).toHaveLength(1);
   });
+
+  it('does not reinterpret a played legacy save merely because it lacks a committed moment', async () => {
+    const before = createEmptyTeyvatGameState();
+    before.turnCount = 5;
+    before.世界.当前地点 = '璃月港';
+    before.世界.开局设定 = {
+      来源: 'official', 主线启用: true, 地区ID: 'liyue', 地区名称: '璃月',
+      章节锚点ID: 'liyue_ritual_incident', 章节锚点名称: '请仙典仪', 防回退规则: [],
+    };
+    const story = 归一化剧情编织系统({
+      当前系列ID: 'mondstadt',
+      系列列表: [归一化剧情编织系列({
+        id: 'mondstadt', 标题: '蒙德序章', 激活注入: true,
+        分段列表: [归一化剧情编织分段({ id: 'first', 组号: 1, 标题: '第一幕', 处理状态: '已完成', 运行状态: '当前' }, 1)],
+      })],
+    });
+    before.叙事.storyWeaving = fromLegacyStoryWeaving(story);
+    const saved = JSON.parse(JSON.stringify(before));
+    const loaded = await executeTeyvatSaveLoadTransaction(saved, {
+      classify: () => ({ kind: 'teyvat', state: saved }), replaceGameState: () => undefined,
+    });
+    expect(getCurrentStoryChapterLabel(toLegacyStoryWeaving(loaded.叙事.storyWeaving)))
+      .toBe(getCurrentStoryChapterLabel(story));
+  });
 });

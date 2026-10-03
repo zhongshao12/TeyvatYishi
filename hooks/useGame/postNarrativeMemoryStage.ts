@@ -8,6 +8,39 @@ import {
   autoCompressMemorySystemWithArchivesAsync,
   buildImmediateMemory,
 } from './memoryUtils';
+import { mergeIrminsulMemories } from './postTurnIrminsulTask';
+
+/** Commit an awaited compression result without replacing edits made in the meantime. */
+export function rebasePostNarrativeMemorySettlement(input: {
+  baseMemory: 记忆系统;
+  liveMemory: 记忆系统;
+  compressedMemory: 记忆系统;
+  baseIrminsul: IrminsulMemory;
+  liveIrminsul: IrminsulMemory;
+  compressedIrminsul: IrminsulMemory;
+  userInput: string;
+  narrativeSummary: string;
+  body: string;
+  moment: WorldMoment;
+}): { memory: 记忆系统; irminsul: IrminsulMemory; compressionDeferred: boolean } {
+  const concurrentMemoryEdit = JSON.stringify(input.liveMemory) !== JSON.stringify(input.baseMemory);
+  const memory = concurrentMemoryEdit
+    ? addImmediateMemory(input.liveMemory, buildImmediateMemory(input.userInput, [
+        input.narrativeSummary ? `本回合小结：${input.narrativeSummary}` : '',
+        input.body,
+      ].filter(Boolean).join('\n\n')), input.moment.turn, input.moment)
+    : input.compressedMemory;
+  // If memory was edited during the await, its compression is stale as well:
+  // retain the live tree and retry compression on a later turn.
+  if (concurrentMemoryEdit) return { memory, irminsul: input.liveIrminsul, compressionDeferred: true };
+  // Otherwise merge by stable ID, keeping a player's edited live entry when
+  // the same archive was also in the awaited result.
+  const baseIds = new Set(input.baseIrminsul.entries.map((entry) => entry.id));
+  const irminsul = mergeIrminsulMemories(input.liveIrminsul, {
+    entries: input.compressedIrminsul.entries.filter((entry) => !baseIds.has(entry.id)),
+  });
+  return { memory, irminsul, compressionDeferred: false };
+}
 
 type MemoryCompressionResult = Awaited<ReturnType<typeof autoCompressMemorySystemWithArchivesAsync>>;
 type MemoryCompressor = (

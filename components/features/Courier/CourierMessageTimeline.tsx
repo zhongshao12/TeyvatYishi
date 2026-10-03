@@ -1,6 +1,7 @@
 import { memo, type RefObject } from 'react';
 import type { CourierConversation, CourierMessage } from '@/models/teyvat/courier';
 import { CLIP_ITEM } from '@/styles/clipPaths';
+import { formatWorldMomentBrief } from '@/services/worldMoment';
 
 interface CourierMessageTimelineProps {
   selected: CourierConversation | null;
@@ -49,6 +50,7 @@ const CourierMessageRow = memo(function CourierMessageRow({
             {message.senderName} · 回合 {message.turn}
             {isPlayer && message.readBy.length > 1 ? ' · 已读' : ''}
           </p>
+          <p className="text-[10px]" style={{ color: muted(0.72) }}>{formatWorldMomentBrief(message.worldMoment)}</p>
           <p
             className="mt-1 inline-block whitespace-pre-wrap px-3 py-2 text-left text-sm leading-relaxed"
             style={{

@@ -7,8 +7,8 @@ import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
 import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
 import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
-import type { WorldMoment } from './teyvat/worldMoment';
-import { normalizeWorldMoment } from '@/services/worldMoment';
+import type { WorldMoment, WorldMomentRange } from './teyvat/worldMoment';
+import { normalizeWorldMoment, normalizeWorldMomentRange } from '@/services/worldMoment';
 export type NPC阶位 = 'companion' | 'extra';
 
 export type NPC性别 = '男' | '女' | '其他';
@@ -87,6 +87,7 @@ export interface NPC总结记忆条目 {
   保留事实?: string[];
   关系变化?: string[];
   未完成事项?: string[];
+  sourceMomentRange?: WorldMomentRange;
 }
 
 export interface NPC记忆账本视图 {
@@ -865,6 +866,7 @@ function 归一化NPC总结记忆列表(raw: unknown): NPC总结记忆条目[] {
       const summary = readNpcString(obj.摘要 ?? obj.summary ?? obj.内容);
       if (!summary) return null;
       const count = Number(obj.条数 ?? obj.count);
+      const sourceMomentRange = normalizeWorldMomentRange(obj.sourceMomentRange);
       return {
         id: readNpcString(obj.id) ?? `npc_summary_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`,
         回合范围: readNpcString(obj.回合范围 ?? obj.turnRange),
@@ -873,6 +875,7 @@ function 归一化NPC总结记忆列表(raw: unknown): NPC总结记忆条目[] {
         保留事实: normalizeNpcTextList(obj.保留事实 ?? obj.facts),
         关系变化: normalizeNpcTextList(obj.关系变化 ?? obj.relationshipChanges),
         未完成事项: normalizeNpcTextList(obj.未完成事项 ?? obj.openItems),
+        ...(sourceMomentRange ? { sourceMomentRange } : {}),
       };
     })
     .filter((item): item is NPC总结记忆条目 => Boolean(item));

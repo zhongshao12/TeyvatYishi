@@ -3,8 +3,8 @@ import { isReservedNpcIdentityName, type NPC外貌档案 } from '../npc';
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
 import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
 import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
-import type { WorldMoment } from './worldMoment';
-import { normalizeWorldMoment } from '@/services/worldMoment';
+import type { WorldMoment, WorldMomentRange } from './worldMoment';
+import { normalizeWorldMoment, normalizeWorldMomentRange } from '@/services/worldMoment';
 
 export type TalentCategory = 'normal_attack' | 'elemental_skill' | 'elemental_burst' | 'passive';
 
@@ -119,6 +119,7 @@ export interface TeyvatNpcSummaryMemory {
   retainedFacts: string[];
   relationshipChanges: string[];
   unfinishedBusiness: string[];
+  sourceMomentRange?: WorldMomentRange;
 }
 
 export interface TeyvatNpcVisualArchive {
@@ -247,11 +248,13 @@ export function normalizeTeyvatNpcSharedMemory(value: unknown): TeyvatNpcSharedM
 
 export function normalizeTeyvatNpcSummaryMemory(value: unknown): TeyvatNpcSummaryMemory | null {
   if (!isRecord(value)) return null;
+  const sourceMomentRange = normalizeWorldMomentRange(value.sourceMomentRange);
   return {
     id: text(value.id), ...(optionalText(value.turnRange) ? { turnRange: text(value.turnRange) } : {}),
     ...(Number.isFinite(Number(value.itemCount)) ? { itemCount: Math.max(0, Math.trunc(Number(value.itemCount))) } : {}),
     summary: text(value.summary), retainedFacts: textList(value.retainedFacts),
     relationshipChanges: textList(value.relationshipChanges), unfinishedBusiness: textList(value.unfinishedBusiness),
+    ...(sourceMomentRange ? { sourceMomentRange } : {}),
   };
 }
 

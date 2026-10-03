@@ -52,4 +52,13 @@ describe('single turn time decision', () => {
     expect(resolveTurnTimeFact('钟楼显示现在是 10:00。', '10:00'))
       .toEqual({ fact: null, warning: null });
   });
+
+  it('blocks an eight-day jump instead of silently advancing only three minutes or changing the same-day clock', () => {
+    const first = resolveTurnTimeFact('八天后，队伍抵达营地。', '10:00');
+    const second = resolveTurnTimeFact('八天后，队伍在 15:00 抵达营地。', '10:00');
+    expect(first.fact).toBeNull();
+    expect(first.warning).toContain('天数无效');
+    expect(second.fact).toBeNull();
+    expect(second.warning).toContain('天数无效');
+  });
 });

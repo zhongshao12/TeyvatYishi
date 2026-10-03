@@ -14,7 +14,9 @@ import {
   readLiveGameState,
   toLegacyMemory,
   toLegacyStoryWeaving,
+  withLegacyMemory,
   type UseGameStateReturn} from '@/hooks/useGameState';
+import { flushSync } from 'react-dom';
 import type { SteambirdNews } from '@/models/teyvat/steambird';
 import {
   addImmediateMemory} from './memoryUtils';
@@ -194,6 +196,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       recoveryJournal = updateWorkflowRecoveryJournal(recoveryJournal, {
         phase: 'settlement_committed',
         committedState: committedSettlementGame,
+        storyAlignment: { openingSystemTurn: isOpeningSystemTrigger, gateSnapshot: storyWeavingGate },
       });
       deps.onJournalUpdated(recoveryJournal);
       assertWorkflowActive();
@@ -209,6 +212,8 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         throw new Error('提交后的世界时刻缺失，已停止记忆写入。');
       }
       const { runMemoryUpdateStage } = await import('./memoryUpdateStage');
+      const memoryBase = toLegacyMemory(committedSettlementGame);
+      const irminsulBaseBeforeCompression = committedSettlementGame.世界树;
       const memoryUpdate = await runMemoryUpdateStage({
         state,
         userInput,
@@ -217,18 +222,41 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         parsedForDisplay,
         abortController,
         assertWorkflowActive,
-        memory: toLegacyMemory(committedSettlementGame),
-        irminsul: committedSettlementGame.世界树,
+        memory: memoryBase,
+        irminsul: irminsulBaseBeforeCompression,
         moment: settledMoment,
       });
-      mem = memoryUpdate.mem;
-      irminsulWithCompression = memoryUpdate.irminsulWithCompression;
-      committedSettlementGame = {
-        ...applyLegacyGameStateOverrides(committedSettlementGame, { 记忆: mem }),
-        世界树: irminsulWithCompression,
-      };
-      state.set记忆(mem);
-      state.set世界树(irminsulWithCompression);
+      const { rebasePostNarrativeMemorySettlement } = await import('./postNarrativeMemoryStage');
+      const memoryWrite: {
+        commit: ReturnType<typeof rebasePostNarrativeMemorySettlement> | null;
+        root: typeof committedSettlementGame | null;
+      } = { commit: null, root: null };
+      flushSync(() => state.updateGameState((current) => {
+        if (current.叙事.lastCommittedMoment?.settlementId !== settledMoment.settlementId) return current;
+        const memoryCommit = rebasePostNarrativeMemorySettlement({
+          baseMemory: memoryBase,
+          liveMemory: toLegacyMemory(current),
+          compressedMemory: memoryUpdate.mem,
+          baseIrminsul: irminsulBaseBeforeCompression,
+          liveIrminsul: current.世界树,
+          compressedIrminsul: memoryUpdate.irminsulWithCompression,
+          userInput,
+          narrativeSummary: parsedForDisplay.continuation.summary,
+          body: displayText,
+          moment: settledMoment,
+        });
+        const next = withLegacyMemory(current, memoryCommit.memory);
+        memoryWrite.commit = memoryCommit;
+        memoryWrite.root = { ...next, 世界树: memoryCommit.irminsul };
+        return memoryWrite.root;
+      }));
+      if (!memoryWrite.commit || !memoryWrite.root) throw new Error('记忆结算被新的存档取代，已停止旧回合写入。');
+      mem = memoryWrite.commit.memory;
+      irminsulWithCompression = memoryWrite.commit.irminsul;
+      committedSettlementGame = memoryWrite.root;
+      if (memoryWrite.commit.compressionDeferred) {
+        pushQueueTask(state, 'memory', 'success', { detail: '记忆压缩期间检测到玩家编辑，已保留编辑与本回合记忆；压缩推迟到下回合。' });
+      }
 
       const npcSource = variableOverrides?.NPC ?? state.NPC;
       const memorySettings = state.gameSettings.记忆系统 ?? 创建默认记忆系统设置();
@@ -300,6 +328,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
             npcAfterCompression,
             storyWeavingForSave,
             state.turnCount + 1,
+            settledMoment,
           );
           if (npcAfterStoryProgress !== npcAfterCompression) {
             npcAfterCompression = npcAfterStoryProgress;

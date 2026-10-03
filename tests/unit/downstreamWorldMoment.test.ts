@@ -10,6 +10,8 @@ import { createEmptyTeyvatGameState, normalizeTeyvatGameState } from '@/models/t
 import { stampCommittedEventProvenance } from '@/services/committedEventProvenance';
 import { createMoment } from '@/services/courierMoments';
 import { 创建NPC记录 } from '@/models/npc';
+import { compressNpcMemoryLedger } from '@/hooks/useGame/memoryUtils';
+import { buildCommittedQuestArchive } from '@/services/questService';
 
 describe('downstream consumers of committed world time', () => {
   it('keeps a delayed turn-two news article and delivered phone message at turn two', () => {
@@ -144,5 +146,38 @@ describe('downstream consumers of committed world time', () => {
     });
     expect(withComment.moments?.[0]?.comments[0]?.worldMoment?.clock).toBe('14:00');
     expect(withComment.moments?.[0]?.comments[0]?.createdAt).toBe(2000);
+  });
+
+  it('retains the source time range when NPC memories are compressed', () => {
+    const world = createEmptyTeyvatWorld();
+    const entries = [1, 2, 3].map((turn) => {
+      world.当前时间 = `${String(10 + turn).padStart(2, '0')}:00`;
+      return {
+        id: `npc-mem-${turn}`, 回合: turn, 摘要: `同行事件 ${turn}`, 来源: '正文' as const,
+        worldMoment: captureWorldMoment(world, turn, `settlement-${turn}`),
+      };
+    });
+    const compressed = compressNpcMemoryLedger({
+      npcId: 'amber', entries, summaries: [], threshold: 2, prompt: '', turn: 3, source: '正文',
+    });
+    expect(compressed.summaries[0]?.sourceMomentRange?.start?.clock).toBe('11:00');
+    expect(compressed.summaries[0]?.sourceMomentRange?.end?.clock).toBe('12:00');
+    expect(compressed.summaries[0]?.sourceMomentRange?.sourceIds).toEqual(['npc-mem-1', 'npc-mem-2']);
+  });
+
+  it('retains completed quest time in its world-tree archive', () => {
+    const game = createEmptyTeyvatGameState();
+    game.世界.当前时间 = '14:00';
+    const moment = captureWorldMoment(game.世界, 2, 'settlement-2');
+    game.任务.completed.push({
+      id: 'quest-2', title: '完成调查', description: '', source: 'side', status: 'completed',
+      objectives: [], rewards: [], createdAtTurn: 1, updatedAt: 2, completedAtTurn: 2,
+      worldMoment: moment,
+    });
+    const archive = buildCommittedQuestArchive(game.世界树, game, [
+      { questId: 'quest-2', title: '完成调查', summary: '找到了线索' },
+    ], 2);
+    expect(archive.entries[0]?.sourceMomentRange?.start?.clock).toBe('14:00');
+    expect(archive.entries[0]?.sourceMomentRange?.sourceIds).toEqual(['quest-2']);
   });
 });

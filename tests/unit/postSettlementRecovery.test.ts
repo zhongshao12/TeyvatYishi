@@ -3,6 +3,10 @@ import { createEmptyTeyvatGameState, type TeyvatSaveData } from '../../models/te
 import { 创建默认游戏设置 } from '../../models/settings';
 import type { UseGameStateReturn } from '../../hooks/useGameState';
 import { parseWorkflowRecoveryJournal } from '../../utils/workflowRecoveryModel';
+import { captureWorldMoment } from '../../services/worldMoment';
+import { fromLegacyStoryWeaving, toLegacyStoryWeaving } from '../../hooks/useGameState';
+import { 归一化剧情编织分段, 归一化剧情编织系列, 归一化剧情编织系统 } from '../../models/storyWeaving';
+import { getCurrentStoryChapterLabel } from '../../services/storyProgressService';
 
 const spies = vi.hoisted(() => ({
   saveGame: vi.fn(async (_save: TeyvatSaveData) => 1),
@@ -37,6 +41,19 @@ describe('committed restart post-settlement tail', () => {
     committed.turnCount = 11;
     committed.世界.当前地点 = '稻妻城';
     committed.世界.当前日期 = '提瓦特历 11 日';
+    committed.世界.当前时间 = '14:00';
+    committed.世界.旅程天数 = 11;
+    committed.叙事.lastCommittedMoment = captureWorldMoment(committed.世界, 11, 'restart-11');
+    committed.叙事.storyWeaving = fromLegacyStoryWeaving(归一化剧情编织系统({
+      当前系列ID: 'mondstadt',
+      系列列表: [归一化剧情编织系列({
+        id: 'mondstadt', 标题: '蒙德序章', 激活注入: true, 当前分段组号: 1,
+        分段列表: [
+          归一化剧情编织分段({ id: 'first', 组号: 1, 标题: '第一幕', 处理状态: '已完成', 运行状态: '当前' }, 1),
+          归一化剧情编织分段({ id: 'second', 组号: 2, 标题: '第二幕', 处理状态: '已完成', 运行状态: '未开始' }, 2),
+        ],
+      })],
+    }));
     committed.旅行者.姓名 = '荧';
     committed.背包.items.push({ id: 'item_committed', category: 'material', name: '绯樱绣球', description: '', quantity: 6, rarity: 3, obtainedAtTurn: 11, stackable: true });
     committed.NPC.push({
@@ -57,6 +74,7 @@ describe('committed restart post-settlement tail', () => {
     const journal = parseWorkflowRecoveryJournal({
       version: 3, workflowId: 'restart-11', startedAt: 11, updatedAt: 11, input: '前往稻妻城', turnAtStart: 10,
       phase: 'settlement_committed', phaseStartedAt: 11, assistantMessageId: 'assistant-11', committedState: committed,
+      storyAlignment: { openingSystemTurn: false, gateSnapshot: null },
     })!;
     const settings = 创建默认游戏设置();
     settings.蒸汽鸟报系统.enabled = false;
@@ -105,6 +123,11 @@ describe('committed restart post-settlement tail', () => {
     expect(saved.NPC).toEqual([expect.objectContaining({ id: 'npc_committed', affinity: 9 })]);
     expect(saved.任务.active).toEqual([expect.objectContaining({ id: 'quest_committed' })]);
     expect(saved.对话.entries.map((entry) => entry.id)).toEqual(['user-11', 'assistant-11']);
+    expect(saved.记忆.immediate.some((item) => item.includes('稻妻城的灯火亮起'))).toBe(true);
+    expect(saved.记忆.sourceMoments?.['memory_restart-11_11']?.start?.clock).toBe('14:00');
+    expect(getCurrentStoryChapterLabel(toLegacyStoryWeaving(saved.叙事.storyWeaving))).toContain('第一幕');
+    expect(toLegacyStoryWeaving(saved.叙事.storyWeaving).当前进度?.最近一次推进判定回合).toBe(11);
+    expect(saved.世界树.entries.find((entry) => entry.id === 'irminsul_recovery_restart-11')?.sourceMomentRange?.start?.clock).toBe('14:00');
     expect(spies.persist).toHaveBeenCalledWith(expect.objectContaining({ phase: 'autosave_committed', committedState: expect.any(Object) }));
   });
 });

@@ -317,4 +317,27 @@ assert(
 assert(JSON.stringify(durableLongTerm.NSFW档案?.标签) === JSON.stringify(['真心']), '真实标签必须保留。');
 assert(durableLongTerm.NSFW档案?.备注 === undefined, '旧版占位备注必须被清掉。');
 
+// ── 性爱档识别承重结构（2026-09-29 第三轮：用户报「性爱事件却只涨几点」）──
+// 根因不是档位数值（sex = 30 一直正确），而是识别层三处让性爱场景完全落空：
+// 词表缺词、集体主语不归属、玩家参与判定过窄（子句级）。实测 9 条真实行文里 7 条为 0 分。
+const scannerSource = await fs.readFile('utils/npcIntimacyEvidence.ts', 'utf8');
+const factsSource = await fs.readFile('utils/variableFacts.ts', 'utf8');
+for (const token of [
+  '融为一体', '合二为一', '肌肤之亲', '同房', '行房', '床笫', '翻云覆雨',
+  '进入(?:了)?(?:她|他|彼此|对方|身体|体内)', '引导.{0,6}进入', '插入', '抽送',
+  '要了(?:她|他)', '占有(?:了)?(?:她|他)', '高潮(?:中|里|时|过后|之后)',
+]) {
+  assert(scannerSource.includes(token), `sex 档词表必须覆盖真实行文写法：${token}`);
+}
+assert(scannerSource.includes('COLLECTIVE_SUBJECTS'), '必须能把「两人/他们/彼此」这类集体主语归给唯一的在场 NPC。');
+assert(/position <= index/.test(scannerSource), '代词恰在动作起始位置时也要能回指（「她引导着旅行者进入」）。');
+assert(/CONSENT_NEGATION/.test(scannerSource) && scannerSource.includes('同意'),
+  '「没有拒绝」这类**同意式**否定不得被当成未发生（否则整条性爱事件被丢弃）。');
+assert(/tier === 'sex' && playerInSentence && !otherNpcInClause/.test(scannerSource),
+  'sex 档的玩家参与判定放宽到句级，但必须排除「子句里还有别的 NPC」的第三人场景。');
+assert(/const playerAllowed = playerInClause/.test(scannerSource),
+  '低档位必须保持子句级保守边界（既有测试钉住：旁人动作不得算到玩家头上）。');
+assert(factsSource.includes('sex: 亲密事件好感规则.性爱事件'),
+  '档位数值必须仍引用唯一映射（sex = 亲密事件好感规则.性爱事件 = 30）。');
+
 console.log('affinity intimacy nsfw regression ok');

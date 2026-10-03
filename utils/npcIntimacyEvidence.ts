@@ -57,7 +57,13 @@ export interface NpcIntimacyMatch {
 const TIERS: readonly { tier: IntimacyTier; pattern: RegExp }[] = [
   {
     tier: 'sex',
-    pattern: /(性爱|做爱|交合|性交|交欢|欢好|欢爱|云雨|巫山|鱼水之欢|春宵|缠绵|亲热|温存)/u,
+    // 2026-09-29 第三轮补词（用户报「性爱事件却只涨几点」）：
+    // 旧词表只有 性爱/做爱/交合/性交/交欢/欢好/欢爱/云雨/巫山/鱼水之欢/春宵/缠绵/亲热/温存，
+    // 而真实行文大量使用「进入了她」「融为一体」「结合」「深处」「抽送」「律动」「高潮」「要了她」
+    // 「同房」这类写法 —— 命中不了 sex 档就只剩 kiss/touch（+5/+3），甚至整条不命中（0 分），
+    // 于是玩家看到「性爱事件只涨几点」。新增的都是**自带性语境、不歧义**的短语
+    // （例如「进入」必须带对象/身体，避免「进入蒙德城」这类误判）。
+    pattern: /(性爱|做爱|交合|性交|交欢|欢好|欢爱|云雨|巫山|鱼水之欢|春宵|缠绵|亲热|温存|融为一体|合二为一|肌肤之亲|同房|行房|床笫|翻云覆雨|共赴巫山|颠鸾倒凤|做到天亮|一夜欢情|进入(?:了)?(?:她|他|彼此|对方|身体|体内)|引导.{0,6}进入|插入|抽送|挺入|贯穿(?:了)?(?:她|他)|占有(?:了)?(?:她|他)|要了(?:她|他)|翻身上(?:床|榻)|爱液|内射|(?:攀上|迎来|共赴|达到)(?:了)?(?:顶点|高潮)|高潮(?:中|里|时|过后|之后)|(?:两人|二人|彼此|身体)(?:的)?律动|(?:在)?彼此(?:的)?深处|喘息(?:着|中)(?:迎|承)合)/u,
   },
   {
     tier: 'kiss',
@@ -75,6 +81,11 @@ const TIERS: readonly { tier: IntimacyTier; pattern: RegExp }[] = [
 
 /** 否定的、未发生的、转述的、旁人视角的动作。只看动作前 12 字窗口，不再整句否决。 */
 const UNREALIZED = /(没有|并未|未曾|不曾|尚未|拒绝|推开|挣脱|躲开|抽开|抽回|避开|梦见|幻想|假如|如果|倘若|打算|准备|计划|想要|试图|可能|或许|也许|将要|即将|曾经|听说|据说|转述|谈起|提起|看见|看到|目睹|旁观|在旁)/u;
+/**
+ * 「没有拒绝 / 没有推开（作为同意）」这类**同意式**否定必须先剥掉，否则「安柏没有拒绝，旅行者要了她」
+ * 会因为窗口里出现「没有」被当成未发生而整条丢弃（2026-09-29 第三轮实测）。
+ */
+const CONSENT_NEGATION = /(没有|并未|未曾|不曾)(拒绝|推开|躲开|挣脱|抽开|抽回|避开)/gu;
 const UNREALIZED_WINDOW = 12;
 
 /** 主体与动作的最大距离（同句内）。够覆盖「安柏俯下身，轻轻吻住了云」。 */
@@ -83,6 +94,12 @@ const SUBJECT_WINDOW = 24;
 const PRONOUN_CARRY_SENTENCES = 2;
 /** 只有明确代称才回指；「少女/少年」这类普通名词太泛，不参与（会误归属路人）。 */
 const SUBJECT_PRONOUNS = /(她|他|对方|那人)/u;
+/**
+ * 集体主语（2026-09-29 第三轮）：真实行文里性爱场面几乎都写「两人」「二人」「他们」「彼此」，
+ * 而这类词此前不是可归属主体 → 整条事件丢给模型的保守兜底（+1~+5）。
+ * 归属规则仍保守：**只有当句内可归属的 NPC 恰好只有一个**时，才把集体主语算作该 NPC。
+ */
+const COLLECTIVE_SUBJECTS = /(两人|二人|他俩|她俩|他们|她们|双方|彼此)/u;
 const CLAUSE_BOUNDARY = /[，,；;]/u;
 const SENTENCE_SPLIT = /(?<=[。！？!?\n])/u;
 const QUOTE_PAIRS: readonly (readonly [string, string])[] = [
@@ -225,28 +242,51 @@ export function scanNpcIntimacyEvents(
       for (const match of sentence.text.matchAll(new RegExp(pattern.source, 'gu'))) {
         const index = match.index ?? -1;
         if (index < 0) continue;
-        const unrealizedWindow = sentence.text.slice(Math.max(0, index - UNREALIZED_WINDOW), index);
+        const unrealizedWindow = sentence.text.slice(Math.max(0, index - UNREALIZED_WINDOW), index)
+          .replace(CONSENT_NEGATION, '同意');
         if (UNREALIZED.test(unrealizedWindow)) continue;
         const clause = clauseRangeAt(sentence.text, index);
         const clauseText = sentence.text.slice(clause.start, clause.end);
 
         // 主体：优先动作前的最近点名；否则动作后 24 字内的点名（玩家主动式「你吻住了安柏」）；
-        // 都没有但有代词时回指前两句内的具名主体。
+        // 都没有但有代词时回指前两句内的具名主体；
+        // 集体主语（两人/彼此…）在**句内可归属 NPC 唯一**时归给那一位。
         const before = [...mentions].reverse().find((mention) => mention.index < index
           && index - mention.index <= SUBJECT_WINDOW);
         const after = before ? undefined : mentions.find((mention) => mention.index > index
           && mention.index - index <= SUBJECT_WINDOW);
-        const subjectId = before?.id ?? (after && players.some((token) => clauseText.includes(token))
+        const uniqueMentionId = (() => {
+          const ids = new Set(mentions.map((mention) => mention.id));
+          return ids.size === 1 ? [...ids][0]! : null;
+        })();
+        const collectiveId = COLLECTIVE_SUBJECTS.test(clauseText) || COLLECTIVE_SUBJECTS.test(sentence.text)
+          ? uniqueMentionId ?? (carriedForSentence && mentions.length <= 1 ? carriedForSentence : null)
+          : null;
+        // 玩家参与判定统一放宽到**同一句**（引号内转述已被 maskQuotedSpans 抹掉）：
+        // 「一夜云雨，安柏在旅行者怀里睡去。」这类把玩家写在另一子句的行文此前整条丢弃。
+        const playerInSentence = players.some((token) => sentence.text.includes(token));
+        const subjectId = before?.id ?? (after && playerInSentence
           ? after.id
-          : pronounPositions.some((position) => position < index)
+          : pronounPositions.some((position) => position <= index)
             ? carriedForSentence
-            : null);
+            : collectiveId);
         if (!subjectId) continue;
         // 性爱档还要过**逐个主体**的集中 NSFW 策略（NSFW 关闭时整体跳过，见上面的 allowSex）。
         if (tier === 'sex' && allowSexById.get(subjectId) === false) continue;
 
-        // 玩家参与：必须与动作**同一子句**内出现玩家指代。
-        if (!players.some((token) => clauseText.includes(token))) continue;
+        // 玩家参与判定：
+        // - 低档位（亲吻/暧昧/接触）**保持子句级**——这是既有测试钉住的保守边界：
+        //   「安柏亲吻了琴，云在旁边看着」「安柏在云耳边低语，随后相拥而眠」都不得结算，
+        //   宁可少算也不把旁人的动作算到玩家头上；
+        // - **sex 档放宽到句级**，且该子句里不得再出现别的 NPC（2026-09-29 第三轮）：
+        //   真实行文常写成「安柏把旅行者按在墙上，两人做爱到天明」——玩家与动作不在同一子句，
+        //   旧规则整条丢弃，于是性爱事件只拿到模型的保守兜底（+1~+5），玩家看到「只涨几点」。
+        const playerInClause = players.some((token) => clauseText.includes(token));
+        const otherNpcInClause = mentions.some((mention) => mention.id !== subjectId
+          && mention.index >= clause.start && mention.index < clause.end);
+        const playerAllowed = playerInClause
+          || (tier === 'sex' && playerInSentence && !otherNpcInClause);
+        if (!playerAllowed) continue;
 
         const ambiguous = mentions.some((mention) => mention.id !== subjectId
           && mention.index < index

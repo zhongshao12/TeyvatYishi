@@ -1,5 +1,6 @@
 export type TechnicalJsonValue = null | boolean | number | string | TechnicalJsonValue[] | TechnicalJsonObject;
 import type { CommittedSettlementChange } from '@/models/variableCommand';
+import { 归一化剧情编织分段, type 剧情编织场景节点, type StoryBuiltinBinding, type StoryMigrationWarning } from '@/models/storyWeaving';
 import type { WorldMoment, WorldMomentRange } from './worldMoment';
 import { normalizeWorldMoment, normalizeWorldMomentRange } from '@/services/worldMoment';
 import { ELEMENT_IDS, type ElementId } from './elements';
@@ -286,6 +287,7 @@ export interface StorySegmentDto {
   canonConstraints: StoryConstraintDto[]; foreshadowing: StoryConstraintDto[]; characterProfiles: StoryCharacterProfileDto[];
   factionProfiles: StoryFactionProfileDto[]; locationProfiles: StoryLocationProfileDto[]; keyEvents: StoryEventDto[];
   timeline: StoryTimelineEventDto[]; characterProgress: StoryCharacterProgressDto[];
+  sceneNodes?: 剧情编织场景节点[];
   processingStatus: 'pending' | 'processing' | 'completed' | 'failed'; runtimeStatus: 'not_started' | 'current' | 'experienced' | 'skipped' | 'diverged' | 'paused';
   lastError?: string; updatedAt: number;
 }
@@ -296,8 +298,8 @@ export interface StorySeriesDto {
   coreCharacterSummary: string[]; coreCharacters: string[]; locationIndex: string[]; factionIndex: string[]; createdAt: number; updatedAt: number;
 }
 export interface StoryProgressArchiveDto { id: string; seriesId?: string; segmentId?: string; segmentGroup: number; segmentTitle: string; archivedAtTurn?: number; status: 'experienced' | 'skipped' | 'diverged' | 'completed'; summary: string; characterProgress: string[]; switchNotes: string; reasons: string[]; createdAt: number }
-export interface StoryProgressDto { seriesId?: string; segmentId?: string; segmentGroup: number; status: 'not_started' | 'progressing' | 'completed' | 'diverged' | 'paused'; completedSummaries: string[]; openQuestions: string[]; switchNotes: string[]; archive: StoryProgressArchiveDto[]; gate?: 'soft' | 'strong'; reasons: string[]; lastDecisionTurn?: number; evidence: string[]; consecutiveEvidenceTurns: number; stalledTurns: number; updatedAt: number }
-export interface StoryWeavingDto { series: StorySeriesDto[]; activeSeriesId?: string; progress?: StoryProgressDto }
+export interface StoryProgressDto { seriesId?: string; segmentId?: string; sceneId?: string; completedSceneIds?: string[]; lastSceneTurn?: number; segmentGroup: number; status: 'not_started' | 'progressing' | 'completed' | 'diverged' | 'paused'; completedSummaries: string[]; openQuestions: string[]; switchNotes: string[]; archive: StoryProgressArchiveDto[]; gate?: 'soft' | 'strong'; reasons: string[]; lastDecisionTurn?: number; evidence: string[]; consecutiveEvidenceTurns: number; stalledTurns: number; updatedAt: number }
+export interface StoryWeavingDto { series: StorySeriesDto[]; activeSeriesId?: string; progress?: StoryProgressDto; builtinBindings?: Record<string, StoryBuiltinBinding>; migrationWarnings?: StoryMigrationWarning[] }
 
 export interface VariableCommandDto { action: 'set' | 'add' | 'sub' | 'push' | 'delete'; key: string; value: TechnicalJsonValue }
 export interface VariableCommandResultDto { command: VariableCommandDto; ok: boolean; kind?: 'command' | 'warning' | 'error' | 'rejected'; reason?: string; evidence?: string }
@@ -582,6 +584,7 @@ function normalizeStorySeries(value: unknown): StorySeriesDto | null {
         locationProfiles: Array.isArray(entry.locationProfiles) ? entry.locationProfiles.flatMap((profile) => isRecord(profile) ? [{ name: text(profile.name), level: profile.level === 'universe' || profile.level === 'major' || profile.level === 'medium' || profile.level === 'minor' || profile.level === 'district' || profile.level === 'sub_location' ? profile.level : 'unknown', parentLocation: text(profile.parentLocation), faction: text(profile.faction), function: text(profile.function), facilities: textList(profile.facilities), firstAppearance: text(profile.firstAppearance) }] : []) : [],
         keyEvents: Array.isArray(entry.keyEvents) ? entry.keyEvents.flatMap((event) => isRecord(event) ? [{ name: text(event.name), description: text(event.description), prerequisites: textList(event.prerequisites), triggers: textList(event.triggers), blockers: textList(event.blockers), results: textList(event.results), laterEffects: textList(event.laterEffects), visibility: normalizeStoryVisibility(event.visibility) }] : []) : [],
         timeline: Array.isArray(entry.timeline) ? entry.timeline.flatMap((event) => isRecord(event) ? [{ title: text(event.title), timeAnchor: text(event.timeAnchor), description: text(event.description), characters: textList(event.characters) }] : []) : [],
+        ...(Array.isArray(entry.sceneNodes) ? { sceneNodes: 归一化剧情编织分段({ 场景节点: entry.sceneNodes }, 1).场景节点 } : {}),
         characterProgress: Array.isArray(entry.characterProgress) ? entry.characterProgress.flatMap((progress) => isRecord(progress) ? [{ characterName: text(progress.characterName), beforeState: textList(progress.beforeState), changes: textList(progress.changes), afterState: textList(progress.afterState), laterEffects: textList(progress.laterEffects) }] : []) : [],
         processingStatus: processing, runtimeStatus: runtime, ...(optionalText(entry.lastError) ? { lastError: text(entry.lastError) } : {}), updatedAt: number(entry.updatedAt),
       }];
@@ -597,6 +600,7 @@ function normalizeStoryProgress(value: unknown): StoryProgressDto | undefined {
   return {
     ...(optionalText(value.seriesId) ? { seriesId: text(value.seriesId) } : {}), ...(optionalText(value.segmentId) ? { segmentId: text(value.segmentId) } : {}), segmentGroup: integer(value.segmentGroup), status,
     completedSummaries: textList(value.completedSummaries), openQuestions: textList(value.openQuestions), switchNotes: textList(value.switchNotes),
+    sceneId: optionalText(value.sceneId), completedSceneIds: textList(value.completedSceneIds), ...(Number.isFinite(value.lastSceneTurn) ? { lastSceneTurn: integer(value.lastSceneTurn) } : {}),
     archive: Array.isArray(value.archive) ? value.archive.flatMap((entry) => {
       if (!isRecord(entry)) return [];
       const archiveStatus = entry.status === 'skipped' || entry.status === 'diverged' || entry.status === 'completed' ? entry.status : 'experienced';
@@ -609,7 +613,7 @@ function normalizeStoryProgress(value: unknown): StoryProgressDto | undefined {
 function normalizeStoryWeaving(value: unknown): StoryWeavingDto | null {
   if (!isRecord(value)) return null;
   const progress = normalizeStoryProgress(value.progress);
-  return { series: Array.isArray(value.series) ? value.series.flatMap((entry) => normalizeStorySeries(entry) ?? []) : [], ...(optionalText(value.activeSeriesId) ? { activeSeriesId: text(value.activeSeriesId) } : {}), ...(progress ? { progress } : {}) };
+  return { series: Array.isArray(value.series) ? value.series.flatMap((entry) => normalizeStorySeries(entry) ?? []) : [], ...(optionalText(value.activeSeriesId) ? { activeSeriesId: text(value.activeSeriesId) } : {}), ...(progress ? { progress } : {}), ...(isRecord(value.builtinBindings) ? { builtinBindings: structuredClone(value.builtinBindings) as Record<string, StoryBuiltinBinding> } : {}), ...(Array.isArray(value.migrationWarnings) ? { migrationWarnings: structuredClone(value.migrationWarnings) as StoryMigrationWarning[] } : {}) };
 }
 const QUEST_RECEIPT_STATUSES = new Set(['absent', 'not_started', 'active', 'completed', 'failed', 'abandoned']);
 function normalizeCommittedChange(value: unknown): CommittedSettlementChange[] {

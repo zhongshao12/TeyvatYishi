@@ -56,11 +56,28 @@ function collect(raw: object, fields: readonly string[], hashes: unknown, prior:
   }
   return result;
 }
+function expandFingerprints(value: unknown, fields: readonly string[]): Record<string, string> {
+  return Object.fromEntries(fields.flatMap((key, index) => {
+    const hash = Array.isArray(value) ? value[index] : record(value)[key];
+    return typeof hash === 'string' && /^[0-9a-z]+:[0-9a-z]{1,16}$/.test(hash) ? [[key, hash]] : [];
+  }));
+}
+function readBinding(value: unknown): StoryBuiltinBinding {
+  const raw = record(value);
+  return {
+    resourceRevision: typeof raw.resourceRevision === 'string' && /^[0-9a-z]+:[0-9a-z]{1,16}$/.test(raw.resourceRevision) ? raw.resourceRevision : 'unknown',
+    seriesFieldFingerprints: expandFingerprints(raw.seriesFieldFingerprints, seriesFields),
+    segmentFieldFingerprints: Object.fromEntries(Object.entries(record(raw.segmentFieldFingerprints)).map(([id, hashes]) => [id, expandFingerprints(hashes, segmentFields)])),
+    seriesOverrides: overrides(raw.seriesOverrides, seriesFields),
+    segmentOverrides: Object.fromEntries(Object.entries(record(raw.segmentOverrides)).map(([id, edits]) => [id, overrides(edits, segmentFields)])),
+    orphanedSegments: list(raw.orphanedSegments).map((segment, index) => 归一化剧情编织分段(segment, index + 1)),
+  };
+}
 export function buildPersistedStoryWeavingSystem(system: 剧情编织系统): PersistedStoryWeavingV4 {
   const bindings: Record<string, PersistedStoryBuiltinBinding> = {};
   const seriesList: PersistedStorySeries[] = system.系列列表.map(series => {
     if (series.来源类型 !== 'canon' || !series.内置预设ID) return clone(series);
-    const prior = system.builtinBindings?.[series.id];
+    const prior = system.builtinBindings?.[series.id] ? readBinding(system.builtinBindings[series.id]) : undefined;
     const binding: StoryBuiltinBinding = {
       resourceRevision: prior?.resourceRevision ?? 'unknown',
       seriesFieldFingerprints: clone(prior?.seriesFieldFingerprints ?? {}),
@@ -99,7 +116,7 @@ export function hydratePersistedStoryWeavingSystem(saved: unknown, bundled: 剧�
   const addWarning = (entry: StoryMigrationWarning) => warnings.set(entry.id, entry);
   // Full live input must collect edits against ITS baseline before applying a new resource.
   const transport = root.persistenceVersion === 4 ? root : root.builtinBindings
-    ? record(buildPersistedStoryWeavingSystem(saved as 剧情编织系统)) : root;
+    ? record(buildPersistedStoryWeavingSystem(归一化剧情编织系统(root))) : root;
   const savedSeries = new Map(list(transport.系列列表).flatMap(raw => typeof raw.id === 'string' ? [[raw.id, raw] as const] : []));
   const oldBindings = record(transport.builtinBindings);
   const bindings = bound.builtinBindings!;
@@ -107,7 +124,7 @@ export function hydratePersistedStoryWeavingSystem(saved: unknown, bundled: 剧�
     const raw = savedSeries.get(resource.id);
     if (!raw) return resource;
     const binding = bindings[resource.id]!;
-    const oldBinding = record(oldBindings[resource.id]);
+    const oldBinding = readBinding(oldBindings[resource.id]);
     const hasProvenance = typeof oldBinding.resourceRevision === 'string' && oldBinding.resourceRevision !== 'unknown';
     function resolveContent(input: object, base: object, fields: readonly string[], prior: unknown, segmentId?: string) {
       const edits = overrides(prior, fields);
@@ -145,18 +162,7 @@ export function hydratePersistedStoryWeavingSystem(saved: unknown, bundled: 剧�
     const item = 归一化剧情编织系列(raw);
     if (raw.来源类型 === 'canon' && raw.内置预设ID) {
       addWarning(warning(id, '系列列表', 'resource_removed'));
-      const prior = record(oldBindings[id]);
-      const expand = (value: unknown, fields: readonly string[]): Record<string, string> => Object.fromEntries(fields.flatMap((key, index) => {
-        const hash = Array.isArray(value) ? value[index] : record(value)[key];
-        return typeof hash === 'string' ? [[key, hash]] : [];
-      }));
-      bindings[id] = { ...baseline(item),
-        resourceRevision: typeof prior.resourceRevision === 'string' ? prior.resourceRevision : 'unknown',
-        seriesFieldFingerprints: expand(prior.seriesFieldFingerprints, seriesFields),
-        segmentFieldFingerprints: Object.fromEntries(Object.entries(record(prior.segmentFieldFingerprints)).map(([segmentId, hashes]) => [segmentId, expand(hashes, segmentFields)])),
-        seriesOverrides: overrides(prior.seriesOverrides, seriesFields),
-        segmentOverrides: Object.fromEntries(Object.entries(record(prior.segmentOverrides)).map(([segmentId, edits]) => [segmentId, overrides(edits, segmentFields)])),
-      };
+      bindings[id] = readBinding(oldBindings[id]);
     }
     merged.push(item);
   }

@@ -2,7 +2,11 @@ import { CLIP_CARD, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 import { ConfirmDialogHost, PromptDialogHost, useConfirmDialog, usePromptDialog } from '@/components/ui/Modal';
 import { pushToast } from '@/utils/toastStore';
 import { toUserFacingError } from '@/utils/userFacingError';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
+import { getLiveGameSessionId } from '@/hooks/useTeyvatRuntime';
+import { commitStoryWeavingEdit } from '@/services/storyWeavingEdits';
+import { StoryProvenancePanel } from './StoryProvenancePanel';
 import type { API设置, 游戏设置 } from '@/models/settings';
 import type { 剧情编织分段, 剧情编织进度锚点, 剧情编织系列, 剧情编织系统, 剧情编织运行状态 } from '@/models/storyWeaving';
 import {
@@ -15,7 +19,7 @@ import { 应用冲突修复, 生成冲突报告 } from '@/services/storyWeavingC
 import type { 剧情编织冲突 } from '@/models/storyWeavingConflict';
 import { buildStoryPlanningAnalysis } from '@/services/storyPlanningAnalysis';
 import { saveSetting } from '@/services/dbService';
-import { buildPersistedStoryWeavingSystem, loadAllBundledStoryWeavingPresets, mergeBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
+import { buildPersistedStoryWeavingSystem, loadAllBundledStoryWeavingPresets, mergeBundledStoryWeavingPresets, hydratePersistedStoryWeavingSystem, restoreStoryBuiltinField } from '@/data/storyWeavingPreset';
 import type { CanonDeviation, CanonTrack } from '@/models/teyvat/canon';
 import { normalizeCanonTrack } from '@/services/canonDeviationService';
 
@@ -163,8 +167,8 @@ function draftFromSegment(segment: 剧情编织分段): SegmentDraft {
 function applyDraft(segment: 剧情编织分段, draft: SegmentDraft): 剧情编织分段 {
   return {
     ...segment,
-    标题: draft.标题.trim() || segment.标题,
-    章节范围: draft.章节范围.trim() || segment.章节范围,
+    标题: draft.标题.trim(),
+    章节范围: draft.章节范围.trim(),
     启用注入: draft.启用注入,
     本段概括: draft.本段概括.trim(),
     前段延续事实: splitList(draft.前段延续事实),
@@ -185,7 +189,15 @@ export function shouldReplaceSegmentDraft(
   return currentSegmentId !== incomingSegmentId || !draftDirty;
 }
 
-export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, apiSettings, variableFacts, canonTrack }: PlotPanelProps) {
+export function PlotPanel(props: PlotPanelProps) {
+  return <SessionPlotPanel key={getLiveGameSessionId() ?? 0} {...props} />;
+}
+function SessionPlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, apiSettings, variableFacts, canonTrack }: PlotPanelProps) {
+  const sessionId = useRef(getLiveGameSessionId() ?? 0);
+  const mounted = useRef(true);
+  const latest = useRef(storyWeaving); latest.current = storyWeaving;
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const isCurrent = () => mounted.current && sessionId.current === (getLiveGameSessionId() ?? 0);
   const txtInputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
@@ -216,12 +228,10 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
     [normalized, variableFacts, normalizedCanonTrack],
   );
 
-  const handleApplyConflictFix = useCallback((conflict: 剧情编织冲突) => {
+  const handleApplyConflictFix = (conflict: 剧情编织冲突) => {
     const next = 应用冲突修复(normalized, conflict);
-    onStoryWeavingChange(next);
-    void saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(next));
-    setMessage(`已应用冲突修复：${conflict.建议}`);
-  }, [normalized, onStoryWeavingChange]);
+    void persist(next).then(() => { if (isCurrent()) setMessage(`已应用冲突修复：${conflict.建议}`); }).catch(error => { if (isCurrent()) setMessage(`保存失败：${toUserFacingError(error)}`); });
+  };
   const activeSeries = normalized.系列列表.find((s) => s.id === normalized.当前系列ID) ?? normalized.系列列表[0];
   const activeProgress = normalized.当前进度?.当前系列ID === activeSeries?.id ? normalized.当前进度 : undefined;
   const planningAnalysis = useMemo(() => buildStoryPlanningAnalysis(normalized), [normalized]);
@@ -273,9 +283,10 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
   }, [selectedSegment?.id, selectedSegment?.updatedAt, draftDirty]);
 
   const persist = async (next: 剧情编织系统) => {
-    const clean = 归一化剧情编织系统(next);
-    onStoryWeavingChange(clean);
-    await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(clean));
+    await commitStoryWeavingEdit({ base: normalized, proposed: next, isCurrent,
+      readLive: () => { let live = latest.current; flushSync(() => onStoryWeavingChange(current => { live = current; return current; })); return live; },
+      save: payload => saveSetting('storyWeavingSystem', payload), commit: onStoryWeavingChange,
+    });
   };
 
   const replaceSeries = async (nextSeries: 剧情编织系列, baseSystem = normalized) => {
@@ -305,6 +316,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
       chaptersPerSegment: gameSettings.剧情编织系统.chaptersPerSegment,
     });
     const next = {
+      ...normalized,
       系列列表: [...normalized.系列列表, series],
       当前系列ID: series.id,
       当前进度: buildSeriesProgressAnchor(normalized.当前进度, series, `导入剧情系列：${series.标题}`),
@@ -327,7 +339,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
       const raw = await file.text();
       const parsed = JSON.parse(raw) as 剧情编织系统 | 剧情编织系列;
       const system = '系列列表' in parsed
-        ? 归一化剧情编织系统(parsed)
+        ? hydratePersistedStoryWeavingSystem(parsed, await loadAllBundledStoryWeavingPresets())
         : 归一化剧情编织系统({ 系列列表: [parsed], 当前系列ID: parsed.id });
       const customOnly = system.系列列表.length > 0 && system.系列列表.every((series) => series.来源类型 !== 'canon');
       const next = customOnly
@@ -504,13 +516,20 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
   const handleSaveDraft = async (series: 剧情编织系列, segment: 剧情编织分段) => {
     if (!draft) return;
     const updated = applyDraft(segment, draft);
-    await updateSeries(series.id, (s) => ({
-      ...s,
-      分段列表: s.分段列表.map((item) => item.id === segment.id ? updated : item),
-      updatedAt: Date.now(),
-    }));
-    setDraftDirty(false);
-    setMessage(`已保存分段：${updated.标题}`);
+    try {
+      await updateSeries(series.id, (s) => ({ ...s, 分段列表: s.分段列表.map((item) => item.id === segment.id ? updated : item), updatedAt: Date.now() }));
+      if (!isCurrent()) return;
+      setDraftDirty(false); setMessage(`已保存分段：${updated.标题}`);
+    } catch (error) { if (isCurrent()) setMessage(`保存失败：${toUserFacingError(error)}`); }
+  };
+  const handleRestoreField = async (field: string, segmentId?: string) => {
+    if (!viewSeries) return;
+    try {
+      const bundled = await loadAllBundledStoryWeavingPresets();
+      if (!isCurrent()) return;
+      await persist(restoreStoryBuiltinField(normalized, bundled, { seriesId: viewSeries.id, segmentId, field }));
+      if (isCurrent()) { setDraftDirty(false); setMessage(`已恢复 ${field} 内置值`); }
+    } catch (error) { if (isCurrent()) setMessage(`保存失败：${toUserFacingError(error)}`); }
   };
 
   const getPreviousCompleted = (series: 剧情编织系列, segment: 剧情编织分段) =>
@@ -947,6 +966,7 @@ export function PlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
               />
               {selectedSegment && draft ? (
                 <>
+                  <StoryProvenancePanel system={normalized} seriesId={viewSeries.id} segmentId={selectedSegment.id} onRestore={(field, segmentId) => void handleRestoreField(field, segmentId)} />
                   <SegmentDetail
                     series={viewSeries}
                     segment={selectedSegment}

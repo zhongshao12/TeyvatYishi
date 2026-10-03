@@ -123,6 +123,11 @@ const decomposedStoryWeavingPresets: BundledStoryWeavingPreset[] = [
 ];
 
 const CANON_START_SERIES_ID = 'story_canon_teyvat_mondstadt_prologue_act1';
+let loadedResourceBaseline: 剧情编织系统 | null = null;
+/** Canonical resource cache only; never store player edits in this module. */
+export function getBundledStoryWeavingBaseline(fallback: 剧情编织系统): 剧情编织系统 {
+  return structuredClone(loadedResourceBaseline ?? fallback);
+}
 
 const OPENING_STORY_WEAVING_ANCHORS: Record<string, { seriesId: string; segmentGroup: number; note: string }> = {
   mondstadt_dragon_incident: {
@@ -176,6 +181,7 @@ export function alignStoryWeavingToOpeningArchive(system: 剧情编织系统, ar
   if (!normalized.系列列表.length || !archive) return normalized;
   if (archive.主线启用 === false) {
     return 归一化剧情编织系统({
+      ...normalized,
       系列列表: normalized.系列列表.map((series) => series.来源类型 === 'canon'
         ? { ...series, 激活注入: false, updatedAt: Date.now() }
         : series),
@@ -215,6 +221,7 @@ export function alignStoryWeavingToOpeningArchive(system: 剧情编织系统, ar
   });
 
   return 归一化剧情编织系统({
+    ...system,
     系列列表: nextSeriesList,
     当前系列ID: targetSeries.id,
     当前进度: {
@@ -269,10 +276,12 @@ export async function loadAllBundledStoryWeavingPresets(): Promise<剧情编织�
   if (series.length !== bundledStoryWeavingPresets.length) {
     throw new Error(`内置原著剧情资源不完整：${series.length}/${bundledStoryWeavingPresets.length}`);
   }
-  return bindStoryResourceBaseline(归一化剧情编织系统({
+  const baseline = bindStoryResourceBaseline(归一化剧情编织系统({
     系列列表: series,
     当前系列ID: CANON_START_SERIES_ID,
   }));
+  loadedResourceBaseline = structuredClone(baseline);
+  return baseline;
 }
 
 export { buildPersistedStoryWeavingSystem, hydratePersistedStoryWeavingSystem, restoreStoryBuiltinField, bindStoryResourceBaseline } from '@/services/storyWeavingPersistence';

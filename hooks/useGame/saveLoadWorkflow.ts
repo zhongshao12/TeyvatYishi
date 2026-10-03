@@ -32,7 +32,7 @@ import { 归一化相册系统 } from '@/models/imageGeneration';
 import { 归一化剧情编织系统 } from '@/models/storyWeaving';
 import { 归一化任务系统 } from '@/models/quest';
 import { autoAlignCanonStoryProgress } from '@/services/storyProgressService';
-import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
+import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem, hydratePersistedStoryWeavingSystem, getBundledStoryWeavingBaseline } from '@/data/storyWeavingPreset';
 import { materializeAlbumRuntimePayload, pruneAlbumAssetCache } from '@/utils/albumObjectUrl';
 import { compactDuplicatedSaveImages } from '@/utils/saveImageCompactor';
 import { attachSaveTreeMeta, buildNextSaveTreeMeta, getSaveTreeMeta, type 存档树元信息 } from '@/utils/saveTree';
@@ -280,6 +280,10 @@ export async function executeTeyvatSaveLoadTransaction(
   if (classified.kind === 'needs-input') throw new Error(`TEYVAT_SAVE_NEEDS_INPUT:${classified.issues.map((issue) => issue.path).join(',')}`);
   if (classified.kind === 'invalid') throw new Error(`INVALID_TEYVAT_SAVE:${classified.errors.join(',')}`);
   const nextGame = normalizeTeyvatGameState(classified.state);
+  if (nextGame.叙事.storyWeaving) {
+    const savedStory = toLegacyStoryWeaving(nextGame.叙事.storyWeaving);
+    nextGame.叙事.storyWeaving = fromLegacyStoryWeaving(hydratePersistedStoryWeavingSystem(savedStory, getBundledStoryWeavingBaseline(savedStory)));
+  }
   alignLoadedCanonStory(nextGame, classified.state);
   await dependencies.beforeReplace?.(nextGame);
   dependencies.replaceGameState(nextGame);

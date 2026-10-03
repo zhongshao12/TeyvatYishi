@@ -485,7 +485,15 @@ export function 创建空剧情编织系统(): 剧情编织系统 {
 
 export function 归一化剧情编织系统(input?: Partial<剧情编织系统> | null): 剧情编织系统 {
   if (!input) return 创建空剧情编织系统();
-  const 系列列表 = Array.isArray(input.系列列表) ? input.系列列表.map(归一化剧情编织系列) : [];
+  const 系列列表 = Array.isArray(input.系列列表) ? input.系列列表.map(raw => {
+    const series = 归一化剧情编织系列(raw);
+    if (input.builtinBindings?.[series.id]) {
+      for (const field of ['核心角色摘要', '核心角色', '涉及地点索引', '涉及派系索引'] as const) {
+        if (Array.isArray(raw[field])) series[field] = 文本列表(raw[field]);
+      }
+    }
+    return series;
+  }) : [];
   const 当前系列ID = input.当前系列ID && 系列列表.some((s) => s.id === input.当前系列ID)
     ? input.当前系列ID
     : 系列列表[0]?.id;
@@ -617,8 +625,8 @@ export function 归一化剧情编织系列(raw: Partial<剧情编织系列>): �
   const runningSegment = 分段列表.find((segment) => segment.运行状态 === '当前');
   const 系列 = {
     id,
-    标题: 读文本(raw.标题).trim() || 读文本(raw.作品名).trim() || '未命名剧情',
-    作品名: 读文本(raw.作品名).trim() || 读文本(raw.标题).trim() || '未命名作品',
+    标题: typeof raw.标题 === 'string' ? raw.标题.trim() : 读文本(raw.作品名).trim() || '未命名剧情',
+    作品名: typeof raw.作品名 === 'string' ? raw.作品名.trim() : 读文本(raw.标题).trim() || '未命名作品',
     来源类型: 归一化来源类型(raw.来源类型),
     来源图鉴条目ID: 去重文本列表(文本列表(raw.来源图鉴条目ID), 80),
     内置预设ID: 读文本(raw.内置预设ID).trim() || undefined,
@@ -660,7 +668,7 @@ export function 归一化剧情编织分段(raw: Partial<剧情编织分段>, in
   const 分段: 剧情编织分段 = {
     id: 读文本(raw.id).trim() || 生成ID('story_segment'),
     组号: Math.max(1, Math.trunc(Number(raw.组号 ?? index) || index)),
-    标题: 读文本(raw.标题).trim() || `分段 ${index}`,
+    标题: typeof raw.标题 === 'string' ? raw.标题.trim() : `分段 ${index}`,
     章节范围: 读文本(raw.章节范围).trim(),
     章节标题: 文本列表(raw.章节标题),
     是否开局组: raw.是否开局组 === true,

@@ -12,6 +12,7 @@ export const EXTRA_REGRESSION_SCRIPTS = [
  */
 export const INTENTIONAL_MANUAL_SCRIPTS = [
   'bundle-size-report.mjs',
+  'generate-story-weaving-canon-total.mjs',
   'desktop-code-signing-decision.mjs',
   'desktop-github-release-notes.mjs',
   'desktop-github-upload-commands.mjs',

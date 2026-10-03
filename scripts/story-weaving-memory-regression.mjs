@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { readWorkflowSources } from './lib/workflowSources.mjs';
 
 const root = process.cwd();
@@ -9,6 +10,8 @@ const source = JSON.parse(read('data/storyWeavingCanonDecomposed.json'));
 const seriesList = Array.isArray(source.系列列表) ? source.系列列表 : [];
 const resourceDir = path.join(root, 'public/data/story-weaving-canon');
 const resourceFiles = fs.readdirSync(resourceDir).filter((name) => name.endsWith('.json')).sort();
+const generatedCheck = spawnSync(process.execPath, ['scripts/generate-story-weaving-canon-total.mjs', '--check'], { encoding: 'utf8' });
+assert.equal(generatedCheck.status, 0, generatedCheck.stderr);
 
 assert.equal(seriesList.length, 19, '原著剧情应包含 19 个系列');
 assert.equal(resourceFiles.length, seriesList.length, '拆分资源数量必须与原著系列一致');
@@ -50,7 +53,10 @@ for (const file of writeFiles) {
   const sourceText = read(file);
   const writes = [...sourceText.matchAll(/saveSetting\('storyWeavingSystem',\s*([^\n;]+)\)/g)];
   for (const write of writes) {
-    assert(write[1].includes('buildPersistedStoryWeavingSystem'), `${file} 仍在全量保存剧情编织：${write[0]}`);
+    const guardedEditPayload = file.endsWith('/PlotPanel.tsx') && write[1].trim() === 'payload'
+      && sourceText.includes('commitStoryWeavingEdit')
+      && read('services/storyWeavingEdits.ts').includes('await input.save(buildPersistedStoryWeavingSystem(next))');
+    assert(write[1].includes('buildPersistedStoryWeavingSystem') || guardedEditPayload, `${file} 仍在全量保存剧情编织：${write[0]}`);
   }
 }
 

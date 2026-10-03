@@ -2,7 +2,6 @@ import type { UseGameStateReturn } from '@/hooks/useGameState';
 import type { 回合快照 } from '@/models/chat';
 import { 归一化相册系统, type 相册系统 } from '@/models/imageGeneration';
 import { 归一化NPC记录列表 } from '@/models/npc';
-import { 归一化剧情编织系统 } from '@/models/storyWeaving';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
 import { 归一化世界状态 } from '@/models/world';
 import { normalizeTeyvatInventory } from '@/models/teyvat/items';
@@ -12,7 +11,7 @@ import { normalizeArchiveCodex } from '@/models/teyvat/codex';
 import { normalizeSteambirdNews } from '@/models/teyvat/steambird';
 import { normalizeTeyvatMapState } from '@/models/teyvat/map';
 import { 归一化任务系统 } from '@/models/quest';
-import { hydratePersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
+import { hydratePersistedStoryWeavingSystem, getBundledStoryWeavingBaseline } from '@/data/storyWeavingPreset';
 
 export function restorePreTurnSnapshot(state: UseGameStateReturn, snapshot: 回合快照): 剧情编织系统 {
   state.set旅人(snapshot.旅人 as Parameters<typeof state.set旅人>[0]);
@@ -46,8 +45,8 @@ export function restorePreTurnSnapshot(state: UseGameStateReturn, snapshot: 回�
     state.updateGameState((current) => ({ ...current, 地图: normalizeTeyvatMapState(snapshot.地图) }));
   }
   const storyWeaving = hydratePersistedStoryWeavingSystem(
-    归一化剧情编织系统(snapshot.剧情编织 as UseGameStateReturn['剧情编织']),
-    state.剧情编织,
+    snapshot.剧情编织,
+    getBundledStoryWeavingBaseline(state.剧情编织),
   );
   state.set剧情编织(storyWeaving);
   state.setVariableBatches(snapshot.variableBatches as Parameters<typeof state.setVariableBatches>[0]);

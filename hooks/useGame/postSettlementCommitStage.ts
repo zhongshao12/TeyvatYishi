@@ -3,7 +3,7 @@ import { 提取NPC同行记忆文本列表 } from '@/models/npc';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
 import { 归一化剧情编织系统 } from '@/models/storyWeaving';
 import type { CanonTrack } from '@/models/teyvat/canon';
-import { hydratePersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
+import { hydratePersistedStoryWeavingSystem, getBundledStoryWeavingBaseline, buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 import { autoAlignCanonStoryProgress } from '@/services/storyProgressService';
 import type { 剧情编织门禁快照 } from '@/services/storyWeaving';
 import { enrichNpcArchives } from '@/utils/npcArchiveEnrichment';
@@ -303,16 +303,17 @@ function getStoryWeavingWriteSignature(system: 剧情编织系统): string {
       updatedAt: series.updatedAt,
       分段更新时间: series.分段列表.map((segment) => `${segment.id}:${segment.处理状态}:${segment.运行状态}:${segment.updatedAt}`),
     })),
+    字段覆盖: buildPersistedStoryWeavingSystem(system).builtinBindings,
   });
 }
 
 export async function resolveStoryWeavingForBackgroundWrite(input: {
   workflowBase: 剧情编织系统;
   proposed: 剧情编织系统;
-  loadLatest: () => Promise<剧情编织系统 | null | undefined>;
+  loadLatest: () => Promise<unknown>;
 }): Promise<{ system: 剧情编织系统; concurrentChange: boolean }> {
   const latest = await input.loadLatest();
-  const latestNormalized = latest ? hydratePersistedStoryWeavingSystem(latest, input.workflowBase) : null;
+  const latestNormalized = latest ? hydratePersistedStoryWeavingSystem(latest, getBundledStoryWeavingBaseline(input.workflowBase)) : null;
   if (!latestNormalized) return { system: input.proposed, concurrentChange: false };
   const baseSignature = getStoryWeavingWriteSignature(归一化剧情编织系统(input.workflowBase));
   const latestSignature = getStoryWeavingWriteSignature(latestNormalized);

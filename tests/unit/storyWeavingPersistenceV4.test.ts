@@ -49,6 +49,12 @@ describe('story persistence v4', () => {
     expect(restored.builtinBindings!.a!.segmentOverrides.s).toEqual({});
     expect(restored.migrationWarnings).toEqual([]);
   });
+  it('ignores malformed provenance and identity-changing override fields without crashing', () => {
+    const saved = { ...resource(), builtinBindings: { a: { resourceRevision: 'broken', seriesOverrides: { id: 'b', 来源类型: 'custom', 标题: 123 } } } };
+    const restored = api.hydratePersistedStoryWeavingSystem(saved, resource());
+    expect(restored.系列列表[0]!.id).toBe('a'); expect(restored.系列列表[0]!.来源类型).toBe('canon');
+    expect(restored.系列列表[0]!.标题).toBe('同名');
+  });
   it('preserves unknown legacy differences with stable warning IDs', () => {
     const old = resource(); old.系列列表[0]!.分段列表[0]!.本段概括 = '旧档不明来源';
     const restored = api.hydratePersistedStoryWeavingSystem({ ...old, persistenceVersion: 3 }, resource());

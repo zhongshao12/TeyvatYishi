@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { registerStorySettingSession } from '@/services/storySettingIdentity';
 import {
   createEmptyTeyvatGameState,
   normalizeTeyvatGameState,
@@ -36,6 +37,7 @@ let liveGameSessionAlias: (() => number) | null = null;
 
 export function registerLiveGameSessionAlias(reader: (() => number) | null): void {
   liveGameSessionAlias = reader;
+  registerStorySettingSession(reader);
 }
 
 /** 读取当前对局身份；从未登记过（例如没挂 runtime 的单测）时返回 undefined。 */

@@ -5,7 +5,7 @@ import { toUserFacingError } from '@/utils/userFacingError';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { getLiveGameSessionId } from '@/hooks/useTeyvatRuntime';
-import { commitStoryWeavingEdit } from '@/services/storyWeavingEdits';
+import { commitStoryWeavingEdit, prepareStoryWeavingImport } from '@/services/storyWeavingEdits';
 import { StoryProvenancePanel } from './StoryProvenancePanel';
 import type { API设置, 游戏设置 } from '@/models/settings';
 import type { 剧情编织分段, 剧情编织进度锚点, 剧情编织系列, 剧情编织系统, 剧情编织运行状态 } from '@/models/storyWeaving';
@@ -338,21 +338,10 @@ function SessionPlotPanel({ storyWeaving, onStoryWeavingChange, gameSettings, ap
     try {
       const raw = await file.text();
       const parsed = JSON.parse(raw) as 剧情编织系统 | 剧情编织系列;
-      const system = '系列列表' in parsed
-        ? hydratePersistedStoryWeavingSystem(parsed, await loadAllBundledStoryWeavingPresets())
-        : 归一化剧情编织系统({ 系列列表: [parsed], 当前系列ID: parsed.id });
-      const customOnly = system.系列列表.length > 0 && system.系列列表.every((series) => series.来源类型 !== 'canon');
-      const next = customOnly
-        ? 归一化剧情编织系统({
-          ...normalized,
-          系列列表: [
-            ...normalized.系列列表.filter((series) => !system.系列列表.some((incoming) => incoming.id === series.id)),
-            ...system.系列列表,
-          ],
-          当前系列ID: system.当前系列ID ?? system.系列列表[0]?.id ?? normalized.当前系列ID,
-          当前进度: system.当前进度 ?? normalized.当前进度,
-        })
-        : system;
+      const incoming = '系列列表' in parsed ? parsed.系列列表 : [parsed];
+      const customOnly = incoming.length > 0 && incoming.every(series => series.来源类型 !== 'canon');
+      const next = prepareStoryWeavingImport(parsed, await loadAllBundledStoryWeavingPresets(), normalized);
+      const system = customOnly ? 归一化剧情编织系统({ 系列列表: incoming }) : next;
       await persist(next);
       setSelectedSegmentId(system.系列列表[0]?.分段列表[0]?.id ?? null);
       setExpandedSeriesId(system.当前系列ID ?? system.系列列表[0]?.id ?? null);

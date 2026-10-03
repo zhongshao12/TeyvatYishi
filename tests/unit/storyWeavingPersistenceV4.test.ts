@@ -12,6 +12,13 @@ function resource(text = '旧正文', end = '旧结束') {
 }
 
 describe('story persistence v4', () => {
+  it('retains intentional overrides even when a newer resource temporarily matches them', () => {
+    const old = api.bindStoryResourceBaseline(resource()); old.系列列表[0]!.分段列表[0]!.本段概括 = '玩家概括';
+    const matching = resource(); matching.系列列表[0]!.分段列表[0]!.本段概括 = '玩家概括';
+    const loaded = api.hydratePersistedStoryWeavingSystem(api.buildPersistedStoryWeavingSystem(old), matching);
+    const newest = resource(); newest.系列列表[0]!.分段列表[0]!.本段概括 = '第三版本';
+    expect(api.hydratePersistedStoryWeavingSystem(api.buildPersistedStoryWeavingSystem(loaded), newest).系列列表[0]!.分段列表[0]!.本段概括).toBe('玩家概括');
+  });
   it('keeps an unedited builtin transport under the existing 64 KiB budget', () => {
     const bound = api.bindStoryResourceBaseline(api.hydratePersistedStoryWeavingSystem(bundledJson, { 系列列表: [] }));
     expect(new TextEncoder().encode(JSON.stringify(api.buildPersistedStoryWeavingSystem(bound))).length).toBeLessThan(64 * 1024);

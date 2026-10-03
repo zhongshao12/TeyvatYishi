@@ -11,6 +11,7 @@ import {
   restoreSettingForRuntime,
 } from '@/services/storage/sensitiveSettings';
 import { openGameDatabase, SETTINGS_STORE } from '@/services/storage/gameDatabase';
+import { resolveSessionSettingKey } from '@/services/storySettingIdentity';
 
 export async function saveSetting(key: string, value: unknown): Promise<void> {
   await saveSettings({ [key]: value });
@@ -19,7 +20,7 @@ export async function saveSetting(key: string, value: unknown): Promise<void> {
 export async function saveSettings(settings: Record<string, unknown>): Promise<void> {
   const persistentSettings: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(settings)) {
-    persistentSettings[key] = prepareSettingForPersistence(key, value);
+    persistentSettings[resolveSessionSettingKey(key)] = prepareSettingForPersistence(key, value);
   }
   if (isDesktopRuntime()) {
     await mirrorSettingsToDesktop(persistentSettings);
@@ -30,6 +31,7 @@ export async function saveSettings(settings: Record<string, unknown>): Promise<v
 }
 
 export async function loadSetting<T>(key: string): Promise<T | null> {
+  key = resolveSessionSettingKey(key);
   const desktopValue = await loadDesktopSettingFirstSafely<T>(key);
   if (desktopValue !== null) return hydrateLoadedSetting(key, desktopValue);
   const db = await openGameDatabase();
@@ -49,6 +51,7 @@ export async function loadSetting<T>(key: string): Promise<T | null> {
 }
 
 export async function deleteSetting(key: string): Promise<void> {
+  key = resolveSessionSettingKey(key);
   clearSessionSecretForSetting(key);
   if (isDesktopRuntime()) {
     await removeSettingFromDesktopMirror(key);

@@ -497,7 +497,10 @@ export function 归一化剧情编织系统(input?: Partial<剧情编织系统> 
   const 当前系列ID = input.当前系列ID && 系列列表.some((s) => s.id === input.当前系列ID)
     ? input.当前系列ID
     : 系列列表[0]?.id;
-  const 当前进度 = 归一化剧情编织进度锚点(input.当前进度, 系列列表, 当前系列ID);
+  const preserveSceneRefs = input.migrationWarnings?.some(entry => entry.reason === 'resource_removed'
+    && entry.seriesId === (input.当前进度?.当前系列ID ?? 当前系列ID)
+    && (!entry.segmentId || entry.segmentId === input.当前进度?.当前分段ID)) === true;
+  const 当前进度 = 归一化剧情编织进度锚点(input.当前进度, 系列列表, 当前系列ID, preserveSceneRefs);
   return { 系列列表, 当前系列ID, 当前进度,
     ...(input.builtinBindings ? { builtinBindings: structuredClone(input.builtinBindings) } : {}),
     ...(input.migrationWarnings ? { migrationWarnings: structuredClone(input.migrationWarnings) } : {}),
@@ -508,6 +511,7 @@ export function 归一化剧情编织进度锚点(
   raw: Partial<剧情编织进度锚点> | undefined,
   系列列表: 剧情编织系列[],
   当前系列ID?: string,
+  preserveSceneRefs = false,
 ): 剧情编织进度锚点 | undefined {
   const series = 系列列表.find((item) => item.id === (raw?.当前系列ID || 当前系列ID))
     ?? 系列列表.find((item) => item.激活注入 !== false)
@@ -534,19 +538,19 @@ export function 归一化剧情编织进度锚点(
             : '推进中';
   const rawGate = raw?.最近门禁结果 === 'strong' || raw?.最近门禁结果 === 'soft' ? raw.最近门禁结果 : undefined;
   const sceneIds = currentSegment.场景节点?.map((scene) => scene.id) ?? [];
-  const completedSceneIds = 去重文本列表(文本列表(raw?.已完成场景ID), sceneIds.length)
-    .filter((id) => sceneIds.includes(id));
+  const completedSceneIds = 去重文本列表(文本列表(raw?.已完成场景ID), preserveSceneRefs ? 512 : sceneIds.length)
+    .filter((id) => preserveSceneRefs || sceneIds.includes(id));
   const requestedSceneId = 读文本(raw?.当前场景ID).trim();
   const currentSceneId = is归档运行状态(currentSegment.运行状态)
     ? undefined
-    : sceneIds.includes(requestedSceneId) && !completedSceneIds.includes(requestedSceneId)
+    : (preserveSceneRefs || sceneIds.includes(requestedSceneId)) && Boolean(requestedSceneId) && !completedSceneIds.includes(requestedSceneId)
       ? requestedSceneId
       : sceneIds.find((id) => !completedSceneIds.includes(id));
   return {
     当前系列ID: series.id,
     当前分段ID: currentSegment.id,
     当前场景ID: currentSceneId,
-    已完成场景ID: sceneIds.length ? completedSceneIds : undefined,
+    已完成场景ID: sceneIds.length || preserveSceneRefs ? completedSceneIds : undefined,
     最近场景推进回合: currentSceneId ? Number(raw?.最近场景推进回合) || undefined : undefined,
     当前分段组号: currentSegment.组号,
     推进状态: raw?.推进状态 ? 归一化推进状态(raw.推进状态) : progressByRuntime,

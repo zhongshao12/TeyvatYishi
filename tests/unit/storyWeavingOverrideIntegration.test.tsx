@@ -11,6 +11,7 @@ import { 创建默认游戏设置, 创建空API设置 } from '@/models/settings'
 import { PlotPanel } from '@/components/features/GameSystems/PlotPanel';
 import { normalizeCanonTrack } from '@/services/canonDeviationService';
 import { commitStoryWeavingEdit } from '@/services/storyWeavingEdits';
+import * as storyEdits from '@/services/storyWeavingEdits';
 import { resolveStoryWeavingForBackgroundWrite } from '@/hooks/useGame/postSettlementCommitStage';
 
 const storage = vi.hoisted(() => ({ save: vi.fn<(key: string, payload: unknown) => Promise<void>>(async () => {} ) }));
@@ -31,6 +32,25 @@ async function mount(initial = edited()) {
   return container;
 }
 describe('story provenance boundary integration', () => {
+  it('merges actual custom-only export JSON without replacing existing custom or canon edits', () => {
+    const current = edited();
+    current.系列列表.push(归一化剧情编织系列({ id: 'custom-A', 来源类型: 'custom', 标题: 'A' }));
+    const incoming = { 系列列表: [归一化剧情编织系列({ id: 'custom-B', 来源类型: 'custom', 标题: 'B' })] };
+    const next = storyEdits.prepareStoryWeavingImport(JSON.parse(JSON.stringify(incoming)), resource(), current);
+    expect(next.系列列表.map(series => series.id)).toContain('custom-A');
+    expect(next.系列列表.map(series => series.id)).toContain('custom-B');
+    expect(next.系列列表[0]!.分段列表[0]!.本段概括).toBe('玩家自定概括');
+  });
+  it.each(['segment', 'series'])('retains orphan scene progress when resource %s is removed and restored', kind => {
+    const old = resource(), first = old.系列列表[0]!.分段列表[0]!.场景节点![0]!.id, second = old.系列列表[0]!.分段列表[0]!.场景节点![1]!.id;
+    old.当前进度!.当前场景ID = second; old.当前进度!.已完成场景ID = [first];
+    const missing = resource(); if (kind === 'series') missing.系列列表 = []; else missing.系列列表[0]!.分段列表.shift();
+    const orphan = hydratePersistedStoryWeavingSystem(buildPersistedStoryWeavingSystem(old), missing);
+    const projected = toLegacyStoryWeaving(fromLegacyStoryWeaving(orphan));
+    expect(projected.当前进度!.当前场景ID).toBe(second); expect(projected.当前进度!.已完成场景ID).toEqual([first]);
+    const restored = hydratePersistedStoryWeavingSystem(buildPersistedStoryWeavingSystem(projected), resource());
+    expect(restored.当前进度!.当前场景ID).toBe(second); expect(restored.当前进度!.已完成场景ID).toEqual([first]);
+  });
   it('does not normalize an explicit blank name back to a resource name', () => {
     const old = edited(); old.系列列表[0]!.标题 = ''; old.系列列表[0]!.分段列表[0]!.标题 = ''; old.系列列表[0]!.核心角色 = [];
     const restored = toLegacyStoryWeaving(fromLegacyStoryWeaving(old));

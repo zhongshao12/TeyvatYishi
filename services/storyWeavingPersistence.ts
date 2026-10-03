@@ -51,7 +51,9 @@ export function bindStoryResourceBaseline(bundled: 剧情编织系统): 剧情�
 function collect(raw: object, fields: readonly string[], hashes: unknown, prior: unknown): Record<string, unknown> {
   const values = overrides(raw, fields), fingerprints = record(hashes), result = overrides(prior, fields);
   for (const [key, value] of Object.entries(values)) {
-    if (typeof fingerprints[key] === 'string' && fingerprint(value) === fingerprints[key]) delete result[key];
+    if (typeof fingerprints[key] === 'string' && fingerprint(value) === fingerprints[key]) {
+      if (owns(result, key)) result[key] = value;
+    }
     else result[key] = value;
   }
   return result;
@@ -110,7 +112,9 @@ export function hydratePersistedStoryWeavingSystem(saved: unknown, bundled: 剧�
   const warnings = new Map<string, StoryMigrationWarning>();
   for (const raw of list(root.migrationWarnings)) {
     if (typeof raw.id === 'string' && typeof raw.seriesId === 'string' && typeof raw.field === 'string' && (raw.reason === 'resource_removed' || raw.reason === 'legacy_origin_unknown')) {
-      const entry = warning(raw.seriesId, raw.field, raw.reason, typeof raw.segmentId === 'string' ? raw.segmentId : undefined); warnings.set(entry.id, entry);
+      const entry = warning(raw.seriesId, raw.field, raw.reason, typeof raw.segmentId === 'string' ? raw.segmentId : undefined);
+      const resource = bound.系列列表.find(series => series.id === entry.seriesId);
+      if (entry.reason !== 'resource_removed' || !resource || (entry.segmentId && !resource.分段列表.some(segment => segment.id === entry.segmentId))) warnings.set(entry.id, entry);
     }
   }
   const addWarning = (entry: StoryMigrationWarning) => warnings.set(entry.id, entry);
@@ -166,7 +170,7 @@ export function hydratePersistedStoryWeavingSystem(saved: unknown, bundled: 剧�
     }
     merged.push(item);
   }
-  const result = 归一化剧情编织系统({ 系列列表: merged, 当前系列ID: typeof root.当前系列ID === 'string' ? root.当前系列ID : bundled.当前系列ID, 当前进度: root.当前进度 as 剧情编织系统['当前进度'] });
+  const result = 归一化剧情编织系统({ 系列列表: merged, 当前系列ID: typeof root.当前系列ID === 'string' ? root.当前系列ID : bundled.当前系列ID, 当前进度: root.当前进度 as 剧情编织系统['当前进度'], migrationWarnings: [...warnings.values()] });
   result.系列列表 = merged;
   return { ...result, builtinBindings: bindings, migrationWarnings: [...warnings.values()] };
 }

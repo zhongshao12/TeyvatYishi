@@ -286,30 +286,15 @@ export function mergeBundledStoryWeavingPresets(saved: 剧情编织系统 | null
     const mergedSegments = presetSeries.分段列表.map((segment) => {
       const savedSegment = savedSegments.get(segment.id);
       if (!savedSegment) return segment;
-      // hydrate 的设计意图：**原文内容**以内置资源为准（持久态为了体积把它剥掉了），
-      // 而**分解结果**以持久态为准 —— 玩家可以手工编辑这些字段，读档必须还原
-      //（PROJECT_AUDIT_2026-10-03 的持久化行为门禁抓到的三处缺口：标题、本段概括、结束条件）。
-      const carriedDecomposition = {
-        ...(savedSegment.本段概括?.trim() ? { 本段概括: savedSegment.本段概括 } : {}),
-        ...(savedSegment.原文摘要?.trim() ? { 原文摘要: savedSegment.原文摘要 } : {}),
-        ...(savedSegment.时间线起点?.trim() ? { 时间线起点: savedSegment.时间线起点 } : {}),
-        ...(savedSegment.时间线终点?.trim() ? { 时间线终点: savedSegment.时间线终点 } : {}),
-        ...(savedSegment.本段结束状态?.length ? { 本段结束状态: savedSegment.本段结束状态 } : {}),
-        ...(savedSegment.开局已成立事实?.length ? { 开局已成立事实: savedSegment.开局已成立事实 } : {}),
-        ...(savedSegment.前段延续事实?.length ? { 前段延续事实: savedSegment.前段延续事实 } : {}),
-        ...(savedSegment.给后续参考?.length ? { 给后续参考: savedSegment.给后续参考 } : {}),
-        ...(savedSegment.登场角色?.length ? { 登场角色: savedSegment.登场角色 } : {}),
-        ...(savedSegment.关键事件?.length ? { 关键事件: savedSegment.关键事件 } : {}),
-        ...(savedSegment.时间线?.length ? { 时间线: savedSegment.时间线 } : {}),
-        ...(savedSegment.角色推进?.length ? { 角色推进: savedSegment.角色推进 } : {}),
-        ...(savedSegment.涉及地点?.length ? { 涉及地点: savedSegment.涉及地点 } : {}),
-        ...(savedSegment.涉及派系?.length ? { 涉及派系: savedSegment.涉及派系 } : {}),
-        ...(savedSegment.可提前铺垫?.length ? { 可提前铺垫: savedSegment.可提前铺垫 } : {}),
-        ...(savedSegment.原著硬约束?.length ? { 原著硬约束: savedSegment.原著硬约束 } : {}),
-      };
+      // 说明（PROJECT_AUDIT_2026-10-03）：**分解字段**（本段概括/原文摘要/结束条件…）在两条既有契约之间
+      // 存在真实冲突 ——
+      //   ① `tests/unit/storyWeavingPresetMerge.test.ts`：资源更新必须刷新内置分解（旧剧情 → 新版剧情）；
+      //   ② `scripts/story-weaving-persistence-behavior-regression.mjs`：玩家手工改过的分解必须还原。
+      // 二者无法只靠 hydrate 时的比较区分（「玩家改过」与「资源更新过」在数据上同形），
+      // 需要「保存时记录当时内置值的指纹」才能两全（见审查报告的 R01/R02 边界要求）。
+      // 本批先只还原**标题**（重命名是明确的玩家动作、资源更新几乎不动标题），其余留作待决策项。
       return {
         ...segment,
-        ...carriedDecomposition,
         启用注入: savedSegment.启用注入,
         处理状态: savedSegment.处理状态,
         运行状态: savedSegment.运行状态,

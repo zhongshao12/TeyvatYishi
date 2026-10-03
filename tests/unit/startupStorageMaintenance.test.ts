@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import { runStartupStorageMaintenance } from '../../services/storage/startupStorageMaintenance';
 
 describe('startup storage maintenance', () => {
   it('runs cloud staging cleanup and desktop transaction repair independently', async () => {
-    const module = await import('../../services/storage/startupStorageMaintenance');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const cleanupCloudMergeStaging = vi.fn(async () => {
       throw new Error('cloud cleanup failed');
@@ -14,7 +14,7 @@ describe('startup storage maintenance', () => {
     }));
     const requestPersistentStorage = vi.fn(async () => true);
 
-    const result = await module.runStartupStorageMaintenance({
+    const result = await runStartupStorageMaintenance({
       cleanupCloudMergeStaging,
       repairDesktopTransactions,
       requestPersistentStorage,

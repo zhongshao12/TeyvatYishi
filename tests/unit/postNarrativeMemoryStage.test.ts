@@ -68,6 +68,51 @@ describe('post-narrative memory stage', () => {
     expect(result.feedback.detail).toContain('记忆总结 API');
   });
 
+  it('commits archive promotion without retaining covered sources or losing unrelated live entries', async () => {
+    compressionModel.summarize.mockResolvedValue({ summary: '安柏完成侦察', usedFallback: false, usedModel: true, usedLocal: false });
+    const source = { id: 'source-short', title: '侦察', summary: '安柏带队侦察', sourceText: '侦察原文', keywords: ['安柏'],
+      sourceTurns: [5], recordedAt: '第5回', archiveType: 'short' as const, turn: 5 };
+    const unrelated = { ...source, id: 'player-note', summary: '等待时玩家补充的手记' };
+    const baseMemory = { ...创建空记忆系统(), 短期记忆: [source.summary], 短期归档ID: [source.id] };
+    const baseIrminsul = { entries: [source] };
+    const worldMoment = captureWorldMoment(createEmptyTeyvatGameState().世界, 6, 'turn-6');
+    const compressed = await settlePostNarrativeMemory({
+      memory: baseMemory, irminsul: baseIrminsul,
+      userInput: '继续侦察', narrativeSummary: '', body: '安柏完成侦察。', turn: 6, moment: worldMoment,
+      settings: { ...创建默认记忆系统设置(), 即时转短期阈值: 9, 短期转中期阈值: 1, 中期转长期阈值: 9 },
+      mainConfig: {} as API配置项,
+    });
+    const committed = rebasePostNarrativeMemorySettlement({
+      baseMemory, liveMemory: structuredClone(baseMemory), compressedMemory: compressed.memory,
+      baseIrminsul, liveIrminsul: { entries: [source, unrelated] }, compressedIrminsul: compressed.irminsul,
+      userInput: '继续侦察', narrativeSummary: '', body: '安柏完成侦察。', moment: worldMoment,
+    });
+    expect(committed.compressionDeferred).toBe(false);
+    expect(committed.irminsul.entries.some((entry) => entry.id === source.id)).toBe(false);
+    expect(committed.irminsul.entries.find((entry) => entry.id === unrelated.id)?.summary).toBe('等待时玩家补充的手记');
+    expect(getActiveIrminsulEntries(committed.irminsul).map((entry) => entry.archiveType)).toEqual(['short', 'medium']);
+  });
+
+  it.each(['edit', 'delete'] as const)('defers stale compression when a covered source was concurrently %s', (action) => {
+    const source = { id: 'source-short', title: '侦察', summary: '安柏带队侦察', sourceText: '原文', keywords: ['安柏'],
+      sourceTurns: [5], recordedAt: '第5回', archiveType: 'short' as const, turn: 5 };
+    const summary = { ...source, id: 'summary-middle', archiveType: 'medium' as const, coveredEntryIds: [source.id] };
+    const baseMemory = { ...创建空记忆系统(), 短期记忆: [source.summary], 短期归档ID: [source.id] };
+    const liveIrminsul = { entries: action === 'edit' ? [{ ...source, summary: '玩家纠正过的记忆' }] : [] };
+    const result = rebasePostNarrativeMemorySettlement({
+      baseMemory, liveMemory: structuredClone(baseMemory),
+      compressedMemory: { ...创建空记忆系统(), 中期记忆: [summary.summary], 中期归档ID: [summary.id] },
+      baseIrminsul: { entries: [source] }, liveIrminsul, compressedIrminsul: { entries: [summary] },
+      userInput: '继续', narrativeSummary: '', body: '安柏回应。',
+      moment: captureWorldMoment(createEmptyTeyvatGameState().世界, 6, 'turn-6'),
+    });
+    expect(result.compressionDeferred).toBe(true);
+    expect(result.irminsul).toBe(liveIrminsul);
+    expect(result.memory.短期记忆).toEqual(['安柏带队侦察']);
+    expect(result.memory.中期记忆).toEqual([]);
+    expect(result.memory.即时记忆.some((item) => item.includes('安柏回应'))).toBe(true);
+  });
+
   it('preserves the memory result and exposes retry feedback when compression fails', async () => {
     const result = await settlePostNarrativeMemory({
       memory: 创建空记忆系统(),

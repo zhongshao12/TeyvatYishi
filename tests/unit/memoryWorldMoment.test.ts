@@ -75,6 +75,20 @@ describe('memory world-moment provenance', () => {
     const replay = await settlePostNarrativeMemory({ ...input, memory: first.memory, irminsul: first.irminsul });
     expect(replay.irminsul.entries).toHaveLength(1);
     expect(replay.irminsul.entries[0]?.sourceMomentRange).toEqual(first.irminsul.entries[0]?.sourceMomentRange);
+    expect(replay.memory).toEqual(first.memory);
+  });
+
+  it.each(['short', 'middle', 'long'] as const)('does not restore a settled event already covered by %s memory', (layer) => {
+    const sourceMoment = moment(1, '10:00');
+    const source = addImmediateMemory(创建空记忆系统(), '遇见安柏', 1, sourceMoment);
+    const short = compressToShortTerm(source, 1, 1);
+    const middle = layer === 'short' ? short : compressToMiddleTerm(short, 1, 1);
+    const archived = layer === 'long' ? compressToLongTerm(middle, 1, 1) : middle;
+    const recovered = addImmediateMemory(archived, '遇见安柏', 1, sourceMoment);
+    expect(recovered).toBe(archived);
+    expect(recovered.即时记忆).toEqual([]);
+    const next = addImmediateMemory(recovered, '第二次遇见安柏', 2, moment(2, '18:00'));
+    expect(next.即时记忆).toEqual(['第二次遇见安柏']);
   });
 
   it('leaves old records without provenance unknown', () => {

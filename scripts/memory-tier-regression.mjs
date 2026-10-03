@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { build } from 'esbuild';
+import { deepStrictEqual } from 'node:assert';
 
 function read(path) {
   return fs.readFileSync(path, 'utf8');
@@ -36,7 +38,15 @@ assert(memoryUtils.includes('createMiddleTermArchiveEntry'), '短期到中期压
 assert(memoryUtils.includes("kind: 'middle'"), '异步记忆总结必须支持 middle 压缩类型。');
 assert(memoryUtils.includes('prompt: settings.短期转中期提示词'), '短期到中期压缩必须使用短期转中期提示词。');
 assert(memoryUtils.includes('prompt: settings.中期转长期提示词'), '中期到长期压缩必须使用中期转长期提示词。');
-assert(memoryModel.includes('中期记忆: Array.isArray(raw?.中期记忆) ? raw!.中期记忆 : []'), '旧存档归一化必须补齐中期记忆。');
+const bundledMemory = await build({
+  entryPoints: ['models/memory.ts'], bundle: true, write: false,
+  platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent',
+});
+const { normalizeMemorySystem } = await import(
+  `data:text/javascript;base64,${Buffer.from(bundledMemory.outputFiles[0].text).toString('base64')}`
+);
+deepStrictEqual(normalizeMemorySystem({ 即时记忆: ['旧记录'] }).中期记忆, [], '旧存档归一化必须补齐中期记忆。');
+deepStrictEqual(normalizeMemorySystem({ 中期记忆: ['已有纪要'] }).中期记忆, ['已有纪要'], '归一化不得丢失已有中期记忆。');
 
 assert(memoryCompression.includes("export type MemoryCompressionKind = 'short' | 'middle' | 'long'"), '记忆压缩服务必须支持 middle 类型。');
 assert(memoryCompression.includes("if (kind === 'middle') return '短期 -> 中期'"), '记忆压缩服务必须标记短期到中期。');

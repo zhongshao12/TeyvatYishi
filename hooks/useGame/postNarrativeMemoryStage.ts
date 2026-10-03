@@ -8,7 +8,6 @@ import {
   autoCompressMemorySystemWithArchivesAsync,
   buildImmediateMemory,
 } from './memoryUtils';
-import { mergeIrminsulMemories } from './postTurnIrminsulTask';
 
 /** Commit an awaited compression result without replacing edits made in the meantime. */
 export function rebasePostNarrativeMemorySettlement(input: {
@@ -24,21 +23,36 @@ export function rebasePostNarrativeMemorySettlement(input: {
   moment: WorldMoment;
 }): { memory: 记忆系统; irminsul: IrminsulMemory; compressionDeferred: boolean } {
   const concurrentMemoryEdit = JSON.stringify(input.liveMemory) !== JSON.stringify(input.baseMemory);
-  const memory = concurrentMemoryEdit
+  const baseById = new Map(input.baseIrminsul.entries.map((entry) => [entry.id, entry]));
+  const liveById = new Map(input.liveIrminsul.entries.map((entry) => [entry.id, entry]));
+  const compressedById = new Map(input.compressedIrminsul.entries.map((entry) => [entry.id, entry]));
+  const coveredIds = new Set(input.compressedIrminsul.entries.flatMap((entry) => entry.coveredEntryIds ?? []));
+  const sameEntry = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+  const concurrentSourceEdit = input.baseIrminsul.entries.some((entry) => {
+    const consumedOrUpdated = coveredIds.has(entry.id) || !sameEntry(entry, compressedById.get(entry.id));
+    return consumedOrUpdated && !sameEntry(entry, liveById.get(entry.id));
+  });
+  const compressionDeferred = concurrentMemoryEdit || concurrentSourceEdit;
+  const memory = compressionDeferred
     ? addImmediateMemory(input.liveMemory, buildImmediateMemory(input.userInput, [
         input.narrativeSummary ? `本回合小结：${input.narrativeSummary}` : '',
         input.body,
       ].filter(Boolean).join('\n\n')), input.moment.turn, input.moment)
     : input.compressedMemory;
-  // If memory was edited during the await, its compression is stale as well:
-  // retain the live tree and retry compression on a later turn.
-  if (concurrentMemoryEdit) return { memory, irminsul: input.liveIrminsul, compressionDeferred: true };
-  // Otherwise merge by stable ID, keeping a player's edited live entry when
-  // the same archive was also in the awaited result.
-  const baseIds = new Set(input.baseIrminsul.entries.map((entry) => entry.id));
-  const irminsul = mergeIrminsulMemories(input.liveIrminsul, {
-    entries: input.compressedIrminsul.entries.filter((entry) => !baseIds.has(entry.id)),
+  // Compression depends on both text memories and its covered world-tree
+  // sources. A changed source invalidates the result, including its archives.
+  if (compressionDeferred) return { memory, irminsul: input.liveIrminsul, compressionDeferred: true };
+  // Apply the compression delta: retire covered sources, retain unrelated
+  // live edits/additions, and never resurrect a record the player deleted.
+  const entries = input.liveIrminsul.entries.flatMap((entry) => {
+    const base = baseById.get(entry.id);
+    if (!base || !sameEntry(base, entry)) return [entry];
+    const compressed = compressedById.get(entry.id);
+    return compressed ? [compressed] : [];
   });
+  const keptIds = new Set(entries.map((entry) => entry.id));
+  entries.push(...input.compressedIrminsul.entries.filter((entry) => !baseById.has(entry.id) && !keptIds.has(entry.id)));
+  const irminsul = { entries };
   return { memory, irminsul, compressionDeferred: false };
 }
 

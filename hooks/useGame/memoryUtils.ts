@@ -152,7 +152,13 @@ function pruneMemorySourceMoments(system: 记忆系统): 记忆系统 {
 
 export function addImmediateMemory(system: 记忆系统, memory: string, turn: number, moment?: WorldMoment, explicitId?: string): 记忆系统 {
   const id = moment ? (explicitId?.trim() || `memory_${moment.settlementId}_${turn}`) : null;
-  if (id && system.即时记忆ID?.includes(id)) return system;
+  if (id) {
+    const activeIds = [
+      ...(system.即时记忆ID ?? []), ...(system.短期归档ID ?? []),
+      ...(system.中期归档ID ?? []), ...(system.长期归档ID ?? []),
+    ].filter((activeId): activeId is string => Boolean(activeId));
+    if (activeIds.some((activeId) => activeId === id || system.来源时刻?.[activeId]?.sourceIds.includes(id))) return system;
+  }
   const newMemories = [...system.即时记忆, memory];
   const trimmed = newMemories.length > 50 ? newMemories.slice(-50) : newMemories;
   const newIds = [...(system.即时记忆ID ?? system.即时记忆.map(() => null)), id];

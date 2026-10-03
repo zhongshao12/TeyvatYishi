@@ -138,6 +138,8 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       : undefined;
     recoveryJournal = updateWorkflowRecoveryJournal(recoveryJournal, {
       phase: 'settlement_pending',
+      // Recovery must retain the gate even when the variable request is interrupted.
+      storyAlignment: { openingSystemTurn: isOpeningSystemTrigger, gateSnapshot: storyWeavingGate },
       pendingSettlement: {
         settlementId: recoveryJournal.workflowId,
         source: frozenSettlementWithBackground,
@@ -255,7 +257,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       irminsulWithCompression = memoryWrite.commit.irminsul;
       committedSettlementGame = memoryWrite.root;
       if (memoryWrite.commit.compressionDeferred) {
-        pushQueueTask(state, 'memory', 'success', { detail: '记忆压缩期间检测到玩家编辑，已保留编辑与本回合记忆；压缩推迟到下回合。' });
+        pushQueueTask(state, 'memory', 'success', { detail: '压缩期间检测到记忆或世界树来源发生修改，已保留编辑与本回合记忆；压缩推迟到下回合。' });
       }
 
       const npcSource = variableOverrides?.NPC ?? state.NPC;

@@ -149,7 +149,9 @@ for (const sourcePath of [
   'services/storyWeaving.ts',
   'services/canonDeviationService.ts',
   'services/promptModuleScopes.ts',
+  'services/promptDelivery.ts',
   'services/storyProgressService.ts',
+  'services/storySceneProgress.ts',
   'services/storyPlanningAnalysis.ts',
   'models/npc.ts',
   'services/npcRelationshipPlanning.ts',
@@ -181,6 +183,9 @@ writeStub('utils/variableRegistry.mjs', 'export function buildVariableRegistryPr
 writeStub('utils/teyvatCommandRegistry.mjs', 'export function buildTeyvatCommandRegistryPrompt() { return ""; }\n');
 writeStub('data/canonicalCharacters.mjs', 'export const CANONICAL_CHARACTERS = [];\nexport function matchCanonical() { return null; }\nexport function matchCanonicalIdentity() { return null; }\n');
 writeStub('data/builtinAvatars.mjs', 'export function getDefaultBuiltinAvatar() { return undefined; }\n');
+writeStub('data/canonicalIdentity.mjs', 'export function hasBuiltinAvatarIdentity() { return false; }\n');
+writeStub('services/npcAppearanceFacts.mjs', 'export function canRevealNpcMeasurements() { return false; }\nexport function canUseNsfwPrivateFields() { return false; }\nexport function normalizeNpcAppearanceFacts() { return undefined; }\n');
+writeStub('services/worldMoment.mjs', 'export function normalizeWorldMoment() { return null; }\n');
 writeStub('utils/npcMemorySanitizer.mjs', 'export function 清理NPC同行记忆摘要(value) { return typeof value === "string" ? value.trim() : ""; }\n');
 writeStub('compat/legacy-hsr/readOnly.mjs', [
   'export function readLegacyNpcCourierAvatar() { return undefined; }',

@@ -288,6 +288,9 @@ export async function executeTeyvatSaveLoadTransaction(
 
 function alignLoadedCanonStory(nextGame: TeyvatSaveData, rawState: unknown): void {
   if (!nextGame.叙事.storyWeaving) return;
+  // A committed turn already resolved the chapter together with its world moment.
+  // Re-running opening/location alignment while loading would rewrite that saved decision.
+  if (nextGame.叙事.lastCommittedMoment) return;
   const opening = nextGame.世界.开局设定;
   const safeWorld = 归一化世界状态({
     当前地点: nextGame.世界.当前地点,

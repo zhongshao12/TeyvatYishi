@@ -4,6 +4,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CourierModal } from '@/components/features/Courier/CourierModal';
 import type { CourierSystem } from '@/models/teyvat/courier';
+import { createEmptyTeyvatWorld } from '@/models/teyvat/world';
+import { captureWorldMoment } from '@/services/worldMoment';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -158,6 +160,25 @@ describe('CourierModal behavior', () => {
     expect(sent).toMatchObject({ senderId: 'player', senderName: '云', content: '@丽莎  晚上好', turn: 8 });
     expect(textarea?.value).toBe('');
     expect(onRequestReply).toHaveBeenCalledWith('mondstadt-group', sent?.id);
+  });
+
+  it('records a manually sent phone message at the current committed world moment', async () => {
+    const world = createEmptyTeyvatWorld();
+    world.当前时间 = '14:00';
+    const moment = captureWorldMoment(world, 8, 'settlement-8');
+    const onCourierChange = vi.fn();
+    await act(async () => root.render(createElement(CourierModal, {
+      courier: baseCourier, currentTurn: 8, worldMoment: moment,
+      onCourierChange, onClose: vi.fn(),
+    })));
+    const textarea = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="手机回复"]')!;
+    await act(async () => setTextareaValue(textarea, '收到'));
+    await act(async () => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+
+    const update = onCourierChange.mock.calls[0]![0] as (previous: CourierSystem) => CourierSystem;
+    const sent = update(baseCourier).conversations[0]?.messages.at(-1);
+    expect(sent?.worldMoment?.clock).toBe('14:00');
+    expect(sent?.worldMoment?.settlementId).toBe('settlement-8');
   });
 
   it('keeps Shift+Enter as a draft instead of sending', async () => {

@@ -1,6 +1,7 @@
 import type { API配置项 } from '@/models/settings';
 import { 提取NPC同行记忆文本列表, type NPC记录 } from '@/models/npc';
 import type { CourierDeliverySeed, CourierSystem } from '@/models/teyvat/courier';
+import type { WorldMoment } from '@/models/teyvat/worldMoment';
 import {
   appendPhoneExchangeMemory,
   appendPhoneDeliveryMemories,
@@ -39,6 +40,7 @@ export interface CourierReplyPassInput {
   travelerName?: string;
   letterApiConfig: API配置项 | null;
   turn: number;
+  worldMoment?: WorldMoment;
   maxReplies?: number;
   /** 群聊中每条玩家消息最多几位成员跟帖（默认 3）。 */
   maxGroupReplies?: number;
@@ -67,6 +69,7 @@ export interface CourierDeliveryTaskInput {
   npcs: NPC记录[];
   turn: number;
   now: number;
+  worldMoment?: WorldMoment;
   userInput: string;
   body: string;
   maxSeedsPerTurn: number;
@@ -132,6 +135,7 @@ export async function runCourierDeliveryTask(input: CourierDeliveryTaskInput): P
     npcs,
     environment: input.environment,
     travelerName: input.travelerName,
+    worldMoment: input.worldMoment,
   });
   if (!scheduled.due.length) {
     return {
@@ -460,6 +464,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
           content: text,
           turn: input.turn,
           timestamp: Date.now() + memberReplied,
+          ...(input.worldMoment ? { worldMoment: input.worldMoment } : {}),
           ...(memberAvatar ? { avatar: memberAvatar } : {}),
           readBy: [],
         });
@@ -472,6 +477,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
             playerText: playerMessage.content,
             replyTexts: [text],
             relatedNpcIds: conversation.participantIds.filter((id) => id !== memberId && id !== 'player'),
+            worldMoment: input.worldMoment,
           });
         }
         memberReplied += 1;
@@ -536,6 +542,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
         content: text,
         turn: input.turn,
         timestamp: Date.now() + lineIndex,
+        ...(input.worldMoment ? { worldMoment: input.worldMoment } : {}),
         ...(replyAvatar ? { avatar: replyAvatar } : {}),
         readBy: [],
       });
@@ -549,6 +556,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
         turn: input.turn,
         playerText: playerMessage.content,
         replyTexts: replyLines,
+        worldMoment: input.worldMoment,
       });
     }
       replied += 1;

@@ -392,6 +392,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
           turn: steambirdTurn,
           userInput,
           body: displayText,
+          worldMoment: committedTurnContext.moment,
         });
         if (taskResult.status === 'skipped') {
           pushQueueTask(state, 'steambird', 'skipped', { detail: taskResult.detail });
@@ -478,6 +479,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
           npcs: taskBaseNpc,
           turn: state.turnCount + 1,
           now: Date.now(),
+          worldMoment: committedTurnContext.moment,
           userInput,
           body: displayText,
           maxSeedsPerTurn: state.gameSettings.手机系统.maxSeedsPerTurn,
@@ -524,6 +526,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
           travelerName: courierTravelerName,
           letterApiConfig: courierLetterApiConfig,
           turn: state.turnCount + 1,
+          worldMoment: committedTurnContext.moment,
           onPending: (detail) => {
             if (state.getGameSessionId() === taskSessionId) pushQueueTask(state, 'courier', 'pending', { detail });
           },

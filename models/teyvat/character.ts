@@ -3,6 +3,8 @@ import { isReservedNpcIdentityName, type NPC外貌档案 } from '../npc';
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
 import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
 import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
+import type { WorldMoment } from './worldMoment';
+import { normalizeWorldMoment } from '@/services/worldMoment';
 
 export type TalentCategory = 'normal_attack' | 'elemental_skill' | 'elemental_burst' | 'passive';
 
@@ -106,6 +108,7 @@ export interface TeyvatNpcSharedMemory {
   sourceText?: string;
   source?: 'narrative' | 'courier' | 'steambird' | 'variable' | 'other';
   relatedNpcIds: string[];
+  worldMoment?: WorldMoment;
 }
 
 export interface TeyvatNpcSummaryMemory {
@@ -229,6 +232,7 @@ export function normalizeTravelerProfile(value: unknown): TravelerProfile {
 
 export function normalizeTeyvatNpcSharedMemory(value: unknown): TeyvatNpcSharedMemory | null {
   if (!isRecord(value)) return null;
+  const worldMoment = normalizeWorldMoment(value.worldMoment);
   const sourceValue = value.source === 'news' ? 'steambird' : text(value.source);
   const source = ['narrative', 'courier', 'steambird', 'variable', 'other'].includes(sourceValue)
     ? sourceValue as TeyvatNpcSharedMemory['source']
@@ -237,6 +241,7 @@ export function normalizeTeyvatNpcSharedMemory(value: unknown): TeyvatNpcSharedM
     id: text(value.id), turn: Math.max(0, Math.trunc(finiteNumber(value.turn))), summary: text(value.summary),
     ...(optionalText(value.sourceText) ? { sourceText: text(value.sourceText) } : {}),
     ...(source ? { source } : {}), relatedNpcIds: textList(value.relatedNpcIds),
+    ...(worldMoment ? { worldMoment } : {}),
   };
 }
 

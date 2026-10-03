@@ -306,6 +306,7 @@ export interface PhoneExchangeMemoryInput {
   playerText?: string;
   replyTexts: string[];
   relatedNpcIds?: string[];
+  worldMoment?: import('@/models/teyvat/worldMoment').WorldMoment;
 }
 
 /** 将一次完整手机交流写回对应 NPC 的同行记忆；确定性 id 使后台任务重跑时保持幂等。 */
@@ -343,6 +344,7 @@ export function appendPhoneExchangeMemory(npcs: NPC记录[], input: PhoneExchang
           ...(original ? { 原文: original } : {}),
           来源: '手机',
           好感变动: affinityDelta,
+          ...(input.worldMoment ? { worldMoment: input.worldMoment } : {}),
           ...(input.relatedNpcIds?.length ? { 关联NPCID: Array.from(new Set(input.relatedNpcIds)) } : {}),
         },
       ],
@@ -380,6 +382,7 @@ export function appendPhoneDeliveryMemories(
       turn,
       replyTexts,
       relatedNpcIds: seed.relatedNpcIds.filter((id) => id !== npc.id),
+      worldMoment: conversation.messages.find((message) => message.sourceSeedId === seed.id)?.worldMoment,
     });
   }
   return updated;
@@ -807,6 +810,7 @@ export interface CourierDeliveryContext {
   npcs?: NPC记录[];
   environment?: CourierLetterEnvironment;
   travelerName?: string;
+  worldMoment?: import('@/models/teyvat/worldMoment').WorldMoment;
 }
 
 export interface ScheduledCourierResult {
@@ -925,6 +929,7 @@ export function deliverDueCourierSeeds(
       content: text,
       turn: currentTurn,
       timestamp: now + lineIndex,
+      ...(context.worldMoment ? { worldMoment: context.worldMoment } : {}),
       ...(contactAvatar ? { avatar: contactAvatar } : {}),
       sourceSeedId: seed.id,
       readBy: [] as string[],

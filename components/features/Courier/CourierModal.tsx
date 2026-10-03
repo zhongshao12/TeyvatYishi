@@ -1,6 +1,7 @@
 import { CLIP_ITEM, CLIP_SECTION } from '@/styles/clipPaths';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CourierContact, CourierMessage, CourierSystem } from '@/models/teyvat/courier';
+import type { WorldMoment } from '@/models/teyvat/worldMoment';
 import type { NPC记录 } from '@/models/npc';
 import { 读取NPC头像 } from '@/models/npc';
 import type { 相册系统 } from '@/models/imageGeneration';
@@ -25,6 +26,7 @@ export interface CourierModalProps {
   travelerAvatar?: string;
   /** 当前主叙事回合；用于把本次手机消息与上一主回合可靠分隔。 */
   currentTurn?: number;
+  worldMoment?: WorldMoment | null;
   onCourierChange: (update: CourierSystem | ((previous: CourierSystem) => CourierSystem)) => void;
   /** 玩家发送后请求回信；第二个参数是刚提交的玩家消息 ID。 */
   onRequestReply?: (conversationId: string, messageId: string) => void;
@@ -60,7 +62,7 @@ function formatWallTime(timestamp: number): string {
   return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-export const CourierModal = memo(function CourierModal({ courier, album, npcRecords = [], travelerName, travelerAvatar, currentTurn = 0, onCourierChange, onRequestReply, replyErrorByConversationId, onRetryReply, getGameSessionId, onRequestMomentComments, canGenerateMomentComments = false, onClose }: CourierModalProps) {
+export const CourierModal = memo(function CourierModal({ courier, album, npcRecords = [], travelerName, travelerAvatar, currentTurn = 0, worldMoment, onCourierChange, onRequestReply, replyErrorByConversationId, onRetryReply, getGameSessionId, onRequestMomentComments, canGenerateMomentComments = false, onClose }: CourierModalProps) {
   const [selectedId, setSelectedId] = useState(courier.conversations[0]?.id ?? '');
   const [draft, setDraft] = useState('');
   const [filter, setFilter] = useState<ConversationFilter>('all');
@@ -286,6 +288,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
         content,
         turn: resolveCourierMessageTurn(currentTurn, selected.messages),
         timestamp,
+        ...(worldMoment ? { worldMoment } : {}),
         readBy: ['player'],
       });
       const nextConversations = next.conversations.map((conversation) => conversation.id === selected.id
@@ -335,7 +338,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
     const mentionIds = parseMomentMentions(content, courier.contacts);
     commit((previous) => (previous.moments?.length ?? 0) >= 500
       ? previous
-      : createMoment(previous, { id, content, turn: currentTurn, now, mentionIds }));
+      : createMoment(previous, { id, content, turn: currentTurn, now, mentionIds, ...(worldMoment ? { worldMoment } : {}) }));
     onRequestMomentComments?.(id, 1);
     return true;
   };

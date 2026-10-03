@@ -1,3 +1,13 @@
+import { isRecord } from '@/utils/valueGuards';
+import type { WorldMoment } from './worldMoment';
+import { normalizeWorldMoment } from '@/services/worldMoment';
+
+export interface TeyvatWorldEventRecord {
+  id: string;
+  text: string;
+  worldMoment?: WorldMoment;
+}
+
 export type RegionId = 'mondstadt' | 'liyue' | 'inazuma' | 'sumeru' | 'fontaine' | 'natlan' | 'nod_krai';
 
 const REGION_IDS: readonly RegionId[] = ['mondstadt', 'liyue', 'inazuma', 'sumeru', 'fontaine', 'natlan', 'nod_krai'];
@@ -40,6 +50,7 @@ export interface TeyvatWorld {
   当前天气: string;
   已访问地区: RegionId[];
   世界事件: string[];
+  世界事件记录: TeyvatWorldEventRecord[];
   氛围: string;
   当前时段: RuntimePeriod | null;
   已访问时段: string[];
@@ -85,7 +96,7 @@ function withCompatibilityAccessors(world: PersistedTeyvatWorld): TeyvatWorld {
 export function createEmptyTeyvatWorld(): TeyvatWorld {
   return withCompatibilityAccessors({
     当前地区: '', 当前地点: '', 当前日期: '', 当前时间: '', 当前天气: '',
-    已访问地区: [], 世界事件: [], 氛围: '', 当前时段: null, 已访问时段: [],
+    已访问地区: [], 世界事件: [], 世界事件记录: [], 氛围: '', 当前时段: null, 已访问时段: [],
     纪年名称: '', 旅程天数: 1, 活跃人物: [], 难度: '', 叙事模式: '', 开局设定: null,
     起始场景ID: '', 自定义开局: '', 原著旅行者: '', 元素回响邀请: '', 进行中元素回响: '',
   });
@@ -111,6 +122,11 @@ export function normalizeTeyvatWorld(input: unknown): TeyvatWorld {
     当前天气: String(raw.当前天气 ?? raw.weather ?? ''),
     已访问地区: regionList(raw.已访问地区 ?? raw.visitedRegions),
     世界事件: stringList(raw.世界事件 ?? raw.worldEvents),
+    世界事件记录: Array.isArray(raw.世界事件记录) ? raw.世界事件记录.flatMap((entry) => {
+      if (!isRecord(entry) || typeof entry.id !== 'string' || typeof entry.text !== 'string') return [];
+      const moment = normalizeWorldMoment(entry.worldMoment);
+      return [{ id: entry.id, text: entry.text, ...(moment ? { worldMoment: moment } : {}) }];
+    }) : [],
     氛围: String(raw.氛围 ?? raw.atmosphere ?? ''),
     当前时段: isRecord(raw.当前时段) ? {
       id: String(raw.当前时段.id ?? ''), 名称: String(raw.当前时段.名称 ?? ''), 年代: String(raw.当前时段.年代 ?? ''),
@@ -152,4 +168,3 @@ function normalizeRuntimeActor(value: unknown): RuntimeActor[] {
   if (!isRecord(value)) return [];
   return [{ id: String(value.id ?? ''), 姓名: String(value.姓名 ?? ''), 角色: String(value.角色 ?? ''), 性格: String(value.性格 ?? ''), 外貌: String(value.外貌 ?? ''), 与玩家关系: String(value.与玩家关系 ?? ''), 记忆: Array.isArray(value.记忆) ? value.记忆.map(String) : [] }];
 }
-import { isRecord } from '@/utils/valueGuards';

@@ -1,5 +1,7 @@
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
 import type { TeyvatNpcRecord } from './character';
+import type { WorldMoment } from './worldMoment';
+import { normalizeWorldMoment } from '@/services/worldMoment';
 
 export type CourierDeliveryStatus = 'pending' | 'delivered' | 'dismissed' | 'expired';
 
@@ -27,6 +29,7 @@ export interface CourierLetter {
   timestamp: number;
   status: CourierDeliveryStatus;
   deliveredAtTurn?: number;
+  worldMoment?: WorldMoment;
 }
 
 export interface CourierMessage {
@@ -37,6 +40,8 @@ export interface CourierMessage {
   content: string;
   turn: number;
   timestamp: number;
+  /** Event time in the game world; timestamp is wall-clock transport order. */
+  worldMoment?: WorldMoment;
   avatar?: string;
   sourceSeedId?: string;
   readBy: string[];
@@ -52,6 +57,7 @@ export interface CourierLocalArchiveEntry {
   messageCount: number;
   createdAt: number;
   sourceSeedId?: string;
+  worldMoment?: WorldMoment;
 }
 
 export interface CourierLocalArchive {
@@ -103,6 +109,7 @@ export interface CourierMomentComment {
   npcName: string;
   content: string;
   createdAt: number;
+  worldMoment?: WorldMoment;
   /**
    * 评论来源（2026-09-29 第 7 项）：`local` = 玩家 @ 点名后模型失败时由本地写作器补的回应。
    * 界面必须显式标注，避免把本地文案伪装成模型输出（原契约关心的正是这一点）。
@@ -123,6 +130,7 @@ export interface CourierMoment {
   createdAt: number;
   updatedAt: number;
   revision: number;
+  worldMoment?: WorldMoment;
   targets: CourierMomentTarget[];
   comments: CourierMomentComment[];
   /** 玩家在正文里 @ 的角色（2026-09-29 第 7 项）：他们不占自动评论名额，且一定会回应一次。 */
@@ -169,9 +177,11 @@ function normalizeContact(value: unknown): CourierContact | null {
 
 function normalizeMessage(value: unknown): CourierMessage | null {
   if (!isRecord(value)) return null;
+  const worldMoment = normalizeWorldMoment(value.worldMoment);
   return {
     id: text(value.id), senderId: text(value.senderId), senderName: text(value.senderName), role: text(value.role),
     content: text(value.content), turn: integer(value.turn), timestamp: Number(value.timestamp) || 0,
+    ...(worldMoment ? { worldMoment } : {}),
     ...(optionalText(value.avatar) ? { avatar: text(value.avatar) } : {}), ...(optionalText(value.sourceSeedId) ? { sourceSeedId: text(value.sourceSeedId) } : {}),
     readBy: textList(value.readBy), ...(Number.isFinite(Number(value.scheduledAtTurn)) ? { scheduledAtTurn: integer(value.scheduledAtTurn) } : {}),
     ...(Number.isFinite(Number(value.deliveredAtTurn)) ? { deliveredAtTurn: integer(value.deliveredAtTurn) } : {}),
@@ -185,7 +195,8 @@ function normalizeLocalArchive(value: unknown): CourierLocalArchive | undefined 
     entries: Array.isArray(value.entries) ? value.entries.flatMap((entry) => {
       if (!isRecord(entry)) return [];
       const source = entry.source === 'group' || entry.source === 'system' ? entry.source : 'private';
-      return [{ id: text(entry.id), turn: integer(entry.turn), summary: text(entry.summary), source, messageCount: integer(entry.messageCount), createdAt: Number(entry.createdAt) || 0, ...(optionalText(entry.sourceSeedId) ? { sourceSeedId: text(entry.sourceSeedId) } : {}) }];
+      const worldMoment = normalizeWorldMoment(entry.worldMoment);
+      return [{ id: text(entry.id), turn: integer(entry.turn), summary: text(entry.summary), source, messageCount: integer(entry.messageCount), createdAt: Number(entry.createdAt) || 0, ...(optionalText(entry.sourceSeedId) ? { sourceSeedId: text(entry.sourceSeedId) } : {}), ...(worldMoment ? { worldMoment } : {}) }];
     }) : [],
     compressedSummaries: textList(value.compressedSummaries),
     ...(Number.isFinite(Number(value.lastCompressedTurn)) ? { lastCompressedTurn: integer(value.lastCompressedTurn) } : {}),
@@ -229,6 +240,7 @@ export function normalizeCourierConversation(value: unknown): CourierConversatio
         source: normalized.type,
         messageCount: trimmed.length,
         createdAt: last.timestamp,
+        ...(last.worldMoment ? { worldMoment: last.worldMoment } : {}),
       }].slice(-24);
   const compressedSummaries = previousArchive.compressedSummaries.includes(summary)
     ? previousArchive.compressedSummaries
@@ -272,6 +284,7 @@ function normalizeSeed(value: unknown): CourierDeliverySeed | null {
 function normalizeMoment(value: unknown): CourierMoment | null {
   if (!isRecord(value) || value.authorId !== 'player') return null;
   const id = text(value.id).trim();
+  const worldMoment = normalizeWorldMoment(value.worldMoment);
   const content = text(value.content).trim();
   if (!id || !content || content.length > 500) return null;
   // @ 点名的角色（2026-09-29 第 7 项）：先归一化，因为评论/目标名额 = 3 + 点名人数，
@@ -291,9 +304,11 @@ function normalizeMoment(value: unknown): CourierMoment | null {
     const comment = text(entry.content).trim();
     if (!npcId || !comment || comment.length > 120 || seenComments.has(npcId) || seenComments.size >= capacity) return [];
     seenComments.add(npcId);
+    const commentMoment = normalizeWorldMoment(entry.worldMoment);
     return [{
       id: text(entry.id), npcId, npcName: text(entry.npcName), content: comment,
       createdAt: Number(entry.createdAt) || 0,
+      ...(commentMoment ? { worldMoment: commentMoment } : {}),
       ...(entry.source === 'local' ? { source: 'local' as const } : entry.source === 'model' ? { source: 'model' as const } : {}),
     }];
   });
@@ -313,6 +328,7 @@ function normalizeMoment(value: unknown): CourierMoment | null {
     updatedAt: Number(value.updatedAt) || 0,
     revision: Math.max(1, integer(value.revision)),
     targets, comments,
+    ...(worldMoment ? { worldMoment } : {}),
     ...(mentionIds.length ? { mentionIds } : {}),
   };
 }
@@ -388,7 +404,8 @@ export function normalizeCourierSystem(value: unknown): CourierSystem {
   const letters = Array.isArray(raw.letters) ? raw.letters.flatMap((item) => {
     if (!isRecord(item)) return [];
     const status: CourierDeliveryStatus = item.status === 'delivered' || item.status === 'dismissed' || item.status === 'expired' ? item.status : 'pending';
-    return [{ id: text(item.id), senderId: remapId(text(item.senderId)), senderName: text(item.senderName), content: text(item.content), turn: integer(item.turn), timestamp: Number(item.timestamp) || 0, status, ...(Number.isFinite(Number(item.deliveredAtTurn)) ? { deliveredAtTurn: integer(item.deliveredAtTurn) } : {}) }];
+    const worldMoment = normalizeWorldMoment(item.worldMoment);
+    return [{ id: text(item.id), senderId: remapId(text(item.senderId)), senderName: text(item.senderName), content: text(item.content), turn: integer(item.turn), timestamp: Number(item.timestamp) || 0, status, ...(Number.isFinite(Number(item.deliveredAtTurn)) ? { deliveredAtTurn: integer(item.deliveredAtTurn) } : {}), ...(worldMoment ? { worldMoment } : {}) }];
   }) : [];
   const deliverySeeds = (Array.isArray(raw.deliverySeeds) ? raw.deliverySeeds.flatMap((item) => normalizeSeed(item) ?? []) : [])
     .map((seed) => ({ ...seed, senderId: remapId(seed.senderId), targetId: remapId(seed.targetId), relatedNpcIds: uniqueIds(seed.relatedNpcIds) }));

@@ -7,6 +7,8 @@ import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
 import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
 import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
+import type { WorldMoment } from './teyvat/worldMoment';
+import { normalizeWorldMoment } from '@/services/worldMoment';
 export type NPC阶位 = 'companion' | 'extra';
 
 export type NPC性别 = '男' | '女' | '其他';
@@ -74,6 +76,7 @@ export interface NPC同行记忆条目 {
   关联NPCID?: string[];
   /** 手机交流对好感度的确定性增量；并发写回时随记忆 id 一起去重。 */
   好感变动?: number;
+  worldMoment?: WorldMoment;
 }
 
 export interface NPC总结记忆条目 {
@@ -821,6 +824,7 @@ function 归一化同行记忆列表(raw: unknown): NPC同行记忆条目[] {
             .map((id) => id.trim())
             .filter((id): id is string => Boolean(id))
         : [];
+      const worldMoment = normalizeWorldMoment(obj.worldMoment);
       return {
         id: typeof obj.id === 'string' && obj.id.trim()
           ? obj.id.trim()
@@ -833,6 +837,7 @@ function 归一化同行记忆列表(raw: unknown): NPC同行记忆条目[] {
         好感变动: Number.isFinite(Number(obj.好感变动))
           ? Math.max(-2, Math.min(2, Math.trunc(Number(obj.好感变动))))
           : undefined,
+        ...(worldMoment ? { worldMoment } : {}),
       };
     })
     .filter((item): item is NPC同行记忆条目 => Boolean(item))

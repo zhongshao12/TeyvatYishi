@@ -547,7 +547,7 @@ export function mapTeyvatNpcsToLegacy(game: TeyvatGameState): NPC记录[] {
     对玩家称呼: npc.playerAddress, 外貌: npc.appearance,
     ...(npc.appearanceFacts ? { 外貌档案: npc.appearanceFacts } : {}), 穿着: npc.clothing, 说话方式: npc.speechStyle,
     性格: npc.personality, 介绍: npc.说明, 装备摘要: npc.equipmentSummary,
-    同行记忆: npc.sharedMemories.map((memory) => ({ id: memory.id, 回合: memory.turn, 摘要: memory.summary, 原文: memory.sourceText, 来源: ({ narrative: '正文', courier: '手机', steambird: '蒸汽鸟报', variable: '变量', other: '其他' } as const)[memory.source ?? 'other'], 关联NPCID: [...memory.relatedNpcIds] })),
+    同行记忆: npc.sharedMemories.map((memory) => ({ id: memory.id, 回合: memory.turn, 摘要: memory.summary, 原文: memory.sourceText, 来源: ({ narrative: '正文', courier: '手机', steambird: '蒸汽鸟报', variable: '变量', other: '其他' } as const)[memory.source ?? 'other'], 关联NPCID: [...memory.relatedNpcIds], ...(memory.worldMoment ? { worldMoment: memory.worldMoment } : {}) })),
     最近互动: npc.relationshipLedger.recentInteraction, 对玩家长期印象: npc.relationshipLedger.longTermImpression,
     当前关系阶段: npc.relationshipLedger.currentStage, 共同经历: npc.relationshipLedger.sharedExperiences,
     未完成事项: npc.relationshipLedger.unfinishedBusiness, 未解决冲突: npc.relationshipLedger.unresolvedConflicts,
@@ -588,7 +588,7 @@ export function applyLegacyNpcRecords(game: TeyvatGameState, records: NPC记录[
     gender: npc.性别 ?? '', playerAddress: npc.对玩家称呼 ?? '', appearance: npc.外貌 ?? '',
     ...(npc.外貌档案 ? { appearanceFacts: npc.外貌档案 } : {}), clothing: npc.穿着 ?? '',
     speechStyle: npc.说话方式 ?? '', personality: npc.性格 ?? '', equipmentSummary: npc.装备摘要 ?? '',
-    sharedMemories: (npc.同行记忆 ?? []).map((memory) => ({ id: memory.id, turn: memory.回合, summary: memory.摘要, sourceText: memory.原文, source: ({ 正文: 'narrative', 手机: 'courier', 蒸汽鸟报: 'steambird', 变量: 'variable', 其他: 'other' } as const)[memory.来源 ?? '其他'], relatedNpcIds: [...(memory.关联NPCID ?? [])] })),
+    sharedMemories: (npc.同行记忆 ?? []).map((memory) => ({ id: memory.id, turn: memory.回合, summary: memory.摘要, sourceText: memory.原文, source: ({ 正文: 'narrative', 手机: 'courier', 蒸汽鸟报: 'steambird', 变量: 'variable', 其他: 'other' } as const)[memory.来源 ?? '其他'], relatedNpcIds: [...(memory.关联NPCID ?? [])], ...(memory.worldMoment ? { worldMoment: memory.worldMoment } : {}) })),
     relationshipLedger: {
       recentInteraction: npc.最近互动 ?? '', longTermImpression: npc.对玩家长期印象 ?? '', currentStage: npc.当前关系阶段 ?? '',
       sharedExperiences: [...(npc.共同经历 ?? [])], unfinishedBusiness: [...(npc.未完成事项 ?? [])],

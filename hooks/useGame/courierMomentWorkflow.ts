@@ -93,6 +93,7 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
           npcName: npc.姓名,
           content: composeMomentCommentLocally(npc, livePost),
           createdAt: Date.now(),
+          ...(livePost.worldMoment ? { worldMoment: livePost.worldMoment } : {}),
           source: 'local',
         });
       });
@@ -122,6 +123,7 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
         }
         return appendMomentComment(old, postId, revision, {
           id: `${postId}:${revision}:${npcId}`, npcId, npcName: npc.姓名, content, createdAt: Date.now(),
+          ...(livePost.worldMoment ? { worldMoment: livePost.worldMoment } : {}),
           source: 'model',
         });
       });

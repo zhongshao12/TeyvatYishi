@@ -15,6 +15,7 @@ import { commitPreflightedTeyvatTurn, commitTeyvatTurn, preflightTeyvatTurn } fr
 import { compactVariableBatchHistory } from '@/utils/longSessionRetention';
 import { projectCommittedSettlementChanges } from '@/utils/committedSettlementChanges';
 import { captureWorldMoment } from '@/services/worldMoment';
+import { stampCommittedEventProvenance } from '@/services/committedEventProvenance';
 import { needsNsfwBaseline } from '@/utils/npcArchiveEnrichment';
 import { mentionsIntimacyAct } from '@/utils/npcIntimacyEvidence';
 import {
@@ -365,7 +366,7 @@ export async function runVariableSettlementWorkflow(
         ...(projection.omitted > 0 ? { omittedCommittedChanges: projection.omitted } : {}),
       };
       committedGame = {
-        ...nextState,
+        ...stampCommittedEventProvenance(stateSnapshot, nextState, worldMoment),
         叙事: {
           ...nextState.叙事,
           lastCommittedMoment: worldMoment,

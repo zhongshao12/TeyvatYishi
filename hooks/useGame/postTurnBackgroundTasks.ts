@@ -1,5 +1,6 @@
 import type { SteambirdNews } from '@/models/teyvat/steambird';
 import { runSteambirdGenerationStep } from './steambirdWorkflow';
+import type { WorldMoment } from '@/models/teyvat/worldMoment';
 
 export type PostTurnBackgroundMode = 'sequential' | 'parallel';
 
@@ -22,6 +23,7 @@ export interface SteambirdPostTurnTaskInput {
   userInput: string;
   body: string;
   now?: number;
+  worldMoment?: WorldMoment;
 }
 
 export interface SteambirdPostTurnTaskResult {
@@ -52,6 +54,7 @@ export function runSteambirdPostTurnTask(
     publicFacts: [{ title: `第 ${input.turn} 回公开见闻`, detail: `${input.userInput}\n${input.body}`.trim() }],
     turnCount: input.turn,
     now: input.now,
+    worldMoment: input.worldMoment,
   });
   const news = generation?.steambird ?? input.current;
   return {

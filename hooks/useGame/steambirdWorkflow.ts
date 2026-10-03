@@ -1,5 +1,6 @@
 import type { SteambirdNews } from '@/models/teyvat/steambird';
 import { buildSteambirdGenerationRequest, type SteambirdPublicFact } from '@/services/ai/steambirdModel';
+import type { WorldMoment } from '@/models/teyvat/worldMoment';
 
 export function buildSteambirdWorkflowRequest(publicFacts: readonly SteambirdPublicFact[]) {
   return buildSteambirdGenerationRequest({ publicFacts });
@@ -38,6 +39,7 @@ export function runSteambirdGenerationStep(params: {
   publicFacts: readonly SteambirdPublicFact[];
   turnCount: number;
   now?: number;
+  worldMoment?: WorldMoment;
 }): SteambirdGenerationStepResult | null {
   const request = buildSteambirdWorkflowRequest(params.publicFacts);
   const first = request.publicFacts.find((fact) => fact.title.trim() || fact.detail.trim());
@@ -51,6 +53,7 @@ export function runSteambirdGenerationStep(params: {
     body: summarizeSteambirdPublicFacts(request.publicFacts),
     turn: Math.max(0, Math.trunc(params.turnCount)),
     timestamp: now,
+    ...(params.worldMoment ? { worldMoment: params.worldMoment } : {}),
     important: false,
     organizationTags: [],
     relatedSystems: [],

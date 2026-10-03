@@ -1,5 +1,6 @@
 import { NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD, type NPC记录 } from '@/models/npc';
 import type { CourierContact, CourierMoment, CourierMomentComment, CourierMomentTarget, CourierSystem } from '@/models/teyvat/courier';
+import type { WorldMoment } from '@/models/teyvat/worldMoment';
 
 function validatedContent(input: string): string {
   const content = input.trim();
@@ -8,7 +9,7 @@ function validatedContent(input: string): string {
   return content;
 }
 
-export function createMoment(system: CourierSystem, input: { id: string; content: string; turn: number; now: number; mentionIds?: string[] }): CourierSystem {
+export function createMoment(system: CourierSystem, input: { id: string; content: string; turn: number; now: number; mentionIds?: string[]; worldMoment?: WorldMoment }): CourierSystem {
   const content = validatedContent(input.content);
   const existing = system.moments ?? [];
   if (existing.length >= 500) throw new Error('MOMENT_LIMIT');
@@ -16,6 +17,7 @@ export function createMoment(system: CourierSystem, input: { id: string; content
   return { ...system, moments: [{
     id: input.id, authorId: 'player', content, turn: input.turn,
     createdAt: input.now, updatedAt: input.now, revision: 1,
+    ...(input.worldMoment ? { worldMoment: input.worldMoment } : {}),
     targets: [], comments: [],
     ...(input.mentionIds?.length ? { mentionIds: [...new Set(input.mentionIds)] } : {}),
   }, ...existing] };

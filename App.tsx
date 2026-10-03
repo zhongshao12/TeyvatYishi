@@ -408,6 +408,7 @@ export default function App() {
         travelerName: root.旅行者.姓名 || undefined,
         letterApiConfig,
         turn: root.turnCount,
+        worldMoment: root.叙事.lastCommittedMoment ?? undefined,
         maxReplies: 1,
         replyBatch: batch,
         fallbackPolicy: 'error',
@@ -1364,6 +1365,7 @@ export default function App() {
             travelerName={state.旅人.姓名}
             travelerAvatar={state.旅人.头像}
             currentTurn={state.game.turnCount}
+            worldMoment={state.game.叙事.lastCommittedMoment}
             onCourierChange={state.set手机}
             getGameSessionId={state.getGameSessionId}
             onRequestReply={handleCourierReplyRequest}

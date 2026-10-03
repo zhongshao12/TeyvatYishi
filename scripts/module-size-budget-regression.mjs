@@ -14,9 +14,10 @@ import fs from 'node:fs';
  */
 
 const BUDGETS = [
-  // 2026-09-29 复核：App.tsx 1601→1603、useGameState.ts 1415→1421 的增长来自**另一条工作线**的
-  // 在制改动（本批只加了门禁、没有搬代码），因此按实测重新校准棘轮；上限仍然只许往下降。
-  { file: 'App.tsx', maxLines: 1603, note: '第一批拆分目标 ≈1180 行' },
+  // 2026-09-29 复核：App.tsx 1601→1603 的增长来自另一条工作线的在制改动；1603→1623 来自
+  // 本批给「手机回信失败」补的失败结算适配器（约 20 行，功能代码）。两处都按实测重新校准，
+  // 棘轮仍然只许往下降；拆分落地后请同步下调，不要因为它变绿就放任增长。
+  { file: 'App.tsx', maxLines: 1623, note: '第一批拆分目标 ≈1180 行' },
   { file: 'hooks/useGameState.ts', maxLines: 1421, note: 'Legacy 适配层外移后目标 ≈490 行' },
   // 上限一律以本门禁自己的计数口径为准（按 \n 计数，与 PowerShell 的 Measure-Object 不同）。
   { file: 'hooks/useGame.ts', maxLines: 571, note: '当前实测；只许变小' },

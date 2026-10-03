@@ -44,5 +44,12 @@ assert(drawer.includes('查看原始材料'), '中心面板必须能展开原始
 assert(/status === 'resolved' \? 0/.test(model) && /status === 'ignored' \? 1/.test(model),
   '上限淘汰必须先吃 resolved 再吃 ignored，未解决的失败不得被静默挤掉。');
 assert(model.includes('FAILURE_CENTER_LIMIT = 200'), '失败结算清单上限应为 200。');
+// 不经队列、也不弹 error toast 的子系统（手机回信、朋友圈评论）必须显式接上中心与重试入口。
+const app = read('App.tsx');
+const momentWorkflow = read('hooks/useGame/courierMomentWorkflow.ts');
+assert(/source: 'courier_reply'/.test(app) && /registerFailureRetry\(failureId, \(\) => courierReplyQueue\.retry/.test(app),
+  '手机回信失败必须进失败结算中心并注册可用的重试入口（会话横幅会被切档清掉）。');
+assert(/source: 'moments'/.test(momentWorkflow) && /registerFailureRetry\(failureId, \(\) => runMomentComments/.test(momentWorkflow),
+  '朋友圈评论失败必须进失败结算中心并注册可用的重试入口（动态被编辑后卡片按钮会消失）。');
 
 console.log('failure center regression ok');

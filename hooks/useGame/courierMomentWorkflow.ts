@@ -4,6 +4,8 @@ import type { CourierMoment, CourierSystem } from '@/models/teyvat/courier';
 import { buildCourierSenderProfile } from '@/services/ai/courierService';
 import type { MomentCommentInput } from '@/services/ai/courierMomentComments';
 import { appendMomentComment, composeMomentCommentLocally, markMomentTarget, momentCommentCapacity, selectMomentCommenters } from '@/services/courierMoments';
+import { failureItemId } from '@/models/failureCenter';
+import { registerFailureRetry, reportFailure } from '@/utils/failureCenterStore';
 
 const inFlightComments = new Set<string>();
 
@@ -139,6 +141,18 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
           ?.targets.find((item) => item.npcId === npcId);
         return target?.status === 'generating' ? markMomentTarget(old, postId, revision, npcId, 'failed') : old;
       });
+      // 失败结算中心（2026-09-29 第 5 项收尾）：朋友圈自动评论失败原先只体现为卡片上的
+      // 「重试…评论」按钮 —— 动态被删或被编辑后那个按钮就没了。这里同时留一条持久记录与重试入口。
+      const failureId = failureItemId('moments', `${postId}:${revision}:${npcId}`);
+      reportFailure({
+        source: 'moments',
+        reasonCode: 'moment_comment_failed',
+        humanReason: `朋友圈评论生成失败：${npc.姓名}没能回复。`,
+        dedupeKey: `${postId}:${revision}:${npcId}`,
+        retryable: 'manual',
+        retryLabel: '重试评论',
+      });
+      registerFailureRetry(failureId, () => runMomentComments(deps, postId, revision, npcId));
     }
   }).map((task, index) => task.finally(() => inFlightComments.delete(claimKey(claimedIds[index]!)))));
 }

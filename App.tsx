@@ -42,6 +42,8 @@ import { buildSavePayload, clearActiveSaveTreeMetaIfMatches, commitActiveSaveTre
 import { runPostTurnAutosaveTask } from '@/hooks/useGame/postTurnAutosaveTask';
 import { useDebouncedCourierAutosave } from '@/hooks/useGame/useDebouncedCourierAutosave';
 import { pushToast } from '@/utils/toastStore';
+import { failureItemId } from '@/models/failureCenter';
+import { registerFailureRetry, reportFailure } from '@/utils/failureCenterStore';
 import { runTrackedSave, saveStatusStore } from '@/utils/saveStatus';
 import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
 import type { 角色数据结构 } from '@/models/character';
@@ -431,11 +433,29 @@ export default function App() {
       const currentLive = latestStateRef.current;
       if (currentLive.getGameSessionId() !== batch.sessionId
         || !isCourierReplyTargetLive(readLiveGameState(currentLive).手机, batch.conversationId, batch.messageIds)) return 'sent';
+      const apiUnavailable = error instanceof Error && error.message === 'PHONE_REPLY_API_UNAVAILABLE';
       setCourierReplyErrors((previous) => ({
         ...previous,
-        [batch.conversationId]: error instanceof Error && error.message === 'PHONE_REPLY_API_UNAVAILABLE'
-          ? 'api_unavailable' : 'reply_failed',
+        [batch.conversationId]: apiUnavailable ? 'api_unavailable' : 'reply_failed',
       }));
+      // 失败结算中心（2026-09-29 第 5 项收尾）：手机回信是「不经队列、也只在自己的横幅里」的失败，
+      // 会话横幅会被切档/下次成功回信清掉，这里必须另留一条持久记录，并把重试入口一起注册。
+      const failureId = failureItemId('courier_reply', batch.conversationId);
+      reportFailure({
+        source: 'courier_reply',
+        reasonCode: apiUnavailable ? 'phone_reply_api_unavailable' : 'phone_reply_failed',
+        humanReason: apiUnavailable
+          ? '手机回信失败：手机或主模型 API 未配置。'
+          : '手机回信失败：消息已保留，可稍后重试。',
+        dedupeKey: batch.conversationId,
+        retryable: 'manual',
+        retryLabel: '重试回信',
+        turn: currentLive.turnCount,
+        ...(error instanceof Error && error.message
+          ? { diagnostic: { visibleTo: 'developer' as const, text: error.message } }
+          : {}),
+      });
+      registerFailureRetry(failureId, () => courierReplyQueue.retry(batch.conversationId));
       return 'retry';
     } finally {
       const currentLive = latestStateRef.current;

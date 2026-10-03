@@ -1,0 +1,369 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, createElement, useCallback, useReducer } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import type { 相册系统 } from '@/models/imageGeneration';
+import type { 角色数据结构 } from '@/models/character';
+import type { NPC记录 } from '@/models/npc';
+import { 创建空相册系统 } from '@/models/imageGeneration';
+import { 创建空角色 } from '@/models/character';
+import { 创建默认游戏设置 } from '@/models/settings';
+import { clearAlbumAssetObjectUrlCache } from '@/utils/albumObjectUrl';
+
+/**
+ * P1-B02：相册手动生图完成后**不得**把结果写进另一个存档。
+ *
+ * 复现（审查者用真实 handler 内存复现）：A 档启动手动生图 → 关闭相册/切到 B 档 →
+ * A 的请求完成 → 完成回调直接调用稳定 setter，写进「当前」根，也就是 B 档：
+ * B 拿到 A 的图片，却没有对应任务记录。
+ *
+ * 修复要求：任务记录绑定 session，提交前核对身份；旧任务结果留在原档任务区或丢弃，**不可写 B**。
+ * 本文件用真实 `AlbumPanel`（jsdom + react-dom/client）驱动真实 handler，
+ * 只把「服务端生图」与「AI 锚点提取」两处网络出口替换为可控的 deferred。
+ * 由于 props 是按「当前档」渲染的，异步回调必须比对启动时捕获的 session 才能知道该不该提交。
+ */
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const generateImageMock = vi.fn();
+const extractAnchorMock = vi.fn();
+
+vi.mock('@/services/ai/imageGeneration', () => ({
+  generateImage: (...args: unknown[]) => generateImageMock(...args),
+  buildNovelAIRequestPayload: () => ({}),
+}));
+vi.mock('@/services/ai/characterAnchorExtract', () => ({
+  extractCharacterAnchorWithAI: (...args: unknown[]) => extractAnchorMock(...args),
+}));
+
+const { AlbumPanel } = await import('@/components/features/GameSystems/AlbumPanel');
+
+const traveler = (): 角色数据结构 => ({ ...创建空角色(), id: 'traveler', 姓名: '云', 性别: '女', 图像档案: {} });
+
+const amber = (): NPC记录 => ({
+  id: 'npc_amber', 姓名: '安柏', 阶位: 'companion', 好感度: 0, 关系: 'stranger',
+  亲密关系: false, 同行: false, 初见回合: 1, 最近回合: 1, 性别: '女', 备注: [], 图像档案: {},
+} as NPC记录);
+
+const imageGameSettings = () => {
+  const settings = 创建默认游戏设置();
+  settings.文生图系统.enabled = true;
+  settings.文生图系统.普通接口 = {
+    ...settings.文生图系统.普通接口,
+    enabled: true,
+    baseUrl: 'https://image.example/v1',
+    apiKey: 'test-key',
+    model: 'image-model',
+    retryCount: 0,
+  };
+  return settings;
+};
+
+interface SessionSlot {
+  album: { current: 相册系统 };
+  traveler: { current: 角色数据结构 };
+  npcs: { current: NPC记录[] };
+}
+
+function newSlot(): SessionSlot {
+  return {
+    album: { current: 创建空相册系统() },
+    traveler: { current: traveler() },
+    npcs: { current: [amber()] },
+  };
+}
+
+/** 浅比较：生产里的 setter 在内容不变时也不会重渲染，测试宿主必须同样处理，否则自激循环。 */
+function isShallowEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  const leftKeys = Object.keys(left as Record<string, unknown>);
+  const rightKeys = Object.keys(right as Record<string, unknown>);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) =>
+    (left as Record<string, unknown>)[key] === (right as Record<string, unknown>)[key]);
+}
+
+/** 双档宿主：模仿 useGameState 的单根结构 —— 提交动作来自「启动时那一次渲染」的闭包。 */
+let sessionId = 1;
+let sessions: Record<number, SessionSlot> = { 1: newSlot(), 2: newSlot() };
+let bumpHostRender: () => void = () => undefined;
+
+function AlbumHost() {
+  const [, forceRender] = useReducer((tick: number) => tick + 1, 0);
+  bumpHostRender = forceRender;
+  const active = sessions[sessionId] ?? sessions[1]!;
+  const commit = useCallback((slot: { current: unknown }, action: unknown) => {
+    const previous = slot.current;
+    const next = typeof action === 'function'
+      ? (action as (value: unknown) => unknown)(previous)
+      : action;
+    if (next === previous || isShallowEqual(next, previous)) return;
+    slot.current = next;
+    forceRender();
+  }, []);
+  return createElement(AlbumPanel, {
+    album: active.album.current,
+    onAlbumChange: (action: unknown) => commit(active.album as { current: unknown }, action),
+    onTravelerChange: (action: unknown) => commit(active.traveler as { current: unknown }, action),
+    onNpcChange: (action: unknown) => commit(active.npcs as { current: unknown }, action),
+    traveler: active.traveler.current,
+    npcs: active.npcs.current,
+    apiSettings: {
+      activeConfigId: 'cfg_main',
+      configs: [{
+        id: 'cfg_main', name: '主模型', provider: 'openai', baseUrl: 'https://api.example/v1',
+        apiKey: 'test-key', model: 'test-model', maxTokens: 1024, temperature: 0.7,
+        retryCount: 0, updatedAt: 1,
+      }],
+    } as never,
+    gameSettings: imageGameSettings(),
+    onGameSettingsChange: () => undefined,
+    imageSettings: imageGameSettings().文生图系统,
+    nsfwEnabled: false,
+    nsfwImageEnabled: false,
+    mainChatHistory: [],
+    getGameSessionId: () => sessionId,
+  } as never);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => { resolve = res; });
+  return { promise, resolve };
+}
+
+function exactButton(label: string, classNameIncludes?: string): HTMLButtonElement {
+  const button = Array.from(document.querySelectorAll('button')).find((candidate) =>
+    candidate.textContent?.trim() === label
+    && (!classNameIncludes || candidate.className.includes(classNameIncludes)));
+  if (!(button instanceof HTMLButtonElement)) throw new Error(`找不到按钮：${label}`);
+  return button;
+}
+
+/**
+ * 打开「角色视觉」工作区。
+ *
+ * 子页签按钮的 `textContent` 是「序号 + 标题 + 说明」（`01角色视觉头像与立绘锚点`），
+ * 不能用整串相等匹配，只能按标题包含匹配。
+ */
+async function openAnchorWorkspace(): Promise<void> {
+  const anchorTab = Array.from(document.querySelectorAll('button'))
+    .find((candidate) => candidate.textContent?.includes('角色视觉'));
+  if (!anchorTab) throw new Error('找不到「角色视觉」页签');
+  await act(async () => { anchorTab.click(); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+}
+
+function selectByLabel(label: string): HTMLSelectElement {
+  const select = Array.from(document.querySelectorAll('label'))
+    .find((candidate) => candidate.textContent?.includes(label))
+    ?.querySelector('select');
+  if (!(select instanceof HTMLSelectElement)) throw new Error(`找不到下拉框：${label}`);
+  return select;
+}
+
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+  setter?.call(textarea, value);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+describe('B02 生图完成不得写进另一个存档', () => {
+  let host: HTMLDivElement | null = null;
+  let root: Root | null = null;
+  /** 本用例里还没结算的生图 deferred：afterEach 必须放行，否则模块级队列被永久占位。 */
+  let outstanding: { resolve: (value: { src: string }) => void } | null = null;
+
+  const renderHost = async () => {
+    if (!root) return;
+    await act(async () => { root!.render(createElement(AlbumHost)); });
+  };
+  const flush = async () => {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  };
+  /** 排空微任务 + 定时器，让真实队列把任务推到终态（轮询而不是固定次数，避免时序抖动）。 */
+  const settle = async (until?: () => boolean) => {
+    for (let index = 0; index < 20; index += 1) {
+      await act(async () => { await Promise.resolve(); });
+      await flush();
+      if (until && until()) return;
+    }
+  };
+  const switchToSession = async (next: number) => {
+    sessionId = next;
+    await renderHost();
+    await flush();
+  };
+
+  /**
+   * 渲染宿主放在用例体内（不是 beforeEach）：
+   * 异步 `act` 在 hook 里返回后其内部工作可能仍未排空，紧接着的 `root.render` 会被挂在
+   * 「前一个 act 仍在进行」的状态上，测试表现为完全静默的挂死。
+   */
+  const mountPanel = async () => {
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    await renderHost();
+  };
+
+  beforeEach(() => {
+    clearAlbumAssetObjectUrlCache();
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => `blob:mock-${Math.random().toString(36).slice(2)}`),
+      revokeObjectURL: vi.fn(),
+    });
+    generateImageMock.mockReset();
+    extractAnchorMock.mockReset();
+    sessionId = 1;
+    sessions = { 1: newSlot(), 2: newSlot() };
+  });
+
+  afterEach(async () => {
+    // 生图队列是模块级单例（并发 1）：用例里没结算的 deferred 会**永久占住**执行位，
+    // 让后续用例的任务永远停在 queued。所以先把它放行、排空队列，再卸载。
+    if (outstanding) {
+      outstanding.resolve({ src: 'data:image/png;base64,QU1CRVI=' });
+      outstanding = null;
+      if (root) await settle();
+    }
+    if (root) {
+      const mounted = root;
+      await act(async () => { mounted.unmount(); });
+    }
+    host?.remove();
+    root = null;
+    host = null;
+    // 先清缓存（需要 createObjectURL/revokeObjectURL 桩），再撤销全局桩。
+    clearAlbumAssetObjectUrlCache();
+    vi.unstubAllGlobals();
+  });
+
+  /** A 档里点「生成」：phase-1 立刻登记任务，然后等待可控的网络 deferred。 */
+  async function startGeneration() {
+    const pending = deferred<{ src: string }>();
+    outstanding = pending;
+    generateImageMock.mockImplementation(() => pending.promise);
+    const companion = selectByLabel('选择伙伴');
+    await act(async () => {
+      companion.value = 'npc_amber';
+      companion.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+    // 提示词编辑器默认折叠（`promptEditorOpen`），必须先打开才能拿到 rows=7 的正文提示词框。
+    await act(async () => { exactButton('高级提示词编辑').click(); });
+    const prompt = Array.from(document.querySelectorAll('textarea'))
+      .find((candidate) => candidate.getAttribute('rows') === '7' && !candidate.hasAttribute('placeholder'));
+    if (!(prompt instanceof HTMLTextAreaElement)) throw new Error('找不到提示词输入框');
+    await act(async () => { setTextareaValue(prompt, '安柏的骑士团头像'); });
+    await flush();
+    await act(async () => { exactButton('生成', 'min-h-[54px]').click(); });
+    await flush();
+    return pending;
+  }
+
+  it('phase-1：点击生成先把任务登记在当前档（修复前后的共同前置）', async () => {
+    await mountPanel();
+    await startGeneration();
+    expect(sessions[1]!.album.current.tasks).toHaveLength(1);
+    expect(sessions[1]!.album.current.tasks[0]?.targetId).toBe('npc_amber');
+  });
+
+  it('A 档启动生图后切到 B 档：完成结果不进入 B 档', async () => {
+    await mountPanel();
+    const pending = await startGeneration();
+    await switchToSession(2);
+
+    await act(async () => { pending.resolve({ src: 'data:image/png;base64,QU1CRVI=' }); });
+    await settle();
+
+    const albumB = sessions[2]!.album.current;
+    expect(albumB.entries).toHaveLength(0);
+    expect(albumB.assets).toHaveLength(0);
+    expect(albumB.tasks).toHaveLength(0);
+  });
+
+  it('同一 session 内照常写回（守卫不能把正常路径也挡掉）', async () => {
+    await mountPanel();
+    const pending = await startGeneration();
+
+    await act(async () => { pending.resolve({ src: 'data:image/png;base64,QU1CRVI=' }); });
+    await settle(() => sessions[1]!.album.current.tasks[0]?.status === 'success');
+
+    const albumA = sessions[1]!.album.current;
+    expect(albumA.tasks).toHaveLength(1);
+    expect(albumA.tasks[0]?.status).toBe('success');
+    expect(albumA.entries).toHaveLength(1);
+    expect(albumA.assets).toHaveLength(1);
+  });
+
+  it('切档后旧结果既不写新档，也不回到原档（不产生悬挂任务）', async () => {
+    await mountPanel();
+    const pending = await startGeneration();
+    await switchToSession(2);
+
+    await act(async () => { pending.resolve({ src: 'data:image/png;base64,QU1CRVI=' }); });
+    await settle();
+
+    expect(sessions[1]!.album.current.entries).toHaveLength(0);
+    expect(sessions[1]!.album.current.tasks.every((task) => task.status !== 'success')).toBe(true);
+    expect(sessions[2]!.album.current.entries).toHaveLength(0);
+    expect(sessions[2]!.album.current.assets).toHaveLength(0);
+  });
+
+  it('结果迟到跨越整档重开（另一个会话已读档）同样不写新档', async () => {
+    await mountPanel();
+    const pending = await startGeneration();
+    await switchToSession(2);
+    // 模拟「读档 / 新开局」：B 档已经有自己的相册内容。
+    sessions[2]!.album.current = {
+      ...创建空相册系统(),
+      entries: [{
+        id: 'album_b_own', assetId: 'asset_b_own', title: 'B 档自己的图', targetType: 'misc',
+        slot: 'misc', tags: [], nsfw: false, createdAt: 5, referenceTargets: [],
+      }],
+    };
+    await renderHost();
+
+    await act(async () => { pending.resolve({ src: 'data:image/png;base64,QU1CRVI=' }); });
+    await settle();
+
+    expect(sessions[2]!.album.current.entries.map((entry) => entry.id)).toEqual(['album_b_own']);
+    expect(sessions[2]!.album.current.tasks).toHaveLength(0);
+  });
+
+  it('异步旅行者锚点写回同样受 session 保护', async () => {
+    await mountPanel();
+    const pending = deferred<{ id: string; 名称: string }>();
+    extractAnchorMock.mockImplementation(() => pending.promise);
+    await openAnchorWorkspace();
+
+    await act(async () => { exactButton('主控锚点提取').click(); });
+    await switchToSession(2);
+
+    await act(async () => { pending.resolve({ id: 'anchor_late', 名称: '迟到的锚点' }); });
+    await settle();
+
+    expect(sessions[2]!.traveler.current.图像档案?.角色锚点).toBeUndefined();
+    expect(sessions[1]!.traveler.current.图像档案?.角色锚点).toBeUndefined();
+  });
+
+  it('同一 session 内异步旅行者锚点照常写回', async () => {
+    await mountPanel();
+    const pending = deferred<{ id: string; 名称: string }>();
+    extractAnchorMock.mockImplementation(() => pending.promise);
+    await openAnchorWorkspace();
+    await act(async () => { exactButton('主控锚点提取').click(); });
+
+    await act(async () => { pending.resolve({ id: 'anchor_now', 名称: '当场锚点' }); });
+    await settle();
+
+    expect(sessions[1]!.traveler.current.图像档案?.角色锚点?.名称).toBe('当场锚点');
+  });
+});
+
+
+
+

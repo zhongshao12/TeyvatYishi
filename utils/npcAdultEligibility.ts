@@ -1,4 +1,4 @@
-import { getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
+import { getAdultAgeEvidenceReason, getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
 import { matchCanonical } from '@/data/canonicalCharacters';
 
 export type NpcAdultAgeSource = 'canonical' | 'manual' | 'legacy_unverified';
@@ -29,6 +29,11 @@ export function resolveNpcAdultEligibility(input: NpcAdultEligibilityInput): { c
     return { confirmed: true, reason: '玩家明确确认成年' };
   }
   // 放宽：年龄未知（无未成年证据、不在受保护名单、不是机械/非人形）的角色同样放行。
-  // 年龄确认字段只作档案展示信息，不再是建档资格条件。
-  return { confirmed: true, reason: '未命中未成年证据、受保护名单与非人形闸，按放宽规则放行' };
+  // 但**「未检出未成年词」不等于可信成年证据**（B09）：只有描述里整词解析出 ≥ 18 的年龄，
+  // 才给出「明确成年年龄」的理由；否则理由如实写成年龄未知，不把放宽规则伪装成成年确认。
+  const adultAgeEvidence = getAdultAgeEvidenceReason(undefined, input.name, input.description ?? '');
+  if (adultAgeEvidence) {
+    return { confirmed: true, reason: adultAgeEvidence };
+  }
+  return { confirmed: true, reason: '未命中未成年证据、受保护名单与非人形闸：年龄未知，按放宽规则放行（不是可信成年证据）' };
 }

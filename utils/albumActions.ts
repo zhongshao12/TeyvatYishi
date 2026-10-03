@@ -117,12 +117,14 @@ export function 解析相册资源引用(album: 相册系统 | undefined, value:
     const asset = album?.assets.find((item) => item.id === assetId);
     return asset ? pickAssetDisplayUrl(asset) : undefined;
   }
-  // Legacy inline base64: try to migrate via album asset id if present.
+  // Legacy inline base64: migrate **only** into the asset that owns this exact
+  // content. 渲染解析是只读路径，绝不能按「随便某个已有缓存 URL 的资源」把
+  // 头像字节写进无关资源（P1-B01：无关图片的 Blob 被独立头像覆盖）。
   if (isDataImageUrl(trimmed) && album) {
-    const asset = album.assets.find((item) => item.dataUrl === trimmed || item.id && resolveAlbumAssetDisplayUrl(item.id));
-    if (asset?.id) {
-      rememberAlbumAssetFromDataUrl(asset.id, trimmed);
-      return resolveAlbumAssetDisplayUrl(asset.id) ?? trimmed;
+    const owner = album.assets.find((item) => item.dataUrl === trimmed);
+    if (owner?.id) {
+      rememberAlbumAssetFromDataUrl(owner.id, trimmed);
+      return resolveAlbumAssetDisplayUrl(owner.id) ?? trimmed;
     }
   }
   return trimmed;

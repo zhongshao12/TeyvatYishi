@@ -55,11 +55,101 @@ export function isProtectedCanonicalNpc(
  * 词表刻意收窄：**不能**用「少女 / 幼」这类词。
  * 实测原著库里 `少女` 出现在 **17/58** 个成年角色的外貌描述中（安柏、甘雨、刻晴…），
  * 用它当闸门会把她们全部误挡。只认明确表述：
- * - 未成年 / 未满N岁 / 儿童 / 孩童 / 幼童 / 幼儿 / 幼小 / 婴儿 / 襁褓 / 小学 / 初中 / 萝莉
- * - 数字年龄 1-17 岁（用 lookbehind 防止「18岁」被 `8岁` 命中）
- * - 中文年龄 一岁…十八岁
+ * - 未成年 / 未满N岁（N ≤ 18）/ 儿童 / 孩童 / 幼童 / 幼儿 / 幼小 / 婴儿 / 襁褓 / 小学 / 初中 / 萝莉
+ * - 整词解析的年龄表达式：`数字或中文数字 + 可选「周」+ 岁`，值 < 18 即未成年
+ *
+ * 2026-10-03（B09）修了两类错：
+ * 1. **漏掉「周岁」**：`17周岁`、`十七周岁` 此前完全不命中；
+ * 2. **子串误判**：`二十四岁`/`二十七岁` 因含 `十四`/`十七` 被判未成年，把二十多岁的角色挡在门外。
+ *    现在改为整词解析（正则从数字开始位置吞掉整个中文数词），不再做任意子串匹配。
  */
-const MINOR_AGE_EVIDENCE_RE = /(未成年|未满[十百千0-9]*[岁周]|未满成年|儿童|孩童|幼童|幼儿|幼小|婴儿|襁褓|小学|初中|萝莉|(?<!\d)(?:[1-9]|1[0-7])\s*岁|(?<![一二三四五六七八九十])[一二三四五六七八九十]岁|十[一二三四五六七]岁|(?:十二三|十三四|十四五|十五六|十六七|十七八)岁)/u;
+const MINOR_AGE_WORDING_RE = /(未成年|未满成年|儿童|孩童|幼童|幼儿|幼小|婴儿|襁褓|小学|初中|萝莉)/u;
+/** 「十二三岁」这类区间写法：整段都是未成年。 */
+const MINOR_AGE_RANGE_RE = /(?:十二三|十三四|十四五|十五六|十六七|十七八)周?岁/u;
+
+/** 中文数词（年龄用不到「万」以上）。 */
+const CHINESE_DIGITS: Readonly<Record<string, number>> = {
+  零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
+};
+const CHINESE_UNITS: Readonly<Record<string, number>> = { 十: 10, 百: 100, 千: 1000 };
+const CHINESE_NUMERAL_CLASS = '零〇一二两三四五六七八九十百千';
+/** 数字或中文数词 + 可选「周」 + 岁。数字串整体匹配，所以 `117岁` 不会退化成 `17岁`。 */
+const AGE_EXPRESSION_RE = new RegExp(
+  `(?:([0-9]{1,3})|([${CHINESE_NUMERAL_CLASS}]{1,6}))\\s*周?\\s*岁`,
+  'gu',
+);
+/** 「未满N岁」单独看：N ≤ 18 才算未成年（`未满二十岁` 可能是 19 岁的成年人，不能一律拦）。 */
+const UNDER_AGE_RE = new RegExp(
+  `未满\\s*(?:([0-9]{1,3})|([${CHINESE_NUMERAL_CLASS}]{1,6}))\\s*周?\\s*岁`,
+  'gu',
+);
+
+function parseChineseNumeral(text: string): number | null {
+  if (!text) return null;
+  let section = 0;
+  let digit = 0;
+  let sawAny = false;
+  for (const char of text) {
+    const value = CHINESE_DIGITS[char];
+    if (value !== undefined) {
+      digit = digit === 0 ? value : Math.max(digit, value);
+      sawAny = true;
+      continue;
+    }
+    const unit = CHINESE_UNITS[char];
+    if (unit === undefined) return null;
+    sawAny = true;
+    if (unit === 10) {
+      section += (digit || 1) * 10;
+    } else {
+      section = (section + (digit || 1)) * unit;
+    }
+    digit = 0;
+  }
+  return sawAny ? section + digit : null;
+}
+
+function readAgeValue(digits: string | undefined, chinese: string | undefined): number | null {
+  if (digits !== undefined) {
+    const value = Number(digits);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+  const value = parseChineseNumeral(chinese ?? '');
+  return value !== null && value > 0 ? value : null;
+}
+
+interface AgeExpression {
+  raw: string;
+  value: number;
+}
+
+/** 整词解析文本里的全部年龄表达式（`周岁` / `岁` 都算）。 */
+export function parseAgeExpressions(text: string): AgeExpression[] {
+  if (!text) return [];
+  const found: AgeExpression[] = [];
+  for (const match of text.matchAll(new RegExp(AGE_EXPRESSION_RE.source, 'gu'))) {
+    const value = readAgeValue(match[1], match[2]);
+    if (value === null) continue;
+    found.push({ raw: match[0], value });
+  }
+  return found;
+}
+
+/** 文本里是否含「未成年年龄证据」；命中则返回命中的原文片段。 */
+function findMinorAgeEvidence(text: string): string | null {
+  const wording = text.match(MINOR_AGE_WORDING_RE);
+  if (wording) return wording[0];
+  const range = text.match(MINOR_AGE_RANGE_RE);
+  if (range) return range[0];
+  for (const match of text.matchAll(new RegExp(UNDER_AGE_RE.source, 'gu'))) {
+    const value = readAgeValue(match[1], match[2]);
+    if (value !== null && value <= 18) return match[0];
+  }
+  const minor = parseAgeExpressions(text).find((age) => age.value < 18);
+  return minor ? minor.raw : null;
+}
+
+const MINOR_AGE_EVIDENCE_RE = MINOR_AGE_WORDING_RE;
 
 /**
  * 返回「未成年年龄证据」的原因；没有则为 null。
@@ -78,8 +168,39 @@ export function getMinorAgeEvidenceReason(
     subject?.备注?.join(' '),
     fallbackText,
   ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
-  const hit = texts.find((value) => MINOR_AGE_EVIDENCE_RE.test(value));
-  return hit ? `${displayName} 的描述里出现未成年年龄证据（${hit.trim().slice(0, 24)}），按未成年处理` : null;
+  for (const value of texts) {
+    const hit = findMinorAgeEvidence(value);
+    if (hit) return `${displayName} 的描述里出现未成年年龄证据（${hit.trim().slice(0, 24)}），按未成年处理`;
+  }
+  return null;
+}
+
+/**
+ * 返回「明确成年年龄证据」的理由；没有则为 null。
+ *
+ * 与「年龄未知」严格区分：只有整词解析出 ≥ 18 的年龄、且同一段文本里没有未成年证据时，
+ * 才给出这个理由。**未检出未成年词不等于成年已确认** —— 那种情况由调用方按放宽规则处理，
+ * 并在理由里如实写成「年龄未知」。
+ */
+export function getAdultAgeEvidenceReason(
+  subject: NsfwArchiveSubject,
+  fallbackName = '',
+  fallbackText = '',
+): string | null {
+  const displayName = subject?.姓名 || fallbackName || '目标';
+  const texts = [
+    ...identityTexts(subject, fallbackName),
+    subject?.介绍,
+    subject?.外貌,
+    subject?.备注?.join(' '),
+    fallbackText,
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  for (const value of texts) {
+    if (findMinorAgeEvidence(value)) continue;
+    const adult = parseAgeExpressions(value).find((age) => age.value >= 18);
+    if (adult) return `${displayName} 的描述里出现明确成年年龄（${adult.value} 岁）`;
+  }
+  return null;
 }
 
 export function getNsfwArchiveBlockReason(

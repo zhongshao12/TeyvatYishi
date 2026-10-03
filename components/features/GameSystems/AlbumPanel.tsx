@@ -65,7 +65,8 @@ import {
   importAlbumInWorker,
   type AlbumOperationProgress,
 } from './album/albumArchiveWorkerClient';
-import { addOrReuseAlbumImage, dataUrlToBytes, hydrateAlbumContentHashes, sha256Bytes } from './album/albumContent';
+import { addOrReuseAlbumImage, dataUrlToBytes, hydrateAlbumContentHashes, normalizeContentHash, sha256Bytes } from './album/albumContent';
+import { getLiveGameSessionId } from '@/hooks/useTeyvatRuntime';
 
 interface AlbumPanelProps {
   album: 相册系统;
@@ -81,6 +82,14 @@ interface AlbumPanelProps {
   nsfwEnabled: boolean;
   nsfwImageEnabled: boolean;
   mainChatHistory?: 聊天消息[];
+  /**
+   * 当前对局身份（`useGameState.getGameSessionId`）。
+   *
+   * 相册里所有异步动作（手动生图、AI 锚点提取、导入导出、参考图上传）在 await 之后
+   * 只能用「启动时那一次渲染」的 setter 提交；如果这段时间里玩家读档/开了新档，
+   * 那个 setter 会把旧档的结果写进**新档**（P1-B02）。提交前必须核对身份。
+   */
+  getGameSessionId?: () => number;
 }
 
 function setEntryReferenceTargets(entries: 相册条目[], entryId: string, characterId: string, enabled: boolean): 相册条目[] {
@@ -98,7 +107,28 @@ function setEntryReferenceTargets(entries: 相册条目[], entryId: string, char
   });
 }
 
-export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, npcs, onNpcChange, apiSettings, gameSettings, onGameSettingsChange, imageSettings, nsfwEnabled, nsfwImageEnabled, mainChatHistory = [] }: AlbumPanelProps) {
+/**
+ * 把 `hydrateAlbumContentHashes` 补出来的 `contentHash` 当作**增量**合并进当前相册。
+ *
+ * 为什么不让 hydrate 的结果直接当基准：hydrate 是一次异步遍历，期间玩家可能已经生成/删除图片，
+ * 直接用它替换整份相册就会回滚那些改动（P1-B03）。它唯一有用的产出就是「某资源缺的 hash」，
+ * 按 id 取回来补即可，条目集合始终以当前相册为准。
+ */
+function mergeHydratedContentHashes(
+  current: 相册系统,
+  hydratedHashes: ReadonlyMap<string, string | undefined>,
+): 相册系统 {
+  let changed = false;
+  const assets = current.assets.map((asset) => {
+    const hash = hydratedHashes.get(asset.id);
+    if (!hash || hash === asset.contentHash) return asset;
+    changed = true;
+    return { ...asset, contentHash: hash };
+  });
+  return changed ? { ...current, assets } : current;
+}
+
+export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, npcs, onNpcChange, apiSettings, gameSettings, onGameSettingsChange, imageSettings, nsfwEnabled, nsfwImageEnabled, mainChatHistory = [], getGameSessionId }: AlbumPanelProps) {
   const [activeTab, setActiveTab] = useState<WorkTab>('manual');
   const [showNsfw, setShowNsfw] = useState(false);
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
@@ -113,15 +143,67 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
   const [generateTitle, setGenerateTitle] = useState('');
   const [generating, setGenerating] = useState(false);
 
+  // ── 对局身份守卫（P1-B02）────────────────────────────────────────────────
+  // 相册里的异步动作跨越多次 await；期间玩家可能读档或开新档，而提交用的 setter 仍是
+  // 「启动时那一次渲染」的闭包，会直接写进新档。这里在提交前核对身份：
+  // 身份变了就丢弃本次提交（旧任务的结果既不写新档，也不回流到原档任务区）。
+  //
+  // 三个提交包装器必须是**引用稳定**的：`recoverAlbumTasks` 依赖它们，而它又是
+  // `useEffect`（挂载即恢复 + 30s 兜底）的依赖项；身份一变 effect 就重挂，
+  // 每次重挂都再提交一次 → 自激渲染循环。所以真正的 setter 走 ref 读取。
+  const readAlbumHandlerRef = useRef(onAlbumChange);
+  readAlbumHandlerRef.current = onAlbumChange;
+  const readTravelerHandlerRef = useRef(onTravelerChange);
+  readTravelerHandlerRef.current = onTravelerChange;
+  const readNpcHandlerRef = useRef(onNpcChange);
+  readNpcHandlerRef.current = onNpcChange;
+  const getGameSessionIdRef = useRef(getGameSessionId);
+  getGameSessionIdRef.current = getGameSessionId;
+  /** 始终指向最新一次渲染的相册：异步流程要在 await 之后读「现在」而不是闭包里的旧值。 */
+  const albumRef = useRef(album);
+  albumRef.current = album;
+  const 面板会话号 = useRef<number | null>(null);
+  if (面板会话号.current === null) {
+    面板会话号.current = getGameSessionId ? getGameSessionId() : (getLiveGameSessionId() ?? 0);
+  }
+  /** 本次会话身份是否仍与面板挂载时一致；不一致时禁止任何 setter 提交。 */
+  const 提交仍属于本会话 = (): boolean => {
+    const captured = 面板会话号.current;
+    if (captured === null) return true;
+    const live = getLiveGameSessionId();
+    if (live !== undefined) return live === captured;
+    const fromProps = getGameSessionIdRef.current;
+    return fromProps ? fromProps() === captured : true;
+  };
+  const 丢弃跨档提交 = () => {
+    setMessage('已切换存档，本次图片操作的结果未写入当前存档。');
+    return false;
+  };
+  const 提交相册 = useCallback((action: React.SetStateAction<相册系统>) => {
+    if (!提交仍属于本会话()) return 丢弃跨档提交();
+    readAlbumHandlerRef.current(action);
+    return true;
+  }, []);
+  const 提交旅人 = useCallback((action: React.SetStateAction<角色数据结构>) => {
+    if (!提交仍属于本会话()) return 丢弃跨档提交();
+    readTravelerHandlerRef.current(action);
+    return true;
+  }, []);
+  const 提交NPC列表 = useCallback((action: React.SetStateAction<NPC记录[]>) => {
+    if (!提交仍属于本会话()) return 丢弃跨档提交();
+    readNpcHandlerRef.current(action);
+    return true;
+  }, []);
+
   const recoverAlbumTasks = useCallback(() => {
-    onAlbumChange((prev) => {
+    提交相册((prev) => {
       const liveIds = new Set(globalImageTaskQueue.runningIds());
       return {
         ...prev,
         tasks: recoverInterruptedTasks(recoverStaleTasks(prev.tasks), liveIds),
       };
     });
-  }, [onAlbumChange]);
+  }, [提交相册]);
 
   useEffect(() => {
     globalImageTaskQueue.setConcurrency(imageSettings.并发数 ?? 1);
@@ -231,7 +313,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
   };
 
   const addAlbumItem = (item: ReturnType<typeof 创建相册图片条目>) => {
-    onAlbumChange((prev) => 添加图片到相册(prev, item));
+    提交相册((prev) => 添加图片到相册(prev, item));
     setActiveEntryId(item.entry.id);
     setActiveTab('gallery');
     setMessage('图片已加入相册。');
@@ -270,7 +352,16 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
       return;
     }
 
-    const preparedAlbum = await hydrateAlbumContentHashes(album);
+    // ── 准备阶段与提交阶段分离（P1-B03）──────────────────────────────────────
+    // 这里经历文件读取 + 两次摘要 + hydrate 一共多次 await。此前最终提交用的是
+    // **这段等待开始时的闭包旧相册**派生的整份对象，于是等待期间新增的生成图片、
+    // 删除操作都会被整份回滚（审查者实测：新增图片在上传结束后消失）。
+    // 现在只准备「要加的那一条」与 hydrate 出来的 hash 增量，最终合并放进函数式更新里，
+    // 以**当前**相册为基准（`setAlbum(prev => ...)`）。
+    const preparedAlbum = await hydrateAlbumContentHashes(albumRef.current);
+    const hydratedHashes = new Map(
+      preparedAlbum.assets.map((asset) => [asset.id, normalizeContentHash(asset.contentHash)]),
+    );
     const item = 创建相册图片条目({
       title: `${record.name} 参考图`,
       src,
@@ -284,19 +375,26 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
       note: '手动上传参考图',
       referenceTargets: [record.id],
     });
-    const upserted = addOrReuseAlbumImage(preparedAlbum, item, contentHash, src);
-    onAlbumChange({
-      ...upserted.album,
-      entries: setEntryReferenceTargets(upserted.album.entries, upserted.entry.id, record.id, true),
+    // 复用判定按「现在」的相册预览一次，只用于提示文案与选中项；真正的写入仍是函数式合并。
+    const preview = addOrReuseAlbumImage(albumRef.current, item, contentHash, src);
+    提交相册((prev) => {
+      // hydrate 只补 contentHash（不改条目集合），所以把它当作增量合并进当前相册，
+      // 既保留去重能力，又不会覆盖等待期间发生的其它改动。
+      const base = mergeHydratedContentHashes(prev, hydratedHashes);
+      const upserted = addOrReuseAlbumImage(base, item, contentHash, src);
+      return {
+        ...upserted.album,
+        entries: setEntryReferenceTargets(upserted.album.entries, upserted.entry.id, record.id, true),
+      };
     });
-    setActiveEntryId(upserted.entry.id);
-    setMessage(upserted.reused
+    setActiveEntryId(preview.entry.id);
+    setMessage(preview.reused
       ? `已复用图库中的相同图片并设为 ${record.name} 的参考图。`
       : `已导入并替换 ${record.name} 的参考图。`);
   };
 
   const setEntryReference = (entryId: string, record: CharacterLibraryRecord, enabled: boolean) => {
-    onAlbumChange((prev) => ({
+    提交相册((prev) => ({
       ...prev,
       entries: setEntryReferenceTargets(prev.entries, entryId, record.id, enabled),
     }));
@@ -482,7 +580,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
       novelAIOverrides: override?.novelAIOverrides,
     });
     setLastTaskId(task.id);
-    onAlbumChange((prev) => ({ ...prev, tasks: [{ ...task, status: 'queued' }, ...prev.tasks] }));
+    提交相册((prev) => ({ ...prev, tasks: [{ ...task, status: 'queued' }, ...prev.tasks] }));
     setGenerating(true);
     setMessage(override?.statusMessage || (nsfw ? '正在调用 NSFW 独立接口...' : '正在调用文生图接口...'));
     try {
@@ -501,7 +599,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
         {
           maxRetries: api.retryCount,
           onAttempt: (attempt, total) => {
-            onAlbumChange((prev) => ({
+            提交相册((prev) => ({
               ...prev,
               tasks: prev.tasks.map((old) =>
                 old.id === task.id
@@ -514,7 +612,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
               : (total > 1 ? `正在生成图片（${attempt}/${total}）...` : '正在生成图片...'));
           },
           onRetry: (attempt, total, errorMessage) => {
-            onAlbumChange((prev) => ({
+            提交相册((prev) => ({
               ...prev,
               tasks: prev.tasks.map((old) =>
                 old.id === task.id
@@ -554,7 +652,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
         tags: entryTags,
         note: entryNote,
       });
-      onAlbumChange((prev) => ({
+      提交相册((prev) => ({
         ...添加图片到相册(prev, item),
         tasks: prev.tasks.map((old) => old.id === task.id ? { ...old, status: 'success', resultAssetId: item.asset.id, finishedAt: Date.now() } : old),
       }));
@@ -562,7 +660,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
       setMessage('图片已生成并加入相册。');
     } catch (err) {
       const error = readImageError(err);
-      onAlbumChange((prev) => ({
+      提交相册((prev) => ({
         ...prev,
         tasks: prev.tasks.map((old) => old.id === task.id ? { ...old, status: 'failed', error, finishedAt: Date.now() } : old),
       }));
@@ -574,7 +672,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
 
   const handleCancelTask = (taskId: string) => {
     globalImageTaskQueue.cancel(taskId);
-    onAlbumChange((prev) => ({
+    提交相册((prev) => ({
       ...prev,
       tasks: prev.tasks.map((item) =>
         item.id === taskId
@@ -621,15 +719,15 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
     const mountedSrc = entry ? 创建相册资源引用(entry.assetId) : params.src;
     if (params.targetKind === 'traveler') {
       if (params.slot === 'portrait') {
-        onTravelerChange((prev) => 挂载旅人图片(prev, { slot: '立绘', src: mountedSrc }));
+        提交旅人((prev) => 挂载旅人图片(prev, { slot: '立绘', src: mountedSrc }));
       } else if (params.slot.toString().startsWith('nsfw_')) {
         setMessage('旅人档案暂不支持挂载 NSFW 部位图。');
         return;
       } else {
-        onTravelerChange((prev) => 挂载旅人图片(prev, { slot: mapImageSlotToTravelerSlot(params.slot), src: mountedSrc }));
+        提交旅人((prev) => 挂载旅人图片(prev, { slot: mapImageSlotToTravelerSlot(params.slot), src: mountedSrc }));
       }
       if (entry) {
-        onAlbumChange((prev) => ({
+        提交相册((prev) => ({
           ...prev,
           entries: prev.entries.map((item) =>
             item.id === params.entryId
@@ -647,11 +745,11 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
       return;
     }
     if (params.slot === 'portrait') {
-      onNpcChange((prev) => 挂载NPC立绘图片(prev, { npcId: params.targetId, src: mountedSrc, source: sourceLabel }));
+      提交NPC列表((prev) => 挂载NPC立绘图片(prev, { npcId: params.targetId, src: mountedSrc, source: sourceLabel }));
     } else if (params.slot === 'nsfw_female_chest') {
-      onNpcChange((prev) => 挂载NPC_NSFW部位图片(prev, { npcId: params.targetId, slot: '女性胸部', src: mountedSrc }));
+      提交NPC列表((prev) => 挂载NPC_NSFW部位图片(prev, { npcId: params.targetId, slot: '女性胸部', src: mountedSrc }));
     } else if (params.slot === 'nsfw_female_genital') {
-      onNpcChange((prev) => 挂载NPC_NSFW部位图片(prev, { npcId: params.targetId, slot: '女性私处', src: mountedSrc }));
+      提交NPC列表((prev) => 挂载NPC_NSFW部位图片(prev, { npcId: params.targetId, slot: '女性私处', src: mountedSrc }));
     } else if (params.slot === 'nsfw_male_genital') {
       if (!gameSettings.enableMaleNsfwArchive) {
         setMessage('男性 NSFW 档案未开启，不能挂载男性器部位图。');
@@ -662,16 +760,16 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
         setMessage('女角色的 NSFW 档案不挂载男性器部位图。');
         return;
       }
-      onNpcChange((prev) => 挂载NPC_NSFW部位图片(prev, { npcId: params.targetId, slot: '男性器', src: mountedSrc }));
+      提交NPC列表((prev) => 挂载NPC_NSFW部位图片(prev, { npcId: params.targetId, slot: '男性器', src: mountedSrc }));
     } else if (params.slot === 'nsfw_rear') {
-      onNpcChange((prev) => 挂载NPC_NSFW部位图片(prev, { npcId: params.targetId, slot: '后庭', src: mountedSrc }));
+      提交NPC列表((prev) => 挂载NPC_NSFW部位图片(prev, { npcId: params.targetId, slot: '后庭', src: mountedSrc }));
     } else if (params.slot === 'nsfw_body_reference') {
-      onNpcChange((prev) => 挂载NPC_NSFW部位图片(prev, { npcId: params.targetId, slot: '体态参考', src: mountedSrc }));
+      提交NPC列表((prev) => 挂载NPC_NSFW部位图片(prev, { npcId: params.targetId, slot: '体态参考', src: mountedSrc }));
     } else {
-      onNpcChange((prev) => 挂载NPC头像图片(prev, { npcId: params.targetId, slot: mapImageSlotToNpcAvatarSlot(params.slot), src: mountedSrc, source: sourceLabel }));
+      提交NPC列表((prev) => 挂载NPC头像图片(prev, { npcId: params.targetId, slot: mapImageSlotToNpcAvatarSlot(params.slot), src: mountedSrc, source: sourceLabel }));
     }
     if (entry) {
-      onAlbumChange((prev) => ({
+      提交相册((prev) => ({
         ...prev,
         entries: prev.entries.map((item) =>
           item.id === params.entryId
@@ -705,7 +803,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
     const idSet = new Set(ids);
     setMessage(`正在删除 ${ids.length} 张图片…`);
     startAlbumUpdate(() => {
-      onAlbumChange((prev) => cleanupAlbumAssets({
+      提交相册((prev) => cleanupAlbumAssets({
         ...prev,
         entries: prev.entries.filter((entry) => !idSet.has(entry.id)),
       }));
@@ -758,7 +856,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
   };
 
   const saveNpcAnchor = (npcId: string, patch: NonNullable<NPC记录['图像档案']>['角色锚点']) => {
-    onNpcChange((prev) => prev.map((npc) => {
+    提交NPC列表((prev) => prev.map((npc) => {
       if (npc.id !== npcId) return npc;
       return {
         ...npc,
@@ -780,7 +878,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
   };
 
   const deleteNpcAnchor = (npcId: string) => {
-    onNpcChange((prev) => prev.map((npc) => {
+    提交NPC列表((prev) => prev.map((npc) => {
       if (npc.id !== npcId) return npc;
       return {
         ...npc,
@@ -820,7 +918,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
   };
 
   const saveTravelerAnchor = (patch: NPC角色锚点档案 | undefined) => {
-    onTravelerChange((prev) => ({
+    提交旅人((prev) => ({
       ...prev,
       图像档案: {
         ...(prev.图像档案 ?? {}),
@@ -839,7 +937,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
   };
 
   const deleteTravelerAnchor = () => {
-    onTravelerChange((prev) => ({
+    提交旅人((prev) => ({
       ...prev,
       图像档案: {
         ...(prev.图像档案 ?? {}),
@@ -1258,7 +1356,9 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
                     setMessage(albumOperationStageLabel(progress));
                   } }).then((result) => {
                     if (!result) return;
-                    startAlbumUpdate(() => onAlbumChange(result.album));
+                    // 归档导入同样是多次 await 之后提交：沿用同一 session 守卫，
+                    // 切档后不再把旧档的导入结果写进新档。
+                    startAlbumUpdate(() => { 提交相册(result.album); });
                     const stats = result.stats;
                     setMessage(mode === 'replace'
                       ? `相册已覆盖恢复：${stats.addedAssets} 个资源，${stats.addedEntries} 个条目。`
@@ -1495,3 +1595,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
     </div>
   );
 }
+
+
+
+

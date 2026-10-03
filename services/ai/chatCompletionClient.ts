@@ -59,6 +59,7 @@ export interface ChatCompletionRequest {
   purpose?: RequestPurpose;
   signal?: AbortSignal;
   onUsage?: (usage: ChatCompletionUsage) => void;
+  onRequestPhase?: (phase: 'connecting' | 'receiving') => void;
   /** DeepSeek beta prefix completion. Only the DeepSeek branch reads this flag. */
   prefixMode?: boolean;
   /** Assistant prefill used when prefixMode is true. */
@@ -736,7 +737,7 @@ async function fetchWithApiErrorReport(
   source: string,
   url: string,
   requestMode: 'stream' | 'non-stream' | 'models' | 'test' | 'unknown',
-  init: RequestInit,
+  init: RequestInit & { onRequestPhase?: ChatCompletionRequest['onRequestPhase'] },
 ): Promise<Response> {
   const upstreamSignal = init.signal ?? undefined;
   // 已取消的请求绝不能发出：否则用户点了停止，付费请求仍然上线。
@@ -744,8 +745,12 @@ async function fetchWithApiErrorReport(
     throw upstreamSignal.reason ?? new DOMException('请求已取消。', 'AbortError');
   }
   const lifecycle = createFetchLifecycle(upstreamSignal ?? undefined);
+  const { onRequestPhase, ...fetchInit } = init;
+  const phase = (value: 'connecting' | 'receiving') => { try { onRequestPhase?.(value); } catch { /* diagnostic observer only */ } };
   try {
-    const response = await fetch(url, { ...init, signal: lifecycle.controller.signal });
+    phase('connecting');
+    const response = await fetch(url, { ...fetchInit, signal: lifecycle.controller.signal });
+    phase('receiving');
     // 响应头已到：结束响应头超时，但保留上层取消转发直到正文读完。
     lifecycle.clearHeaderTimeout();
     return response;
@@ -1173,6 +1178,7 @@ async function streamOpenAICompatible(
         },
     body,
     signal: request.signal,
+    onRequestPhase: request.onRequestPhase,
   });
 
   if (!response.ok) {
@@ -1238,6 +1244,7 @@ async function streamClaude(
     headers: claudeHeaders(config),
     body,
     signal: request.signal,
+    onRequestPhase: request.onRequestPhase,
   });
 
   if (!response.ok) {
@@ -1311,6 +1318,7 @@ async function completionClaudeNonStream(
     headers: claudeHeaders(config),
     body: JSON.stringify(buildClaudeRequestBody(config, messages, request, false)),
     signal: request.signal,
+    onRequestPhase: request.onRequestPhase,
   });
 
   if (!response.ok) {
@@ -1495,6 +1503,7 @@ async function streamOpenCodeChat(
     headers: { 'Content-Type': 'application/json' },
     body: buildOpenCodeProxyBody(config, endpoint, requestBody, true),
     signal: request.signal,
+    onRequestPhase: request.onRequestPhase,
   });
 
   if (!response.ok) {
@@ -1555,6 +1564,7 @@ async function streamOpenCodeMessages(
     headers: { 'Content-Type': 'application/json' },
     body: buildOpenCodeProxyBody(config, endpoint, buildClaudeRequestBody(config, messages, request, true), true),
     signal: request.signal,
+    onRequestPhase: request.onRequestPhase,
   });
 
   if (!response.ok) {
@@ -1628,6 +1638,7 @@ async function streamOpenCodeResponses(
     headers: { 'Content-Type': 'application/json' },
     body: buildOpenCodeProxyBody(config, endpoint, buildOpenCodeResponsesBody(config, messages, request, true), true),
     signal: request.signal,
+    onRequestPhase: request.onRequestPhase,
   });
 
   if (!response.ok) {
@@ -1685,6 +1696,7 @@ async function streamOpenCodeGemini(
     headers: { 'Content-Type': 'application/json' },
     body: buildOpenCodeProxyBody(config, endpoint, buildOpenCodeGeminiBody(config, messages, request), true),
     signal: request.signal,
+    onRequestPhase: request.onRequestPhase,
   });
 
   if (!response.ok) {
@@ -1744,6 +1756,7 @@ async function completionOpenCodeNonStream(
       headers: { 'Content-Type': 'application/json' },
       body: buildOpenCodeProxyBody(normalized, endpoint, buildOpenAICompatibleRequestBody(normalized, messages, request, false), false),
       signal: request.signal,
+      onRequestPhase: request.onRequestPhase,
     });
     if (!response.ok) {
       const text = await readResponseBody(response, request.signal);
@@ -1769,6 +1782,7 @@ async function completionOpenCodeNonStream(
       headers: { 'Content-Type': 'application/json' },
       body: buildOpenCodeProxyBody(normalized, endpoint, buildClaudeRequestBody(normalized, messages, request, false), false),
       signal: request.signal,
+      onRequestPhase: request.onRequestPhase,
     });
     if (!response.ok) {
       const text = await readResponseBody(response, request.signal);
@@ -1794,6 +1808,7 @@ async function completionOpenCodeNonStream(
       headers: { 'Content-Type': 'application/json' },
       body: buildOpenCodeProxyBody(normalized, endpoint, buildOpenCodeGeminiBody(normalized, messages, request), false),
       signal: request.signal,
+      onRequestPhase: request.onRequestPhase,
     });
     if (!response.ok) {
       const text = await readResponseBody(response, request.signal);
@@ -1818,6 +1833,7 @@ async function completionOpenCodeNonStream(
     headers: { 'Content-Type': 'application/json' },
     body: buildOpenCodeProxyBody(normalized, endpoint, buildOpenCodeResponsesBody(normalized, messages, request, false), false),
     signal: request.signal,
+    onRequestPhase: request.onRequestPhase,
   });
   if (!response.ok) {
     const text = await readResponseBody(response, request.signal);
@@ -1888,6 +1904,7 @@ async function streamGemini(
     },
     body: JSON.stringify(bodyObj),
     signal: request.signal,
+    onRequestPhase: request.onRequestPhase,
   });
 
   if (!response.ok) {
@@ -1999,6 +2016,7 @@ async function chatCompletionNonStreamOnce(
       headers: buildMimoAuthHeaders(config.apiKey),
       body: JSON.stringify(requestBody),
       signal: request.signal,
+      onRequestPhase: request.onRequestPhase,
     });
 
     if (!response.ok) {
@@ -2069,6 +2087,7 @@ async function chatCompletionNonStreamOnce(
         ? buildPioneerProxyBody(deepSeekPayload.config, requestBody)
         : JSON.stringify(requestBody),
     signal: request.signal,
+    onRequestPhase: request.onRequestPhase,
   });
 
   if (!response.ok) {

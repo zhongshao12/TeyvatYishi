@@ -110,20 +110,29 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
         if (!entry.pendingIds.length && !entry.failedIds.length) {
           clearTimer(entry);
           pending.delete(conversationId);
-        } else if (!autoIds(entry).length && !entry.ready) {
+        } else if (!autoIds(entry).length) {
           // 只剩等待手动重试的失败批次：不再自动重发（契约：模型失败不自动重试）。
           clearTimer(entry);
+          entry.ready = false;
+        } else if (!entry.ready && entry.timer === undefined) {
+          // 还有新消息、但既没被标记 ready 也没有挂着的计时器（例如上一次失败把它清掉了）
+          // → 必须重新挂窗口，否则这条消息永远不会再被派发（B15）。
+          schedule(conversationId, entry);
         }
-        // 仍有新消息时**不重新计时**：它可能已被等待窗标记为 ready，
-        // 交给末尾的 pump 立刻派发（与既有「飞行中新消息」行为一致）。
       } else {
         // 把本次的 id 放回队首。
         entry.pendingIds = [...messageIds, ...entry.pendingIds];
         if (result === 'retry') {
           entry.failedIds = [...new Set([...entry.failedIds, ...messageIds])];
           entry.retryRequested = false;
-          clearTimer(entry);
-          entry.ready = false;
+          // 只把**这一批**标成待手动重试；期间新到达的消息保留自己的调度窗口。
+          // （B15：旧实现无条件 clearTimer + ready=false，把 p2 已到期的调度一起清掉，
+          //  于是「重试 p1 之后 p2 仍不发」。）
+          if (autoIds(entry).length) schedule(conversationId, entry);
+          else {
+            clearTimer(entry);
+            entry.ready = false;
+          }
         } else {
           // 'defer' = 认领被占用这类**瞬时**冲突：不记为失败，保持本次意图（自动批或玩家手动重试），
           // 500 毫秒后按原节奏自动再试。

@@ -64,7 +64,28 @@ function formatWallTime(timestamp: number): string {
 
 export const CourierModal = memo(function CourierModal({ courier, album, npcRecords = [], travelerName, travelerAvatar, currentTurn = 0, worldMoment, onCourierChange, onRequestReply, replyErrorByConversationId, onRetryReply, getGameSessionId, onRequestMomentComments, canGenerateMomentComments = false, onClose }: CourierModalProps) {
   const [selectedId, setSelectedId] = useState(courier.conversations[0]?.id ?? '');
-  const [draft, setDraft] = useState('');
+  // U02（PROJECT_AUDIT_2026-10-03）：草稿按**会话**隔离 —— 旧实现只有一个 draft，
+  // 切到别的会话再切回来时草稿内容会跟着走，容易发错人。这里按 conversationId 暂存，
+  // 并跟随游戏 session 重置（换存档不把旧草稿带进新档）。
+  const draftSessionId = typeof getGameSessionId === 'function' ? getGameSessionId() : null;
+  const [draftState, setDraftState] = useState<{ sessionId: number | null; drafts: Record<string, string> }>({
+    sessionId: null,
+    drafts: {},
+  });
+  // 注意：`selected` 在下面才派生，这里只能用更早声明的 `selectedId`。
+  const draftKey = selectedId ?? '';
+  const drafts = draftState.sessionId === draftSessionId ? draftState.drafts : {};
+  const draft = drafts[draftKey] ?? '';
+  const setDraft = (update: string | ((previous: string) => string)) => {
+    setDraftState((previous) => {
+      const sameSession = previous.sessionId === draftSessionId;
+      const base = sameSession ? previous.drafts : {};
+      const current = base[draftKey] ?? '';
+      const next = typeof update === 'function' ? update(current) : update;
+      if (next === current && sameSession) return previous;
+      return { sessionId: draftSessionId, drafts: { ...base, [draftKey]: next } };
+    });
+  };
   const [filter, setFilter] = useState<ConversationFilter>('all');
   const [mobileView, setMobileView] = useState<MobileView>('list');
   const [phoneSection, setPhoneSection] = useState<'chats' | 'moments'>('chats');
@@ -182,10 +203,44 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
   const contactIdForParticipant = (participantId: string): string | undefined =>
     contactByParticipantId.get(participantId)?.id;
 
+  // U03（PROJECT_AUDIT_2026-10-03）：阅读历史时不要被新消息拉回底部。
+  // 旧实现是「selected 一变就 scrollIntoView」——玩家往上翻旧消息时，新消息一进来就被拽回底部。
+  // 现在：原本贴底才跟随；向上阅读时保留位置，并显示「有 N 条新消息」按钮。
+  const messageScrollRef = useRef<HTMLDivElement | null>(null);
+  const [messageCountAtBottom, setMessageCountAtBottom] = useState(0);
+  const followBottomRef = useRef(true);
+  const selectedMessageCount = selected?.messages.length ?? 0;
+  const pendingNewMessages = followBottomRef.current ? 0 : Math.max(0, selectedMessageCount - messageCountAtBottom);
+  const handleMessageScroll = useCallback(() => {
+    const container = messageScrollRef.current;
+    if (!container) return;
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 48;
+    followBottomRef.current = nearBottom;
+    if (nearBottom) setMessageCountAtBottom(selectedMessageCount);
+  }, [selectedMessageCount]);
+  const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const container = messageScrollRef.current;
+    if (!container) return;
+    followBottomRef.current = true;
+    setMessageCountAtBottom(selectedMessageCount);
+    container.scrollTo?.({ top: container.scrollHeight, behavior });
+  }, [selectedMessageCount]);
+
+  useLayoutEffect(() => {
+    setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
+    // 切换会话/进入聊天：这是玩家主动进入，仍然跳到最新。
+    followBottomRef.current = true;
+    setMessageCountAtBottom(selected?.messages.length ?? 0);
+  }, [selected?.id]);
+
   useLayoutEffect(() => {
     if (!selected || mobileView !== 'chat') return;
-    messageBottomRef.current?.scrollIntoView({ block: 'end' });
-  }, [selected, mobileView]);
+    // 玩家正在向上阅读时不打断；只在贴底时跟随新消息。
+    if (followBottomRef.current) {
+      messageBottomRef.current?.scrollIntoView({ block: 'end' });
+      setMessageCountAtBottom(selected.messages.length);
+    }
+  }, [selected, mobileView, selected?.messages.length]);
 
   const commit = (update: CourierSystem | ((previous: CourierSystem) => CourierSystem)) => {
     onCourierChange((previous) => {
@@ -201,11 +256,21 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
     }));
   };
 
-  // 打开会话即已读（未读为 0 时不动状态，避免无谓的提交）。
+  // 打开会话即已读 —— 但仅当**这段会话真的显示在屏幕上**（B16，PROJECT_AUDIT_2026-10-03）：
+  // 旧实现只看 `selected`，于是「停留在手机列表页」「停留在朋友圈」「所选会话被过滤掉」时
+  // 也会把它标成已读，玩家回来时红点已经没了。
+  const chatSurfaceVisible = phoneSection === 'chats' && (
+    mobileView === 'chat'
+    // ≥ sm 时聊天主栏始终可见（见下面的 `hidden sm:flex`），列表与聊天同时显示。
+    || (typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(min-width: 640px)').matches
+      : false)
+  );
+  const selectedIsVisible = Boolean(selected && visibleConversations.some((conversation) => conversation.id === selected.id));
   useEffect(() => {
-    if (selected?.unread) markConversationRead(selected.id);
+    if (chatSurfaceVisible && selectedIsVisible && selected?.unread) markConversationRead(selected.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id, selected?.unread]);
+  }, [selected?.id, selected?.unread, chatSurfaceVisible, selectedIsVisible]);
 
   const eligibleNpcContacts = useMemo(() => {
     const knownNpcIds = new Set(courier.contacts.flatMap((contact) => contact.npcId?.trim() || []));
@@ -556,9 +621,24 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
             conversationWallpaper={conversationWallpaper}
             contactNameById={contactNameById}
             messageBottomRef={messageBottomRef}
+            scrollContainerRef={messageScrollRef}
+            onScroll={handleMessageScroll}
             resolveSenderAvatar={resolveSenderAvatar}
             onShowEarlier={handleShowEarlierMessages}
           />
+
+          {pendingNewMessages > 0 && (
+            <div className="flex justify-center px-3 pb-1">
+              <button
+                type="button"
+                className="min-h-11 rounded-full px-4 text-xs underline"
+                style={{ background: 'rgba(var(--tj-accent-primary),0.14)', color: 'rgb(var(--tj-text-primary))' }}
+                onClick={() => scrollMessagesToBottom('smooth')}
+              >
+                有 {pendingNewMessages} 条新消息 ↓
+              </button>
+            </div>
+          )}
 
           {selected && replyErrorByConversationId?.[selected.id] && (
             <div role="alert" className="mx-3 flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs" style={{ color: ink(0.92), background: 'rgba(160,63,52,0.12)', clipPath: CLIP_ITEM }}>

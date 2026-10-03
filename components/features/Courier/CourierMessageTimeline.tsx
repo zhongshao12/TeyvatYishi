@@ -10,6 +10,9 @@ interface CourierMessageTimelineProps {
   conversationWallpaper?: string;
   contactNameById: ReadonlyMap<string, string>;
   messageBottomRef: RefObject<HTMLDivElement | null>;
+  /** U03（PROJECT_AUDIT_2026-10-03）：滚动容器句柄与滚动回调，供「阅读历史不被打断」使用。 */
+  scrollContainerRef?: RefObject<HTMLDivElement | null>;
+  onScroll?: () => void;
   resolveSenderAvatar: (message: CourierMessage) => string | undefined;
   onShowEarlier: () => void;
 }
@@ -76,11 +79,15 @@ export const CourierMessageTimeline = memo(function CourierMessageTimeline({
   conversationWallpaper,
   contactNameById,
   messageBottomRef,
+  scrollContainerRef,
+  onScroll,
   resolveSenderAvatar,
   onShowEarlier,
 }: CourierMessageTimelineProps) {
   return (
     <div
+      ref={scrollContainerRef}
+      onScroll={onScroll}
       data-testid="phone-message-timeline"
       className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
       style={conversationWallpaper ? {

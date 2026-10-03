@@ -105,12 +105,15 @@ const multiMemberCourier: CourierSystem = {
  */
 it('keeps the other members replies when one group member fails', async () => {
   let calls = 0;
+  /** 成员顺序由 `selectGroupReplyMembers` 的稳定打乱决定，所以记下实际被调用的人再断言。 */
+  const askedNames: string[] = [];
   const result = await runCourierReplyPass({
     courier: multiMemberCourier, npcs: [], letterApiConfig: config, turn: 2,
     replyBatch: { conversationId: 'group-of-three', messageIds: ['q1'] },
     fallbackPolicy: 'error',
-    groupReplyGenerator: async () => {
+    groupReplyGenerator: async (_config, context) => {
       calls += 1;
+      askedNames.push(context.sender?.name?.trim() || `member${calls}`);
       if (calls === 2) throw new Error('MODEL_DOWN');
       return '收到。';
     },
@@ -119,6 +122,8 @@ it('keeps the other members replies when one group member fails', async () => {
   expect(result.replied).toBe(1);
   expect(replies).toHaveLength(2);
   expect(replies.every((message) => message.content === '收到。')).toBe(true);
+  // U04（PROJECT_AUDIT_2026-10-03）：部分成功必须报出「谁没回」，否则玩家会以为角色故意不理人。
+  expect(result.failedMemberNames ?? [])!.toEqual([askedNames[1]]);
   // 输入对象不得被就地修改（其它调用方仍持有同一份快照）。
   expect(multiMemberCourier.conversations[0]?.messages).toHaveLength(1);
 });

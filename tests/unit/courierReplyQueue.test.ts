@@ -106,6 +106,37 @@ it('still auto-dispatches new messages after a failed batch, and retry only rese
   queue.dispose();
 });
 
+/**
+ * B15（PROJECT_AUDIT_2026-10-03）：p1 在途时发 p2，p1 失败会清掉 p2 已到期的调度；
+ * 手动重试 p1 之后 p2 仍然不发。修法：失败只把**这一批**标成待手动重试，
+ * 期间新到达的消息保留自己的调度窗口。
+ */
+it('keeps a newly sent message scheduled when an earlier batch fails, and still sends it after a manual retry', async () => {
+  vi.useFakeTimers();
+  const dispatched: string[][] = [];
+  let finishFirst: ((result: CourierReplyDispatchResult) => void) | undefined;
+  const first = new Promise<CourierReplyDispatchResult>((resolve) => { finishFirst = resolve; });
+  const queue = createCourierReplyQueue({
+    getSessionId: () => 7,
+    dispatch: (batch) => {
+      dispatched.push(batch.messageIds);
+      return dispatched.length === 1 ? first : Promise.resolve('sent');
+    },
+  });
+  queue.enqueue({ conversationId: 'amber', messageId: 'p1', sessionId: 7 });
+  await vi.advanceTimersByTimeAsync(500);
+  queue.enqueue({ conversationId: 'amber', messageId: 'p2', sessionId: 7 });
+  await vi.advanceTimersByTimeAsync(500);
+  expect(dispatched).toEqual([['p1']]);
+  finishFirst?.('retry');
+  await vi.advanceTimersByTimeAsync(500);
+  expect(dispatched).toEqual([['p1'], ['p2']]);
+  queue.retry('amber');
+  await vi.advanceTimersByTimeAsync(0);
+  expect(dispatched).toEqual([['p1'], ['p2'], ['p1']]);
+  queue.dispose();
+});
+
 it('discards old-session timers and never starts a disposed queue', async () => {
   vi.useFakeTimers();
   let sessionId = 7;

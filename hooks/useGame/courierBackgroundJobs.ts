@@ -58,6 +58,14 @@ export interface CourierReplyPassResult {
   courier: CourierSystem;
   npcs: NPC记录[];
   replied: number;
+  /**
+   * 群聊里**没能回复**的成员名（U04，PROJECT_AUDIT_2026-10-03）。
+   * 部分成功时 `replied > 0` 会让调用方报「已发送」，玩家看不到谁没回，
+   * 容易误以为角色故意不理人。这里把失败成员显式带出去，由调用方展示
+   * 「已回复 N 人、待重试 M 人」，并把重试入口挂到失败结算中心。
+   * 可选：没有群聊部分失败的路径不必构造它。
+   */
+  failedMemberNames?: string[];
 }
 
 export const COURIER_MESSAGE_REVEAL_INTERVAL_MS = 500;
@@ -385,7 +393,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
       ownedClaims.push(candidate.conversation.id);
       return true;
     });
-  if (!candidates.length) return { courier: input.courier, npcs: input.npcs, replied: 0 };
+  if (!candidates.length) return { courier: input.courier, npcs: input.npcs, replied: 0, failedMemberNames: [] };
   if (input.fallbackPolicy === 'error' && !input.letterApiConfig) {
     for (const conversationId of ownedClaims) endCourierReply(conversationId, input.sessionId);
     throw new Error('PHONE_REPLY_API_UNAVAILABLE');
@@ -394,6 +402,8 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
   let updated = input.courier;
   let updatedNpcs = input.npcs;
   let replied = 0;
+  /** U04：本次回信里没能回复的群成员名（部分成功时也要让玩家看见）。 */
+  const failedMemberNames: string[] = [];
   try {
     for (const candidate of candidates) {
     const { conversation, playerMessage, contactId } = candidate;
@@ -411,6 +421,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
       // 也保住「不用本地模板伪装成功」的契约）。
       let firstMemberError: unknown;
       let failedMembers = 0;
+      const failedMemberIds = new Set<string>();
       for (const memberId of memberIds) {
         const contact = updated.contacts.find((item) => item.id === memberId);
         const provisionalName = contact?.name?.trim() || memberId;
@@ -445,6 +456,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
             if (input.fallbackPolicy === 'error') {
               firstMemberError = firstMemberError ?? error;
               failedMembers += 1;
+              failedMemberIds.add(memberId);
               // 已生成的回复必须在抛出前落地，否则「部分成功」也会变成 0 条。
               updated = nextCourier;
               continue;
@@ -489,6 +501,12 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
         throw firstMemberError ?? new Error('PHONE_REPLY_ALL_MEMBERS_FAILED');
       }
       if (memberReplied > 0) replied += 1;
+      // U04：部分成功时把「谁没回」带出去，玩家才不会误以为角色故意不理人。
+      for (const memberId of failedMemberIds) {
+        const contact = updated.contacts.find((item) => item.id === memberId);
+        const npc = updatedNpcs.find((item) => item.id === memberId || item.id === contact?.npcId);
+        failedMemberNames.push(contact?.name?.trim() || npc?.姓名?.trim() || memberId);
+      }
         continue;
       }
 
@@ -561,7 +579,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
     }
       replied += 1;
     }
-    return { courier: updated, npcs: updatedNpcs, replied };
+    return { courier: updated, npcs: updatedNpcs, replied, failedMemberNames };
   } finally {
     for (const conversationId of ownedClaims) endCourierReply(conversationId, input.sessionId);
   }

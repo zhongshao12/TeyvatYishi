@@ -217,6 +217,103 @@ describe('CourierModal behavior', () => {
     expect(onRetryReply).toHaveBeenCalledWith('mondstadt-group');
   });
 
+  // B16（PROJECT_AUDIT_2026-10-03）：只有「这段会话真的显示在聊天主栏」时才标已读。
+  // 旧实现只看 selected，于是停在手机列表页、或停在朋友圈时也会把所选会话标成已读。
+  it('does not mark a conversation read while the mobile list or the moments tab is showing', async () => {
+    const unreadConversation = {
+      ...baseCourier.conversations[0]!,
+      unread: 3,
+    };
+    const courier: CourierSystem = {
+      ...baseCourier,
+      conversations: [unreadConversation],
+      unreadTotal: 3,
+    };
+    const onCourierChange = vi.fn();
+    await act(async () => root.render(createElement(CourierModal, {
+      courier, travelerName: '云', onCourierChange, onClose: vi.fn(),
+    })));
+    // 移动端默认停在列表页：此时不应有任何已读提交。
+    expect(onCourierChange).not.toHaveBeenCalled();
+
+    // 进入朋友圈：仍然不该标已读。
+    const momentsButton = Array.from(host.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === '朋友圈');
+    await act(async () => momentsButton!.click());
+    expect(onCourierChange).not.toHaveBeenCalled();
+
+    // 回到聊天并从列表点开会话 → 这时才允许标已读。
+    const chatEntry = Array.from(host.querySelectorAll('button'))
+      .find((button) => button.querySelector('strong')?.textContent === '蒙德伙伴');
+    await act(async () => chatEntry!.click());
+    const updates = onCourierChange.mock.calls.map((call) => call[0] as (previous: CourierSystem) => CourierSystem);
+    const merged = updates.reduce<CourierSystem>((state, update) => update(state), courier);
+    expect(merged.conversations[0]?.unread).toBe(0);
+  });
+
+  // U02（PROJECT_AUDIT_2026-10-03）：草稿按会话隔离，切回时恢复，发送只清本会话。
+  it('keeps a per-conversation draft instead of sharing one box across conversations', async () => {
+    const privateOne = {
+      ...baseCourier.conversations[0]!,
+      id: 'amber-private', title: '侦察骑士', type: 'private' as const,
+      participantIds: ['player', 'amber'],
+    };
+    const privateTwo = {
+      ...baseCourier.conversations[0]!,
+      id: 'lisa-private', title: '图书馆管理员', type: 'private' as const,
+      participantIds: ['player', 'lisa'],
+    };
+    const courier: CourierSystem = { ...baseCourier, conversations: [privateOne, privateTwo], unreadTotal: 0 };
+    await act(async () => root.render(createElement(CourierModal, {
+      courier, travelerName: '云', onCourierChange: vi.fn(), onClose: vi.fn(),
+    })));
+    const entryOf = (title: string) => Array.from(host.querySelectorAll('button'))
+      .find((button) => button.querySelector('strong')?.textContent === title);
+    await act(async () => entryOf('侦察骑士')!.click());
+    const textarea = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="手机回复"]')!;
+    await act(async () => setTextareaValue(textarea(), '给安柏的草稿'));
+    expect(textarea().value).toBe('给安柏的草稿');
+
+    await act(async () => entryOf('图书馆管理员')!.click());
+    expect(textarea().value).toBe('');
+
+    await act(async () => entryOf('侦察骑士')!.click());
+    expect(textarea().value).toBe('给安柏的草稿');
+  });
+
+  // U03（PROJECT_AUDIT_2026-10-03）：阅读历史时不要被新消息拉回底部，改为提示「有 N 条新消息」。
+  it('does not pull the reader back to the bottom when new messages arrive while reading history', async () => {
+    const courier: CourierSystem = { ...baseCourier, conversations: [{ ...baseCourier.conversations[0]!, unread: 0 }] };
+    const renderWith = async (value: CourierSystem) => act(async () => root.render(createElement(CourierModal, {
+      courier: value, travelerName: '云', onCourierChange: vi.fn(), onClose: vi.fn(),
+    })));
+    await renderWith(courier);
+    const entry = Array.from(host.querySelectorAll('button'))
+      .find((button) => button.querySelector('strong')?.textContent === '蒙德伙伴');
+    await act(async () => entry!.click());
+
+    const timeline = host.querySelector<HTMLElement>('[data-testid="phone-message-timeline"]')!;
+    Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(timeline, 'clientHeight', { configurable: true, value: 200 });
+    timeline.scrollTop = 100;
+    await act(async () => timeline.dispatchEvent(new Event('scroll', { bubbles: true })));
+
+    const scrollIntoView = HTMLElement.prototype.scrollIntoView as unknown as { mock: { calls: unknown[] } };
+    const callsBefore = scrollIntoView.mock.calls.length;
+    await renderWith({
+      ...courier,
+      conversations: [{
+        ...courier.conversations[0]!,
+        messages: [...courier.conversations[0]!.messages, {
+          id: 'm3', senderId: 'amber', senderName: '安柏', role: 'contact',
+          content: '你还在看记录吗？', turn: 5, timestamp: 3, readBy: ['amber'],
+        }],
+      }],
+    });
+    expect(host.textContent).toContain('有 1 条新消息');
+    expect(scrollIntoView.mock.calls.length).toBe(callsBefore);
+  });
+
   it('constrains contact management to its own vertical scroll area', async () => {
     const manyContacts = Array.from({ length: 30 }, (_, index) => ({
       id: `contact-${index}`,

@@ -3,7 +3,7 @@ import type { VariableState } from './variableRegistry';
 import type { 世界状态 } from '@/models/world';
 import { 对齐世界日期与天数, 推进旅行日期 } from '@/models/world';
 import type { NPC记录, NPC关系类型 } from '@/models/npc';
-import { isReservedNpcIdentityName, 获取NPC关系阶段, 获取NPC兼容关系, 限制NPC好感度 } from '@/models/npc';
+import { isReservedNpcIdentityName, NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD, 获取NPC关系阶段, 获取NPC兼容关系, 限制NPC好感度 } from '@/models/npc';
 import { CANONICAL_CHARACTERS, matchCanonical, matchCanonicalIdentity } from '@/data/canonicalCharacters';
 import { isCanonicalIdentity } from '@/data/canonicalIdentity';
 import {
@@ -554,6 +554,27 @@ function 解析中文整数(value: string): number | null {
     const ones = onesText ? CHINESE_HOUR_DIGITS[onesText] : 0;
     if (tens !== undefined && ones !== undefined) return tens * 10 + ones;
   }
+  // 百/千 量级（「一百年」「一千年」等）：原文旧实现只认到「十」，导致这些跨度解析失败、
+  // 退回凭空 3 分钟；现在能算出真实天数，让「超出可结算范围」走警告路径而不是静默乱跳。
+  if (/^[零〇一二两三四五六七八九十百千]+$/u.test(value)) {
+    const units: Array<[string, number]> = [['千', 1000], ['百', 100], ['十', 10]];
+    let total = 0;
+    let section = 0;
+    for (const char of value) {
+      if (char === '零' || char === '〇') continue;
+      const digit = CHINESE_HOUR_DIGITS[char];
+      if (digit !== undefined) {
+        section = digit;
+        continue;
+      }
+      const unit = units.find(([token]) => token === char)?.[1];
+      if (unit === undefined) return null;
+      total += (section || 1) * unit;
+      section = 0;
+    }
+    const resolved = total + section;
+    return resolved > 0 ? resolved : null;
+  }
   return null;
 }
 
@@ -626,16 +647,52 @@ function 读取时间证据句(body: string, index: number, end: number): string
   return body.slice(sentenceStart, sentenceEnd).trim();
 }
 
+/**
+ * 正文里的跨日/跨周/跨月表达 → 天数（2026-09-29 第二轮，用户报「时间推进有问题」）。
+ *
+ * 旧实现只认「N 天后」，于是「数日后」「几天后」「一周后」「半个月后」「一个月后」全都落到
+ * 保底的「+3 分钟」——日期与旅行天数纹丝不动，玩家看到的就是时间没有推进（实测四条全中）。
+ * 这里给出确定性的天数换算；无法量化但明确跨日的表达按最小可辩护值（1 天/3 天）处理。
+ */
+const 跨日短语天数: Array<{ pattern: RegExp; days: (m: RegExpMatchArray) => number | null }> = [
+  // 具体天数：「三天后」「3 天之后」「五日后」
+  { pattern: /(\d+|[一二两三四五六七八九十百千]+)\s*(?:天|日)(?:之)?后/gu, days: (m) => 解析中文整数(m[1] ?? '') },
+  // 周：「一周后」「两周后」「3 个星期后」
+  { pattern: /(\d+|[一二两三四五六七八九十]+)\s*(?:个)?\s*(?:周|星期|礼拜)(?:之)?后/gu, days: (m) => { const n = 解析中文整数(m[1] ?? ''); return n === null ? null : n * 7; } },
+  // 月：「一个月后」「半个月后」「3 个月后」
+  { pattern: /半\s*(?:个)?\s*月(?:之)?后/gu, days: () => 15 },
+  { pattern: /(\d+|[一二两三四五六七八九十]+)\s*(?:个)?\s*月(?:之)?后/gu, days: (m) => { const n = 解析中文整数(m[1] ?? ''); return n === null ? null : n * 30; } },
+  // 年：「一年后」「两年后」「一千年后」（超出上限由 validate 拦下并给警告，不在这里静默丢弃）
+  { pattern: /(\d+|[一二两三四五六七八九十百千]+)\s*(?:个)?\s*年(?:之)?后/gu, days: (m) => { const n = 解析中文整数(m[1] ?? ''); return n === null ? null : n * 365; } },
+  // 模糊但明确跨日：「数日后」「几天后」「好几天后」「许多天后」（「日」写法同样常见）
+  { pattern: /(?:数|几|好几|好|许多|很多)\s*(?:天|日)(?:之)?后/gu, days: () => 3 },
+  { pattern: /(?:数|几|好几|好|许多|很多)\s*(?:个)?\s*(?:周|星期|礼拜)(?:之)?后/gu, days: () => 21 },
+  { pattern: /(?:数|几|好几|好|许多|很多)\s*(?:个)?\s*月(?:之)?后/gu, days: () => 90 },
+];
+
+/**
+ * 单次结算允许推进的最大天数。
+ * 正文明确写出的「一个月后」是合法跨度，不能被当成无效值拦掉（用户报的「时间推进有问题」的一条）；
+ * 但十年以上的跳转更可能是解析错误，仍然拦下并给警告，绝不静默乱跳。
+ */
+const 最大跨日天数 = 365;
+
 function 读取正文跨日天数(body: string): { days: number; index: number; evidence: string } | null {
-  const matches = [...body.matchAll(/(\d+|[一二两三四五六七八九十]+)\s*天(?:之)?后/gu)];
-  const last = matches.at(-1);
-  if (!last) return null;
-  const days = 解析中文整数(last[1] ?? '');
-  // Preserve an out-of-range explicit jump so resolveTurnTimeFact can reject it
-  // with a warning instead of silently falling back to an invented 3 minutes.
-  if (days === null || !Number.isSafeInteger(days) || days < 1) return null;
-  const index = last.index ?? 0;
-  return { days, index, evidence: 读取时间证据句(body, index, index + last[0].length) };
+  const candidates: Array<{ days: number; index: number; evidence: string }> = [];
+  for (const { pattern, days: toDays } of 跨日短语天数) {
+    for (const match of body.matchAll(pattern)) {
+      const days = toDays(match);
+      const index = match.index ?? 0;
+      candidates.push({ days: days ?? 0, index, evidence: 读取时间证据句(body, index, index + match[0].length) });
+    }
+  }
+  // 保留越界的明确跳转（例如「一千年后」），交给 resolveTurnTimeFact 的 validate 给出
+  // 「超出可结算范围」的警告 —— 绝不静默退回凭空 3 分钟（那是用户报的「时间推进有问题」的形态之一）。
+  const last = candidates
+    .filter((entry) => Number.isSafeInteger(entry.days) && entry.days >= 1)
+    .sort((a, b) => a.index - b.index)
+    .at(-1);
+  return last ?? null;
 }
 
 /** 从正文里提取明确钟点，作为模型漏报时间事实时的确定性兜底。 */
@@ -696,8 +753,14 @@ export function resolveTurnTimeFact(
   if (clockLike && 分钟序数(clockLike[1]) === null) {
     return { fact: null, warning: `正文时刻 ${clockLike[1]} 无效，时间未推进。` };
   }
-  const validate = (fact: Extract<变量事实, { type: 'time' }>): string | null => {
-    if (fact.mode === 'next_day' && fact.days !== undefined && (!Number.isSafeInteger(fact.days) || fact.days < 1 || fact.days > 7)) return '时间跳转天数无效，已阻止结算。';
+  const validate = (fact: Extract<变量事实, { type: 'time' }>, source: 'prose' | 'model' = 'prose'): string | null => {
+    // 模型自报的跳转仍然收紧到 7 天（防它随手编一个跨度）；正文明确写出的「半个月后/一个月后」
+    // 是合法跨度，按 最大跨日天数 判断（2026-09-29 第二轮：旧实现把两者都卡在 7 天，
+    // 于是「半个月后」「一个月后」被判成无效、时间完全不推进）。
+    const dayCap = source === 'model' ? 7 : 最大跨日天数;
+    if (fact.mode === 'next_day' && fact.days !== undefined && (!Number.isSafeInteger(fact.days) || fact.days < 1 || fact.days > dayCap)) {
+      return source === 'model' ? '时间跳转天数无效，已阻止结算。' : `正文跨日天数 ${fact.days} 天超出可结算范围（上限 ${dayCap} 天），已阻止结算。`;
+    }
     if (fact.mode === 'elapsed' && (fact.minutes === undefined || !Number.isFinite(fact.minutes) || fact.minutes <= 0)) return '耗时分钟无效，已阻止结算。';
     if ((fact.mode === 'set_time' || fact.targetTime !== undefined) && 分钟序数(fact.targetTime) === null) return '目标时间格式无效，已阻止结算。';
     if (fact.mode !== 'set_time' || 有跨日证据(fact.evidence)) return null;
@@ -713,7 +776,7 @@ export function resolveTurnTimeFact(
   }
   if (modelFact) {
     if (modelFact.mode === 'no_change') return { fact: null, warning: null };
-    const warning = validate(modelFact);
+    const warning = validate(modelFact, 'model');
     return { fact: warning ? null : modelFact, warning };
   }
   const evidence = body.replace(/\s+/g, ' ').trim().slice(0, 100);
@@ -1436,7 +1499,10 @@ export function factsToVariableCommands(
         continue;
       }
       if (fact.mode === 'overnight' || fact.mode === 'next_day') {
-        const days = fact.mode === 'next_day' && Number.isSafeInteger(fact.days) && (fact.days ?? 0) >= 1 ? Math.min(7, fact.days ?? 1) : 1;
+        // 上限与 resolveTurnTimeFact 的校验收口一致：正文明确写出的「半个月后/一个月后」不再被压成 7 天。
+        const days = fact.mode === 'next_day' && Number.isSafeInteger(fact.days) && (fact.days ?? 0) >= 1
+          ? Math.min(最大跨日天数, fact.days ?? 1)
+          : 1;
         const nextDate = 推进旅行日期(world?.当前日期 ?? '', days);
         const aligned = 对齐世界日期与天数((world?.旅程天数 ?? 1) + days, nextDate);
         push({ action: 'set', key: '世界.旅程天数', value: aligned.旅程天数 });
@@ -1781,7 +1847,9 @@ export function factsToTeyvatDomainCommands(
         }
         continue;
       }
-      const days = fact.mode === 'next_day' && Number.isSafeInteger(fact.days) && (fact.days ?? 0) >= 1 ? Math.min(7, fact.days ?? 1) : 1;
+      const days = fact.mode === 'next_day' && Number.isSafeInteger(fact.days) && (fact.days ?? 0) >= 1
+        ? Math.min(最大跨日天数, fact.days ?? 1)
+        : 1;
       push({ action: 'add', root: '世界', path: '旅程天数', value: days }, fact.evidence);
       push({ action: 'set', root: '世界', path: '当前日期', value: 推进旅行日期(world.当前日期, days) }, fact.evidence);
       rewardCurrentPartyForNewDay(fact.evidence, days);
@@ -1881,8 +1949,26 @@ export function factsToTeyvatDomainCommands(
       }
       const prefix = buildTeyvatIdSelector(existing.id);
       push({ action: 'set', root: 'NPC', path: `${prefix}.lastSeenTurn`, value: turn }, fact.evidence);
-      if (typeof fact.affinitySet === 'number') push({ action: 'set', root: 'NPC', path: `${prefix}.affinity`, value: fact.affinitySet }, fact.evidence);
-      else if (typeof fact.affinityDelta === 'number') push({ action: 'add', root: 'NPC', path: `${prefix}.affinity`, value: fact.affinityDelta }, fact.evidence);
+      // 好感度（2026-09-29 第二轮，用户报「好感度变化还是不对」）：
+      // 模型经常把提示里印出的当前好感原样回显成 `affinitySet`/`好感度`，而旧实现是
+      // `set` 优先于 `add` —— 一次回显就把本回合真实的 +/- 整个抹掉（实测 120 → 120，而不是 123）。
+      // 现在：同时出现时**增量优先**（增量表达「变了多少」，绝对覆盖只在确有必要时才用）。
+      if (typeof fact.affinityDelta === 'number' && typeof fact.affinitySet === 'number'
+        && fact.affinitySet !== 0 && (existing.affinity ?? 0) !== 0) {
+        push({ action: 'add', root: 'NPC', path: `${prefix}.affinity`, value: fact.affinityDelta }, fact.evidence);
+        warnings.push(`affinity: 已忽略 ${existing.姓名} 的绝对值 ${fact.affinitySet}（与增量 ${fact.affinityDelta} 同时出现，按增量结算）。`);
+      } else if (typeof fact.affinitySet === 'number') {
+        // 绝对值覆盖：高于生死挚友门槛（>100）的角色**不得被一次变量结算压低** ——
+        // 模型回显/猜一个更小的数就能把关系打回去，是比「增量丢失」更严重的缺陷（实测 140 → 20）。
+        const currentAffinity = existing.affinity ?? 0;
+        if (currentAffinity > NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD && fact.affinitySet < currentAffinity) {
+          warnings.push(`affinity: 已拒绝把 ${existing.姓名} 的好感度从 ${currentAffinity} 改成 ${fact.affinitySet}（生死挚友不因一次变量结算下降）。`);
+        } else {
+          push({ action: 'set', root: 'NPC', path: `${prefix}.affinity`, value: fact.affinitySet }, fact.evidence);
+        }
+      } else if (typeof fact.affinityDelta === 'number') {
+        push({ action: 'add', root: 'NPC', path: `${prefix}.affinity`, value: fact.affinityDelta }, fact.evidence);
+      }
       if (typeof fact.intimateRelationship === 'boolean') push({ action: 'set', root: 'NPC', path: `${prefix}.intimate`, value: fact.intimateRelationship }, fact.evidence);
       if (typeof fact.following === 'boolean') push({ action: 'set', root: 'NPC', path: `${prefix}.travelingTogether`, value: fact.following }, fact.evidence);
       if (fact.playerAddress) push({ action: 'set', root: 'NPC', path: `${prefix}.playerAddress`, value: fact.playerAddress }, fact.evidence);

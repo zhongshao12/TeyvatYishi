@@ -1083,7 +1083,11 @@ function buildNpcContinuitySection(  worldState: 世界状态,
     const memoryLine = memories.length ? `；${npc.姓名}本人私有共同经历：${memories.slice(-3).join('；')}` : '';
     const courierMemoryLine = buildRecentCourierMemoryLine(npc);
     const introLine = npc.介绍 ? `；身份/职责：${npc.介绍}` : '';
-    lines.push(`- ${npc.姓名}${npc.别名 ? `（${npc.别名}）` : ''}｜${tags.join(' · ')}｜好感${npc.好感度 > 0 ? '+' : ''}${npc.好感度}｜${turnLine}${introLine}${memoryLine}${courierMemoryLine}`);
+    // 关系表不再印出好感度的**原始数字**（2026-09-29 第二轮，用户报「好感度变化还是不对」）：
+    // 旧写法是 `好感+120`，模型于是经常把这个「现在是值」原样回填成 affinitySet/好感度，
+    // 一次回显就把本回合真实的 +/- 覆盖掉。语气信息由 `格式化NPC关系(...)` 的阶段标签承载，
+    // 模型只需要输出本回合的相对增减（affinityDelta）。
+    lines.push(`- ${npc.姓名}${npc.别名 ? `（${npc.别名}）` : ''}｜${tags.join(' · ')}｜${turnLine}${introLine}${memoryLine}${courierMemoryLine}`);
   }
 
   for (const name of fallbackNames) {
@@ -1148,7 +1152,8 @@ function buildCompanionsSection(npcRecords?: NPC记录[], turnCount = 0): string
     const courierMemories = getRecentCourierMemoryTexts(n).slice(-2);
     if (courierMemories.length) desc.push(`${n.姓名}本人私有手机消息：${courierMemories.join('；')}（其他 NPC 禁止读取；正文若该角色入场，承接通信热度与未尽话题）`);
     const descPart = desc.length ? `\n  ${desc.join('；')}` : '';
-    return `- ${n.姓名}${n.别名 ? `（${n.别名}）` : ''}｜${tags.join(' · ')}｜好感${n.好感度 > 0 ? '+' : ''}${n.好感度}${descPart}`;
+    // 同 `关系表`：不印好感度的原始数字，避免模型把「现在是值」回填成绝对值覆盖本回合增量。
+    return `- ${n.姓名}${n.别名 ? `（${n.别名}）` : ''}｜${tags.join(' · ')}${descPart}`;
   };
 
   const lines: string[] = [];

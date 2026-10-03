@@ -53,12 +53,20 @@ describe('single turn time decision', () => {
       .toEqual({ fact: null, warning: null });
   });
 
-  it('blocks an eight-day jump instead of silently advancing only three minutes or changing the same-day clock', () => {
+  it('advances an eight-day jump as eight days instead of silently advancing only three minutes or changing the same-day clock', () => {
+    // 2026-09-29 契约修订（用户第二轮报「时间推进有问题」）：
+    // 旧实现把正文跨日**一律**收紧在 7 天内，于是「八天后」「半个月后」「一个月后」被整条拦下，
+    // 而「数日后」又落到凭空 +3 分钟 —— 两种情况玩家看到的都是「时间没推进」。
+    // 规格只要求「同日回退要拦、不得凭空编造耗时」，并未给正文跨度设 7 天上限；
+    // 因此正文跨度放宽到 365 天（超限仍拦下并给出可查原因），模型自报的跨度仍收紧在 7 天内。
     const first = resolveTurnTimeFact('八天后，队伍抵达营地。', '10:00');
     const second = resolveTurnTimeFact('八天后，队伍在 15:00 抵达营地。', '10:00');
-    expect(first.fact).toBeNull();
-    expect(first.warning).toContain('天数无效');
-    expect(second.fact).toBeNull();
-    expect(second.warning).toContain('天数无效');
+    expect(first.fact?.mode).toBe('next_day');
+    expect((first.fact as { days?: number } | null)?.days).toBe(8);
+    expect(first.fact?.targetTime).toBe('10:00');
+    expect(first.warning).toBeNull();
+    // 同一句里出现的 15:00 不得把跨日退化成「当日改钟点」。
+    expect(second.fact?.mode).toBe('next_day');
+    expect((second.fact as { days?: number } | null)?.days).toBe(8);
   });
 });

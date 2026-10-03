@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   clearApiErrorReports,
   loadApiErrorReports,
+  sanitizeApiErrorReportFields,
   type ApiErrorReport,
 } from '@/services/ai/apiErrorReportService';
 
@@ -15,21 +16,27 @@ function formatTime(iso: string): string {
   return date.toLocaleString();
 }
 
-function formatReport(report: ApiErrorReport): string {
+/**
+ * 展示与复制出口。报告可以被整份复制出去，因此这里再脱敏一次：
+ * 即使某份报告来自旧版本（落盘时还没脱敏）或别处的原始对象，
+ * 复制/渲染出来的内容也不会带出 Key。
+ */
+export function formatReport(report: ApiErrorReport): string {
+  const safe = sanitizeApiErrorReportFields(report);
   return [
-    `时间: ${formatTime(report.createdAt)}`,
-    `模块: ${report.source}`,
-    `供应商: ${report.provider || '-'}`,
-    `模型: ${report.model || '-'}`,
-    `Base URL: ${report.baseUrl || '-'}`,
-    `API Key: ${report.apiKeyHint || '-'}`,
-    `状态码: ${report.status ?? '-'}`,
-    `请求模式: ${report.requestMode || '-'}`,
-    `请求地址: ${report.requestUrl || '-'}`,
+    `时间: ${formatTime(safe.createdAt)}`,
+    `模块: ${safe.source}`,
+    `供应商: ${safe.provider || '-'}`,
+    `模型: ${safe.model || '-'}`,
+    `Base URL: ${safe.baseUrl || '-'}`,
+    `API Key: ${safe.apiKeyHint || '-'}`,
+    `状态码: ${safe.status ?? '-'}`,
+    `请求模式: ${safe.requestMode || '-'}`,
+    `请求地址: ${safe.requestUrl || '-'}`,
     '',
     '错误信息:',
-    report.message || '-',
-    report.responseText ? `\n原始响应:\n${report.responseText}` : '',
+    safe.message || '-',
+    safe.responseText ? `\n原始响应:\n${safe.responseText}` : '',
   ].filter(Boolean).join('\n');
 }
 

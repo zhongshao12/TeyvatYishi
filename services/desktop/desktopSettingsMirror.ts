@@ -38,28 +38,61 @@ const SPECIAL_SETTING_PATHS: Record<string, string> = {
   apiProfileSlots: 'config/api-profile-slots.json',
 };
 
+/**
+ * 所有写路径的串行化队列。
+ *
+ * `mirrorSettingsToDesktop` 是「读整份 settings.json → 改一个 key → 整体写回」的读改写。
+ * 游戏设置页一次保存会同时提交 gameSettings 与 worldState 两个 key（两个并发调用）：
+ * 它们各自读到同一份旧文件，后写的那个把先写的 key 覆盖回旧值。桌面端优先从镜像读取，
+ * 因此重启后表现为「明明提示已保存却回退」。
+ *
+ * 队列必须放在模块级并覆盖该文件的全部 update/delete（而不是只在某个调用点改成批量保存）：
+ * 任何直接调用 mirrorSettingToDesktop 的入口都自动获得保护。特殊 key 走独立 sidecar
+ * 文件，但同样排进这条队列，避免不同文件的写交错产生难以复现的半写状态。
+ */
+let settingsMirrorQueue: Promise<unknown> = Promise.resolve();
+
+function enqueueSettingsMirrorTask<T>(task: () => Promise<T>): Promise<T> {
+  const next = settingsMirrorQueue.then(task, task);
+  // 队列自身不能被某次失败卡死：吞掉拒绝，只让调用方看到本次任务的失败。
+  settingsMirrorQueue = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
 export async function mirrorSettingToDesktop(key: string, value: unknown): Promise<void> {
   if (!isDesktopRuntime()) return;
-  if (isSpecialSettingKey(key)) {
-    await writeSpecialSettingMirror(key, value);
-    return;
-  }
-  await mirrorSettingsToDesktop({ [key]: value });
+  await enqueueSettingsMirrorTask(async () => {
+    if (isSpecialSettingKey(key)) {
+      await writeSpecialSettingMirror(key, value);
+      return;
+    }
+    await mirrorGeneralSettings({ [key]: value });
+  });
 }
 
 export async function mirrorSettingsToDesktop(settings: Record<string, unknown>): Promise<void> {
   if (!isDesktopRuntime()) return;
-  const generalEntries = Object.entries(settings).filter(([key]) => !isSpecialSettingKey(key));
-  const specialEntries = Object.entries(settings).filter(([key]) => isSpecialSettingKey(key));
+  await enqueueSettingsMirrorTask(async () => {
+    const generalEntries = Object.entries(settings).filter(([key]) => !isSpecialSettingKey(key));
+    const specialEntries = Object.entries(settings).filter(([key]) => isSpecialSettingKey(key));
 
-  if (generalEntries.length > 0) {
-    const mirror = await readSettingsMirror();
-    const next = { ...mirror.settings };
-    for (const [key, value] of generalEntries) next[key] = value;
-    await writeSettingsMirror(next);
-  }
+    if (generalEntries.length > 0) {
+      await mirrorGeneralSettings(Object.fromEntries(generalEntries));
+    }
 
-  await Promise.all(specialEntries.map(([key, value]) => writeSpecialSettingMirror(key, value)));
+    await Promise.all(specialEntries.map(([key, value]) => writeSpecialSettingMirror(key, value)));
+  });
+}
+
+/** 读改写共享 settings.json。只能在串行队列内部调用。 */
+async function mirrorGeneralSettings(entries: Record<string, unknown>): Promise<void> {
+  const mirror = await readSettingsMirror();
+  const next = { ...mirror.settings };
+  for (const [key, value] of Object.entries(entries)) next[key] = value;
+  await writeSettingsMirror(next);
 }
 
 export async function loadSettingFromDesktopMirror<T>(key: string): Promise<T | null> {
@@ -74,13 +107,15 @@ export async function loadSettingFromDesktopMirror<T>(key: string): Promise<T | 
 
 export async function removeSettingFromDesktopMirror(key: string): Promise<void> {
   if (!isDesktopRuntime()) return;
-  const mirror = await readSettingsMirror();
-  if (Object.prototype.hasOwnProperty.call(mirror.settings, key)) {
-    const next = { ...mirror.settings };
-    delete next[key];
-    await writeSettingsMirror(next);
-  }
-  await removeSpecialSettingMirror(key);
+  await enqueueSettingsMirrorTask(async () => {
+    const mirror = await readSettingsMirror();
+    if (Object.prototype.hasOwnProperty.call(mirror.settings, key)) {
+      const next = { ...mirror.settings };
+      delete next[key];
+      await writeSettingsMirror(next);
+    }
+    await removeSpecialSettingMirror(key);
+  });
 }
 
 export async function listDesktopSettingsMirrorKeys(): Promise<string[]> {

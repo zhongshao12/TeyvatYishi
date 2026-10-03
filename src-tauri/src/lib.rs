@@ -588,15 +588,10 @@ fn write_text_atomically(file_path: &Path, content: &str) -> Result<(), String> 
         .ok_or_else(|| "desktop data file must have a parent directory".to_string())?;
     fs::create_dir_all(parent).map_err(|err| format!("create parent directory failed: {err}"))?;
 
-    let file_name = file_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| "desktop data file name is invalid".to_string())?;
-    let written_at_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|err| format!("read system time failed: {err}"))?
-        .as_millis();
-    let temp_path = parent.join(format!(".{file_name}.{written_at_ms}.tmp"));
+    // 同一路径的写入必须串行（见 DESKTOP_ATOMIC_WRITE_LOCK 的说明）。
+    let _guard = lock_desktop_atomic_write();
+
+    let temp_path = unique_temp_path(file_path)?;
 
     let write_result = (|| -> Result<(), String> {
         let mut temp_file = fs::File::create(&temp_path)
@@ -608,17 +603,65 @@ fn write_text_atomically(file_path: &Path, content: &str) -> Result<(), String> 
             .sync_all()
             .map_err(|err| format!("sync temp file failed: {err}"))?;
         drop(temp_file);
-        if file_path.exists() {
-            fs::remove_file(file_path).map_err(|err| format!("remove old file failed: {err}"))?;
-        }
-        fs::rename(&temp_path, file_path).map_err(|err| format!("rename temp file failed: {err}"))?;
-        Ok(())
+        // 不先删目标：rename 直接覆盖，中断或失败时旧文件仍然留在磁盘上。
+        atomic_replace_path(file_path, &temp_path)
     })();
 
     if write_result.is_err() {
         let _ = fs::remove_file(&temp_path);
     }
     write_result
+}
+
+/// 原子替换：临时文件已在同一目录且已 fsync，这里只需一次 rename 覆盖目标。
+///
+/// 有意**不**先 `remove_file` 目标——旧实现先删再 rename，rename 一旦失败
+/// （Windows 上目标被占用、杀毒扫描、权限变化）旧磁盘副本就永久消失。
+/// 唯一的例外是目标本身是目录（`fs::rename` 不能把文件改名到目录上，保持旧实现的目录替换语义）。
+fn atomic_replace_path(file_path: &Path, temp_path: &Path) -> Result<(), String> {
+    if file_path.is_dir() {
+        fs::remove_dir_all(file_path).map_err(|err| format!("remove old directory failed: {err}"))?;
+    }
+    fs::rename(temp_path, file_path).map_err(|err| format!("rename temp file failed: {err}"))
+}
+
+/// 桌面数据文件的原子替换全局锁。
+///
+/// 同一路径的并发写会互相丢数据：两个调用各自写临时文件、再 rename 覆盖同一个目标，
+/// 失败清理时还可能删掉对方刚 rename 好的文件。这里对所有原子替换串行化——
+/// 单进程写的是 KB 级 JSON，串行化的代价远低于丢档风险。
+/// 用全局锁而不是映射到路径的锁表：不用管理条目生命周期，也就没有「锁对象被回收」的窗口。
+static DESKTOP_ATOMIC_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn lock_desktop_atomic_write() -> std::sync::MutexGuard<'static, ()> {
+    match DESKTOP_ATOMIC_WRITE_LOCK.lock() {
+        Ok(guard) => guard,
+        // 上一次写入 panic 只毒化这一次锁；后续写入仍然要能执行。
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// 唯一且排他的临时名：进程 id + 纳秒时间 + 单调计数器。
+/// 旧实现只用毫秒时间戳，同一毫秒内的并发写会抢同一个临时文件。
+fn unique_temp_path(file_path: &Path) -> Result<PathBuf, String> {
+    static TEMP_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    let parent = file_path
+        .parent()
+        .ok_or_else(|| "desktop data file must have a parent directory".to_string())?;
+    let file_name = file_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "desktop data file name is invalid".to_string())?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|err| format!("read system time failed: {err}"))?
+        .as_nanos();
+    let sequence = TEMP_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Ok(parent.join(format!(
+        ".{file_name}.{}.{nanos}.{sequence}.tmp",
+        std::process::id()
+    )))
 }
 
 fn normalize_relative_path(relative_path: &str) -> Result<PathBuf, String> {
@@ -848,5 +891,133 @@ mod tests {
         assert!(save_from.join("save.json").exists());
         assert!(backup_from.join("backup.json").exists());
         assert!(!save_to.join("save.json").exists());
+    }
+
+    #[test]
+    fn atomic_write_temp_paths_are_unique_within_the_same_millisecond() {
+        // 旧实现用「文件名 + 毫秒时间戳」当临时名：并发或快速连续写入会拿到同一个名字。
+        let root = TestDir::new("temp-name-uniqueness");
+        let target = root.join("save.json");
+
+        let mut names = std::collections::HashSet::new();
+        for _ in 0..64 {
+            let temp = unique_temp_path(&target).expect("temp path");
+            assert!(
+                names.insert(temp.clone()),
+                "temp path collision: {}",
+                temp.display()
+            );
+            assert_ne!(temp, target, "temp path must differ from the target");
+            assert_eq!(
+                temp.parent(),
+                target.parent(),
+                "temp path must live next to the target so rename stays on one volume"
+            );
+        }
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_content_through_the_temporary_file() {
+        let root = TestDir::new("atomic-replace-content");
+        let target = root.join("save.json");
+        fs::write(&target, "old-save").expect("write old save");
+
+        write_text_atomically(&target, "new-save").expect("atomic write should succeed");
+
+        assert_eq!(
+            fs::read_to_string(&target).expect("read replaced save"),
+            "new-save"
+        );
+        let leftovers: Vec<String> = fs::read_dir(root.0.clone())
+            .expect("list directory")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name != "save.json")
+            .collect();
+        assert!(leftovers.is_empty(), "temp files leaked: {leftovers:?}");
+    }
+
+    #[test]
+    fn failed_atomic_replace_keeps_the_previous_file() {
+        // 旧实现先 remove_file(目标) 再 rename：rename 失败就永久丢掉旧磁盘副本。
+        // 用「父路径是文件」构造一个跨平台必然失败的 rename。
+        let root = TestDir::new("atomic-replace-failure");
+        let blocker = root.join("blocker");
+        fs::write(&blocker, "not a directory").expect("write blocking file");
+        let target = blocker.join("save.json");
+        let temp = root.join(".save.json.pending.tmp");
+        fs::write(&temp, "new-save").expect("write staged temp file");
+
+        let error = atomic_replace_path(&target, &temp).expect_err("rename must fail");
+
+        assert!(
+            error.contains("rename temp file failed"),
+            "unexpected error text: {error}"
+        );
+        assert_eq!(
+            fs::read_to_string(&blocker).expect("the blocking file must stay untouched"),
+            "not a directory"
+        );
+        assert!(temp.exists(), "the staged temp file is the caller's to clean up");
+    }
+
+    #[test]
+    fn atomic_write_replaces_a_directory_target_keeps_the_old_semantics() {
+        // 旧实现用 remove_file 处理已存在的目标；这里保证目录目标仍然能被替换成文件。
+        let root = TestDir::new("atomic-replace-directory");
+        let target = root.join("legacy-dir");
+        fs::create_dir_all(target.join("child")).expect("create directory target");
+
+        write_text_atomically(&target, "file-now").expect("replacing a directory target must succeed");
+
+        assert!(target.is_file(), "target must become a regular file");
+        assert_eq!(fs::read_to_string(&target).expect("read replaced target"), "file-now");
+    }
+
+    #[test]
+    fn atomic_write_keeps_the_previous_file_when_the_temp_file_cannot_be_created() {
+        // 临时文件创建失败（父目录路径上有一段是文件）也不能破坏目标文件。
+        let root = TestDir::new("atomic-temp-create-failure");
+        let blocker = root.join("blocker");
+        fs::write(&blocker, "{\"old\":true}").expect("write blocking file");
+
+        let error = write_text_atomically(&blocker.join("settings.json"), "{\"new\":true}")
+            .expect_err("write must fail before touching data");
+
+        assert!(!error.is_empty(), "failure must be reported");
+        assert_eq!(
+            fs::read_to_string(&blocker).expect("the previous file must survive"),
+            "{\"old\":true}"
+        );
+    }
+
+    #[test]
+    fn atomic_write_serializes_concurrent_writes_and_keeps_json_intact() {
+        let root = TestDir::new("atomic-write-concurrent");
+        let target = root.join("settings.json");
+        let mut handles = Vec::new();
+        for index in 0..8 {
+            let path = target.clone();
+            handles.push(std::thread::spawn(move || {
+                write_text_atomically(&path, &format!("{{\"writer\":{index}}}"))
+                    .expect("concurrent atomic write");
+            }));
+        }
+        for handle in handles {
+            handle.join().expect("writer thread must not panic");
+        }
+
+        let content = fs::read_to_string(&target).expect("read final content");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("valid JSON");
+        assert!(parsed.get("writer").is_some(), "unexpected content: {content}");
+
+        // 并发写必须留下的是一份完整文件，且没有临时文件泄漏。
+        let leftovers: Vec<String> = fs::read_dir(root.0.clone())
+            .expect("list directory")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name != "settings.json")
+            .collect();
+        assert!(leftovers.is_empty(), "temp files leaked: {leftovers:?}");
     }
 }

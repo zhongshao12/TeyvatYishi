@@ -600,6 +600,137 @@ function formatOpenAICompatibleError(config: API配置项, status: number, text:
   return new Error(`API Error ${status}: ${text}`);
 }
 
+/**
+ * 传输层生命周期所有者。
+ *
+ * 旧实现只在「等待响应头」阶段挂计时器与 AbortSignal 转发，`fetch` 一返回响应头
+ * 就清除计时器并摘掉转发。于是响应头已到、正文悬挂时：调用方取消（停止按钮）
+ * 不会取消网络请求，函数也永远不会完成，付费请求一直挂着。
+ *
+ * 现在把三件事都活到**正文读完**为止：
+ *  - `view`：交给 URL 层（Ark / 千帆 / Pioneer 代理）的请求信号，让代理能取消上游；
+ *  - `controller`：真正传给 `fetch` 的复合信号（上层取消 + 阶段超时）；
+ *  - 超时原因区分「响应头超时」与「正文超时」。
+ */
+interface FetchLifecycle {
+  /** 实际传给 fetch 的复合信号（上游取消 + 超时）。 */
+  controller: AbortController;
+  /** 响应头阶段计时器，收到响应头时清除。 */
+  headerTimeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
+  /** 清除响应头计时器（幂等）。 */
+  clearHeaderTimeout: () => void;
+}
+
+function createFetchLifecycle(upstreamSignal: AbortSignal | undefined): FetchLifecycle {
+  const controller = new AbortController();
+  const lifecycle: FetchLifecycle = {
+    controller,
+    headerTimeoutId: undefined,
+    clearHeaderTimeout: () => {
+      if (lifecycle.headerTimeoutId !== undefined) {
+        globalThis.clearTimeout(lifecycle.headerTimeoutId);
+        lifecycle.headerTimeoutId = undefined;
+      }
+    },
+  };
+  // 上层取消：用原样原因中止网络请求，调用方拿到的仍是自己的取消原因。
+  const forwardAbort = () => controller.abort(upstreamSignal?.reason);
+  upstreamSignal?.addEventListener('abort', forwardAbort, { once: true });
+  lifecycle.headerTimeoutId = globalThis.setTimeout(() => {
+    lifecycle.headerTimeoutId = undefined;
+    controller.abort(new StreamTimeoutError('等待模型响应头超过 45 秒。'));
+  }, DEFAULT_STREAM_FIRST_BYTE_TIMEOUT_MS);
+  return lifecycle;
+}
+
+/**
+ * 读取整份非流式响应正文，并让信号与看门狗覆盖**整个**正文读取。
+ *
+ * 必须自己拿 reader 读：`response.text()/json()` 一旦开始读取就锁住流，
+ * 之后 `response.body.cancel()` 会抛 `ERR_INVALID_STATE`，
+ * 所以「用 AbortSignal 取消悬挂的正文」只有显式 reader + 竞速才能做到。
+ */
+export async function readResponseBody(
+  response: Response,
+  signal: AbortSignal | undefined,
+  bodyTimeoutMs: number = DEFAULT_STREAM_FIRST_BYTE_TIMEOUT_MS,
+): Promise<string> {
+  if (signal?.aborted) throw signal.reason ?? new DOMException('请求已取消。', 'AbortError');
+  const reader = response.body?.getReader();
+  if (!reader) {
+    // 没有可读流（例如测试替身或空响应体）时退化为原始读取，但先确认没被取消。
+    const text = await response.text();
+    if (signal?.aborted) throw signal.reason ?? new DOMException('请求已取消。', 'AbortError');
+    return text;
+  }
+
+  const decoder = new TextDecoder();
+  let text = '';
+  let settled = false;
+  let settleCancellation: (reason: unknown) => void = () => {};
+  // 取消 / 超时的唯一出口：无论是上层 signal 还是正文看门狗，都通过它让读取立即结束。
+  const cancellation = new Promise<never>((_resolve, reject) => {
+    settleCancellation = reject;
+  });
+  cancellation.catch(() => undefined);
+  const cancelBody = (reason: unknown) => {
+    // 先让取消结果落定，再取消底层流：reader.cancel() 会把挂起的读取结算成 {done:true}，
+    // 如果先取消，循环会以为正文正常读完，取消 / 超时就被吞掉了。
+    if (!settled) {
+      settled = true;
+      settleCancellation(reason);
+    }
+    try {
+      void reader.cancel(reason)?.catch(() => undefined);
+    } catch {
+      // 流已关闭或被释放。
+    }
+  };
+  const abortBody = () => {
+    cancelBody(signal?.reason ?? new DOMException('请求已取消。', 'AbortError'));
+  };
+  signal?.addEventListener('abort', abortBody, { once: true });
+  if (signal?.aborted) abortBody();
+
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
+  try {
+    if (bodyTimeoutMs > 0) {
+      timeoutId = globalThis.setTimeout(() => {
+        const seconds = Math.max(1, Math.round(bodyTimeoutMs / 1000));
+        cancelBody(new StreamTimeoutError(`等待模型响应正文超过 ${seconds} 秒。`));
+      }, bodyTimeoutMs);
+    }
+    while (!settled) {
+      const result = await Promise.race([reader.read(), cancellation]);
+      if (result.done) break;
+      text += decoder.decode(result.value, { stream: true });
+    }
+    if (signal?.aborted) throw signal.reason ?? new DOMException('请求已取消。', 'AbortError');
+    return text + decoder.decode();
+  } finally {
+    settled = true;
+    if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', abortBody);
+    await cancelReadableStreamReader(reader, signal?.aborted ? signal.reason : 'response-consumer-finished');
+  }
+}
+
+/** 非流式响应正文 → JSON，生命周期同上。 */
+export async function readResponseJson(
+  response: Response,
+  signal: AbortSignal | undefined,
+  bodyTimeoutMs: number = DEFAULT_STREAM_FIRST_BYTE_TIMEOUT_MS,
+): Promise<unknown> {
+  const text = await readResponseBody(response, signal, bodyTimeoutMs);
+  try {
+    return JSON.parse(text) as unknown;
+  } catch (error) {
+    // 与 response.json() 的失败语义保持一致，同时不让脱敏/诊断丢失原文。
+    const error_ = error instanceof Error ? error : new Error(String(error));
+    throw Object.assign(error_, { responseText: text });
+  }
+}
+
 async function fetchWithApiErrorReport(
   config: API配置项,
   source: string,
@@ -607,18 +738,20 @@ async function fetchWithApiErrorReport(
   requestMode: 'stream' | 'non-stream' | 'models' | 'test' | 'unknown',
   init: RequestInit,
 ): Promise<Response> {
-  const timeoutController = new AbortController();
-  const upstreamSignal = init.signal;
-  const forwardAbort = () => timeoutController.abort(upstreamSignal?.reason);
-  upstreamSignal?.addEventListener('abort', forwardAbort, { once: true });
-  const timeoutId = globalThis.setTimeout(() => {
-    timeoutController.abort(new StreamTimeoutError('等待模型响应头超过 45 秒。'));
-  }, DEFAULT_STREAM_FIRST_BYTE_TIMEOUT_MS);
+  const upstreamSignal = init.signal ?? undefined;
+  // 已取消的请求绝不能发出：否则用户点了停止，付费请求仍然上线。
+  if (upstreamSignal?.aborted) {
+    throw upstreamSignal.reason ?? new DOMException('请求已取消。', 'AbortError');
+  }
+  const lifecycle = createFetchLifecycle(upstreamSignal ?? undefined);
   try {
-    return await fetch(url, { ...init, signal: timeoutController.signal });
+    const response = await fetch(url, { ...init, signal: lifecycle.controller.signal });
+    // 响应头已到：结束响应头超时，但保留上层取消转发直到正文读完。
+    lifecycle.clearHeaderTimeout();
+    return response;
   } catch (error) {
-    const reportedError = timeoutController.signal.reason instanceof StreamTimeoutError
-      ? timeoutController.signal.reason
+    const reportedError = lifecycle.controller.signal.reason instanceof StreamTimeoutError
+      ? lifecycle.controller.signal.reason
       : error;
     if (reportedError && typeof reportedError === 'object') {
       (reportedError as Error & { alreadyReportedByApiLayer?: boolean }).alreadyReportedByApiLayer = true;
@@ -632,8 +765,7 @@ async function fetchWithApiErrorReport(
     });
     throw reportedError;
   } finally {
-    globalThis.clearTimeout(timeoutId);
-    upstreamSignal?.removeEventListener('abort', forwardAbort);
+    lifecycle.clearHeaderTimeout();
   }
 }
 
@@ -1182,7 +1314,7 @@ async function completionClaudeNonStream(
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    const text = await readResponseBody(response, request.signal);
     void appendApiErrorReport({
       source: 'Claude 非流式补全',
       config,
@@ -1194,7 +1326,7 @@ async function completionClaudeNonStream(
     throw formatClaudeError(response.status, text);
   }
 
-  const json = await response.json();
+  const json = await readResponseJson(response, request.signal);
   emitUsageFromResponse(json, config, request);
   return parseClaudeTextResponse(json);
 }
@@ -1614,7 +1746,7 @@ async function completionOpenCodeNonStream(
       signal: request.signal,
     });
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
+      const text = await readResponseBody(response, request.signal);
       void appendApiErrorReport({
         source: 'OpenCode Zen Chat 非流式补全',
         config: normalized,
@@ -1625,7 +1757,7 @@ async function completionOpenCodeNonStream(
       });
       throw formatOpenCodeError(normalized, endpoint, response.status, text);
     }
-    const json = await response.json();
+    const json = await readResponseJson(response, request.signal);
     emitUsageFromResponse(json, normalized, request);
     return parseOpenAICompatibleTextResponse(json);
   }
@@ -1639,7 +1771,7 @@ async function completionOpenCodeNonStream(
       signal: request.signal,
     });
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
+      const text = await readResponseBody(response, request.signal);
       void appendApiErrorReport({
         source: 'OpenCode Zen Messages 非流式补全',
         config: normalized,
@@ -1650,7 +1782,7 @@ async function completionOpenCodeNonStream(
       });
       throw formatOpenCodeError(normalized, endpoint, response.status, text);
     }
-    const json = await response.json();
+    const json = await readResponseJson(response, request.signal);
     emitUsageFromResponse(json, normalized, request);
     return parseClaudeTextResponse(json);
   }
@@ -1664,7 +1796,7 @@ async function completionOpenCodeNonStream(
       signal: request.signal,
     });
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
+      const text = await readResponseBody(response, request.signal);
       void appendApiErrorReport({
         source: 'OpenCode Zen Gemini 非流式补全',
         config: normalized,
@@ -1675,7 +1807,7 @@ async function completionOpenCodeNonStream(
       });
       throw formatOpenCodeError(normalized, endpoint, response.status, text);
     }
-    const json = await response.json();
+    const json = await readResponseJson(response, request.signal);
     emitUsageFromResponse(json, normalized, request);
     return parseOpenCodeGeminiText(json);
   }
@@ -1688,7 +1820,7 @@ async function completionOpenCodeNonStream(
     signal: request.signal,
   });
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    const text = await readResponseBody(response, request.signal);
     void appendApiErrorReport({
       source: 'OpenCode Zen Responses 非流式补全',
       config: normalized,
@@ -1699,7 +1831,7 @@ async function completionOpenCodeNonStream(
     });
     throw formatOpenCodeError(normalized, endpoint, response.status, text);
   }
-  const json = await response.json();
+  const json = await readResponseJson(response, request.signal);
   emitUsageFromResponse(json, normalized, request);
   return parseOpenCodeResponsesText(json);
 }
@@ -1870,7 +2002,7 @@ async function chatCompletionNonStreamOnce(
     });
 
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
+      const text = await readResponseBody(response, request.signal);
       void appendApiErrorReport({
         source: '非流式补全',
         config,
@@ -1882,7 +2014,7 @@ async function chatCompletionNonStreamOnce(
       throw formatOpenAICompatibleError(config, response.status, text);
     }
 
-    const json = await response.json();
+    const json = await readResponseJson(response, request.signal);
     emitUsageFromResponse(json, config, request);
     const text = parseOpenAICompatibleTextResponse(json);
     reportOpenAICompatibleDiagnostics(json, text, config, request);
@@ -1940,7 +2072,7 @@ async function chatCompletionNonStreamOnce(
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    const text = await readResponseBody(response, request.signal);
     const error = formatOpenAICompatibleError(deepSeekPayload.config, response.status, text);
     if (deepSeekPayload.prefix && isDeepSeekPrefixUnsupportedError(error)) {
       console.warn('[DeepSeek Prefix] 当前接口不支持 prefix，已自动降级为标准模式。', error);
@@ -1962,7 +2094,7 @@ async function chatCompletionNonStreamOnce(
     throw error;
   }
 
-  const json = await response.json();
+  const json = await readResponseJson(response, request.signal);
   emitUsageFromResponse(json, deepSeekPayload.config, request);
   const text = parseOpenAICompatibleTextResponse(json);
   reportOpenAICompatibleDiagnostics(json, text, deepSeekPayload.config, request);

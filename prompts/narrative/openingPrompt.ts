@@ -18,7 +18,8 @@ ${OPENING_JSON_CONTRACT}
 - 从一个可触摸的细节、一个正在发生的动作或一项迫近的现实压力切入；用具体行动与后果建立场景。
 - 不做百科介绍，不替玩家自报家门，不让陌生 NPC 无理由信任玩家。
 - 结尾留下一个具体、可立即行动的钩子。只有当不同路线确实有用时才在 choices 给出有效选项，否则 choices 为空数组。
-- factCandidates 只摘录 body 中已经成立且有逐字证据的事实；continuation 只保留客观摘要与未结事项。`;
+- factCandidates 只摘录 body 中已经成立且有逐字证据的事实；continuation 只保留客观摘要与未结事项。
+- 只有已实际面对公众成立的公告/事件，才能在独立 narration 块开头使用「公开公告：」/「公开事件：」并给出逐字事实证据。公共地点的私谈、手机群聊、内心独白、未执行计划及开局压力/玩家介入等私人配置不可标公开；未知可见性不标记。`;
 
 export const PRESET_OPENING_NARRATIVE_PROMPT = `# 官方开场补充
 

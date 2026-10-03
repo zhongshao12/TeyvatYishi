@@ -22,6 +22,8 @@ for (const series of seriesList) {
   assert.deepEqual(JSON.parse(raw), series, `${fileName} 必须与原始系列完全一致`);
 }
 assert(largestResourceBytes < 1_100_000, `单个剧情资源过大：${largestResourceBytes} bytes`);
+assert(seriesList.find(series => series.id.endsWith('fontaine_chapter4')).分段列表[2].原文内容.includes('众人组织救援'), '枫丹正文不能回退为全员溶解旧版本');
+assert(seriesList.find(series => series.id.endsWith('natlan_chapter5')).分段列表[0].原文内容.includes('应由实际经历决定'), '纳塔正文不能提前强制授予玩家古名');
 
 const presetSource = read('data/storyWeavingPreset.ts');
 assert(!presetSource.includes("import('@/data/storyWeavingCanonDecomposed.json')"), '运行时不得再导入 7MB 总 JSON');

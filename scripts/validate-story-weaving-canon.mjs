@@ -53,6 +53,7 @@ assert(fs.existsSync(targetPath), `找不到剧情编织 canon 分解文件：${
 const system = JSON.parse(fs.readFileSync(targetPath, 'utf8'));
 const seriesList = Array.isArray(system.系列列表) ? system.系列列表 : [];
 assert(seriesList.length > 0, '文件必须包含 系列列表。');
+assert(new Set(seriesList.map(series => series.id)).size === seriesList.length, '系列 ID 必须唯一。');
 
 let totalSegments = 0;
 const warnings = [];
@@ -67,6 +68,7 @@ for (const expected of expectedSeries) {
     `系列 ${series.标题 ?? expected.id} 分段数不足：${segments.length}/${expected.minSegments}`,
   );
   totalSegments += segments.length;
+  assert(new Set(segments.map(segment => segment.id)).size === segments.length, '分段 ID 必须唯一。');
 
   for (const segment of segments) {
     const label = `${series.标题 ?? expected.id} / ${segment?.组号 ?? '?'}:${segment?.标题 ?? '未命名'}`;

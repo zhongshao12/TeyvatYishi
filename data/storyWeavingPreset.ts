@@ -4,6 +4,7 @@ import { 归一化剧情编织系统, 归一化剧情编织系列 } from '@/mode
 import { bundledCodexPresets, loadBundledCodexPreset } from '@/data/codexPreset';
 import { validateBundledStorySeries } from '@/data/storyCanonValidation';
 import type { 开局档案 } from '@/models/world';
+import { bindStoryResourceBaseline } from '@/services/storyWeavingPersistence';
 const decomposedStoryWeavingPresets: BundledStoryWeavingPreset[] = [
   {
     id: 'story_canon_teyvat_mondstadt_prologue_act1',
@@ -268,100 +269,21 @@ export async function loadAllBundledStoryWeavingPresets(): Promise<剧情编织�
   if (series.length !== bundledStoryWeavingPresets.length) {
     throw new Error(`内置原著剧情资源不完整：${series.length}/${bundledStoryWeavingPresets.length}`);
   }
-  return 归一化剧情编织系统({
+  return bindStoryResourceBaseline(归一化剧情编织系统({
     系列列表: series,
     当前系列ID: CANON_START_SERIES_ID,
-  });
+  }));
 }
 
-export function mergeBundledStoryWeavingPresets(saved: 剧情编织系统 | null | undefined, bundled: 剧情编织系统): 剧情编织系统 {
-  if (!saved?.系列列表?.length) return bundled;
-  const normalizedSaved = 归一化剧情编织系统(saved);
-  const savedById = new Map(normalizedSaved.系列列表.map((series) => [series.id, series]));
-  const customSeries = normalizedSaved.系列列表.filter((series) => series.来源类型 !== 'canon' || !series.内置预设ID);
-  const mergedCanon = bundled.系列列表.map((presetSeries) => {
-    const savedSeries = savedById.get(presetSeries.id);
-    if (!savedSeries) return presetSeries;
-    const savedSegments = new Map(savedSeries.分段列表.map((segment) => [segment.id, segment]));
-    const mergedSegments = presetSeries.分段列表.map((segment) => {
-      const savedSegment = savedSegments.get(segment.id);
-      if (!savedSegment) return segment;
-      // 说明（PROJECT_AUDIT_2026-10-03）：**分解字段**（本段概括/原文摘要/结束条件…）在两条既有契约之间
-      // 存在真实冲突 ——
-      //   ① `tests/unit/storyWeavingPresetMerge.test.ts`：资源更新必须刷新内置分解（旧剧情 → 新版剧情）；
-      //   ② `scripts/story-weaving-persistence-behavior-regression.mjs`：玩家手工改过的分解必须还原。
-      // 二者无法只靠 hydrate 时的比较区分（「玩家改过」与「资源更新过」在数据上同形），
-      // 需要「保存时记录当时内置值的指纹」才能两全（见审查报告的 R01/R02 边界要求）。
-      // 本批先只还原**标题**（重命名是明确的玩家动作、资源更新几乎不动标题），其余留作待决策项。
-      return {
-        ...segment,
-        启用注入: savedSegment.启用注入,
-        处理状态: savedSegment.处理状态,
-        运行状态: savedSegment.运行状态,
-        最近错误: savedSegment.最近错误,
-        updatedAt: savedSegment.updatedAt,
-      };
-    });
-    return 归一化剧情编织系列({
-      ...presetSeries,
-      // 玩家可以给原著轨道重命名：持久态里的标题必须覆盖内置标题，
-      // 否则读档后玩家改的名字被改回去（PROJECT_AUDIT_2026-10-03 的持久化行为门禁抓到的缺口）。
-      标题: savedSeries.标题?.trim() || presetSeries.标题,
-      激活注入: savedSeries.激活注入,
-      当前分段组号: savedSeries.当前分段组号,
-      分段列表: mergedSegments,
-      createdAt: savedSeries.createdAt,
-      updatedAt: Math.max(savedSeries.updatedAt, presetSeries.updatedAt),
-    });
-  });
-  return 归一化剧情编织系统({
-    系列列表: [...mergedCanon, ...customSeries],
-    当前系列ID: normalizedSaved.当前系列ID || bundled.当前系列ID,
-    当前进度: normalizedSaved.当前进度 ?? bundled.当前进度,
-  });
-}
+export { buildPersistedStoryWeavingSystem, hydratePersistedStoryWeavingSystem, restoreStoryBuiltinField, bindStoryResourceBaseline } from '@/services/storyWeavingPersistence';
+export { hydratePersistedStoryWeavingSystem as mergeBundledStoryWeavingPresets } from '@/services/storyWeavingPersistence';
 
-export function buildPersistedStoryWeavingSystem(system: 剧情编织系统): 剧情编织系统 {
-  const normalized = 归一化剧情编织系统(system);
-  return {
-    persistenceVersion: 3,
-    系列列表: normalized.系列列表.map((series) => {
-      if (series.来源类型 !== 'canon') return series;
-      return {
-        ...series,
-        来源图鉴条目ID: [],
-        原始文本: undefined,
-        章节列表: [],
-        分段列表: series.分段列表.map((segment) => {
-          const { 原文内容: _originalContent, ...persistedSegment } = segment;
-          return persistedSegment;
-        }),
-      } as unknown as 剧情编织系列;
-    }),
-    当前系列ID: normalized.当前系列ID,
-    当前进度: normalized.当前进度,
-  } as 剧情编织系统;
-}
-
-export function hydratePersistedStoryWeavingSystem(
-  saved: 剧情编织系统 | null | undefined,
-  bundled: 剧情编织系统,
-): 剧情编织系统 {
-  if (!saved?.系列列表?.length) return bundled;
-  const canonBaseline = 归一化剧情编织系统({
-    ...bundled,
-    系列列表: bundled.系列列表.filter((series) => series.来源类型 === 'canon'),
-  });
-  return mergeBundledStoryWeavingPresets(saved, canonBaseline);
-}
-
-export function isSelfContainedStoryWeavingSystem(system: 剧情编织系统 | null | undefined): boolean {
-  if (!system?.系列列表?.length) return false;
-  const normalized = 归一化剧情编织系统(system);
-  return normalized.系列列表.every((series) => series.来源类型 !== 'canon' || (
-    series.章节列表.length > 0
-    && series.分段列表.length > 0
-    && series.分段列表.every((segment) => segment.原文内容.trim().length > 0)
+export function isSelfContainedStoryWeavingSystem(system: unknown): system is 剧情编织系统 {
+  if (!system || typeof system !== 'object' || !('系列列表' in system) || !Array.isArray(system.系列列表) || !system.系列列表.length) return false;
+  return system.系列列表.every((series) => series?.来源类型 !== 'canon' || (
+    Array.isArray(series.章节列表) && series.章节列表.length > 0
+    && Array.isArray(series.分段列表) && series.分段列表.length > 0
+    && series.分段列表.every((segment: Partial<剧情编织分段>) => typeof segment?.原文内容 === 'string' && segment.原文内容.trim().length > 0)
   ));
 }
 

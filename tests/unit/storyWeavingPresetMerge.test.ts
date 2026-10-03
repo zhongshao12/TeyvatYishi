@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
+import { mergeBundledStoryWeavingPresets, bindStoryResourceBaseline } from '@/data/storyWeavingPreset';
 import { 归一化剧情编织分段, 归一化剧情编织系列, 归一化剧情编织系统, type 剧情编织事件, type 剧情编织系列, type 剧情编织系统 } from '@/models/storyWeaving';
 
 function event(name: string): 剧情编织事件 {
@@ -32,7 +32,7 @@ describe('bundled story merge', () => {
     savedSeries.分段列表[0]!.启用注入 = false;
     const bundledSeries = series('canon-a', '同名章节', '新版剧情');
     bundledSeries.分段列表.push({ ...series('canon-b', '后续', '新场景').分段列表[0]!, id: 'canon-a_segment_2', 组号: 2, 运行状态: '未开始' });
-    const saved = { ...system([savedSeries]), persistenceVersion: 3 } as 剧情编织系统;
+    const saved = bindStoryResourceBaseline(system([savedSeries]));
 
     const merged = mergeBundledStoryWeavingPresets(saved, system([bundledSeries]));
     const refreshed = merged.系列列表[0]!;
@@ -50,7 +50,7 @@ describe('bundled story merge', () => {
     const bundledA = series('canon-a', '同名章节', '甲新版');
     const bundledB = series('canon-b', '同名章节', '乙新版');
     const merged = mergeBundledStoryWeavingPresets(
-      { ...system([savedSeries]), persistenceVersion: 3 } as 剧情编织系统,
+      bindStoryResourceBaseline(system([savedSeries])),
       system([bundledA, bundledB]),
     );
     expect(merged.系列列表[0]!.分段列表[0]!.运行状态).toBe('已经历');

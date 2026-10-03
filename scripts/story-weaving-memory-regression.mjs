@@ -32,8 +32,9 @@ assert(presetSource.includes('for (const preset of bundledStoryWeavingPresets)')
 assert(!presetSource.includes('Promise.all(bundledStoryWeavingPresets.map'), '剧情资源不得并行解析');
 assert(presetSource.includes('buildPersistedStoryWeavingSystem'), '必须提供轻量持久化构建器');
 assert(presetSource.includes('hydratePersistedStoryWeavingSystem'), '必须提供旧数据/轻量数据补全器');
-assert(presetSource.includes('persistenceVersion: 3'), '持久化格式必须保存可编辑分解结果');
-assert(presetSource.includes('当前进度: normalizedSaved.当前进度 ?? bundled.当前进度'), '补全时必须保留当前进度');
+const persistenceSource = read('services/storyWeavingPersistence.ts');
+assert(persistenceSource.includes('persistenceVersion: 4'), '持久化格式必须保存逐字段覆盖来源');
+assert(persistenceSource.includes('当前进度: root.当前进度'), '补全时必须保留当前进度');
 assert(presetSource.includes('内置原著剧情资源不完整'), '缺失任意原著资源时必须阻止半残状态落库');
 assert(presetSource.includes("['force-cache', 'reload']"), '原著资源失败后必须重试一次');
 

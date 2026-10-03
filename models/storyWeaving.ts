@@ -201,6 +201,38 @@ export interface 剧情编织系统 {
   系列列表: 剧情编织系列[];
   当前系列ID?: string;
   当前进度?: 剧情编织进度锚点;
+  builtinBindings?: Record<string, StoryBuiltinBinding>;
+  migrationWarnings?: StoryMigrationWarning[];
+}
+
+export interface StoryBuiltinBinding {
+  resourceRevision: string;
+  seriesFieldFingerprints: Record<string, string>;
+  segmentFieldFingerprints: Record<string, Record<string, string>>;
+  seriesOverrides: Record<string, unknown>;
+  segmentOverrides: Record<string, Record<string, unknown>>;
+  orphanedSegments: 剧情编织分段[];
+}
+export interface StoryMigrationWarning {
+  id: string; seriesId: string; segmentId?: string; field: string;
+  reason: 'legacy_origin_unknown' | 'resource_removed';
+}
+export type PersistedStorySeries = Omit<Partial<剧情编织系列>, '分段列表'> & {
+  id: string; 分段列表: (Partial<剧情编织分段> & { id: string })[];
+};
+export interface PersistedStoryBuiltinBinding extends Omit<StoryBuiltinBinding, 'seriesFieldFingerprints' | 'segmentFieldFingerprints'> {
+  /** v4 field order is fixed by the persistence module; hashes are not gameplay fields. */
+  seriesFieldFingerprints: string[];
+  segmentFieldFingerprints: Record<string, string[]>;
+}
+/** Transport only: missing bundled prose must be hydrated before gameplay. */
+export interface PersistedStoryWeavingV4 {
+  persistenceVersion: 4;
+  系列列表: PersistedStorySeries[];
+  当前系列ID?: string;
+  当前进度?: 剧情编织进度锚点;
+  builtinBindings: Record<string, PersistedStoryBuiltinBinding>;
+  migrationWarnings: StoryMigrationWarning[];
 }
 
 export interface 剧情编织API覆盖 {
@@ -458,7 +490,10 @@ export function 归一化剧情编织系统(input?: Partial<剧情编织系统> 
     ? input.当前系列ID
     : 系列列表[0]?.id;
   const 当前进度 = 归一化剧情编织进度锚点(input.当前进度, 系列列表, 当前系列ID);
-  return { 系列列表, 当前系列ID, 当前进度 };
+  return { 系列列表, 当前系列ID, 当前进度,
+    ...(input.builtinBindings ? { builtinBindings: structuredClone(input.builtinBindings) } : {}),
+    ...(input.migrationWarnings ? { migrationWarnings: structuredClone(input.migrationWarnings) } : {}),
+  };
 }
 
 export function 归一化剧情编织进度锚点(

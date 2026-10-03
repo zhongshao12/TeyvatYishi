@@ -96,7 +96,7 @@ globalThis.fetch = async (input, init = {}) => {
 };
 const persistence = await import(pathToFileURL(path.join(tempDir, 'data/storyWeavingPreset.mjs')).href);
 const source = JSON.parse(fs.readFileSync(path.join(root, 'data/storyWeavingCanonDecomposed.json'), 'utf8'));
-const baseline = model.归一化剧情编织系统(source);
+const baseline = persistence.bindStoryResourceBaseline(model.归一化剧情编织系统(source));
 assert.equal(persistence.isSelfContainedStoryWeavingSystem(baseline), true, '完整原著系统应可作为离线回退');
 
 const loadedFromResources = await persistence.loadAllBundledStoryWeavingPresets();
@@ -155,6 +155,7 @@ const modifiedSeries = model.归一化剧情编织系列({
   updatedAt: 1900000000002,
 });
 const modifiedSystem = model.归一化剧情编织系统({
+  builtinBindings: baseline.builtinBindings,
   系列列表: [modifiedSeries, ...baseline.系列列表.slice(1), customSeries],
   当前系列ID: modifiedSeries.id,
   当前进度: {
@@ -177,7 +178,7 @@ const modifiedSystem = model.归一化剧情编织系统({
 });
 
 const persisted = persistence.buildPersistedStoryWeavingSystem(modifiedSystem);
-assert.equal(persisted.persistenceVersion, 3, '新持久化格式版本应为 3');
+assert.equal(persisted.persistenceVersion, 4, '新持久化格式版本应为 4');
 assert.equal(persistence.isSelfContainedStoryWeavingSystem(persisted), false, '轻量状态不能被误当成完整离线回退');
 const persistedCanon = persisted.系列列表.find((series) => series.id === modifiedSeries.id);
 const persistedSegment = persistedCanon.分段列表.find((segment) => segment.id === modifiedSegment.id);

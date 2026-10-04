@@ -7,6 +7,7 @@ import {
   type StoryBlock,
 } from '@/models/teyvat/narrativeTurn';
 import { isRecord } from '@/utils/valueGuards';
+import { filterNarrativeTurnShell } from '@/utils/presetShellFilter';
 
 export type NarrativeTurnErrorCode =
   | 'INVALID_JSON'
@@ -24,9 +25,16 @@ export class NarrativeTurnParseError extends Error {
 }
 
 const narrativeTurnNormalizationWarnings = new WeakMap<NarrativeTurn, string[]>();
+/** 被外壳过滤器摘出的预设思维链：不进可见正文，但保留在消息诊断里备查。 */
+const narrativeTurnPresetCot = new WeakMap<NarrativeTurn, string>();
 
 export function getNarrativeTurnNormalizationWarnings(turn: NarrativeTurn): readonly string[] {
   return narrativeTurnNormalizationWarnings.get(turn) ?? [];
+}
+
+/** 本回合被摘出可见正文的预设思维链（没有则为空串）。 */
+export function getNarrativeTurnPresetCot(turn: NarrativeTurn): string {
+  return narrativeTurnPresetCot.get(turn) ?? '';
 }
 
 function requiredText(value: unknown): string | null {
@@ -213,13 +221,34 @@ export function normalizeNarrativeTurn(value: unknown): NarrativeTurn {
     throw new NarrativeTurnParseError('INVALID_REQUIRED_FIELD');
   }
   const warnings: string[] = [];
-  const body = normalizeBody(value.body, warnings);
+  const rawBody = normalizeBody(value.body, warnings);
+  const rawContinuation = normalizeContinuation(value.continuation);
+
+  // 预设输出外壳过滤（2026-10-03）：MoM 系预设把思维链、摘要、角色表都包在标签里，
+  // 模型会老老实实把它们写进 body.text —— 玩家实测的结果是「正文里夹着 <thinking> 和流程图」。
+  // 这里在**解析层**统一摘除外壳：思维链不再进可见正文（另存诊断），
+  // `<meow_FM>` 并入续写摘要，`<char_date>` 等面板变成独立的 system 块。
+  const shellFiltered = filterNarrativeTurnShell({
+    body: rawBody,
+    choices: [],
+    factCandidates: [],
+    continuation: rawContinuation,
+  });
+  const body = shellFiltered.turn.body;
+  if (shellFiltered.removedTags.length) {
+    const thinkingNote = shellFiltered.thinkingChars
+      ? `（思维链 ${shellFiltered.thinkingChars} 字已从正文移除并存入消息诊断）`
+      : '';
+    warnings.push(`已移除预设输出外壳标签：${shellFiltered.removedTags.join('、')}${thinkingNote}。`);
+  }
+
   const turn: NarrativeTurn = {
     body,
     choices: normalizeChoices(value.choices),
     factCandidates: revalidateFactCandidatesForBody(value.factCandidates, body),
-    continuation: normalizeContinuation(value.continuation),
+    continuation: shellFiltered.turn.continuation,
   };
+  if (shellFiltered.thinking) narrativeTurnPresetCot.set(turn, shellFiltered.thinking);
   if (warnings.length) narrativeTurnNormalizationWarnings.set(turn, warnings);
   return turn;
 }

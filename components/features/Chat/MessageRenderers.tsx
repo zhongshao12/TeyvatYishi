@@ -8,6 +8,7 @@ import type { VisualTextSettings } from '@/models/settings';
 import { normalizeInlineSpeakerTags, shouldRenderAsNarrationForPlayerLine } from '@/utils/playerSpeechGuard';
 import { getDefaultBuiltinAvatar, getDefaultTravelerBuiltinAvatar } from '@/data/builtinAvatars';
 import { 解析相册资源引用 } from '@/utils/albumActions';
+import { filterStoryTextShell } from '@/utils/presetShellFilter';
 
 interface ThinkingBlockProps {
   content: string;
@@ -646,9 +647,12 @@ export function extractStreamingNarrativeBody(raw: string): string {
       if (!['narration', 'dialogue', 'system'].includes(String(record.kind))) break;
       if (typeof record.text !== 'string' || !record.text.trim()) break;
       const speaker = typeof record.speaker === 'string' ? record.speaker.trim() : '';
-      blocks.push(record.kind === 'dialogue' && speaker
-        ? `【${speaker}】${record.text.trim()}`
-        : record.text.trim());
+      // 流式阶段同样摘掉预设外壳（思维链/摘要/面板标签）：否则玩家会在生成过程中
+      // 眼看着 `<thinking>` 与 mermaid 流程图一行行刷出来 —— 正式渲染时它们已不进正文。
+      const cleaned = filterStoryTextShell(record.text.trim()).text.trim();
+      if (cleaned) {
+        blocks.push(record.kind === 'dialogue' && speaker ? `【${speaker}】${cleaned}` : cleaned);
+      }
     } catch {
       break;
     }

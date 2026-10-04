@@ -214,7 +214,8 @@ describe('C 生成点执行卡', () => {
     expect(card).toContain('建议 5-8 个块');
     expect(card).toContain('<meow_FM> → continuation.summary 字段');
     expect(card).toContain('<thinking> → body 里 kind:"system" 的块');
-    expect(card).toContain('可见思维链');
+    expect(card).toContain('【思维链】');
+    expect(card).toContain('从可见正文里摘出来');
     expect(card).toContain('【不可协商】');
     expect(card).toContain('NarrativeTurn JSON');
     // 说明内置默认值让位，避免模型在两个字数之间摇摆

@@ -10,7 +10,7 @@
  *  - 依赖类型从**产出者**推导（`PromptAssemblyResult[...]` / `ReturnType<typeof ...>`），而非手工猜测。
  */
 import { narrativeTurnBodyText, type NarrativeTurn } from '@/models/teyvat/narrativeTurn';
-import { getNarrativeTurnNormalizationWarnings, revalidateFactCandidatesForBody } from '@/services/ai/narrativeTurnParser';
+import { getNarrativeTurnNormalizationWarnings, getNarrativeTurnPresetCot, revalidateFactCandidatesForBody } from '@/services/ai/narrativeTurnParser';
 import {
   persistWorkflowRecoveryJournal,
   updateWorkflowRecoveryJournal,
@@ -202,6 +202,8 @@ export async function runAiMessageStage(deps: AiMessageStageDeps) {
         deepSeekPrefixMode: deepSeekLockFormat,
         deepSeekProtocolIssues: deepSeekProtocolIssuesForTurn,
         narrativeNormalizationWarnings,
+        // 预设思维链已从可见正文摘出（不再混在故事里），但完整保留在诊断里备查。
+        presetCot: getNarrativeTurnPresetCot(result.parsed).slice(0, 6000),
         deepSeekMainOriginalModel: result.deepSeekRecovery?.originalModel,
         deepSeekMainAdaptedModel: result.deepSeekRecovery?.fallbackModel
           ?? (result.deepSeekRecovery?.initialModel !== result.deepSeekRecovery?.originalModel

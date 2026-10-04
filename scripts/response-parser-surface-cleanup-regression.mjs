@@ -46,6 +46,9 @@ transpileModule('models/teyvat/narrativeTurn.ts');
 transpileModule('services/ai/narrativeTurnParser.ts');
 transpileModule('services/ai/responseParser.ts');
 transpileModule('utils/valueGuards.ts');
+// 预设输出外壳过滤（2026-10-03）：解析层在 normalizeNarrativeTurn 里摘掉 <thinking>/<meow_FM>/<char_date>，
+// 因此本门禁的临时构建必须一并包含该模块。
+transpileModule('utils/presetShellFilter.ts');
 const compatStubPath = path.join(tempDir, 'compat/legacy-hsr/readOnly.mjs');
 fs.mkdirSync(path.dirname(compatStubPath), { recursive: true });
 fs.writeFileSync(compatStubPath, 'export function getLegacyElementalEchoTagAliases() { return { invite: [], questions: [], judgement: [] }; }\n', 'utf8');

@@ -53,6 +53,8 @@ export interface 聊天消息 {
     deepSeekPrefixMode?: boolean;
     deepSeekProtocolIssues?: string[];
     narrativeNormalizationWarnings?: string[];
+    /** 从可见正文摘出的预设思维链（MoM 系预设的 `<thinking>` 段）；正文里已不再展示。 */
+    presetCot?: string;
     deepSeekMainOriginalModel?: string;
     deepSeekMainAdaptedModel?: string;
     stV2Attempted?: boolean;

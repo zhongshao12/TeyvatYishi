@@ -498,7 +498,10 @@ export function buildPresetPresentationCard(presentation: PresetPresentation): s
   }
   if (presentation.cotRequested) {
     lines.push(
-      '【可见思维链】预设要求可见的思考/分析段落属于**玩家可见内容**：写进 body 中 kind:"system" 的块，保留预设要求的语言、人称与人格口吻；不要省略，也不要写成 JSON 之外的标签。',
+      '【思维链】预设要求先做思考/分析再写正文。思考段照预设写（保留预设要求的语言、人称与人格口吻），但**不要**写进故事段落：',
+      '  - 应用会把 `<thinking>`/`<思考>`/ECoT 注释这类思维链从可见正文里摘出来单独存放，等同于「只在后台过一遍」；',
+      '  - 因此正文块（narration/dialogue）里**禁止**出现 `<thinking>`、`<!-- Start the ECoT -->`、mermaid 流程图、`# 开始大思考` 这类幕后分析；',
+      '  - 若你仍要按预设输出思维链，请把它放进 body 中 kind:"system" 的块（应用会识别并摘除），正文只留故事本身。',
     );
   }
 
@@ -525,7 +528,7 @@ export function buildPresetPrecedenceHeader(presentation: PresetPresentation): s
     facts.push('- 预设其余条目写死了人称/语言/语气要求，执行卡里已原文附上，按它写。');
   }
   if (presentation.cotRequested) {
-    facts.push('- 预设要求可见思维链/分析：写进 body 的 kind:"system" 块（可见内容），不要写成 JSON 之外的标签，也不要省略。');
+    facts.push('- 预设要求先思考再写正文：思维链请在 body 的 kind:"system" 块里写；应用会把它识别为思维链并从可见正文中摘除（正文只留故事）。');
   }
   if (presentation.shell.length) {
     facts.push(`- 预设外壳标签：${presentation.shell.map((s) => `<${s.tag}>`).join(' ')} → 按执行卡映射到 JSON 字段。`);
@@ -551,7 +554,7 @@ export function formatPresetPresentationSummary(presentation: PresetPresentation
     stylePart,
     presentation.shell.length ? `外壳 ${presentation.shell.map((s) => `<${s.tag}>`).join('')}` : '外壳：无',
   ];
-  if (presentation.cotRequested) parts.push('要求可见思维链');
+  if (presentation.cotRequested) parts.push('要求先思考（思维链不进正文）');
   if (!presentation.styleText && presentation.disabledStyleCandidates.length) {
     parts.push(`可勾选：${presentation.disabledStyleCandidates.slice(0, 3).join('、')}`);
   }
@@ -568,7 +571,7 @@ export function rankStyleCandidates(names: readonly string[]): string[] {
 /** 预设要求「可见思维链」时，内置格式守卫里的这条禁令必须改写（它会把预设标志性输出整体压掉）。 */
 export const BUILTIN_FORMAT_COT_BAN = '禁止输出 thinking、analysis、推理过程或隐藏状态。';
 export const PRESET_FORMAT_COT_ALLOWANCE =
-  'JSON 之外禁止出现任何文字、Markdown 围栏或 XML 标签；若已激活预设要求可见思维链/分析/状态栏，必须把它们写进 body 中 kind:"system" 的块（保留预设要求的语言与口吻），不得省略。';
+  'JSON 之外禁止出现任何文字、Markdown 围栏或 XML 标签；若已激活预设要求先思考再写正文，可以在 body 中输出 kind:"system" 的思维链块（保留预设要求的语言与口吻），应用会把它识别为思维链并从可见正文中摘除；narration/dialogue 块里不得出现 thinking/ECoT/mermaid 等幕后分析。';
 
 /**
  * 修正内置格式守卫文本：字数换成生效值，并在预设要求可见思维链时改写那条禁令。

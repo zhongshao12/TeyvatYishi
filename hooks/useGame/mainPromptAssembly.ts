@@ -12,12 +12,20 @@ import type { SteambirdNews } from '@/models/teyvat/steambird';
 import { buildOpeningSystemPrompt, buildSystemPrompt } from './systemPromptBuilder';
 import { buildTavernMessageChain, formatTavernChainReport, type TavernChainReport } from './tavernMessageChainBuilder';
 import { getCurrentSTPresetV2, explainTavernPresetActivation } from '@/utils/stSettingsNormalizer';
+import {
+  buildPresentationForPreset,
+  buildPresetPrecedenceHeader,
+  formatPresetPresentationSummary,
+  resolvePresetPresentation,
+} from '@/utils/presetPresentation';
 import { pushToast } from '@/utils/toastStore';
 
 /** 已提示过投递报告的预设（每个会话一次即可，避免每回合刷屏）。 */
 const reportedTavernPresets = new Set<string>();
 /** 已提示过的「未使用预设」原因（同样只提示一次）。 */
 const reportedTavernInactiveReasons = new Set<string>();
+/** 已提示过的预设表现层问题（例如文风填充模块没勾选，只提示一次）。 */
+const reportedPresetPresentationIssues = new Set<string>();
 import { evaluateStoryWeavingGate, getStoryWeavingInjectionDiagnostics } from '@/services/storyWeaving';
 import { selectNpcLedgersForTurn} from '@/models/npc';
 import {
@@ -383,6 +391,14 @@ export async function runMainPromptAssembly(deps: MainPromptAssemblyDeps) {
         }, tavernReportOut);
         tavernChainReport = tavernReportOut.current;
         tavernV2Messages = tavernChain.map((msg) => 创建聊天消息(msg.role, msg.content));
+        // 表现层契约（字数下限 / 文风段 / 外壳标签 / 是否要求可见思维链）：解析自预设自身的变量与正文。
+        const presentation = resolvePresetPresentation(state.gameSettings)
+          ?? buildPresentationForPreset(currentPresetV2.preset, {
+            presetId: currentPresetV2.id,
+            presetName: currentPresetV2.name,
+            characterId: state.gameSettings.currentStCharacterId ?? currentPresetV2.characterId ?? null,
+          });
+        const presentationSummary = presentation ? formatPresetPresentationSummary(presentation) : '';
         if (tavernChainReport) {
           // 投递报告（2026-10-03）：玩家能直接看到「预设到底哪一步没生效」，
           // 而不是只看到导入时那句「已存入预设库」。每个预设每个会话只提示一次，避免刷屏。
@@ -390,12 +406,15 @@ export async function runMainPromptAssembly(deps: MainPromptAssemblyDeps) {
             `[ST V2] 预设「${currentPresetV2.name}」投递：${formatTavernChainReport(tavernChainReport)}`,
             tavernChainReport,
           );
+          if (presentationSummary) {
+            console.info(`[ST V2] 预设「${currentPresetV2.name}」表现层：${presentationSummary}`, presentation);
+          }
           if (!reportedTavernPresets.has(currentPresetV2.id)) {
             reportedTavernPresets.add(currentPresetV2.id);
             pushToast({
               kind: 'info',
               title: `酒馆预设已生效：${currentPresetV2.name}`,
-              detail: `${formatTavernChainReport(tavernChainReport)}。定义型条目按 ST 语义不产出消息，但它们的变量已生效；「悬空」是预设里引用了不存在的条目。`,
+              detail: `${formatTavernChainReport(tavernChainReport)}${presentationSummary ? `｜${presentationSummary}` : ''}。定义型条目按 ST 语义不产出消息，但它们的变量已生效；「悬空」是预设里引用了不存在的条目。`,
               durationMs: 12000,
             });
           }
@@ -408,16 +427,34 @@ export async function runMainPromptAssembly(deps: MainPromptAssemblyDeps) {
           // 预设优先声明（2026-10-03 用户要求：「保证预设能起作用，而且不会被别的强消息压过」）。
           // 放在 system prompt（请求的第一条）里：靠后的预设消息链因此拥有更强的支配力，
           // 同时把本应用真正不能放弃的两条机器契约写清楚，避免模型在两者之间摇摆。
+          //
+          // 2026-10-03 第二轮修正（用户实测「字数没有达标、文风没有启动」）：
+          // 声明里现在带上**预设的实际要求**（字数下限、文风段是否有内容、外壳标签、是否需要可见
+          // 思维链），而不是一段通用措辞 —— 通用措辞无法阻止内置默认值在生成点附近把预设压回去。
           systemPrompt = [
-            `# 酒馆预设优先（本回合已激活：${currentPresetV2?.name ?? '玩家导入预设'}）`,
-            '已启用玩家导入的酒馆预设作为**表现层权威**：文风、人称、叙事语气、人格演绎、输出标签、节奏与篇幅一律以该预设为准。',
-            '本应用只保留两条机器契约，无论预设怎么写都必须同时满足：',
-            '1) 正文必须按本应用要求的**载体格式**输出（结构化字段/行动选项），否则无法解析并会判定为失败回复；',
-            '2) 本回合的 `<变量事实>` 块必须输出（数值结算依赖它）。',
-            '除这两条之外，任何冲突**一律以预设为准**；严禁用应用内置的文风/思维链/格式写法去覆盖预设的人设与输出要求。',
+            presentation
+              ? buildPresetPrecedenceHeader(presentation)
+              : `# 酒馆预设优先（本回合已激活：${currentPresetV2?.name ?? '玩家导入预设'}）\n已启用玩家导入的酒馆预设作为**表现层权威**：文风、人称、叙事语气、人格演绎、输出标签、节奏与篇幅一律以该预设为准。\n本应用只保留两条机器契约，无论预设怎么写都必须同时满足：\n1) 正文必须按本应用要求的**载体格式**输出（结构化字段/行动选项），否则无法解析并会判定为失败回复；\n2) 本回合的 \`<变量事实>\` 块必须输出（数值结算依赖它）。\n除这两条之外，任何冲突**一律以预设为准**；严禁用应用内置的文风/思维链/格式写法去覆盖预设的人设与输出要求。`,
             '',
             systemPrompt,
           ].filter(Boolean).join('\n');
+
+          if (presentation) {
+            // 文风段空 = 玩家自己的预设没勾文风填充模块。这不是应用能替他决定的，
+            // 但必须**明确说出来**并给出可点的条目名，否则他会一直以为是应用没生效。
+            if (!presentation.styleText && presentation.disabledStyleCandidates.length) {
+              const issueKey = `${presentation.presetId}::style-empty`;
+              if (!reportedPresetPresentationIssues.has(issueKey)) {
+                reportedPresetPresentationIssues.add(issueKey);
+                pushToast({
+                  kind: 'error',
+                  title: `预设「${presentation.presetName}」的文风段是空的`,
+                  detail: `预设的〈文风〉包装已开启，但里面的填充模块没有勾选：${presentation.disabledStyleCandidates.join('、')}。到「设置 → 提示词模块 → 酒馆预设 → 条目列表」用「已关闭」筛选勾选其中一个，预设文风才会生效。`,
+                  durationMs: 16000,
+                });
+              }
+            }
+          }
         }
       } catch (error) {
         tavernV2Messages = null;

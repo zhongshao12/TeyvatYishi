@@ -12,6 +12,8 @@
 import { appendApiErrorReport } from '@/services/ai/apiErrorReportService';
 import { isNonRetryableAIError } from '@/services/ai/deepSeekRecovery';
 import { resolveMainNarrativeMaxAttempts } from '@/services/ai/mainNarrativeRetryPolicy';
+import { WORD_COUNT_ENFORCEMENT_MIN_TARGET } from '@/services/ai/mainNarrativeValidation';
+import { resolvePresetPresentation, resolveNarrativeMaxTokens } from '@/utils/presetPresentation';
 import { applyTavernOutputRegexScripts } from './tavernRegexProcessor';
 import {
   createDocumentVisibilitySource,
@@ -93,18 +95,33 @@ export async function runMainNarrativeStreamingStage(deps: MainNarrativeStreamin
           commit: streamingSession.acceptBufferedText,
         });
     const hasRequiredParty = getMissingPartyMembers('', state.NPC).length > 0;
+    // 预设声明了长文下限时，本回合必须预留「校验-重写」余量：
+    // 否则 maxAttempts=1 会让字数校验没有机会触发（用户实测「字数没有达标」）。
+    const presetWordCountTarget = resolvePresetPresentation(state.gameSettings)?.wordCountTarget ?? null;
+    // 输出预算下限：预设要求 3000 字，而 API 配置里可能还是 2048/4096（预设自带的
+    // openai_max_tokens 只在界面切换预设时同步过）。不够就先抬到够，避免被 max_tokens 截断。
+    const narrativeConfig: API配置项 = {
+      ...mainStoryConfig,
+      maxTokens: resolveNarrativeMaxTokens(mainStoryConfig.maxTokens, presetWordCountTarget),
+    };
     const maxAttempts = resolveMainNarrativeMaxAttempts({
       autoRetryOnError: state.gameSettings.autoRetryOnError,
       autoRetryCount: state.gameSettings.autoRetryCount,
-      requiresValidationRepair: Boolean(deepSeekMainActive || deps.rerollContext || hasRequiredParty),
+      requiresValidationRepair: Boolean(
+        deepSeekMainActive
+        || deps.rerollContext
+        || hasRequiredParty
+        || (presetWordCountTarget !== null && presetWordCountTarget >= WORD_COUNT_ENFORCEMENT_MIN_TARGET),
+      ),
     });
     const narrativeRequest = await runValidatedMainNarrativeRequest({
       maxAttempts,
       signal: abortController.signal,
+      wordCountTarget: presetWordCountTarget,
       request: async () => {
         streamingSession.reset();
         return requestMainNarrativeAttempt({
-          config: mainStoryConfig,
+          config: narrativeConfig,
           messages: apiMessages,
           systemPrompt,
           onDelta: streamingSession.onDelta,
@@ -136,13 +153,15 @@ export async function runMainNarrativeStreamingStage(deps: MainNarrativeStreamin
             ? '重roll相似度校验'
             : issue.kind === 'protocol'
               ? 'DeepSeek 主剧情协议校验'
-              : '主剧情工作流';
+              : issue.kind === 'word_count_short'
+                ? '预设字数校验'
+                : '主剧情工作流';
         const errorMessage = issue.kind === 'empty'
           ? `返回空响应，触发自动重试。主剧情第 ${issue.attempt}/${issue.maxAttempts} 次（无可见正文块）。`
           : `主剧情第 ${issue.attempt}/${issue.maxAttempts} 次：${issue.detail}`;
         void appendApiErrorReport({
           source,
-          config: mainStoryConfig,
+          config: narrativeConfig,
           requestMode: mainRequestMode,
           error: new Error(errorMessage),
           responseText: issue.responseText || streamingSession.streamedText || streamingSession.previewText || '（空响应）',
@@ -157,7 +176,9 @@ export async function runMainNarrativeStreamingStage(deps: MainNarrativeStreamin
           ? `${detail}，正在自动补写。`
           : kind === 'reroll_similarity'
             ? '重roll结果与上一版过于相似，正在强制换写。'
-            : `${detail}，正在自动重试。`;
+            : kind === 'word_count_short'
+              ? `${detail}，正在按预设字数要求重写本回合。`
+              : `${detail}，正在自动重试。`;
         pushQueueTask(state, 'main_story', 'pending', {
           detail: queueDetail,
           failCount: attempt,
@@ -176,7 +197,7 @@ export async function runMainNarrativeStreamingStage(deps: MainNarrativeStreamin
         if (!alreadyReportedByApiLayer) {
           void appendApiErrorReport({
             source: '主剧情工作流',
-            config: mainStoryConfig,
+            config: narrativeConfig,
             requestMode: mainRequestMode,
             error: innerErr,
             responseText: streamingSession.streamedText || streamingSession.previewText || '',

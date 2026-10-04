@@ -51,6 +51,10 @@ function countIncludes(messages, text) {
 
 cleanTempDir();
 transpileModule('utils/macroEngine.ts');
+transpileModule('utils/valueGuards.ts');
+transpileModule('utils/stSettingsNormalizer.ts');
+// 表现层契约解析（字数下限/文风段/输出外壳）：链构建器与 system prompt 共用的纯函数层。
+transpileModule('utils/presetPresentation.ts');
 transpileModule('models/prompts.ts');
 transpileModule('hooks/useGame/tavernFormatGuard.ts');
 transpileModule('hooks/useGame/tavernMessageChainBuilder.ts');

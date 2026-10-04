@@ -6,7 +6,7 @@ import { sendChatMessage, type ChatResult } from '@/services/ai/text';
 import { isEmptyResponse, parseResponse } from '@/services/ai/responseParser';
 import { runMainNarrativeAttempts } from '@/services/ai/mainNarrativeAttemptRunner';
 import { shouldRetryNarrativeAttempt } from '@/services/ai/mainNarrativeRetryPolicy';
-import { decideMainNarrativeValidation } from '@/services/ai/mainNarrativeValidation';
+import { decideMainNarrativeValidation, countVisibleBodyCharacters } from '@/services/ai/mainNarrativeValidation';
 
 export const DEEPSEEK_MAIN_FORMAT_GUARD = [
   'DeepSeek 主剧情格式校验：只输出一个合法 NarrativeTurn JSON 对象。',
@@ -14,7 +14,7 @@ export const DEEPSEEK_MAIN_FORMAT_GUARD = [
   'body 只含可见 narration/dialogue/system 块；不要输出 thinking、analysis、推理过程或工具载荷。',
 ].join('\n');
 
-export type MainNarrativeValidationIssueKind = 'empty' | 'missing_party' | 'reroll_similarity' | 'protocol';
+export type MainNarrativeValidationIssueKind = 'empty' | 'missing_party' | 'reroll_similarity' | 'protocol' | 'word_count_short';
 
 export interface MainNarrativeValidationIssue {
   kind: MainNarrativeValidationIssueKind;
@@ -36,6 +36,8 @@ export interface MainNarrativeRequestStageOptions {
   request: (context: { attempt: number; maxAttempts: number }) => Promise<ChatResult>;
   getMissingPartyMembers: (candidateText: string) => string[];
   deepSeekValidation?: boolean;
+  /** 已激活酒馆预设声明的正文汉字下限；声明了才做长度校验（见 word_count_short）。 */
+  wordCountTarget?: number | null;
   getProtocolIssues?: (parsed: NarrativeTurn) => string[];
   rerollContext?: { previousResponse: string };
   appendRetryInstruction?: (instruction: string) => void;
@@ -52,6 +54,8 @@ export interface MainNarrativeRequestStageResult {
   deepSeekProtocolIssues: string[];
   rerollSimilarity?: number;
   rerollSimilarityRetried: boolean;
+  /** 本回合是否因为正文短于预设字数下限而重写过（最多一次）。 */
+  wordCountRetried: boolean;
 }
 
 export interface MainNarrativeAttemptRequestOptions {
@@ -106,6 +110,9 @@ export async function runValidatedMainNarrativeRequest(
   let deepSeekProtocolIssues: string[] = [];
   let rerollSimilarity: number | undefined;
   let rerollSimilarityRetried = false;
+  // 字数不足的重写每回合**最多一次**：预设要求 3000 字时，重写等于再跑一次长文生成，
+  // 不能因为模型顽固就在同一回合反复烧 token/时间。第二次仍不达标就照常接受并记录诊断。
+  let wordCountRetried = false;
 
   const attemptRun = await runMainNarrativeAttempts({
     maxAttempts: options.maxAttempts,
@@ -130,6 +137,8 @@ export async function runValidatedMainNarrativeRequest(
         rerollSimilarity: nextRerollSimilarity,
         protocolIssues,
         canRetry,
+        wordCountTarget: wordCountRetried ? null : (options.wordCountTarget ?? null),
+        bodyCharacterCount: countVisibleBodyCharacters(candidateText),
       });
 
       if (validation.kind === 'empty') {
@@ -199,6 +208,24 @@ export async function runValidatedMainNarrativeRequest(
         return { status: 'retry' as const, reason: `DeepSeek protocol: ${protocolIssues.join('; ')}` };
       }
 
+      // 长度不达标：预设声明的正文下限没有被满足（用户实测「字数没有达标」）。
+      // 这里选择**自动重写一次**而不是默默接受 —— 预设的字数要求是它自己的合同，
+      // 应用既然把预设当表现层权威，就有责任在生成后核对一次。
+      if (validation.kind === 'word_count_short') {
+        wordCountRetried = true;
+        const detail = `正文只有 ${validation.bodyCharacterCount} 字，未达已激活酒馆预设要求的 ${validation.wordCountTarget} 字`;
+        await options.onValidationIssue?.({
+          kind: 'word_count_short',
+          attempt: context.attempt,
+          maxAttempts: context.maxAttempts,
+          detail,
+          responseText: attemptResult.fullText || candidateText,
+        });
+        options.appendRetryInstruction?.(buildWordCountRetryGuard(validation.wordCountTarget, validation.bodyCharacterCount));
+        await options.onValidationRetry?.({ kind: 'word_count_short', attempt: context.attempt, detail });
+        return { status: 'retry' as const, reason: 'narrative body shorter than preset word count target' };
+      }
+
       if (validation.action === 'accept' && validation.protocolIssues.length) {
         deepSeekProtocolIssues = validation.protocolIssues;
       } else if (options.deepSeekValidation) {
@@ -217,6 +244,7 @@ export async function runValidatedMainNarrativeRequest(
     deepSeekProtocolIssues,
     ...(rerollSimilarity === undefined ? {} : { rerollSimilarity }),
     rerollSimilarityRetried,
+    wordCountRetried,
   };
 }
 
@@ -235,6 +263,20 @@ export function buildDeepSeekProtocolRetryGuard(issues: string[]): string {
     `失败项：${issues.join('；') || '未知格式错误'}。`,
     '请完全重写，不要延续上一版残缺输出。',
     DEEPSEEK_MAIN_FORMAT_GUARD,
+  ].join('\n');
+}
+
+/**
+ * 长度不足时的重写指令（预设声明了正文下限，但本版明显没写到）。
+ * 说清三件事：差距、扩写方向、不能用来凑数的东西。
+ */
+export function buildWordCountRetryGuard(wordCountTarget: number, actualCharacters: number): string {
+  return [
+    '已激活酒馆预设的字数校验未通过：上一版可见正文太短。',
+    `实测 ${actualCharacters} 字，预设要求不少于 ${wordCountTarget} 字。`,
+    `请重写本回合并写到不少于 ${wordCountTarget} 字：保留既有的玩家输入、已发生事实与结局走向，把场面、动作链、对白轮次与感官细节铺开。`,
+    '禁止用重复句、同义反复、形容词堆砌、空泛总结、复制上文、把摘要抄进正文或增加选项数量来凑字数。',
+    '仍只输出完整合法的 NarrativeTurn JSON（body / choices / factCandidates / continuation 四字段齐全）。',
   ].join('\n');
 }
 

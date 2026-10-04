@@ -83,12 +83,15 @@ assert(
 assert(source.includes('重roll结果与上一版过于相似，正在强制换写。'), '重roll过像时必须在队列中提示正在强制换写。');
 // 迁移: 旧 sendWorkflow 内联 `const maxAttempts = (deepSeekMainActive || deps.rerollContext...) ? Math.max(2, configuredMaxAttempts)`
 //   -> 新 sendWorkflow 把预算交给 resolveMainNarrativeMaxAttempts，并以
-//      `requiresValidationRepair: Boolean(deepSeekMainActive || deps.rerollContext || hasRequiredParty)` 声明「重roll 需要校验修复」，
-//      策略侧以 `return input.requiresValidationRepair ? Math.max(2, configured) : configured;` 保证至少 2 次尝试。
+//      `requiresValidationRepair: Boolean(deepSeekMainActive || deps.rerollContext || hasRequiredParty)`
+//      声明「重roll 需要校验修复」，策略侧以
+//      `return input.requiresValidationRepair ? Math.max(2, configured) : configured;` 保证至少 2 次尝试。
 //   理由: 重试预算抽成纯策略函数，reroll 触发条件仍在 sendWorkflow 决定。断言意图不变：
 //   重roll即使未开启自动重试，也必须至少保留一次换写重试机会。
+//   迁移(2026-10-03): 该布尔表达式因新增「预设长文字数校验」条件而改为跨行书写，
+//   断言改用不锁定换行的正则（仍需同时看到 deps.rerollContext 与参数名 requiresValidationRepair）。
 assert(
-  source.includes('requiresValidationRepair: Boolean(deepSeekMainActive || deps.rerollContext || hasRequiredParty),')
+  /requiresValidationRepair:\s*Boolean\([\s\S]{0,260}?deps\.rerollContext[\s\S]{0,260}?\)/.test(source)
   && retryPolicySource.includes('return input.requiresValidationRepair ? Math.max(2, configured) : configured;'),
   '重roll即使未开启自动重试，也必须至少保留一次换写重试机会。',
 );

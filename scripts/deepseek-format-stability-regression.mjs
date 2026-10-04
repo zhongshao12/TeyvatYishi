@@ -63,9 +63,14 @@ assert(!sendWorkflow.includes('resolveMainStoryConfig'), 'DeepSeek reasoner 适�
 //   阶段函数 requestMainNarrativeAttempt(config)，阶段函数内 `(options.send ?? sendChatMessage)(options.config` 调共享层」。
 //   理由: 请求装配搬进了 mainNarrativeRequestStage.ts，共享请求层（services/ai/text）没有被绕开；
 //   这里断言「配置来自编排器的 mainStoryConfig」+「阶段层实际调用共享 sendChatMessage」两段链路都在。
+//   迁移(2026-10-03): 主请求改用 narrativeConfig —— 它是 `{ ...mainStoryConfig, maxTokens: <按预设
+//   字数下限抬高的输出预算> }`。断言意图不变：配置仍派生自编排器的 mainStoryConfig（且只多一个
+//   maxTokens 覆盖），请求仍走共享请求层。
 assert(
   sendWorkflow.includes('return requestMainNarrativeAttempt({') &&
-    sendWorkflow.includes('config: mainStoryConfig,') &&
+    sendWorkflow.includes('const narrativeConfig') &&
+    sendWorkflow.includes('...mainStoryConfig,') &&
+    sendWorkflow.includes('config: narrativeConfig,') &&
     sendWorkflow.includes('let result = await (options.send ?? sendChatMessage)(options.config, {'),
   '主剧情发送必须使用共享请求层。',
 );
@@ -87,7 +92,7 @@ assert(sendWorkflow.includes('buildDeepSeekProtocolRetryGuard'), 'DeepSeek 协�
 //   理由: 重试预算抽成可单测策略，语义不变（需要校验修复时至少 2 次尝试 = 至少一次协议失败重试）。
 assert(
   sendWorkflow.includes('resolveMainNarrativeMaxAttempts({') &&
-    sendWorkflow.includes('requiresValidationRepair: Boolean(deepSeekMainActive') &&
+    /requiresValidationRepair:\s*Boolean\([\s\S]{0,260}?deepSeekMainActive[\s\S]{0,260}?\)/.test(sendWorkflow) &&
     sendWorkflow.includes('return input.requiresValidationRepair ? Math.max(2, configured) : configured;'),
   'DeepSeek 专用模式至少要保留一次协议失败重试。',
 );

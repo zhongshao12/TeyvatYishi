@@ -52,9 +52,12 @@ assert(sendWorkflow.includes('const tavernHistory = recentHistory.filter((msg) =
 // 不再依赖「拼接视图里 indexOf 恰好命中本文件」这一隐含前提。
 // 用 sliceWorkflowMarker：该段代码已从 sendWorkflow.ts 搬到 mainPromptAssembly.ts，
 // 按标记自动定位后，后续阶段拆分不会再让这条断言失效（标记在 ≥2 个文件出现时会抛错，不会误判）。
+// 迁移(2026-10-03): 建链调用新增第二个参数（投递报告 reportOut），因此「建链」与「映射消息」
+//   不再是同一行 —— 标记改成建链调用的起点与随后那次 map。断言意图不变：切片仍覆盖
+//   buildTavernMessageChain 的全部实参，参数契约（只传 tavernHistory / 不重复注入原生底座）照旧受检。
 const tavernBuildCall = sliceWorkflowMarker(
-  'tavernV2Messages = buildTavernMessageChain({',
-  '}).map((msg) => 创建聊天消息(msg.role, msg.content));',
+  'const tavernChain = buildTavernMessageChain({',
+  'tavernV2Messages = tavernChain.map((msg) => 创建聊天消息(msg.role, msg.content));',
 ).text;
 assert(tavernBuildCall.includes('chatHistory: tavernHistory'), 'ST V2 buildTavernMessageChain 必须只接收排除本轮输入后的 tavernHistory');
 assert(tavernBuildCall.includes('includeNativeContextInWorldbook: false'), 'ST V2 叠加模式不得在 Tavern worldbook 里重复注入原生底座模块');

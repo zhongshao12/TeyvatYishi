@@ -109,9 +109,11 @@ assert(!tavernV2Branch.includes('systemPrompt ='), 'Tavern V2 must not replace t
 assert(sendWorkflow.includes('tavernMessages: tavernV2Messages'), 'sendWorkflow must wire the Tavern V2 message chain into the apiMessages assembly');
 // 用 sliceWorkflowMarker：该段代码已从 sendWorkflow.ts 搬到 mainPromptAssembly.ts，
 // 按标记自动定位后，后续阶段拆分不会再让这条断言失效（标记在 ≥2 个文件出现时会抛错，不会误判）。
+// 迁移(2026-10-03): 建链调用新增第二个参数（投递报告 reportOut），建链与随后的 map 不再同一行。
+//   标记改成建链调用起点与那次 map；切片仍覆盖 buildTavernMessageChain 的全部实参，断言意图不变。
 const tavernBuildCall = sliceWorkflowMarker(
-  'tavernV2Messages = buildTavernMessageChain({',
-  '}).map((msg) => 创建聊天消息(msg.role, msg.content));',
+  'const tavernChain = buildTavernMessageChain({',
+  'tavernV2Messages = tavernChain.map((msg) => 创建聊天消息(msg.role, msg.content));',
 ).text;
 assert(sendWorkflow.includes('const recentHistory = getMainHistoryWindow(updatedHistory, state.gameSettings, state.记忆);'), 'Tavern V2 must start from the native main history window');
 assert(sendWorkflow.includes('const tavernHistory = recentHistory.filter((msg) => msg.id !== userMsg.id);'), 'Tavern V2 must remove the current user message from Tavern history');

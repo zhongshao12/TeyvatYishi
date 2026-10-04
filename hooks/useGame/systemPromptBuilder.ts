@@ -56,6 +56,7 @@ import {
 } from './historyWindow';
 import { getAnticipatedNpcNamesForTurn } from './npcPresence';
 import { processMacros, type MacroContext } from '@/utils/macroEngine';
+import { resolveEffectiveWordCountTarget } from '@/utils/presetPresentation';
 import { 分析提示词构成, type 提示词构成 } from '@/utils/contextComposition';
 import { isSTImportedModule } from '@/utils/stPresetParser';
 import { canInviteElementalEcho, ELEMENTAL_ECHO_INVITE_MASTERY } from '@/services/elementalAttunementService';
@@ -121,7 +122,7 @@ export function buildSystemPrompt(
   const baseScope: 提示词模块作用域 = worldbookCtx?.currentScope ?? 'main';
   const currentScope: 提示词模块作用域 = worldState.进行中元素回响 ? 'elementalEcho' : baseScope;
   const moduleCtx: PromptModuleInjectionCtx = {
-    wordCountTarget: settings.wordCountTarget,
+    wordCountTarget: resolveEffectiveWordCountTarget(settings, settings.wordCountTarget),
     personLabel,
     playerName: getPromptPlayerName(traveler),
     currentScope,
@@ -338,7 +339,7 @@ export function buildOpeningSystemPrompt(
     : settings.narrativePerson === 'first' ? '第一人称"我"'
     : '第三人称"他/她"';
   const moduleCtx: PromptModuleInjectionCtx = {
-    wordCountTarget: settings.wordCountTarget,
+    wordCountTarget: resolveEffectiveWordCountTarget(settings, settings.wordCountTarget),
     personLabel,
     playerName: getPromptPlayerName(traveler),
     currentScope: 'opening' as 提示词模块作用域,

@@ -16,6 +16,11 @@ import type { 聊天消息 } from '@/models/chat';
 import { 创建聊天消息 } from '@/models/chat';
 import type { CodexEntry } from '@/models/teyvat/codex';
 import type { MainPromptAssemblyResult } from './mainPromptAssembly';
+import {
+  buildPresetPresentationCard,
+  resolveEffectiveWordCountTarget,
+  resolvePresetPresentation,
+} from '@/utils/presetPresentation';
 
 export interface RunApiMessagesStageDeps {
   state: UseGameStateReturn;
@@ -106,7 +111,8 @@ export async function runApiMessagesStage(deps: RunApiMessagesStageDeps) {
     if (!isOpeningSystemTrigger && !tavernV2Messages && awakeningPhase !== 'judgement') {
       apiMessages.push(创建聊天消息('user', buildTurnEnforcementBlock({
         playerName: state.旅人.姓名 || state.旅人.别名 || '无名旅者',
-        wordCountTarget: state.gameSettings.wordCountTarget,
+        // 预设声明了更高的正文下限时以预设为准（内置 {wordCountTarget} 同源同值）。
+        wordCountTarget: resolveEffectiveWordCountTarget(state.gameSettings, state.gameSettings.wordCountTarget),
         codexEntries: codexPreview?.entries,
         storyWeavingActive: Boolean(state.gameSettings.剧情编织系统?.enabled && state.gameSettings.剧情编织系统.currentWindow),
       })));
@@ -119,6 +125,16 @@ export async function runApiMessagesStage(deps: RunApiMessagesStageDeps) {
         创建聊天消息('user', NARRATIVE_TURN_EXAMPLE_USER),
         创建聊天消息('assistant', NARRATIVE_TURN_EXAMPLE_ASSISTANT),
       );
+    }
+
+    // 3b2. 预设表现层执行卡（2026-10-03）：作为**最后一条**消息进入请求。
+    //      位置理由：DeepSeek 格式守卫把「不要输出 thinking、analysis、推理过程」放在尾部，
+    //      而 MoM 系预设的标志性行为正是可见思维链 + 自定义外壳；两者对撞时模型两样都不做，
+    //      玩家的感受就是「预设没起作用」。执行卡排在守卫之后，把预设自己的字数下限、
+    //      文风原文、外壳→JSON 字段映射重新变成模型最后读到的东西，同时保留 JSON 载体。
+    const presetPresentation = resolvePresetPresentation(state.gameSettings);
+    if (presetPresentation) {
+      apiMessages.push(创建聊天消息('user', buildPresetPresentationCard(presetPresentation)));
     }
 
     // 3c. ST 预设兼容：In-Chat depth 注入。

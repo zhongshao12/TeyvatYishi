@@ -8,6 +8,14 @@ import type { 角色数据结构 } from '@/models/character';
 import type { 聊天消息 } from '@/models/chat';
 import type { MacroContext } from '@/utils/macroEngine';
 import { collectMacroAssignments, createMacroContext, processMacros } from '@/utils/macroEngine';
+import {
+  buildPresentationForPreset,
+  buildPresetPresentationCard,
+  resolveEffectiveWordCountTarget,
+  resolvePresetPresentation,
+  rewordBuiltinFormatModule,
+  type PresetPresentation,
+} from '@/utils/presetPresentation';
 import { applyTavernFormatGuard, matchesTavernCotPlaceholder, matchesTavernFormatPlaceholder } from './tavernFormatGuard';
 
 export const TAVERN_CHAR_COMPAT_PROMPT =
@@ -109,12 +117,38 @@ export function buildTavernMessageChain(params: TavernChainParams, reportOut?: {
   const presetHasPlayerSpeechExpansion = presetContainsPlayerSpeechExpansion(params.preset, selectedOrder);
 
   // 5. 构建项目上下文片段（从 settings.promptModules 中提取内置模块内容）
-  const contextPieces = buildContextPieces(params.settings, params.includeNativeNarrative !== false);
+  //    2026-10-03：表现层契约先解析出来 —— 内置《回复格式》里的字数默认值（{wordCountTarget}，
+  //    出厂 500 字）与「禁止 thinking」禁令都必须先按预设改写，否则它们会以「更具体的格式规范」
+  //    的身份压过预设自己声明的「至少 3000 字」与可见思维链。
+  const settingsEntry = resolvePresetPresentation(params.settings);
+  const presentation = buildPresentationForPreset(params.preset, {
+    presetId: settingsEntry?.presetId ?? 'chain_preset',
+    presetName: settingsEntry?.presetName ?? '当前酒馆预设',
+    characterId: params.characterId,
+  });
+  const effectiveWordTarget = resolveEffectiveWordCountTarget(
+    params.settings,
+    Number(params.settings?.wordCountTarget) || 500,
+  );
+  const contextPieces = buildContextPieces(
+    params.settings,
+    params.includeNativeNarrative !== false,
+    presentation,
+    effectiveWordTarget,
+    // 内置模块正文里的 `{wordCountTarget}` / `{personLabel}` / `{playerName}` 占位符此前只由
+    // systemPromptBuilder 替换 —— 走酒馆链时它们是**字面量**进请求的（等于一段模板报错文本占着
+    // 「格式规范」的权威位置）。这里补上同一套替换。
+    resolveModulePlaceholders(params.settings, params.playerName),
+  );
 
   // 6. 构建嫁接文本 combinedWorldbookText
   const worldbookText = params.includeNativeContextInWorldbook === false
     ? ''
-    : buildWorldbookText(contextPieces, presetHasNoControl, presetHasPlayerSpeechExpansion);
+    : buildWorldbookText(contextPieces, presetHasNoControl, presetHasPlayerSpeechExpansion, {
+        // 预设自带文风正文时，内置《文风参考·日记体见闻录》不得再进预设的链内部 ——
+        // 它原本被塞在 World Info (before) 槽位，等于在预设自己的链里争夺文风权威。
+        skipBuiltinWritingStyle: Boolean(presentation?.styleText),
+      });
   const presetWorldInfoText = buildPresetWorldInfoText(params);
   const combinedWorldbookText = [
     worldbookText,
@@ -280,7 +314,7 @@ export function buildTavernMessageChain(params: TavernChainParams, reportOut?: {
   // Resolve creative-rule precedence after the native fallback guards. MoM-like
   // presets keep the selected length in a silent setvar slot, so explicitly carry
   // that resolved value into the final body instruction (without exposing CoT).
-  const presetWordCount = macroCtx.local['字数要求']?.trim();
+  const presetWordCount = presentation?.wordCountRaw || macroCtx.local['字数要求']?.trim() || '';
   // assistant prefill：正式主剧情**不得**用它当消息前缀（会把 NarrativeTurn JSON 截断，
   // 该决定被 scripts/deepseek-format-stability-regression.mjs 钉住）。但它承载的是预设的
   // 起手式/开场风格，直接丢掉等于预设又少生效一块 —— 这里以**风格样例**形式送进去：
@@ -293,7 +327,9 @@ export function buildTavernMessageChain(params: TavernChainParams, reportOut?: {
     content: [
       '# 酒馆预设执行要求',
       '已启用预设的文风、字数、叙事人称、节奏、角色表达及段落组织要求优先于原生默认创作偏好；未启用的项目不得自行启用。此优先级不覆盖安全边界、玩家主权、角色信息隔离、已知事实及 NarrativeTurn JSON 合同。',
-      presetWordCount ? `本次预设正文的字数要求：${presetWordCount}字。只统计 NarrativeTurn.body 中面向玩家的正文，不以摘要、选项或 JSON 字段名凑字数。` : '',
+      presetWordCount
+        ? `本次预设正文的字数要求：${presetWordCount}。只统计 NarrativeTurn.body 中面向玩家的正文，不以摘要、选项或 JSON 字段名凑字数。`
+        : '',
       presetPrefill ? `预设的起手式样例（只借它的开篇语气与节奏，不要原样复制，也不要把它当成输出外壳）：\n${presetPrefill.slice(0, 600)}` : '',
       // 2026-10-03 修正（用户实测「预设还是没起作用」的关键一环）：
       // 这里原本写着「若预设要求输出思维链/隐藏分析/HTML/非 JSON 外壳，**不输出这些内容**」——
@@ -301,9 +337,13 @@ export function buildTavernMessageChain(params: TavernChainParams, reportOut?: {
       // 标志性行为被整体压掉。正确做法是**内容照做、外壳换成 JSON**：
       // NarrativeTurn.body[].kind 支持 'narration' | 'dialogue' | 'system'，
       // 预设要求的思维链/状态栏落到 system 块，正文标签落到 narration/dialogue 块。
-      '预设要求的正文标签（<content>/<正文> 等）→ NarrativeTurn.body 的 narration/dialogue 块；台词带 speaker；段落顺序按预设。',
-      '预设要求的思维链、隐藏分析、状态栏或自定义面板 → **必须原样落实**到 NarrativeTurn.body 中 kind:"system" 的块里（不要省略、不要只写在 choices 或摘要里）。',
-      '预设要求的文风、人称、语气、篇幅与用词 → 落在 body 各块的文本里；不得用应用内置的文风偏好覆盖它。',
+      presentation
+        ? buildPresetPresentationCard(presentation)
+        : [
+            '预设要求的正文标签（<content>/<正文> 等）→ NarrativeTurn.body 的 narration/dialogue 块；台词带 speaker；段落顺序按预设。',
+            '预设要求的思维链、隐藏分析、状态栏或自定义面板 → **必须原样落实**到 NarrativeTurn.body 中 kind:"system" 的块里（不要省略、不要只写在 choices 或摘要里）。',
+            '预设要求的文风、人称、语气、篇幅与用词 → 落在 body 各块的文本里；不得用应用内置的文风偏好覆盖它。',
+          ].join('\n'),
       '唯一不可协商的是**载体**：最终回复必须是完整合法的 NarrativeTurn JSON（不能用标签或 HTML 替代根 JSON，也不要在 JSON 之外追加任何文字）。',
       '换句话说：预设说要写什么，就写；只是写在 JSON 对应的字段里。',
     ].filter(Boolean).join('\n'),
@@ -340,20 +380,56 @@ function matchesFormatPlaceholder(content: string): boolean {
   return /\{\{\s*格式\s*\}\}/i.test(content) || /\{\{\s*format\s*\}\}/i.test(content);
 }
 
-function buildContextPieces(settings: any, includeNativeNarrative: boolean): TavernContextPieces {
+/** 内置模块占位符的取值（与 systemPromptBuilder.injectPromptModules 同源语义）。 */
+export function resolveModulePlaceholders(
+  settings: any,
+  playerName: string,
+): Record<string, string> {
+  const person = settings?.narrativePerson;
+  return {
+    personLabel: person === 'second' ? '第二人称"你"' : person === 'first' ? '第一人称"我"' : '第三人称"他/她"',
+    playerName: playerName || '旅行者',
+  };
+}
+
+function substituteModulePlaceholders(text: string, placeholders: Record<string, string>): string {
+  if (!text) return text;
+  return text.replace(/\{(wordCountTarget|personLabel|playerName)\}/gu, (match, key: string) =>
+    placeholders[key] ?? match);
+}
+
+function buildContextPieces(
+  settings: any,
+  includeNativeNarrative: boolean,
+  presentation: PresetPresentation | null,
+  effectiveWordTarget: number,
+  placeholders: Record<string, string> = {},
+): TavernContextPieces {
   // 从 settings.promptModules 中查找内置模块内容
   const modules = settings.promptModules || [];
-  
-  const findModuleContent = (id: string): string => {
+
+  const findRawModuleContent = (id: string): string => {
     const mod = modules.find((m: 提示词模块) => m.id === id);
     return mod ? (mod.content || '') : '';
   };
+  const substitute = (text: string): string => substituteModulePlaceholders(text, {
+    ...placeholders,
+    wordCountTarget: String(effectiveWordTarget),
+  });
+  const findModuleContent = (id: string): string => substitute(findRawModuleContent(id));
   
   // 提取关键内置模块的内容
   const worldPrompt = findModuleContent('builtin_world_prompt') || 
                      (settings.世界观提示词 || '');
   const cotPrompt = includeNativeNarrative ? findModuleContent(BUILTIN_MAIN_NARRATIVE_ID) || '' : '';
-  const formatPrompt = findModuleContent('builtin_response_format') || '';
+  // 内置《回复格式》里的字数占位符在链内从未被替换过（模型看到的是一段带花括号的模板文本，
+  // 既没给出字数，又占着「格式规范」的权威位置）。先按生效值改写，并在预设要求可见思维链时
+  // 改掉「禁止 thinking」那条禁令（它会把预设的标志性输出整体压掉），再替换剩余占位符。
+  const formatPrompt = substitute(rewordBuiltinFormatModule(
+    findRawModuleContent('builtin_response_format'),
+    presentation,
+    effectiveWordTarget,
+  ));
   const actionOptionsPrompt = findModuleContent('builtin_action_options') || '';
   const noControlPrompt = settings?.enableNoControl === false ? '' : findModuleContent('builtin_no_control') || '';
   const playerSpeechExpansionPrompt = settings?.enablePlayerSpeechExpansion === true ? findModuleContent('builtin_player_speech_expansion') || '' : '';
@@ -374,12 +450,18 @@ function buildContextPieces(settings: any, includeNativeNarrative: boolean): Tav
   };
 }
 
-function buildWorldbookText(pieces: TavernContextPieces, presetHasNoControl: boolean, presetHasPlayerSpeechExpansion: boolean): string {
+function buildWorldbookText(
+  pieces: TavernContextPieces,
+  presetHasNoControl: boolean,
+  presetHasPlayerSpeechExpansion: boolean,
+  options: { skipBuiltinWritingStyle?: boolean } = {},
+): string {
   const parts: string[] = [
     pieces.worldPrompt,
     pieces.personaPrompt,
     pieces.devModePrompt,
-    pieces.writingStylePrompt,
+    // 预设自带文风正文时让位：内置文风模块进链内部就等于在预设的链里当文风权威。
+    options.skipBuiltinWritingStyle ? '' : pieces.writingStylePrompt,
     presetHasNoControl ? '' : pieces.noControlPrompt,
     presetHasPlayerSpeechExpansion ? '' : pieces.playerSpeechExpansionPrompt,
   ];

@@ -7,7 +7,7 @@ import { BUILTIN_MAIN_NARRATIVE_ID, type 提示词模块 } from '@/models/prompt
 import type { 角色数据结构 } from '@/models/character';
 import type { 聊天消息 } from '@/models/chat';
 import type { MacroContext } from '@/utils/macroEngine';
-import { createMacroContext, processMacros } from '@/utils/macroEngine';
+import { collectMacroAssignments, createMacroContext, processMacros } from '@/utils/macroEngine';
 import { applyTavernFormatGuard, matchesTavernCotPlaceholder, matchesTavernFormatPlaceholder } from './tavernFormatGuard';
 
 export const TAVERN_CHAR_COMPAT_PROMPT =
@@ -105,6 +105,14 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     turnCount: params.chatHistory.length,
   });
 
+  // 7b. 预扫描变量定义（2026-10-03）：ST 预设里「只定义变量」的模块展开后是空串、不产生消息
+  // （与 ST 一致），但消费方若排在定义之前就会读到空值，玩家会以为「预设没生效」。
+  // 先把所有启用槽位的赋值宏按顺序跑一遍，让定义与顺序解耦。
+  collectMacroAssignments(
+    enabledOrderSlots.map((slot) => promptMap.get(slot.identifier)?.content ?? ''),
+    macroCtx,
+  );
+
   // 8. 遍历启用的 slot，按 identifier 分派
   const messages: TavernInternalMessage[] = [];
   let worldbookInjected = false;
@@ -181,18 +189,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     messages.push({ role: 'user', content: params.latestUserInput, source: 'latest_input' });
   }
 
-  // 预设执行桥放在结构保护层之前、且靠近最终请求尾部：让模型真正采用导入预设的
-  // 文风与节奏，同时仍由后面的 NarrativeTurn 约束保证前端可解析。
-  messages.push({
-    role: 'system',
-    content: [
-      '# 酒馆预设执行要求',
-      '本次请求已启用并注入酒馆预设。凡与安全边界、玩家主权、已知事实和 NarrativeTurn JSON 结构不冲突的文风、叙事节奏、角色表达、段落组织与措辞要求，都必须实际体现在本次正文中，不能只读取而不执行。',
-      '若预设要求输出思维链、HTML 或非 JSON 外壳，只保留其创作意图；最终仍把正文写入 NarrativeTurn.body，把选项写入 NarrativeTurn.choices。',
-    ].join('\n'),
-    source: 'preset',
-  });
-
   messages.push({
     role: 'system',
     content: [
@@ -222,6 +218,22 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     role: 'system',
     content: contextPieces.actionOptionsPrompt,
     source: 'format_guard',
+  });
+
+  // Resolve creative-rule precedence after the native fallback guards. MoM-like
+  // presets keep the selected length in a silent setvar slot, so explicitly carry
+  // that resolved value into the final body instruction (without exposing CoT).
+  const presetWordCount = macroCtx.local['字数要求']?.trim();
+  messages.push({
+    role: 'system',
+    content: [
+      '# 酒馆预设执行要求',
+      '已启用预设的文风、字数、叙事人称、节奏、角色表达及段落组织要求优先于原生默认创作偏好；未启用的项目不得自行启用。此优先级不覆盖安全边界、玩家主权、角色信息隔离、已知事实及 NarrativeTurn JSON 合同。',
+      presetWordCount ? `本次预设正文的字数要求：${presetWordCount}字。只统计 NarrativeTurn.body 中面向玩家的正文，不以摘要、选项或 JSON 字段名凑字数。` : '',
+      '预设中的 <content>、<正文> 等正文标签对应 NarrativeTurn.body；台词、叙述和段落组织落实到各 body 块。行动选项对应 NarrativeTurn.choices，不能用标签或 HTML 替代根 JSON。',
+      '若预设要求输出思维链、隐藏分析、HTML 或非 JSON 外壳，不输出这些内容；只落实允许的创作要求，最终只输出完整合法的 NarrativeTurn JSON。',
+    ].filter(Boolean).join('\n'),
+    source: 'preset',
   });
 
   // 11. 后处理

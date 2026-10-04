@@ -152,15 +152,15 @@ export async function runMainPromptAssembly(deps: MainPromptAssemblyDeps) {
         });
         assertWorkflowActive();
         if (preSteambird?.changed) state.set蒸汽鸟报(preSteambird.steambird);
-        openingSteambirdPreprocessed = true;
+        openingSteambirdPreprocessed = preSteambird?.changed === true;
         steambirdForPrompt = preSteambird?.steambird ?? state.蒸汽鸟报;
         openingSteambirdForSave = preSteambird?.steambird ?? null;
-        pushQueueTask(state, 'steambird', 'success', {
+        pushQueueTask(state, 'steambird', preSteambird ? 'success' : 'skipped', {
           detail: preSteambird?.changed
             ? `开局蒸汽鸟报预处理完成，当前 ${preSteambird.steambird.articles.length} 篇报道。`
             : preSteambird
               ? '开局蒸汽鸟报预处理完成，但本轮没有可写报道变化。'
-              : '开局蒸汽鸟报预处理未生成可用结果。',
+              : '开局私人配置不作为新闻；待正文结算后确认公开事实。',
         });
       } catch (err) {
         pushQueueTask(state, 'steambird', 'failed', {
@@ -368,6 +368,20 @@ export async function runMainPromptAssembly(deps: MainPromptAssemblyDeps) {
           tavernV2Messages = null;
           tavernV2Error = new Error('ST V2 消息链为空，已回退 legacy 主剧情路径');
           console.warn('[ST V2] 消息链为空，已回退 legacy 主剧情路径');
+        } else {
+          // 预设优先声明（2026-10-03 用户要求：「保证预设能起作用，而且不会被别的强消息压过」）。
+          // 放在 system prompt（请求的第一条）里：靠后的预设消息链因此拥有更强的支配力，
+          // 同时把本应用真正不能放弃的两条机器契约写清楚，避免模型在两者之间摇摆。
+          systemPrompt = [
+            `# 酒馆预设优先（本回合已激活：${currentPresetV2?.name ?? '玩家导入预设'}）`,
+            '已启用玩家导入的酒馆预设作为**表现层权威**：文风、人称、叙事语气、人格演绎、输出标签、节奏与篇幅一律以该预设为准。',
+            '本应用只保留两条机器契约，无论预设怎么写都必须同时满足：',
+            '1) 正文必须按本应用要求的**载体格式**输出（结构化字段/行动选项），否则无法解析并会判定为失败回复；',
+            '2) 本回合的 `<变量事实>` 块必须输出（数值结算依赖它）。',
+            '除这两条之外，任何冲突**一律以预设为准**；严禁用应用内置的文风/思维链/格式写法去覆盖预设的人设与输出要求。',
+            '',
+            systemPrompt,
+          ].filter(Boolean).join('\n');
         }
       } catch (error) {
         tavernV2Messages = null;

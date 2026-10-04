@@ -305,10 +305,10 @@ function evaluateCondition(condition: string, ctx: MacroContext): boolean {
   // 先替换条件中的 getvar/getglobalvar（支持 ST 标准裸语法与带大括号语法）
   let cond = condition;
   // ST 标准裸语法：getvar::name（不带 {{}}，ST 官方 if 条件主要用这种）
-  cond = cond.replace(/\bgetvar::([a-zA-Z_]\w*)/g, (_m, name: string) => ctx.local[name.trim()] ?? '');
+  cond = cond.replace(/\bget(?:var|ver)::([a-zA-Z_]\w*)/g, (_m, name: string) => ctx.local[name.trim()] ?? '');
   cond = cond.replace(/\bgetglobalvar::([a-zA-Z_]\w*)/g, (_m, name: string) => ctx.global[name.trim()] ?? '');
   // 带大括号语法：{{getvar::name}} / {{getglobalvar::name}}
-  cond = cond.replace(/\{\{getvar::([^}]+)\}\}/g, (_m, name: string) => ctx.local[name.trim()] ?? '');
+  cond = cond.replace(/\{\{get(?:var|ver)::([^}]+)\}\}/g, (_m, name: string) => ctx.local[name.trim()] ?? '');
   cond = cond.replace(/\{\{getglobalvar::([^}]+)\}\}/g, (_m, name: string) => ctx.global[name.trim()] ?? '');
   // 简写：{{.name}} / {{$name}}
   cond = cond.replace(/\{\{\.([^}]+)\}\}/g, (_m, name: string) => {
@@ -392,7 +392,7 @@ function processReads(text: string, ctx: MacroContext): string {
   let result = text;
 
   // {{getvar::name}}
-  result = result.replace(/\{\{getvar::([^}]+)\}\}/g, (_m, name: string) => {
+  result = result.replace(/\{\{get(?:var|ver)::([^}]+)\}\}/g, (_m, name: string) => {
     return ctx.local[name.trim()] ?? '';
   });
 
@@ -424,4 +424,20 @@ function processReads(text: string, ctx: MacroContext): string {
  */
 export function processMacrosBatch(texts: string[], ctx: MacroContext): string[] {
   return texts.map((text) => processMacros(text, ctx));
+}
+
+/**
+ * 预扫描：按顺序执行一批文本里的**赋值**宏（setvar / setglobalvar / 简写赋值），
+ * 丢弃输出、只留下变量副作用。
+ *
+ * 用途（2026-10-03）：ST 预设里常见「📌变量（必开）」这类**只定义变量**的模块
+ * （内容全是 `{{setvar::人格::砂糖}}` 之类），展开后是空串，因此不会产生任何消息
+ * （这与 ST 本体行为一致）。但若**消费方排在定义之前**，消费方就会拿到空值 ——
+ * 于是玩家看到「预设没生效」。消息链构建前先跑一遍本函数，让定义与顺序解耦。
+ */
+export function collectMacroAssignments(texts: readonly string[], ctx: MacroContext): void {
+  for (const text of texts) {
+    if (typeof text !== 'string' || !text) continue;
+    executeAssignments(text, ctx);
+  }
 }

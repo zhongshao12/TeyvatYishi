@@ -4,6 +4,34 @@ import type { 记忆系统 } from '@/models/memory';
 import type { 游戏设置 } from '@/models/settings';
 import type { 提示词模块, 提示词模块作用域 } from '@/models/prompts';
 import { PROMPT_MODULE_TOP_THRESHOLD } from '@/models/prompts';
+
+/**
+ * 与酒馆预设**争抢同一件事**的提示词模块类目（2026-10-03）。
+ *
+ * 用户诉求：「保证我这个预设能起作用，而且不会被别的预设强消息压过」。
+ * 文风 / 思维链 / 输出格式 / 人格 / 越狱 / 开发模式这类模块与 ST 预设正面冲突，
+ * 预设激活时让它们从主剧情请求里让位；变量、世界树、蒸汽鸟报等**独立系统模块**
+ * （scope 含 calibration，走各自 target）不受影响，避免把游戏本身的机器契约一起关掉。
+ */
+const PRESET_CONFLICTING_MODULE_CATEGORIES: ReadonlySet<string> = new Set([
+  'style', 'cot', 'format', 'persona', 'jailbreak', 'devmode',
+]);
+
+/**
+ * 主剧情实际使用的提示词模块（导出供测试与门禁复用）。
+ *
+ * - `st_import_*` 残留一律隔离（V2 预设以消息链形态生效，不应再以 V1 模块重复注入）；
+ * - 酒馆预设激活时，**表现类**模块（文风/思维链/格式/人格/越狱/开发模式，且不属于独立系统
+ *   作用域）让位给预设 —— 这正是「别的强消息压过预设」的来源；
+ * - 独立系统模块（scope 含 calibration，走各自 target）不受影响，避免连机器契约一起关掉。
+ */
+export function selectMainPromptModules(modules: readonly 提示词模块[], presetOwnsPresentation: boolean): 提示词模块[] {
+  const withoutLegacySt = modules.filter((m) => !isSTImportedModule(m));
+  if (!presetOwnsPresentation) return withoutLegacySt;
+  return withoutLegacySt.filter((m) => !(
+    !m.scope?.includes('calibration') && PRESET_CONFLICTING_MODULE_CATEGORIES.has(m.category)
+  ));
+}
 import type { 开局来源 } from '@/models/teyvat/opening';
 import type { ElementId } from '@/models/teyvat/elements';
 import type { 世界书 } from '@/models/worldbook';
@@ -79,9 +107,10 @@ export function buildSystemPrompt(
   // V2 酒馆预设使用原始 prompts + prompt_order 消息链；选中 V2 时也隔离 V1 st_import_* 残留，
   // 避免同一份 ST 预设以 V1 模块和 V2 消息链两种形态重复注入。
   const shouldFilterLegacyStModules = settings.enableStPreset === false || Boolean(settings.currentStPresetIdV2);
-  const effectiveModules = shouldFilterLegacyStModules
-    ? settings.promptModules.filter((m) => !isSTImportedModule(m))
-    : settings.promptModules;
+  // 注意：`shouldFilterLegacyStModules` 在「预设总开关关闭」时也为 true（那是**隔离 V1 残留**的语义），
+  // 不能直接当「预设优先」用 —— 关掉酒馆预设时玩家自己的文风模块必须照常参与。
+  const presetOwnsPresentation = settings.enableStPreset !== false && Boolean(settings.currentStPresetIdV2);
+  const effectiveModules = selectMainPromptModules(settings.promptModules, presetOwnsPresentation);
 
   const personLabel =
     settings.narrativePerson === 'second' ? '第二人称"你"'
@@ -299,9 +328,10 @@ export function buildOpeningSystemPrompt(
   // V2 酒馆预设使用原始 prompts + prompt_order 消息链；选中 V2 时也隔离 V1 st_import_* 残留，
   // 避免同一份 ST 预设以 V1 模块和 V2 消息链两种形态重复注入。
   const shouldFilterLegacyStModules = settings.enableStPreset === false || Boolean(settings.currentStPresetIdV2);
-  const effectiveModules = shouldFilterLegacyStModules
-    ? settings.promptModules.filter((m) => !isSTImportedModule(m))
-    : settings.promptModules;
+  // 注意：`shouldFilterLegacyStModules` 在「预设总开关关闭」时也为 true（那是**隔离 V1 残留**的语义），
+  // 不能直接当「预设优先」用 —— 关掉酒馆预设时玩家自己的文风模块必须照常参与。
+  const presetOwnsPresentation = settings.enableStPreset !== false && Boolean(settings.currentStPresetIdV2);
+  const effectiveModules = selectMainPromptModules(settings.promptModules, presetOwnsPresentation);
 
   const personLabel =
     settings.narrativePerson === 'second' ? '第二人称"你"'

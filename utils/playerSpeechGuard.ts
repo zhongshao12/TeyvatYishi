@@ -103,6 +103,16 @@ export function normalizePlayerSpeechInBody(options: PlayerSpeechGuardOptions): 
         return [`【${legacyDialogue[1]?.trim() ?? ''}】${legacyDialogue[2]?.trim() ?? ''}`];
       }
 
+      // 2026-10-03：**没有任何归属标签的整句引号**此前被原样留下，渲染层再默认把它当成玩家台词
+      // —— 玩家实测出现「砂糖的呻吟被挂在玩家名下」。这里在落库清洗阶段就给出归属：
+      // 有玩家输入证据的保留原样（渲染层会提升为玩家气泡），没有证据的一律标记为旁白。
+      const bareQuoted = line.match(quoteOnlyRe);
+      if (bareQuoted) {
+        const inner = stripOuterQuote(bareQuoted[1] ?? '');
+        if (isAllowedPlayerSpeech(inner, evidence)) return [line];
+        return [`【旁白】${line}`];
+      }
+
       const narrationMatch = line.match(/^【\s*旁白\s*】\s*(.+)$/);
       if (narrationMatch) {
         const text = narrationMatch[1]?.trim() ?? '';

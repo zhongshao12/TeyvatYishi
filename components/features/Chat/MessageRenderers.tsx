@@ -96,7 +96,7 @@ function normalizeVisualTextSettings(input?: Partial<VisualTextSettings>): Visua
 
 // 三种行格式：【旁白】/【角色名】/【心声】。
 // 无前缀的行兜底为旁白渲染（容忍 AI 偶发不按格式输出）。
-type ParsedBodyLine =
+export type ParsedBodyLine =
   | { kind: 'narration'; text: string }
   | { kind: 'dialogue'; name: string; text: string }
   | { kind: 'inner'; text: string }
@@ -162,44 +162,139 @@ const SOUND_EFFECT_TAGS = new Set([
   '隆隆',
 ]);
 
-function parseBodyLines(body: string, traveler?: 角色数据结构, userInput?: string): ParsedBodyLine[] {
-  return normalizeInlineSpeakerTags(body).split(/\r?\n/).flatMap<ParsedBodyLine>((raw) => {
+/**
+ * 逐行解析正文。
+ *
+ * 2026-10-03（用户实测：「明显不是玩家的语言出现在了回复的玩家的话语中」，玩家=宇智波云）：
+ * 没有归属标签的整句引号此前**无条件**算作玩家台词，于是 NPC 的呻吟
+ * （「唔……哈啊……！云……」）被套进了玩家名牌 + ✦ + 立绘槽位的对话框。
+ * 现在的归属顺序是：
+ *   1) 玩家本回合输入里有证据 → 玩家气泡；
+ *   2) 句子里在**叫玩家名字**（说明是被搭话的一方说的）→ 归给邻近的 NPC 发言者；
+ *   3) 其余一律按旁白渲染 —— 绝不替玩家认领没说过的话。
+ */
+export function parseBodyLines(body: string, traveler?: 角色数据结构, userInput?: string): ParsedBodyLine[] {
+  const rawLines = normalizeInlineSpeakerTags(body).split(/\r?\n/);
+  const speakerHints = collectSpeakerHints(rawLines, traveler);
+  const out: ParsedBodyLine[] = [];
+  rawLines.forEach((raw, index) => {
     const trimmed = raw.trim();
-    if (!trimmed) return { kind: 'blank' };
+    if (!trimmed) {
+      out.push({ kind: 'blank' });
+      return;
+    }
     let m = trimmed.match(NARR_RE);
     if (m) {
       const text = m[1]?.trim() ?? '';
       if (isSoundEffectText(text)) {
-        return { kind: 'narration', text };
+        out.push({ kind: 'narration', text });
+        return;
       }
       const quoted = extractFullQuotedSpeech(text);
       if (quoted && traveler && !shouldRenderAsNarrationForPlayerLine(quoted, userInput)) {
-        return { kind: 'dialogue', name: getTravelerDisplayName(traveler), text: quoted };
+        out.push({ kind: 'dialogue', name: getTravelerDisplayName(traveler), text: quoted });
+        return;
       }
-      return { kind: 'narration', text };
+      out.push({ kind: 'narration', text });
+      return;
     }
     m = trimmed.match(DIAG_RE);
-    if (m) return splitDialogueAndTrailingNarration(m[1]?.trim() ?? '', m[2]?.trim() ?? '', traveler);
+    if (m) {
+      out.push(...splitDialogueAndTrailingNarration(m[1]?.trim() ?? '', m[2]?.trim() ?? '', traveler, userInput, nearestSpeakerHint(speakerHints, index)));
+      return;
+    }
     m = trimmed.match(INNER_RE);
-    if (m) return { kind: 'inner', text: m[1]?.trim() ?? '' };
+    if (m) {
+      out.push({ kind: 'inner', text: m[1]?.trim() ?? '' });
+      return;
+    }
     m = trimmed.match(NAMED_DIAG_RE);
     if (m && !['旁白', '心声', '角色'].includes(m[1]?.trim() ?? '')) {
       const name = m[1]?.trim() ?? '';
       const text = m[2]?.trim() ?? '';
       if (isSoundEffectSpeakerName(name)) {
-        return { kind: 'narration', text: combineSoundEffectNarration(name, text) };
+        out.push({ kind: 'narration', text: combineSoundEffectNarration(name, text) });
+        return;
       }
-      return splitDialogueAndTrailingNarration(name, text, traveler, userInput);
+      out.push(...splitDialogueAndTrailingNarration(name, text, traveler, userInput, nearestSpeakerHint(speakerHints, index)));
+      return;
     }
     if (isSoundEffectText(trimmed)) {
-      return { kind: 'narration', text: trimmed };
+      out.push({ kind: 'narration', text: trimmed });
+      return;
     }
     const quoted = extractFullQuotedSpeech(trimmed);
-    if (quoted && traveler) {
-      return { kind: 'dialogue', name: getTravelerDisplayName(traveler), text: quoted };
+    if (quoted && traveler && !shouldRenderAsNarrationForPlayerLine(quoted, userInput)) {
+      out.push({ kind: 'dialogue', name: getTravelerDisplayName(traveler), text: quoted });
+      return;
     }
-    return { kind: 'unparsed', text: trimmed };
+    if (quoted && traveler && isPlayerAddressed(quoted, traveler)) {
+      const inherited = nearestSpeakerHint(speakerHints, index);
+      if (inherited) {
+        out.push({ kind: 'dialogue', name: inherited, text: quoted });
+        return;
+      }
+    }
+    out.push({ kind: 'narration', text: trimmed });
   });
+  return out;
+}
+
+/** 每行能**直接读出**的说话人（只看显式标签；主角/旁白/心声/拟声词不算）。 */
+function collectSpeakerHints(rawLines: readonly string[], traveler?: 角色数据结构): Array<string | null> {
+  return rawLines.map((raw) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const named = trimmed.match(NAMED_DIAG_RE);
+    if (named) {
+      const name = named[1]?.trim() ?? '';
+      if (
+        name &&
+        !['旁白', '心声', '角色'].includes(name) &&
+        !isProtagonist(name, traveler) &&
+        !isSoundEffectSpeakerName(name)
+      ) {
+        return name;
+      }
+    }
+    const diag = trimmed.match(DIAG_RE);
+    if (diag) {
+      const name = diag[1]?.trim() ?? '';
+      if (name && !isProtagonist(name, traveler)) return name;
+    }
+    return null;
+  });
+}
+
+/** 就近取显式说话人：先往前找，再往后找（对白接续多为紧邻行）。 */
+function nearestSpeakerHint(hints: readonly (string | null)[], index: number): string | null {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const hint = hints[i];
+    if (hint) return hint;
+  }
+  for (let i = index + 1; i < hints.length; i += 1) {
+    const hint = hints[i];
+    if (hint) return hint;
+  }
+  return null;
+}
+
+/**
+ * 这句话是不是在**叫玩家**（玩家名/别名作为独立词出现）。
+ * 只有被搭话的一方才会喊玩家名字，因此这是「该句不是玩家说的」的高精度判据；
+ * 单字名（如「云」）要求两侧是标点/空白/边界，避免「云彩」误判。
+ */
+function isPlayerAddressed(text: string, traveler: 角色数据结构): boolean {
+  const names = [traveler.姓名?.trim(), traveler.别名?.trim()].filter((name): name is string => Boolean(name));
+  for (const name of names) {
+    if (name.length >= 2) {
+      if (text.includes(name)) return true;
+      continue;
+    }
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?=[^\\p{L}\\p{N}]|$)`, 'u').test(text)) return true;
+  }
+  return false;
 }
 
 function normalizeSoundEffectTag(name: string): string {
@@ -266,11 +361,16 @@ function splitDialogueAndTrailingNarration(
   text: string,
   traveler?: 角色数据结构,
   userInput?: string,
+  /** 标签写着玩家、但其实是被搭话的 NPC 台词时，改挂这位邻近发言者。 */
+  fallbackSpeaker?: string | null,
 ): ParsedBodyLine[] {
   if (!traveler || !isProtagonist(name, traveler)) {
     return [{ kind: 'dialogue', name, text }];
   }
   if (shouldRenderAsNarrationForPlayerLine(text, userInput)) {
+    if (fallbackSpeaker && isPlayerAddressed(text, traveler)) {
+      return [{ kind: 'dialogue', name: fallbackSpeaker, text: extractFullQuotedSpeech(text) ?? text }];
+    }
     return [{ kind: 'narration', text }];
   }
 
@@ -367,7 +467,7 @@ export const AvatarTile = memo(function AvatarTile({ name, url, color, size = 's
         }}
       >
         {url ? (
-          <img src={url} alt={`${name} 头像`} className="w-full h-full object-cover" />
+          <AvatarImage url={url} name={name} color={color} className="w-full h-full object-cover" />
         ) : (
           <span
             className="font-serif font-bold text-lg"
@@ -402,6 +502,37 @@ interface DialogueBubbleProps {
   avatarUrl?: string;
   deferOffscreen?: boolean;
 }
+
+/**
+ * 头像/立绘图片：加载失败时回退到首字母，而不是把 `alt` 文本漏进对话框。
+ *
+ * 现场（2026-10-03 用户实测）：玩家名下的对话框里出现了「宇智波云 立绘」一行字 ——
+ * 那是 `<img alt="宇智波云 立绘">` 加载失败后浏览器显示的替代文本。alt 设为空（图片纯装饰，
+ * 名字已经印在名牌上），失败即换成首字母块。
+ */
+const AvatarImage = memo(function AvatarImage({ url, name, color, className }: {
+  url: string;
+  name: string;
+  color: string;
+  className: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span className="font-serif text-lg font-bold" style={{ color: withAlpha(color, 0.92) }}>
+        {name.charAt(0) || '?'}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      className={className}
+      onError={() => setFailed(true)}
+    />
+  );
+});
 
 // JRPG 对话框：切角压暗半透明框 + 骑框名牌 + 框内立绘槽位。
 // 名牌压在框体上边框，立绘窗居左，台词占满其余宽度——不再是聊天气泡。
@@ -458,7 +589,7 @@ export const DialogueBubble = memo(function DialogueBubble({ name, text, color, 
           }}
         >
           {avatarUrl ? (
-            <img src={avatarUrl} alt={`${name} 立绘`} className="h-full w-full object-cover" />
+            <AvatarImage url={avatarUrl} name={name} color={color} className="h-full w-full object-cover" />
           ) : (
             <span className="font-serif text-lg font-bold" style={{ color: withAlpha(color, 0.92) }}>
               {name.charAt(0) || '?'}

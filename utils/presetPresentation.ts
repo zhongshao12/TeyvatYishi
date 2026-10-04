@@ -505,6 +505,17 @@ export function buildPresetPresentationCard(presentation: PresetPresentation): s
     );
   }
 
+  // 台词归属（2026-10-03 用户实测：砂糖的呻吟被套进了玩家名牌+头像的对话框里）。
+  // 玩家只会说玩家本回合输入过的原话，其余台词一律必须有真实发言者。
+  lines.push(
+    [
+      '【台词归属】',
+      '  - 每一句台词都要有归属：写成 body 中 kind:"dialogue" 的块，并填 speaker（真实发言者姓名）。',
+      '  - **不要**在 narration 块里用引号写台词 —— 没有 speaker 的引号句属于归属不明。',
+      '  - 玩家的名字只能挂在玩家本回合**明确输入过的原话**上；拟声词、喘息、呻吟、痛呼、环境音以及 NPC 的调笑，绝不挂玩家名。',
+    ].join('\n'),
+  );
+
   lines.push(
     '【不可协商】上面所有内容都必须装进一个完整合法的 NarrativeTurn JSON（body / choices / factCandidates / continuation 四个根字段齐全），JSON 之外不得有任何文字、标签或围栏；本回合的 `<变量事实>` 块照旧输出。',
   );

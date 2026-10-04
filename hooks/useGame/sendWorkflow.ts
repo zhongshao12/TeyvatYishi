@@ -105,6 +105,9 @@ function buildTurnEnforcementBlock(input: {
   }
   lines.push('【硬性要点】');
   lines.push(`- 发言归属：【${input.playerName}】只承载玩家本回合明确说出的原话；NPC 台词、拟声词、环境音绝不挂玩家名。`);
+  // 2026-10-03：补上「台词必须带归属」的写法要求 —— 实测出现过 NPC 的呻吟被写成
+  // 没有 speaker 的引号句，渲染层于是把它当成玩家台词显示在玩家名牌下。
+  lines.push('- 台词归属：每句台词都写成 dialogue 块并填 speaker（真实发言者）；narration 块里不得用引号写台词。');
   lines.push('- 禁止代写玩家的心理、神态、感受或决定；正文内禁止任何选项菜单结构。');
   if (input.storyWeavingActive) {
     lines.push('- 剧情编织滑窗只按门禁推进；已发生的事件禁止重演，未开始的分段禁止抢跑。');

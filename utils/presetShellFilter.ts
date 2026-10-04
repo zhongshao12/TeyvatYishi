@@ -29,6 +29,8 @@ export interface ShellFilterResult {
   summary: string;
   /** 摘出的面板正文（`<char_date>` 等），每项一块。 */
   panels: string[];
+  /** 摘出的元信息正文（`<disclaimer>` 免责声明/破限声明等），不展示、只留诊断。 */
+  meta: string[];
   /** 本次摘掉/拆掉的标签名（已去重、小写）。 */
   removedTags: string[];
 }
@@ -38,6 +40,8 @@ export interface NarrativeShellFilterResult {
   thinking: string;
   summary: string;
   panels: string[];
+  /** 被丢弃的元信息块（免责声明/破限声明等），只用于诊断，不进入正文与记忆。 */
+  meta: string[];
   removedTags: string[];
   /** 思维链字符数（用于诊断展示）。 */
   thinkingChars: number;
@@ -61,10 +65,23 @@ const PANEL_TAGS = [
   'variablecheck', 'variable_check', 'details',
 ];
 
+/**
+ * 元信息类外壳（2026-10-03 用户实测）：免责声明 / 破限声明 / OOC 说明 —— **整块丢弃**。
+ *
+ * 现场：正文里出现了 `<disclaimer>`，里面套着 `<boundlessroleplay>` 与
+ * `<sacredartisticvision>` 两大段英文声明。它们既不是故事，也不是玩家要看的面板。
+ */
+const META_TAGS = [
+  'disclaimer', 'boundlessroleplay', 'sacredartisticvision', 'sacred_artistic_vision',
+  'ooc', 'meta', 'note', 'notice', 'system_note', 'systemprompt', 'system_prompt',
+  'jailbreak', 'unfiltered', 'legalnotice', 'legal_notice',
+  '免责声明', '声明', '创作声明', '破限', '越狱', '元信息', '作者的话',
+];
+
 /** 包裹类外壳：只拆标签，保留内部故事文本。 */
 const WRAPPER_TAGS = ['content', 'body', 'text', 'answer', 'reply', '正文', '内容', '故事正文', '回答'];
 
-const ALL_SHELL_TAGS = [...THINKING_TAGS, ...SUMMARY_TAGS, ...PANEL_TAGS, ...WRAPPER_TAGS];
+const ALL_SHELL_TAGS = [...THINKING_TAGS, ...SUMMARY_TAGS, ...PANEL_TAGS, ...META_TAGS, ...WRAPPER_TAGS];
 
 function escapeRegExp(text: string): string {
   return text.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
@@ -74,6 +91,7 @@ const TAG_GROUP = [...new Set(ALL_SHELL_TAGS)].map(escapeRegExp).join('|');
 const THINKING_GROUP = [...new Set(THINKING_TAGS)].map(escapeRegExp).join('|');
 const SUMMARY_GROUP = [...new Set(SUMMARY_TAGS)].map(escapeRegExp).join('|');
 const PANEL_GROUP = [...new Set(PANEL_TAGS)].map(escapeRegExp).join('|');
+const META_GROUP = [...new Set(META_TAGS)].map(escapeRegExp).join('|');
 const WRAPPER_GROUP = [...new Set(WRAPPER_TAGS)].map(escapeRegExp).join('|');
 
 /** 收集闭合块的内容并从文本中移除。返回移除后的文本与收集到的内容。 */
@@ -101,7 +119,7 @@ function takeClosedBlocks(
 export function filterStoryTextShell(input: string): ShellFilterResult {
   const removed = new Set<string>();
   let text = input ?? '';
-  if (!text) return { text: '', thinking: '', summary: '', panels: [], removedTags: [] };
+  if (!text) return { text: '', thinking: '', summary: '', panels: [], meta: [], removedTags: [] };
 
   const thinkingBlocks: string[] = [];
 
@@ -138,6 +156,26 @@ export function filterStoryTextShell(input: string): ShellFilterResult {
   const closedPanels = takeClosedBlocks(text, PANEL_GROUP, removed);
   text = closedPanels.text;
 
+  // 5b. 元信息类（免责声明 / 破限声明 / OOC 说明）：整块丢弃，只留诊断痕迹。
+  //     先于面板处理：`<disclaimer>` 里常套着 `<boundlessroleplay>` 等子块。
+  const closedMeta = takeClosedBlocks(text, META_GROUP, removed);
+  text = closedMeta.text;
+  const metaBlocks = [...closedMeta.blocks];
+  // 未闭合的元信息块（位于块首时按「到块尾」处理）
+  {
+    const headRe = new RegExp(`^\\s*<\\s*(?:${META_GROUP})\\b[^>]*>`, 'iu');
+    const match = text.match(headRe);
+    if (match) {
+      const tagMatch = match[0].match(/<\s*([^\s/>]+)/u);
+      if (tagMatch?.[1]) removed.add(tagMatch[1].toLowerCase());
+      const inner = text.slice(match[0].length)
+        .replace(new RegExp(`<\\s*\\/\\s*(?:${META_GROUP})\\s*>`, 'giu'), '')
+        .trim();
+      if (inner) metaBlocks.push(inner);
+      text = '';
+    }
+  }
+
   // 6. 面板/摘要的孤立开标签（未闭合且位于块首）：面板按「到块尾」处理，摘要同理。
   const takeUnclosedAtHead = (group: string, bucket: string[]): void => {
     const headRe = new RegExp(`^\\s*<\\s*(?:${group})\\b[^>]*>`, 'iu');
@@ -170,6 +208,7 @@ export function filterStoryTextShell(input: string): ShellFilterResult {
     thinking: thinkingBlocks.join('\n\n').trim(),
     summary: closedSummary.blocks.join('\n\n').trim(),
     panels: closedPanels.blocks.map((item) => item.trim()).filter(Boolean),
+    meta: metaBlocks.map((item) => item.trim()).filter(Boolean),
     removedTags: [...removed],
   };
 }
@@ -182,6 +221,7 @@ export function filterNarrativeTurnShell(turn: NarrativeTurn): NarrativeShellFil
   const thinkingParts: string[] = [];
   const summaryParts: string[] = [];
   const panels: string[] = [];
+  const metaBlocks: string[] = [];
   const removed = new Set<string>();
   const blocks: StoryBlock[] = [];
 
@@ -191,6 +231,7 @@ export function filterNarrativeTurnShell(turn: NarrativeTurn): NarrativeShellFil
     if (result.thinking) thinkingParts.push(result.thinking);
     if (result.summary) summaryParts.push(result.summary);
     panels.push(...result.panels);
+    metaBlocks.push(...result.meta);
     const text = result.text.trim();
     if (!text) continue;
     blocks.push(text === block.text ? block : { ...block, text });
@@ -213,6 +254,7 @@ export function filterNarrativeTurnShell(turn: NarrativeTurn): NarrativeShellFil
     thinking,
     summary: shellSummary,
     panels,
+    meta: metaBlocks,
     removedTags: [...removed],
     thinkingChars: [...thinking].length,
   };

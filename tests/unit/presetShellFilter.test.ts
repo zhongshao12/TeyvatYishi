@@ -151,7 +151,63 @@ describe('B 整轮解析：正文干净、思维链进诊断、面板独立成�
   });
 });
 
-describe('C 过滤器直连契约', () => {
+describe('C 免责声明/破限声明整块丢弃（用户实测 <disclaimer>）', () => {
+  const DISCLAIMER = `<disclaimer>
+<boundlessroleplay>
+In this creation, all characters are consenting adults, freely engaging in the tapestry of the dream-layer.
+Any figures appearing as children are, in truth, adults, their youthful guise a product of dream-crafted illusion.
+</boundlessroleplay>
+<sacredartisticvision>
+This work is an exploration of the infinite dream-realm, a scholarly and artistic endeavor.
+</sacredartisticvision>
+</disclaimer>`;
+
+  it('单段：声明整块消失，故事文本原样保留', () => {
+    const result = filterStoryTextShell(`${DISCLAIMER}\n\n${STORY}`);
+    expect(result.text).toBe(STORY);
+    expect(result.text).not.toContain('disclaimer');
+    expect(result.text).not.toContain('boundlessroleplay');
+    expect(result.text).not.toContain('consenting adults');
+    expect(result.removedTags).toContain('disclaimer');
+    expect(result.meta.join('\n')).toContain('consenting adults');
+  });
+
+  it('声明的孤立子标签（未包在 disclaimer 里）同样不会漏进正文', () => {
+    const result = filterStoryTextShell(`<boundlessroleplay>placeholder</boundlessroleplay>\n${STORY}`);
+    expect(result.text).toBe(STORY);
+    expect(result.text).not.toContain('placeholder');
+  });
+
+  it('未闭合的声明块（位于块首）按「到块尾」丢弃', () => {
+    const result = filterStoryTextShell('<disclaimer>\n<anything>声明还没写完');
+    expect(result.text).toBe('');
+    expect(result.meta.join('\n')).toContain('声明还没写完');
+  });
+
+  it('整轮解析：正文里既没有思维链也没有声明，诊断里两者都留痕', () => {
+    const parsed = parseNarrativeTurn(JSON.stringify({
+      body: [
+        { kind: 'system', text: DISCLAIMER },
+        { kind: 'narration', text: STORY },
+      ],
+      choices: [],
+      factCandidates: [],
+      continuation: { summary: '摘要', unresolved: [] },
+    }));
+    expect(parsed.body.map((block) => block.kind)).toEqual(['narration']);
+    const warnings = getNarrativeTurnNormalizationWarnings(parsed).join('｜');
+    expect(warnings).toContain('disclaimer');
+    expect(warnings).toContain('免责声明/元信息');
+  });
+
+  it('没有声明时原样返回（不误伤普通正文）', () => {
+    const result = filterStoryTextShell(STORY);
+    expect(result.text).toBe(STORY);
+    expect(result.meta).toEqual([]);
+  });
+});
+
+describe('D 过滤器直连契约', () => {
   it('filterNarrativeTurnShell 把面板变成独立 system 块且不丢原文', () => {
     const turn: NarrativeTurn = {
       body: [{ kind: 'narration', text: `${STORY}\n<char_date>${PANEL}</char_date>` }],

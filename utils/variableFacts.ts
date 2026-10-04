@@ -952,14 +952,40 @@ export function resolveTurnTimeFact(
     }
     return { fact: warning ? null : explicit, warning };
   }
-  if (modelFact) {
-    if (modelFact.mode === 'no_change') return { fact: null, warning: null };
+  if (modelFact && modelFact.mode !== 'no_change') {
     const warning = validate(modelFact, 'model');
     return { fact: warning ? null : modelFact, warning };
   }
+  // 显式 no_change 不再冻结时钟（2026-10-03 玩家实测「时间没有正常推进」）。
+  // 变量模型在「短对话 / 原地互动」场景会一直回 no_change，于是整场戏时间一动不动；
+  // 而 no_change 的语义与「正文没有写出耗时证据」完全重合 —— 应用对那种情况的既定策略
+  // 就是「按最小耗时推进」。因此这里让它落到同一条兜底：只有在正文**明确声明了当前钟点**
+  // 时才真的不推进（那才是「故事自己说时间没变」）。
   if (declaresCurrentClock) return { fact: null, warning: null };
   const evidence = body.replace(/\s+/g, ' ').trim().slice(0, 100);
   return { fact: evidence ? { type: 'time', mode: 'elapsed', minutes: 3, evidence } : null, warning: null };
+}
+
+/** 供结算报告/诊断展示的「本回合时间决策」一行说明。 */
+export function describeTimeDecision(
+  decision: { fact: Extract<变量事实, { type: 'time' }> | null; warning: string | null },
+  currentTime: string,
+): string {
+  if (decision.warning) return `时间未推进（${decision.warning}）`;
+  const fact = decision.fact;
+  if (!fact) return `时间未推进（正文与本回合事实都没有耗时证据；当前 ${currentTime}）`;
+  switch (fact.mode) {
+    case 'elapsed':
+      return `时间推进 ${fact.minutes ?? 0} 分钟（当前 ${currentTime}）`;
+    case 'next_day':
+      return `时间跨日 ${fact.days ?? 1} 天${fact.targetTime ? `，落在 ${fact.targetTime}` : ''}（当前 ${currentTime}）`;
+    case 'set_time':
+      return `时间设定为 ${fact.targetTime ?? '未知'}（当前 ${currentTime}）`;
+    case 'overnight':
+      return `时间跨夜（当前 ${currentTime}）`;
+    default:
+      return `时间未推进（当前 ${currentTime}）`;
+  }
 }
 
 export function deriveNarrativeTimeFact(

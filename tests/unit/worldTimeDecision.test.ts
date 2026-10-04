@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyTeyvatGameState } from '@/models/teyvat/state';
-import { factsToTeyvatDomainCommands, resolveTurnTimeFact } from '@/utils/variableFacts';
+import { describeTimeDecision, factsToTeyvatDomainCommands, resolveTurnTimeFact } from '@/utils/variableFacts';
 
 describe('single turn time decision', () => {
   it('advances exactly three dates and travel days for a three-day narrative jump', () => {
@@ -76,5 +76,47 @@ describe('single turn time decision', () => {
     // 同一句里出现的 15:00 不得把跨日退化成「当日改钟点」。
     expect(second.fact?.mode).toBe('next_day');
     expect((second.fact as { days?: number } | null)?.days).toBe(8);
+  });
+});
+
+// 「时间没有正常推进」（2026-10-03 玩家实测，预设激活后整场戏时间一动不动）。
+// 变量模型在「短对话 / 原地互动」场景会持续回 no_change，而旧实现让 no_change 直接冻结时钟。
+describe('explicit no_change no longer freezes the clock', () => {
+  const noChange = { type: 'time', mode: 'no_change', evidence: '模型判定本回合无耗时' } as const;
+
+  it('模型判定 no_change 时仍按最小耗时推进（与「没有耗时证据」同一策略）', () => {
+    expect(resolveTurnTimeFact('两人说了几句话。', '10:00', noChange as never)).toMatchObject({
+      fact: { mode: 'elapsed', minutes: 3 }, warning: null,
+    });
+  });
+
+  it('正文明确声明了当前钟点时仍然不推进（故事自己说时间没变）', () => {
+    expect(resolveTurnTimeFact('钟楼显示现在是 10:00。', '10:00', noChange as never))
+      .toEqual({ fact: null, warning: null });
+  });
+
+  it('正文写出耗时证据时照常按证据推进（no_change 不得压过正文）', () => {
+    expect(resolveTurnTimeFact('两个小时后，队伍抵达营地。', '10:00', noChange as never)).toMatchObject({
+      fact: { mode: 'elapsed', minutes: 120 }, warning: null,
+    });
+  });
+
+  it('模型给出真实时间事实时依旧以模型为准', () => {
+    expect(resolveTurnTimeFact('队伍休整。', '10:00', {
+      type: 'time', mode: 'elapsed', minutes: 45, evidence: '模型判定休整耗时',
+    } as never)).toMatchObject({ fact: { mode: 'elapsed', minutes: 45 } });
+  });
+});
+
+describe('time decision summary for the settlement report', () => {
+  it('把推进量与原因写成人话', () => {
+    expect(describeTimeDecision(resolveTurnTimeFact('两人说了几句话。', '10:00'), '10:00'))
+      .toContain('推进 3 分钟');
+    expect(describeTimeDecision(resolveTurnTimeFact('钟楼显示现在是 10:00。', '10:00'), '10:00'))
+      .toContain('时间未推进');
+    expect(describeTimeDecision(resolveTurnTimeFact('三天后，队伍抵达营地。', '23:30'), '23:30'))
+      .toContain('跨日 3 天');
+    expect(describeTimeDecision({ fact: null, warning: '同日时间回退：当前 10:00，正文目标 09:00；时间未推进。' }, '10:00'))
+      .toContain('回退');
   });
 });

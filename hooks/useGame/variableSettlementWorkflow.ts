@@ -23,6 +23,7 @@ import {
   deriveNarrativeInventoryGainFacts,
   deriveNarrativeIntimacyFacts,
   deriveNarrativeInventoryRemovalFacts,
+  describeTimeDecision,
   resolveTurnTimeFact,
   derivePartyPresenceFacts,
   deriveResolvedNpcLedgerFacts,
@@ -325,6 +326,10 @@ export async function runVariableSettlementWorkflow(
       reason,
     }));
     const allWarnings = [...(timeDecision.warning ? [timeDecision.warning] : []), ...derivedGains.warnings, ...factCommands.warnings];
+    // 时间决策必须可见（2026-10-03 玩家实测「时间没有正常推进」）：把「推进了多少 / 为什么没推进」
+    // 写进结算报告与控制台，玩家不必再靠猜。
+    const timeDecisionSummary = describeTimeDecision(timeDecision, stateSnapshot.世界.当前时间);
+    console.info(`[时间] ${timeDecisionSummary}`);
     const warningResults = allWarnings.map((reason) => ({
       command: { action: 'set' as const, key: '(事实忽略)', value: null },
       ok: false,
@@ -347,6 +352,7 @@ export async function runVariableSettlementWorkflow(
       modelName: variableConfig.model,
       results: [...errResults, ...warningResults, ...commandResults],
       report: [
+        timeDecisionSummary,
         `变量事实：${effectiveFacts.length} 条，生成正式领域命令 ${factCommands.commands.length} 条；任务命令 ${questSettlement.commands.length} 条。`,
         '兼容旧命令：0 条（新回合只接受正式领域命令）。',
         allWarnings.length ? `事实警告：${allWarnings.length} 条。` : '事实警告：0 条。',

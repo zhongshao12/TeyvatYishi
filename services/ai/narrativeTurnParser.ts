@@ -239,7 +239,11 @@ export function normalizeNarrativeTurn(value: unknown): NarrativeTurn {
     const thinkingNote = shellFiltered.thinkingChars
       ? `（思维链 ${shellFiltered.thinkingChars} 字已从正文移除并存入消息诊断）`
       : '';
-    warnings.push(`已移除预设输出外壳标签：${shellFiltered.removedTags.join('、')}${thinkingNote}。`);
+    const metaChars = shellFiltered.meta.reduce((total, item) => total + [...item].length, 0);
+    const metaNote = shellFiltered.meta.length
+      ? `（已丢弃 ${shellFiltered.meta.length} 段免责声明/元信息，共 ${metaChars} 字）`
+      : '';
+    warnings.push(`已移除预设输出外壳标签：${shellFiltered.removedTags.join('、')}${thinkingNote}${metaNote}。`);
   }
 
   const turn: NarrativeTurn = {

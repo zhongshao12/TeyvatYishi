@@ -286,12 +286,38 @@ export function normalizeSTSettings(settings: Record<string, unknown>): {
 export function getCurrentSTPresetV2(settings: {
   stPresetsV2?: STPresetEntryV2[];
   currentStPresetIdV2?: string | null;
+  enableStPreset?: boolean;
 }, extraPresets: STPresetEntryV2[] = []): STPresetEntryV2 | null {
   const presetList = [
     ...extraPresets,
     ...(Array.isArray(settings.stPresetsV2) ? settings.stPresetsV2 : []),
   ];
   const id = readText(settings.currentStPresetIdV2).trim();
+  // 只对**被选中**的预设建链：未选中的预设即便在库里也不得自动生效（既有契约，有测试钉住）。
+  // 但「库里有预设、却没有任何一个被选中」是玩家最容易被静默坑到的状态 —— 那个提示由
+  // `mainPromptAssembly` 负责（`explainTavernPresetActivation`），这里保持纯选择语义。
   if (!id) return null;
   return presetList.find((entry) => entry.id === id) ?? null;
+}
+
+/**
+ * 解释「为什么这次没有走酒馆预设链」（2026-10-03）。
+ *
+ * 玩家最常遇到的三种静默失效：总开关关了、库里有预设但一个都没选中、选中的预设已不在库里。
+ * 返回 null 表示本次确实会走预设链。
+ */
+export function explainTavernPresetActivation(settings: {
+  stPresetsV2?: STPresetEntryV2[];
+  currentStPresetIdV2?: string | null;
+  enableStPreset?: boolean;
+}): string | null {
+  const presets = [
+    ...(Array.isArray(settings.stPresetsV2) ? settings.stPresetsV2 : []),
+  ];
+  if (settings.enableStPreset === false) return '酒馆预设总开关已关闭（设置 → 提示词模块 → 酒馆预设）。';
+  if (!presets.length) return null;
+  const id = readText(settings.currentStPresetIdV2).trim();
+  if (!id) return `预设库里有 ${presets.length} 个酒馆预设，但当前没有选中任何一个 —— 请在设置里选中要用的预设。`;
+  if (!presets.some((entry) => entry.id === id)) return `当前选中的预设（${id}）已不在预设库里，请重新选择或重新导入。`;
+  return null;
 }

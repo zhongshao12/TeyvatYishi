@@ -4,7 +4,8 @@ import { 创建空角色 } from '@/models/character';
 import { 创建空记忆系统 } from '@/models/memory';
 import { 创建空世界状态 } from '@/models/world';
 import { buildSystemPrompt, selectMainPromptModules } from '@/hooks/useGame/systemPromptBuilder';
-import { buildTavernMessageChain } from '@/hooks/useGame/tavernMessageChainBuilder';
+import { buildTavernMessageChain, type TavernChainReport } from '@/hooks/useGame/tavernMessageChainBuilder';
+import { explainTavernPresetActivation } from '@/utils/stSettingsNormalizer';
 import { collectMacroAssignments, createMacroContext, processMacros } from '@/utils/macroEngine';
 import type { 提示词模块 } from '@/models/prompts';
 import type { STPreset } from '@/models/stTypes';
@@ -148,5 +149,84 @@ describe('C 预设优先：表现类模块让位', () => {
     };
     const prompt = buildSystemPrompt(创建空角色(), 创建空世界状态(), 创建空记忆系统(), settings, 4).systemPrompt;
     expect(prompt).toContain('文风A的正文内容');
+  });
+});
+
+describe('D 投递报告与「未生效」原因', () => {
+  it('报告分清 送入 / 定义型 / 原生占位 / 悬空 / 未展开宏', () => {
+    const preset = {
+      prompts: [
+        { identifier: 'def', name: '定义型', content: '{{setvar::字数要求::至少3000}}', role: 'system' },
+        { identifier: 'body', name: '正文规则', content: '正文必须至少 {{getvar::字数要求}} 字。', role: 'system' },
+        { identifier: 'marker', name: '原生占位', content: '', role: 'system', marker: true },
+        { identifier: 'broken', name: '未展开宏', content: '{{未知宏::x}} 的说明', role: 'system' },
+      ],
+      prompt_order: [{ character_id: 100001, order: [
+        { identifier: 'def', enabled: true }, { identifier: 'body', enabled: true },
+        { identifier: 'marker', enabled: true }, { identifier: 'broken', enabled: true },
+        { identifier: 'missing', enabled: true },
+      ] }],
+      assistantPrefill: '（开场样例）风穿过城门。',
+    } as unknown as STPreset;
+    const reportOut = { current: null as TavernChainReport | null };
+    const chain = buildTavernMessageChain({
+      settings: { ...创建默认游戏设置(), enableStPreset: true } as 游戏设置,
+      preset, characterId: 100001, chatHistory: [], latestUserInput: '开始。',
+      playerName: '旅行者', playerRole: {} as never, triggerType: 'normal',
+    } as never, reportOut);
+    const report = reportOut.current!;
+    expect(report.delivered).toEqual(['正文规则', '未展开宏']);
+    expect(report.definitionOnly).toEqual(['定义型']);
+    expect(report.dangling).toEqual(['missing']);
+    expect(report.unresolvedMacros).toEqual(['未知宏']);
+    const joined = chain.map((m) => m.content ?? '').join('\n');
+    expect(joined).toContain('至少3000');
+  });
+
+  it('尾部执行要求不再一票否决预设标签，改为「内容照做、外壳换成 JSON」', () => {
+    const preset = {
+      prompts: [{ identifier: 'p', name: 'p', content: '要求输出 <thinking> 思维链。', role: 'system' }],
+      prompt_order: [{ character_id: 100001, order: [{ identifier: 'p', enabled: true }] }],
+    } as unknown as STPreset;
+    const chain = buildTavernMessageChain({
+      settings: { ...创建默认游戏设置(), enableStPreset: true } as 游戏设置,
+      preset, characterId: 100001, chatHistory: [], latestUserInput: '开始。',
+      playerName: '旅行者', playerRole: {} as never, triggerType: 'normal',
+    } as never);
+    const joined = chain.map((m) => m.content ?? '').join('\n');
+    expect(joined).not.toContain('不输出这些内容');
+    expect(joined).toContain('kind:"system"');
+    expect(joined).toContain('唯一不可协商的是');
+  });
+
+  it('assistant prefill 以「起手式样例」形式送达（不当作消息前缀）', () => {
+    const preset = {
+      prompts: [{ identifier: 'p', name: 'p', content: '按预设写。', role: 'system' }],
+      prompt_order: [{ character_id: 100001, order: [{ identifier: 'p', enabled: true }] }],
+      assistantPrefill: '【样例起手】风从糖糖公司的大厅穿过。',
+    } as unknown as STPreset;
+    const chain = buildTavernMessageChain({
+      settings: { ...创建默认游戏设置(), enableStPreset: true } as 游戏设置,
+      preset, characterId: 100001, chatHistory: [], latestUserInput: '开始。',
+      playerName: '旅行者', playerRole: {} as never, triggerType: 'normal',
+    } as never);
+    const joined = chain.map((m) => m.content ?? '').join('\n');
+    expect(joined).toContain('起手式样例');
+    expect(joined).toContain('风从糖糖公司的大厅穿过');
+    expect(chain.some((m) => m.role === 'assistant' && (m.content ?? '').startsWith('【样例起手】'))).toBe(false);
+  });
+
+  it.each([
+    [{ enableStPreset: false, stPresetsV2: [{ id: 'a' }], currentStPresetIdV2: 'a' }, /总开关/],
+    [{ enableStPreset: true, stPresetsV2: [{ id: 'a' }, { id: 'b' }], currentStPresetIdV2: null }, /没有选中/],
+    [{ enableStPreset: true, stPresetsV2: [{ id: 'a' }], currentStPresetIdV2: 'gone' }, /已不在预设库/],
+  ])('解释未生效原因 %#', (settings, pattern) => {
+    expect(explainTavernPresetActivation(settings as never)).toMatch(pattern);
+  });
+
+  it('正常选中时不报原因', () => {
+    expect(explainTavernPresetActivation({
+      enableStPreset: true, stPresetsV2: [{ id: 'a' }], currentStPresetIdV2: 'a',
+    } as never)).toBeNull();
   });
 });

@@ -45,7 +45,43 @@ interface TavernContextPieces {
 }
 
 //  ---------- 主函数 ----------
-export function buildTavernMessageChain(params: TavernChainParams): TavernMessage[] {
+/**
+ * 投递报告（2026-10-03）：让玩家看得到「预设到底哪一步没生效」。
+ * 之前的导入提示只报总数（promptCount/orderCount），于是「预设没起作用」无法自查。
+ */
+export interface TavernChainReport {
+  /** 本次构建是否产出了消息（false ⇒ 主剧情会回退 legacy 路径）。 */
+  built: boolean;
+  /** 启用的 order 条目数。 */
+  enabledSlots: number;
+  /** 真正作为消息送入请求的条目名。 */
+  delivered: string[];
+  /** ST 原生占位符（marker，设计上跳过，本体也不产出内容）。 */
+  markers: string[];
+  /** 「只定义变量」的条目：展开后为空、不产出消息（与本体一致），但变量已生效。 */
+  definitionOnly: string[];
+  /** order 里引用了、但 prompts 数组里不存在的悬空条目。 */
+  dangling: string[];
+  /** 渲染后仍残留的未展开宏（如非标准写法），它们会以字面量进入请求。 */
+  unresolvedMacros: string[];
+}
+
+/** 每条消息的来源标注 → 人类可读的投递结论。 */
+function buildReportNote(report: TavernChainReport): string {
+  return [
+    `送入 ${report.delivered.length}`,
+    `定义型 ${report.definitionOnly.length}`,
+    `原生占位 ${report.markers.length}`,
+    `悬空 ${report.dangling.length}`,
+    report.unresolvedMacros.length ? `未展开宏 ${report.unresolvedMacros.join('/')}` : '宏全部展开',
+  ].join(' · ');
+}
+
+export function formatTavernChainReport(report: TavernChainReport): string {
+  return buildReportNote(report);
+}
+
+export function buildTavernMessageChain(params: TavernChainParams, reportOut?: { current: TavernChainReport | null }): TavernMessage[] {
   // 1. 取预设与选中顺序
   const selectedOrder = getSTPresetOrder(params.preset, params.characterId);
   if (!params.preset || !selectedOrder) return [];
@@ -113,6 +149,13 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     macroCtx,
   );
 
+  // 7c. 投递报告：逐槽位记下「送入 / 原生占位 / 定义型 / 悬空」，构建结束后交给调用方展示。
+  const report: TavernChainReport = {
+    built: false, enabledSlots: enabledOrderSlots.length,
+    delivered: [], markers: [], definitionOnly: [], dangling: [], unresolvedMacros: [],
+  };
+  if (reportOut) reportOut.current = report;
+
   // 8. 遍历启用的 slot，按 identifier 分派
   const messages: TavernInternalMessage[] = [];
   let worldbookInjected = false;
@@ -156,10 +199,15 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
       continue;
     }
 
-    if (!prompt) continue;
+    if (!prompt) {
+      report.dangling.push(identifier);
+      continue;
+    }
 
     // 其他普通 prompt 项：变量替换 + 按 role 推送
     const rawContent = typeof prompt.content === 'string' ? prompt.content : '';
+    const slotName = prompt.name?.trim() || identifier;
+    if (prompt.marker === true) report.markers.push(slotName);
     const resolved = replaceTavernVariables({
       content: rawContent,
       playerName: params.playerName,
@@ -173,12 +221,21 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
       macroCtx,
     });
     const content = resolved.content;
-    if (!content) continue;
+    if (!content) {
+      // 展开为空：要么是 ST 原生占位符，要么是「只定义变量」的条目（两者本体都不产出消息）。
+      if (prompt.marker !== true && rawContent.trim()) report.definitionOnly.push(slotName);
+      continue;
+    }
+    for (const macro of content.matchAll(/\{\{([^{}]{1,40})\}\}/gu)) {
+      const name = macro[1]!.trim().split(':')[0]!.toLowerCase();
+      if (!report.unresolvedMacros.includes(name)) report.unresolvedMacros.push(name);
+    }
     if (resolved.usedLatestInput) latestInputInjected = true;
     if (resolved.usedCotPlaceholder) cotInjectedViaPlaceholder = true;
     if (resolved.usedFormatPlaceholder) formatInjectedViaPlaceholder = true;
     const role = prompt.role === 'user' || prompt.role === 'assistant' ? prompt.role : 'system';
     messages.push({ role, content, source: 'preset' });
+    report.delivered.push(slotName);
   }
 
   // 9. 兜底注入（若预设缺失关键槽位）
@@ -224,14 +281,31 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
   // presets keep the selected length in a silent setvar slot, so explicitly carry
   // that resolved value into the final body instruction (without exposing CoT).
   const presetWordCount = macroCtx.local['字数要求']?.trim();
+  // assistant prefill：正式主剧情**不得**用它当消息前缀（会把 NarrativeTurn JSON 截断，
+  // 该决定被 scripts/deepseek-format-stability-regression.mjs 钉住）。但它承载的是预设的
+  // 起手式/开场风格，直接丢掉等于预设又少生效一块 —— 这里以**风格样例**形式送进去：
+  // 内容照做、载体仍是 JSON。
+  const presetPrefill = typeof params.preset?.assistantPrefill === 'string'
+    ? params.preset.assistantPrefill.trim()
+    : '';
   messages.push({
     role: 'system',
     content: [
       '# 酒馆预设执行要求',
       '已启用预设的文风、字数、叙事人称、节奏、角色表达及段落组织要求优先于原生默认创作偏好；未启用的项目不得自行启用。此优先级不覆盖安全边界、玩家主权、角色信息隔离、已知事实及 NarrativeTurn JSON 合同。',
       presetWordCount ? `本次预设正文的字数要求：${presetWordCount}字。只统计 NarrativeTurn.body 中面向玩家的正文，不以摘要、选项或 JSON 字段名凑字数。` : '',
-      '预设中的 <content>、<正文> 等正文标签对应 NarrativeTurn.body；台词、叙述和段落组织落实到各 body 块。行动选项对应 NarrativeTurn.choices，不能用标签或 HTML 替代根 JSON。',
-      '若预设要求输出思维链、隐藏分析、HTML 或非 JSON 外壳，不输出这些内容；只落实允许的创作要求，最终只输出完整合法的 NarrativeTurn JSON。',
+      presetPrefill ? `预设的起手式样例（只借它的开篇语气与节奏，不要原样复制，也不要把它当成输出外壳）：\n${presetPrefill.slice(0, 600)}` : '',
+      // 2026-10-03 修正（用户实测「预设还是没起作用」的关键一环）：
+      // 这里原本写着「若预设要求输出思维链/隐藏分析/HTML/非 JSON 外壳，**不输出这些内容**」——
+      // 它位于消息链**末尾**，模型最后读到的就是这句否决，于是预设的 <thinking>/<content>/状态栏等
+      // 标志性行为被整体压掉。正确做法是**内容照做、外壳换成 JSON**：
+      // NarrativeTurn.body[].kind 支持 'narration' | 'dialogue' | 'system'，
+      // 预设要求的思维链/状态栏落到 system 块，正文标签落到 narration/dialogue 块。
+      '预设要求的正文标签（<content>/<正文> 等）→ NarrativeTurn.body 的 narration/dialogue 块；台词带 speaker；段落顺序按预设。',
+      '预设要求的思维链、隐藏分析、状态栏或自定义面板 → **必须原样落实**到 NarrativeTurn.body 中 kind:"system" 的块里（不要省略、不要只写在 choices 或摘要里）。',
+      '预设要求的文风、人称、语气、篇幅与用词 → 落在 body 各块的文本里；不得用应用内置的文风偏好覆盖它。',
+      '唯一不可协商的是**载体**：最终回复必须是完整合法的 NarrativeTurn JSON（不能用标签或 HTML 替代根 JSON，也不要在 JSON 之外追加任何文字）。',
+      '换句话说：预设说要写什么，就写；只是写在 JSON 对应的字段里。',
     ].filter(Boolean).join('\n'),
     source: 'preset',
   });

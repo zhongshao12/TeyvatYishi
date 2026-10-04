@@ -10,8 +10,14 @@
  */
 import type { SteambirdNews } from '@/models/teyvat/steambird';
 import { buildOpeningSystemPrompt, buildSystemPrompt } from './systemPromptBuilder';
-import { buildTavernMessageChain } from './tavernMessageChainBuilder';
-import { getCurrentSTPresetV2 } from '@/utils/stSettingsNormalizer';
+import { buildTavernMessageChain, formatTavernChainReport, type TavernChainReport } from './tavernMessageChainBuilder';
+import { getCurrentSTPresetV2, explainTavernPresetActivation } from '@/utils/stSettingsNormalizer';
+import { pushToast } from '@/utils/toastStore';
+
+/** 已提示过投递报告的预设（每个会话一次即可，避免每回合刷屏）。 */
+const reportedTavernPresets = new Set<string>();
+/** 已提示过的「未使用预设」原因（同样只提示一次）。 */
+const reportedTavernInactiveReasons = new Set<string>();
 import { evaluateStoryWeavingGate, getStoryWeavingInjectionDiagnostics } from '@/services/storyWeaving';
 import { selectNpcLedgersForTurn} from '@/models/npc';
 import {
@@ -321,12 +327,22 @@ export async function runMainPromptAssembly(deps: MainPromptAssemblyDeps) {
     // Phase 4: In-Chat depth 注入。非 system 角色的模块消息按 depth 插入聊天历史。
     const moduleChatMessages = builtPrompt.chatModuleMessages;
     const currentPresetV2 = getCurrentSTPresetV2(state.gameSettings);
+    // 明确告知「为什么这次没走预设链」——总开关关了 / 库里有预设但没选中 / 选中的预设已不在库里。
+    // 旧行为是完全静默，玩家只能感到「预设没生效」（2026-10-03 用户实测反馈）。
+    const presetInactiveReason = currentPresetV2 ? null : explainTavernPresetActivation(state.gameSettings);
+    if (presetInactiveReason && !reportedTavernInactiveReasons.has(presetInactiveReason)) {
+      reportedTavernInactiveReasons.add(presetInactiveReason);
+      console.warn(`[ST V2] 本次未使用酒馆预设：${presetInactiveReason}`);
+      pushToast({ kind: 'info', title: '本次未使用酒馆预设', detail: presetInactiveReason, durationMs: 12000 });
+    }
     const shouldTryTavernV2 =
       state.gameSettings.enableStPreset !== false &&
       Boolean(currentPresetV2?.preset?.prompts?.length) &&
       Boolean(currentPresetV2?.preset?.prompt_order?.length);
     let tavernV2Messages: 聊天消息[] | null = null;
     let tavernV2Error: unknown = null;
+    /** 投递报告：本次酒馆预设哪些条目真的进了请求（供界面与诊断展示）。 */
+    let tavernChainReport: TavernChainReport | null = null;
     const recentHistory = getMainHistoryWindow(updatedHistory, state.gameSettings, state.记忆);
     const tavernHistory = recentHistory.filter((msg) => msg.id !== userMsg.id);
     if (rerollContext && !isOpeningSystemTrigger) {
@@ -351,7 +367,8 @@ export async function runMainPromptAssembly(deps: MainPromptAssemblyDeps) {
           : isAwakeningEnterTrigger
             ? awakeningInstruction
             : userInput;
-        tavernV2Messages = buildTavernMessageChain({
+        const tavernReportOut = { current: null as TavernChainReport | null };
+        const tavernChain = buildTavernMessageChain({
           settings: state.gameSettings,
           preset: currentPresetV2.preset,
           characterId: state.gameSettings.currentStCharacterId ?? currentPresetV2.characterId ?? null,
@@ -363,7 +380,26 @@ export async function runMainPromptAssembly(deps: MainPromptAssemblyDeps) {
           includeNativeNarrative: false,
           triggerType: currentTriggerType,
           macroCtx,
-        }).map((msg) => 创建聊天消息(msg.role, msg.content));
+        }, tavernReportOut);
+        tavernChainReport = tavernReportOut.current;
+        tavernV2Messages = tavernChain.map((msg) => 创建聊天消息(msg.role, msg.content));
+        if (tavernChainReport) {
+          // 投递报告（2026-10-03）：玩家能直接看到「预设到底哪一步没生效」，
+          // 而不是只看到导入时那句「已存入预设库」。每个预设每个会话只提示一次，避免刷屏。
+          console.info(
+            `[ST V2] 预设「${currentPresetV2.name}」投递：${formatTavernChainReport(tavernChainReport)}`,
+            tavernChainReport,
+          );
+          if (!reportedTavernPresets.has(currentPresetV2.id)) {
+            reportedTavernPresets.add(currentPresetV2.id);
+            pushToast({
+              kind: 'info',
+              title: `酒馆预设已生效：${currentPresetV2.name}`,
+              detail: `${formatTavernChainReport(tavernChainReport)}。定义型条目按 ST 语义不产出消息，但它们的变量已生效；「悬空」是预设里引用了不存在的条目。`,
+              durationMs: 12000,
+            });
+          }
+        }
         if (tavernV2Messages.length === 0) {
           tavernV2Messages = null;
           tavernV2Error = new Error('ST V2 消息链为空，已回退 legacy 主剧情路径');

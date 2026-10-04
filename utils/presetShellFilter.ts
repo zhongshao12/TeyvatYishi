@@ -214,6 +214,30 @@ export function filterStoryTextShell(input: string): ShellFilterResult {
 }
 
 /**
+ * 只摘掉「绝不能出现在可见正文里」的外壳 —— 思维链与元信息/声明，
+ * 面板与摘要文本原样留在原地。
+ *
+ * 渲染层（含**已经存进存档的旧消息**）用这个：面板是预设要求可见的状态信息，
+ * 而 `<thinking>`/`<disclaimer>` 这类幕后文本任何时候都不该被玩家读到。
+ */
+export function stripNonDisplayableShell(input: string): string {
+  let text = input ?? '';
+  if (!text) return '';
+  const removed = new Set<string>();
+  text = text.replace(/<!--[\s\S]*?-->/gu, '\n');
+  text = takeClosedBlocks(text, THINKING_GROUP, removed).text;
+  text = takeClosedBlocks(text, META_GROUP, removed).text;
+  // 未闭合且位于块首的思维链/元信息：按「到块尾」处理（它们总是写在开头）
+  const headRe = new RegExp(`^\\s*<\\s*(?:${THINKING_GROUP}|${META_GROUP})\\b[^>]*>[\\s\\S]*$`, 'iu');
+  if (headRe.test(text)) {
+    text = text.replace(new RegExp(`^\\s*<\\s*(?:${THINKING_GROUP}|${META_GROUP})\\b[^>]*>`, 'iu'), '');
+    text = text.replace(new RegExp(`<\\s*\\/\\s*(?:${THINKING_GROUP}|${META_GROUP})\\s*>`, 'giu'), '');
+  }
+  text = text.replace(new RegExp(`<\\s*\\/?\\s*(?:${THINKING_GROUP}|${META_GROUP})\\b[^>]*>`, 'giu'), '\n');
+  return text.replace(/\n{3,}/gu, '\n\n').trim();
+}
+
+/**
  * 过滤整个 NarrativeTurn：正文只保留故事，外壳按类别归位。
  * `panels` 会变成独立的 `system` 块（预设要求它们可见），且不会与原文重复。
  */

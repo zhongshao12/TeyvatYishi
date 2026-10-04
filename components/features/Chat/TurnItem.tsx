@@ -5,7 +5,7 @@ import type { NPC记录 } from '@/models/npc';
 import type { 角色数据结构 } from '@/models/character';
 import type { API配置项, VisualTextSettings } from '@/models/settings';
 import type { 相册系统 } from '@/models/imageGeneration';
-import { BodyBlock, StreamingPreview, resolveTravelerAvatar } from './MessageRenderers';
+import { BodyBlock, StreamingPreview, ThinkingBlock, resolveTravelerAvatar } from './MessageRenderers';
 import type { ElementId } from '@/models/teyvat/elements';
 import { ELEMENT_NAMES } from '@/styles/elementTokens';
 import { formatTokenCount } from '@/utils/tokenEstimate';
@@ -363,6 +363,12 @@ function AiTurnCard({ message, parsed, settlementReceipt, isStreaming, deferOffs
           )}
         </div>
       )}
+
+      {/* 预设思维链（`<thinking>`/ECoT）：已从正文摘出，收进可折叠的「◆ 思绪痕迹」。
+          2026-10-03：正文不再夹着幕后分析，但内容不丢，玩家想看仍然点得开。 */}
+      {message.debugContext?.presetCot ? (
+        <ThinkingBlock content={message.debugContext.presetCot} />
+      ) : null}
 
       {/* 正文（无边框，铺满列宽）。 */}
       <div className="px-1 py-2">

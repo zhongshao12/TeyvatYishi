@@ -8,7 +8,7 @@ import type { VisualTextSettings } from '@/models/settings';
 import { normalizeInlineSpeakerTags, shouldRenderAsNarrationForPlayerLine } from '@/utils/playerSpeechGuard';
 import { getDefaultBuiltinAvatar, getDefaultTravelerBuiltinAvatar } from '@/data/builtinAvatars';
 import { 解析相册资源引用 } from '@/utils/albumActions';
-import { filterStoryTextShell } from '@/utils/presetShellFilter';
+import { stripNonDisplayableShell } from '@/utils/presetShellFilter';
 
 interface ThinkingBlockProps {
   content: string;
@@ -174,7 +174,9 @@ const SOUND_EFFECT_TAGS = new Set([
  *   3) 其余一律按旁白渲染 —— 绝不替玩家认领没说过的话。
  */
 export function parseBodyLines(body: string, traveler?: 角色数据结构, userInput?: string): ParsedBodyLine[] {
-  const rawLines = normalizeInlineSpeakerTags(body).split(/\r?\n/);
+  // 渲染层也要摘掉思维链/免责声明：既覆盖本回合刚生成的内容，也覆盖**存档里已经存下的旧消息**。
+  // 面板（`<char_date>` 等）在这里保留 —— 那是预设要求玩家可见的状态信息。
+  const rawLines = normalizeInlineSpeakerTags(stripNonDisplayableShell(body)).split(/\r?\n/);
   const speakerHints = collectSpeakerHints(rawLines, traveler);
   const out: ParsedBodyLine[] = [];
   rawLines.forEach((raw, index) => {
@@ -780,7 +782,7 @@ export function extractStreamingNarrativeBody(raw: string): string {
       const speaker = typeof record.speaker === 'string' ? record.speaker.trim() : '';
       // 流式阶段同样摘掉预设外壳（思维链/摘要/面板标签）：否则玩家会在生成过程中
       // 眼看着 `<thinking>` 与 mermaid 流程图一行行刷出来 —— 正式渲染时它们已不进正文。
-      const cleaned = filterStoryTextShell(record.text.trim()).text.trim();
+      const cleaned = stripNonDisplayableShell(record.text.trim());
       if (cleaned) {
         blocks.push(record.kind === 'dialogue' && speaker ? `【${speaker}】${cleaned}` : cleaned);
       }

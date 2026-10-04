@@ -98,8 +98,11 @@ assert(
   rendererSource.includes('quoted && traveler && !shouldRenderAsNarrationForPlayerLine(quoted, userInput)'),
   '旁白中的整句引号只有在玩家输入有证据时才能提升为玩家气泡。',
 );
+// 迁移(2026-10-03): 渲染层在拆分行内角色标签之前，先摘掉思维链/免责声明外壳
+// （`stripNonDisplayableShell`），因此这里不再锁定精确的单行文本，改为锁定
+// 「拆分行内标签」这一步仍然存在（旧消息渲染同样会拆）。
 assert(
-  rendererSource.includes('normalizeInlineSpeakerTags(body).split'),
+  /normalizeInlineSpeakerTags\([\s\S]{0,80}?\)\.split/.test(rendererSource),
   '渲染旧消息时也必须拆分同一行内的多个角色标签。',
 );
 

@@ -126,6 +126,31 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         </div>
       </Field>
 
+      {/* 最小时间推进步长（2026-10-03 玩家要求：至少 15 分钟） */}
+      <Field label="◆ 最小时间推进步长">
+        <div className="flex items-center gap-3">
+          <input
+            type="range"
+            min={15}
+            max={180}
+            step={5}
+            value={settings.minTimeAdvanceMinutes ?? 15}
+            onChange={(e) => onChange({ ...settings, minTimeAdvanceMinutes: Math.max(15, Number(e.target.value)) })}
+            className="flex-1 accent-[rgb(var(--tj-accent-primary))]"
+          />
+          <span
+            className="min-w-14 text-right text-xs font-serif tracking-wider"
+            style={{ color: 'rgba(var(--tj-accent-primary), 0.85)' }}
+          >
+            {settings.minTimeAdvanceMinutes ?? 15} 分
+          </span>
+        </div>
+        <p className="mt-1 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)' }}>
+          每回合至少推进的时长（默认 15 分钟，下限 15）。同日推进上限 3 小时；
+          只有正文写明「N 小时后」才按该小时数放行；没有写到「第二天/翌日/过夜」时不会跨日。
+        </p>
+      </Field>
+
       {/* 默认文风（三选一 + 自定义槽） */}
       <Field label="◆ 默认文风">
         <div className="grid grid-cols-2 gap-2">

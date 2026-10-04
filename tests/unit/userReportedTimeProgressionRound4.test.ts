@@ -4,6 +4,7 @@ import {
   deriveNarrativeClockFact,
   deriveNarrativeTimeFact,
   factsToTeyvatDomainCommands,
+  resolveTurnTimeFact,
 } from '@/utils/variableFacts';
 
 describe('fourth user-reported time progression batch', () => {
@@ -71,17 +72,21 @@ describe('fourth user-reported time progression batch', () => {
     ]));
   });
 
-  it('applies a small forward step when a normal narrative turn contains no clock phrase', () => {
+  it('applies the configured minimum step when a normal narrative turn contains no clock phrase', () => {
+    // 契约修订（2026-10-03 第三轮）：兜底推进改为设置项「最小推进步长」，下限 15 分钟。
     expect(deriveNarrativeTimeFact(
       '安柏认真回答了旅行者的问题，两人随后继续商量侦察路线。',
       '10:00',
-    )).toMatchObject({ mode: 'elapsed', minutes: 3 });
+    )).toMatchObject({ mode: 'elapsed', minutes: 15 });
   });
 
-  it('does not replace a contradictory same-day backward clock with fabricated progress', () => {
-    expect(deriveNarrativeTimeFact(
-      '此时上午九点，安柏仍在城门口等待。',
-      '10:00',
-    )).toBeNull();
+  it('never puts a contradictory same-day backward clock into the state', () => {
+    // 契约修订（2026-10-03）：回溯式钟点（09:00 < 当前 10:00）不再入账，也不会被加成 +1440 绕圈；
+    // 正文同时「声明了当前钟点」时按声明处理（该回合不推进），并在诊断里写明「不倒退」。
+    const fact = deriveNarrativeTimeFact('此时上午九点，安柏仍在城门口等待。', '10:00');
+    expect(fact).toBeNull();
+    expect(fact?.mode).not.toBe('set_time');
+    const decided = resolveTurnTimeFact('此时上午九点，安柏仍在城门口等待。', '10:00');
+    expect(decided.warning).toContain('不倒退');
   });
 });

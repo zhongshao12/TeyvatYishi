@@ -138,10 +138,12 @@ describe('时间推进（2026-09-29 第二轮）', () => {
   });
 
   it('模型自报的跳转仍收紧在 7 天内（防随手编跨度）', () => {
+    // 契约修订（2026-10-03）：被拒的**跳转**不会静默生效；该回合退回设置里的最小推进步长
+    // （默认 15 分钟），并保留原始拒绝理由，玩家在结算报告里看得到。
     const decided = resolveTurnTimeFact('队伍休整。', '10:00', {
       type: 'time', mode: 'next_day', days: 30, evidence: '模型自报跳转',
     } as never);
-    expect(decided.fact).toBeNull();
+    expect(decided.fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
     expect(decided.warning).toContain('时间跳转天数无效');
   });
 

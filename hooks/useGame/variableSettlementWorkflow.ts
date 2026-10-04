@@ -36,7 +36,7 @@ import { buildNpcLedgerUpdateDebug, type NpcLedgerUpdateDebug } from './turnDebu
 
 export type VariableSettlementSettings = Pick<
   游戏设置,
-  'variableApi' | 'enableNsfw' | 'enableMaleNsfwArchive' | 'promptModules' | '手机系统'
+  'variableApi' | 'enableNsfw' | 'enableMaleNsfwArchive' | 'promptModules' | '手机系统' | 'minTimeAdvanceMinutes'
 >;
 
 export interface VariableSettlementParams {
@@ -242,7 +242,9 @@ export async function runVariableSettlementWorkflow(
     const modelClock = [...allowedFacts]
       .reverse()
       .find((fact): fact is Extract<变量事实, { type: 'time' }> => fact.type === 'time');
-    const timeDecision = resolveTurnTimeFact(params.body, stateSnapshot.世界.当前时间, modelClock);
+    const timeDecision = resolveTurnTimeFact(params.body, stateSnapshot.世界.当前时间, modelClock, {
+      minStepMinutes: params.settings.minTimeAdvanceMinutes,
+    });
     const derivedGains = deriveNarrativeInventoryGainFacts(params.body, stateSnapshot.背包.items);
     const inventoryFacts = mergeNarrativeInventoryFacts(allowedFacts, [
       ...derivedGains.facts,

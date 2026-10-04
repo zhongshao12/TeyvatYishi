@@ -20,16 +20,24 @@ describe('single turn time decision', () => {
   });
 
   it('does not fabricate progress when an explicit same-day clock goes backward', () => {
-    expect(resolveTurnTimeFact('此时上午九点，安柏仍在城门口等待。', '10:00')).toEqual({
-      fact: null,
-      warning: expect.stringContaining('回退'),
-    });
+    // 契约修订（2026-10-03，用户报「时间老是莫名其妙倒退」）：
+    // 回溯式钟点不再被当成「回退」而冻结时间，也不再可能被倒拨 —— 该钟点被忽略（不入账），
+    // 同回合按最小推进步长（15 分钟）向前走，并把「为什么不倒退」写进诊断。
+    const decision = resolveTurnTimeFact('此时上午九点，安柏仍在城门口等待。', '10:00');
+    expect(decision.fact).toBeNull();
+    expect(decision.warning).toContain('回退');
   });
 
-  it('uses a short elapsed step only when no time evidence exists', () => {
+  it('uses the minimum advance step when no time evidence exists', () => {
+    // 契约修订（2026-10-03）：兜底从 +3 分钟改为设置项「最小推进步长」（下限 15 分钟）。
     expect(resolveTurnTimeFact('安柏和旅行者商量了侦察路线。', '10:00')).toMatchObject({
-      fact: { mode: 'elapsed', minutes: 3 }, warning: null,
+      fact: { mode: 'elapsed', minutes: 15 }, warning: null,
     });
+    expect(resolveTurnTimeFact('安柏和旅行者商量了侦察路线。', '10:00', undefined, { minStepMinutes: 45 }))
+      .toMatchObject({ fact: { mode: 'elapsed', minutes: 45 } });
+    // 下限保护：设置里写 5 分钟也会被夹到 15。
+    expect(resolveTurnTimeFact('两人对看一眼。', '10:00', undefined, { minStepMinutes: 5 }))
+      .toMatchObject({ fact: { mode: 'elapsed', minutes: 15 } });
   });
 
   it('lets explicit narrative evidence override a contradictory model fact', () => {
@@ -61,6 +69,65 @@ describe('single turn time decision', () => {
       .toEqual({ fact: null, warning: null });
   });
 
+  // ── 2026-10-03 用户第三轮：倒退 / 大幅跨越 / 不主动跨日 / 同日 3 小时上限 ──
+  it('从不倒退：同一天里更早的钟点只被忽略，不会绕圈成 +N 小时', () => {
+    // 旧实现：raw < 0 时 +1440 → 「晚上八点」在 21:30 被算成 22.5 小时后（日期都跟着跳）。
+    const decided = resolveTurnTimeFact('晚上八点，众人回到营地。两个小时后，他们继续赶路。', '21:30');
+    expect(decided.fact).toMatchObject({ mode: 'elapsed', minutes: 120 });
+    const midnight = resolveTurnTimeFact('凌晨一点，营地静下来。', '02:00');
+    expect(midnight.fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
+    expect(midnight.warning).toContain('不倒退');
+  });
+
+  it('不主动跨日：推进后的时刻不会越过当天 23:59', () => {
+    const late = resolveTurnTimeFact('两个小时后，天亮了。', '23:50');
+    expect(late.fact).toMatchObject({ mode: 'elapsed', minutes: 9 });
+    expect(late.warning).toContain('不跨日');
+    const edge = resolveTurnTimeFact('两人又说了几句话。', '23:59');
+    expect(edge.fact).toBeNull();
+    expect(edge.warning).toContain('第二天');
+  });
+
+  it('明确写到第二天/翌日/深夜跨零点时才允许跨日', () => {
+    expect(resolveTurnTimeFact('第二天早上，阳光照进来。', '23:50').fact).toMatchObject({ mode: 'next_day' });
+    expect(resolveTurnTimeFact('翌日清晨，云先醒了。', '23:50').fact).toMatchObject({ mode: 'next_day' });
+    expect(resolveTurnTimeFact('清晨五点，天还没亮。', '21:30').fact).toMatchObject({ mode: 'next_day' });
+    // 深夜但正文没有写跨零点钟点 → 不跨日
+    expect(resolveTurnTimeFact('两人一直待到深夜。', '23:40').fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
+  });
+
+  it('同日跨度默认封顶 3 小时，写明小时数才放行', () => {
+    expect(resolveTurnTimeFact('半天后，他们终于回来了。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
+    expect(resolveTurnTimeFact('两个小时后，队伍抵达营地。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 120 });
+    expect(resolveTurnTimeFact('八小时后，天已经黑了。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 480 });
+    // 模型自报跨度没有正文小时证据 → 夹到 3 小时
+    const capped = resolveTurnTimeFact('队伍在城里逛了很久。', '10:00', {
+      type: 'time', mode: 'elapsed', minutes: 300, evidence: '模型推测逛了很久',
+    } as never);
+    expect(capped.fact).toMatchObject({ mode: 'elapsed', minutes: 180 });
+    expect(capped.warning).toContain('上限');
+  });
+
+  it('模型报跨日但正文没写到第二天 → 拒绝并要求当天推进', () => {
+    const decided = resolveTurnTimeFact('两人继续待在休息室里。', '21:00', {
+      type: 'time', mode: 'next_day', days: 1, evidence: '模型推测',
+    } as never);
+    expect(decided.fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
+    expect(decided.warning).toContain('不主动跨日');
+    // 正文确实写了第二天 → 照模型跨日
+    expect(resolveTurnTimeFact('第二天早上，云先醒了。', '21:00', {
+      type: 'time', mode: 'next_day', days: 1, evidence: '第二天早上',
+    } as never).fact).toMatchObject({ mode: 'next_day' });
+  });
+
+  it('明确钟点只允许向前落位，且不超过 12 小时上限', () => {
+    expect(resolveTurnTimeFact('下午三点，会议结束。', '14:00').fact).toMatchObject({ mode: 'set_time', targetTime: '15:00' });
+    // 早于当前时刻的钟点直接忽略（不倒退）
+    const backward = resolveTurnTimeFact('上午十点，他们才出发。', '14:00');
+    expect(backward.fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
+    expect(backward.warning).toContain('回退');
+  });
+
   it('advances an eight-day jump as eight days instead of silently advancing only three minutes or changing the same-day clock', () => {
     // 2026-09-29 契约修订（用户第二轮报「时间推进有问题」）：
     // 旧实现把正文跨日**一律**收紧在 7 天内，于是「八天后」「半个月后」「一个月后」被整条拦下，
@@ -86,7 +153,7 @@ describe('explicit no_change no longer freezes the clock', () => {
 
   it('模型判定 no_change 时仍按最小耗时推进（与「没有耗时证据」同一策略）', () => {
     expect(resolveTurnTimeFact('两人说了几句话。', '10:00', noChange as never)).toMatchObject({
-      fact: { mode: 'elapsed', minutes: 3 }, warning: null,
+      fact: { mode: 'elapsed', minutes: 15 }, warning: null,
     });
   });
 
@@ -111,7 +178,7 @@ describe('explicit no_change no longer freezes the clock', () => {
 describe('time decision summary for the settlement report', () => {
   it('把推进量与原因写成人话', () => {
     expect(describeTimeDecision(resolveTurnTimeFact('两人说了几句话。', '10:00'), '10:00'))
-      .toContain('推进 3 分钟');
+      .toContain('推进 15 分钟');
     expect(describeTimeDecision(resolveTurnTimeFact('钟楼显示现在是 10:00。', '10:00'), '10:00'))
       .toContain('时间未推进');
     expect(describeTimeDecision(resolveTurnTimeFact('三天后，队伍抵达营地。', '23:30'), '23:30'))

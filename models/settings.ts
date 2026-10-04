@@ -207,6 +207,12 @@ export interface VisualTextSettings {
 
 export interface 游戏设置 {
   wordCountTarget: number;
+  /**
+   * 最小时间推进步长（分钟）。2026-10-03 玩家要求：至少 15 分钟。
+   * 每回合没有明确耗时证据时的兜底推进取该值；同日推进上限仍是 3 小时
+   * （除非正文明确写出「N 小时后」），且没有写到「第二天/翌日」时不会跨日。
+   */
+  minTimeAdvanceMinutes?: number;
   narrativePerson: 'first' | 'second' | 'third';
   enableTavernKeeperPersona: boolean;
   enableActionOptions: boolean;
@@ -1248,6 +1254,7 @@ export function 归一化提示词模块ID(id: string): string {
 export function 创建默认游戏设置(): 游戏设置 {
   return {
     wordCountTarget: 500,
+    minTimeAdvanceMinutes: 15,
     narrativePerson: 'second',
     enableTavernKeeperPersona: true,
     enableActionOptions: false,

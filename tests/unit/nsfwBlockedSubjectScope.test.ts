@@ -78,4 +78,33 @@ describe('B 真正的屏蔽规则一条都没有放宽', () => {
   it('比喻用法不算身份（不会把人类角色拦掉）', () => {
     expect(getNsfwArchiveBlockReason({ 姓名: '原创舞者', 外貌: '她像人偶般顺从而沉默。' } as never, '原创舞者', '')).toBeNull();
   });
+
+  it('合成词与副词用法不得误伤（人偶师 / 傀儡戏 / 认为 / 因为）', () => {
+    for (const text of [
+      '她认为机关事务繁琐。',
+      '因为机械故障，工坊停摆。',
+      '作为人偶师，她常年在剧场工作。',
+      '傀儡戏在城中很受欢迎。',
+      '她机械地重复着同样的流程。',
+    ]) {
+      expect(getNsfwArchiveBlockReason({ 姓名: '原创角色', 介绍: text } as never, '原创角色', ''), text).toBeNull();
+    }
+  });
+
+  it('身份断言对原著成年角色同样算数（只有顺带提及/比喻被豁免）', () => {
+    expect(getNsfwArchiveBlockReason(
+      { 姓名: '琴', 介绍: '她是一具由古代技术制造的人偶。' } as never,
+      '琴', '', { canonicalAdultBaseline: true },
+    )).not.toBeNull();
+    expect(getNsfwArchiveBlockReason(
+      { 姓名: '琴', 介绍: '常年讨伐魔物的西风骑士团代理团长。' } as never,
+      '琴', '', { canonicalAdultBaseline: true },
+    )).toBeNull();
+  });
+
+  it('名单里的英译名同样拦截（七七/瑶瑶/早柚 不在原著角色库里）', () => {
+    for (const name of ['Paimon', 'Qiqi', 'Klee', 'Yaoyao', 'Sayu', '应急食品', '火花骑士']) {
+      expect(getNsfwArchiveBlockReason(undefined, name, ''), name).not.toBeNull();
+    }
+  });
 });

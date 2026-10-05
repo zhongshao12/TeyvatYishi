@@ -15,7 +15,7 @@ import type { CourierSystem } from '@/models/teyvat/courier';
 import { addNpcToCourierContacts } from '@/services/ai/courierService';
 import { displayFirstPartner } from '@/utils/npcFirstPartner';
 import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
-import { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveEnrichment';
+import { getCanonicalArchiveBaselineAge, enableNpcNsfwArchive, disableNpcNsfwArchive } from '@/utils/npcArchiveEnrichment';
 import { archiveNpc, restoreNpc } from '@/services/npcArchiving';
 import { canRevealNpcRecordMeasurements, NPC_APPEARANCE_KEYS, npcAppearanceSourceLabel } from '@/services/npcAppearanceFacts';
 import type { NpcAppearanceKey } from '@/services/npcAppearanceFacts';
@@ -790,8 +790,43 @@ function NSFWArchivePanel({ npc, travelerName, onCorrection }: {
     ageConfirmation: archive?.年龄确认, ageSource: archive?.年龄确认来源,
     canonicalBaselineAge: getCanonicalArchiveBaselineAge(npc.姓名),
   });
+  /** 玩家主动「确认为成年」：写入 manual 来源的成年标记（硬闸仍不可绕过）。 */
+  const confirmAdult = () => {
+    onCorrection(npc.id, {
+      ...(archive ?? {}),
+      年龄确认: 'adult',
+      年龄确认来源: 'manual',
+    });
+  };
+  /** 玩家主动「启用 / 停用 NSFW 档案」。 */
+  const toggleArchiveEnabled = () => {
+    if (archive?.enabled) {
+      onCorrection(npc.id, disableNpcNsfwArchive(npc));
+      return;
+    }
+    const result = enableNpcNsfwArchive(npc, { confirmAdult: true, maleNsfwArchiveEnabled: true, nsfwEnabled: true });
+    onCorrection(npc.id, result.archive ?? { ...(archive ?? {}), 年龄确认: 'adult', 年龄确认来源: 'manual', enabled: true });
+  };
   if (!adultEligibility.confirmed) {
-    return <DetailBlock title="NSFW档案"><p className="px-4 py-4 text-sm" style={{ color: bodyColor }}>成年资格待确认；旧档内容已保留，但不会显示或用于私密结算。</p></DetailBlock>;
+    return (
+      <DetailBlock title="NSFW档案">
+        <div className="px-4 py-4 text-sm" style={{ color: bodyColor }}>
+          <p>成年资格待确认；旧档内容已保留，但不会显示或用于私密结算。</p>
+          <p className="mt-1 text-[11px]" style={{ color: faintColor }}>判定原因：{adultEligibility.reason}</p>
+          <button
+            type="button"
+            onClick={confirmAdult}
+            className="mt-3 px-3 py-1.5 text-[11px] font-serif tracking-[0.18em]"
+            style={{ color: titleColor, boxShadow: insetRing(0.32) }}
+          >
+            确认为成年（玩家确认）
+          </button>
+          <p className="mt-2 text-[11px]" style={{ color: faintColor }}>
+            该操作会写下「玩家明确确认成年」。若本行仍显示待确认，说明该角色命中硬性闸门（受保护幼态原著名单 / 未成年年龄证据 / 机械非人形），玩家确认无法覆盖。
+          </p>
+        </div>
+      </DetailBlock>
+    );
   }
   const savePartnerCorrection = () => {
     if (!archive) return;
@@ -838,6 +873,26 @@ function NSFWArchivePanel({ npc, travelerName, onCorrection }: {
             {archive?.enabled ? '已启用' : '预留'}
           </Chip>
         </div>
+
+        {/* 玩家可直接开关该角色的 NSFW 档案（2026-10-03 玩家要求）。 */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleArchiveEnabled}
+            className="px-3 py-1.5 text-[11px] font-serif tracking-[0.18em]"
+            style={{ color: titleColor, boxShadow: insetRing(0.32) }}
+          >
+            {archive?.enabled ? '停用 NSFW 档案' : '启用 NSFW 档案'}
+          </button>
+          <span className="text-[11px]" style={{ color: faintColor }}>
+            {archive?.enabled
+              ? '已在私密结算与文生图读取范围内；点击可停用（已写入的私密字段会保留）。'
+              : '启用后按基线建档（成年确认 + 女性默认值），供私密结算与文生图读取。'}
+          </span>
+        </div>
+        <p className="mt-2 text-[11px]" style={{ color: faintColor }}>
+          成年资格：{formatNsfwAge(archive?.年龄确认)}（{adultEligibility.reason}）
+        </p>
 
         <div className="mt-4 grid gap-2 md:grid-cols-3">
           <InfoPill label="年龄确认" value={formatNsfwAge(archive?.年龄确认)} />

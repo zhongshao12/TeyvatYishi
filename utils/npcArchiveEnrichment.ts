@@ -162,6 +162,9 @@ function shouldCreateNsfwBaseline(
   options: { nsfwEnabled: boolean; maleNsfwArchiveEnabled: boolean },
 ): boolean {
   if (!options.nsfwEnabled) return false;
+  // 玩家在角色面板里**主动停用**过（`enabled: false`）就不再自动建档 ——
+  // 否则「停用」会被下一次自动补齐立刻推翻，开关等于无效（2026-10-03）。
+  if (npc.NSFW档案?.enabled === false) return false;
   if (!resolveNpcAdultEligibility({
     name: npc.姓名, aliases: npc.别名 ? [npc.别名] : [],
     description: [npc.介绍, npc.外貌, npc.备注.join(' ')].filter(Boolean).join(' '),
@@ -175,8 +178,60 @@ function shouldCreateNsfwBaseline(
   return true;
 }
 
-function buildNsfwBaseline(npc: NPC记录, baseline?: CanonicalArchiveBaseline): NPC_NSFW档案 {
+/**
+ * 玩家在角色面板里的主动操作（2026-10-03）：
+ *  - 「确认为成年」：写入 `年龄确认: 'adult'` + `年龄确认来源: 'manual'`（玩家明确确认）；
+ *  - 「启用 NSFW 档案」：按同一条基线规则建档并置 `enabled: true`。
+ *
+ * 三条硬闸（受保护幼态原著名单 / 未成年年龄证据 / 机械非人形）**不因玩家操作放宽**：
+ * 命中时返回 `null` 与原因，调用方把原因显示给玩家，而不是写一个假标记。
+ */
+export interface EnableNpcNsfwArchiveResult {
+  archive: NPC_NSFW档案 | null;
+  reason: string;
+}
+
+export function enableNpcNsfwArchive(
+  npc: NPC记录,
+  options: { confirmAdult?: boolean; maleNsfwArchiveEnabled?: boolean; nsfwEnabled?: boolean } = {},
+): EnableNpcNsfwArchiveResult {
   const existing = npc.NSFW档案 ?? {};
+  const canonical = matchCanonical(npc.姓名) ?? (npc.别名 ? matchCanonical(npc.别名) : null);
+  const baseline: CanonicalArchiveBaseline | undefined = canonical
+    ? CANONICAL_ARCHIVE_BASELINES[canonical.name]
+    : undefined;
+  const 玩家确认成年 = options.confirmAdult === true;
+  const 年龄确认 = 玩家确认成年 ? 'adult' : existing.年龄确认;
+  const 年龄确认来源 = 玩家确认成年 ? 'manual' : existing.年龄确认来源;
+
+  const eligibility = resolveNpcAdultEligibility({
+    name: npc.姓名,
+    aliases: npc.别名 ? [npc.别名] : [],
+    description: [npc.介绍, npc.外貌, npc.备注.join(' ')].filter(Boolean).join(' '),
+    ageConfirmation: 年龄确认,
+    ageSource: 年龄确认来源,
+    canonicalBaselineAge: baseline?.nsfw年龄确认,
+  });
+  if (!eligibility.confirmed) {
+    return { archive: null, reason: eligibility.reason };
+  }
+  const gender = baseline?.性别 ?? npc.性别;
+  if (gender === '男' && options.maleNsfwArchiveEnabled === false) {
+    return { archive: null, reason: '男性档案开关未开启（设置 → NSFW 设置）。' };
+  }
+  const archive = buildNsfwBaseline(
+    { ...npc, NSFW档案: { ...existing, 年龄确认, 年龄确认来源 } },
+    baseline,
+  );
+  return { archive, reason: eligibility.reason };
+}
+
+/** 关闭该角色的 NSFW 档案（保留已写下的私密字段，只关开关）。 */
+export function disableNpcNsfwArchive(npc: NPC记录): NPC_NSFW档案 {
+  return { ...(npc.NSFW档案 ?? {}), enabled: false };
+}
+
+function buildNsfwBaseline(npc: NPC记录, baseline?: CanonicalArchiveBaseline): NPC_NSFW档案 {  const existing = npc.NSFW档案 ?? {};
   const gender = baseline?.性别 ?? npc.性别;
   const age: NonNullable<NPC_NSFW档案['年龄确认']> = baseline?.nsfw年龄确认 === 'adult'
     || (existing.年龄确认 === 'adult' && existing.年龄确认来源 === 'manual')

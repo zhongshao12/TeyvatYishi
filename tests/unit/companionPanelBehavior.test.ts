@@ -315,6 +315,79 @@ describe('CompanionPanel behavior', () => {
     await act(async () => findButton('NSFW档案').click());
     expect(host.querySelector('[data-testid="adult-female-sexual-history"]')).toBeNull();
     expect(host.textContent).toContain('成年资格待确认');
+    // 面板现在会说明判定原因，并且**不**提供绕过硬闸的入口。
+    expect(host.textContent).toContain('未成年');
+  });
+
+  // 玩家要求：「确认角色琴为成年，并且把她的 NSFW 档案打开」（2026-10-03）。
+  it('shows 琴 as a confirmed canonical adult with an enabled NSFW archive, and the toggle sticks', async () => {
+    const record = { ...创建NPC记录({ 姓名: '琴', 阶位: 'companion', 初见回合: 1, 原著角色: true }), id: 'npc_jean' };
+    record.性别 = '女';
+    let records = [record];
+    const render = async () => act(async () => root.render(createElement(CompanionPanel, {
+      npcRecords: records,
+      onNpcRecordsChange: (update) => { records = typeof update === 'function' ? update(records) : update; },
+      turnCount: 2, nsfwEnabled: true, travelerName: '云',
+    })));
+    const openNsfwTab = async () => { await act(async () => findButton('NSFW档案').click()); };
+    const toggleLabel = (): string => (Array.from(document.querySelectorAll('button'))
+      .find((candidate) => /启用 NSFW 档案|停用 NSFW 档案/.test(candidate.textContent ?? ''))?.textContent ?? '').trim();
+    const clickToggle = async () => {
+      const button = Array.from(document.querySelectorAll('button'))
+        .find((candidate) => /启用 NSFW 档案|停用 NSFW 档案/.test(candidate.textContent ?? '')) as HTMLButtonElement | undefined;
+      await act(async () => button?.click());
+    };
+
+    await render();
+    await openNsfwTab();
+    // 原著成年基线：资格理由是「原著角色可信成年基线」，不是「待确认」。
+    expect(host.textContent).toContain('原著角色可信成年基线');
+    expect(host.textContent).not.toContain('成年资格待确认');
+    // 琴 属于原著成年女性：NSFW 总开关打开后档案自动按基线建立并启用。
+    expect(records[0]?.NSFW档案).toMatchObject({ enabled: true, 年龄确认: 'adult', 年龄确认来源: 'canonical' });
+    expect(records[0]?.NSFW档案?.是否处女).toBe('是');
+
+    // 开关可用且**停用不会被自动补齐推翻**。
+    expect(toggleLabel()).toBe('停用 NSFW 档案');
+    await clickToggle();
+    expect(records[0]?.NSFW档案?.enabled).toBe(false);
+    await render();
+    await openNsfwTab();
+    expect(toggleLabel()).toBe('启用 NSFW 档案');
+    expect(records[0]?.NSFW档案?.enabled).toBe(false);
+
+    await clickToggle();
+    expect(records[0]?.NSFW档案).toMatchObject({ enabled: true, 年龄确认: 'adult', 年龄确认来源: 'canonical' });
+  });
+
+  it('lets the player open the NSFW archive for an original adult character (manual confirmation)', async () => {
+    const record = { ...创建NPC记录({ 姓名: '原创冒险家', 阶位: 'companion', 初见回合: 1 }), id: 'npc_original' };
+    record.性别 = '女';
+    record.介绍 = '来自璃月的女冒险家。';
+    let records = [record];
+    const render = async () => act(async () => root.render(createElement(CompanionPanel, {
+      npcRecords: records,
+      onNpcRecordsChange: (update) => { records = typeof update === 'function' ? update(records) : update; },
+      turnCount: 2, nsfwEnabled: true, travelerName: '云',
+    })));
+    const openNsfwTab = async () => { await act(async () => findButton('NSFW档案').click()); };
+    const clickToggle = async () => {
+      const button = Array.from(document.querySelectorAll('button'))
+        .find((candidate) => /启用 NSFW 档案|停用 NSFW 档案/.test(candidate.textContent ?? '')) as HTMLButtonElement | undefined;
+      await act(async () => button?.click());
+    };
+
+    await render();
+    await openNsfwTab();
+    if ((Array.from(document.querySelectorAll('button'))
+      .find((candidate) => /启用 NSFW 档案|停用 NSFW 档案/.test(candidate.textContent ?? ''))?.textContent ?? '').includes('停用')) {
+      await clickToggle();
+      await render();
+      await openNsfwTab();
+    }
+    await clickToggle();
+    // 未知年龄的角色由玩家主动开档 → 写入「玩家明确确认成年」。
+    expect(records[0]?.NSFW档案).toMatchObject({ enabled: true, 年龄确认: 'adult', 年龄确认来源: 'manual' });
   });
 
   it('allows adult and unknown-age females to edit underwear but hides it for hard-gated records', async () => {

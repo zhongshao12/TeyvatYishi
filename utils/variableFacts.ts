@@ -1368,16 +1368,23 @@ export function deriveNarrativeIntimacyFacts(
     const identityText = [record.说明, record.appearance, ...(record.notes ?? [])]
       .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
       .join(' ');
+    const canonicalBaselineAge = getCanonicalArchiveBaselineAge(name);
     const eligibility = resolveNpcAdultEligibility({
       name, aliases: record.aliases, description: identityText,
       ageConfirmation: record.matureArchive?.ageConfirmation ?? record.NSFW档案?.年龄确认,
       ageSource: record.matureArchive?.ageConfirmationSource ?? record.NSFW档案?.年龄确认来源,
-      canonicalBaselineAge: getCanonicalArchiveBaselineAge(name),
+      canonicalBaselineAge,
     });
     // 事实层**显式**再过一次集中 NSFW 资格策略（`getNsfwArchiveBlockReason`）：
     // 硬禁名单 / 未成年证据 / 机械非人形命中时，这个角色连性爱档都不参与 ——
     // 与 `resolveNpcAdultEligibility` 内部那次调用同源，但在这里写明白，避免「间接调用」被重构掉。
-    const sexArchiveBlocked = getNsfwArchiveBlockReason(undefined, name, `${[name, ...(record.aliases ?? [])].join(' ')} ${identityText}`) !== null;
+    // 原著成年基线同样传下去：职责描述里的「魔物」「机械地」不再误伤（2026-10-03）。
+    const sexArchiveBlocked = getNsfwArchiveBlockReason(
+      undefined,
+      name,
+      `${[name, ...(record.aliases ?? [])].join(' ')} ${identityText}`,
+      { canonicalAdultBaseline: canonicalBaselineAge === 'adult' && Boolean(matchCanonical(name)) },
+    ) !== null;
     // 未通过硬闸的角色既不结算、也不参与主体竞争（否则它会以名字子串的形式把别人的事件带走）。
     subjects.push({
       id: record.id,

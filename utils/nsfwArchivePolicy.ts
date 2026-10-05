@@ -2,7 +2,33 @@ import { matchCanonical } from '@/data/canonicalCharacters';
 import type { NPC记录 } from '@/models/npc';
 
 const BLOCKED_CANONICAL_NAMES = new Set(['派蒙', '七七', '可莉', '瑶瑶', '早柚']);
-const BLOCKED_SUBJECT_RE = /(派蒙|Paimon|七七|Qiqi|可莉|Klee|瑶瑶|Yaoyao|早柚|Sayu|机械|机关|机器人|机械造物|傀儡|人偶|投影|怪物|魔物)/i;
+/**
+ * 对象词（机械 / 人偶 / 投影 …）。
+ *
+ * 2026-10-03 玩家要求：「把角色琴从非成人、机械或非人形对象屏蔽规则中移除」。
+ * 起因是旧实现把这串词**无差别地扫过 姓名+别名+介绍+外貌+备注**，于是
+ * 「常年讨伐**魔物**」「**机械**地处理公文」「西风骑士团**机关**」这类职责/比喻/机构用法
+ * 都会把一名原著成年人类角色整条挡在 NSFW 之外。
+ *
+ * 现在分三档判定（从严到宽）：
+ *  1. 词出现在**姓名/别名**里 → 直接算非人形对象（`普通人偶` 仍被拦）；
+ *  2. 词出现在介绍/外貌/备注里 → 只有「自我描述」句式才算（是/为/属于/本体是/被称为/由…制造），
+ *     或**对象名词**（人偶/傀儡/机器人/机械造物）且不是比喻用法（像…般 / 如同…一样）；
+ *  3. 该角色有**原著成年基线**时，第 2 档整档跳过 —— 原著身份比自由文本里的一个词更可信。
+ */
+const BLOCKED_IDENTITY_WORD_RE = /(机械造物|机器人|机械|机关造物|机关|傀儡|人偶|投影|怪物|魔物)/i;
+/** 只在自由文本里、且带「自我描述」句式时才算数的对象词。 */
+const OBJECT_NOUN_GROUP = '机械造物|机器人|机械|机关造物|机关|傀儡|人偶|投影|怪物|魔物';
+const SELF_DESCRIPTION_PREFIX =
+  '(?:是|为|属于|身为|本身是|本体是|真身是|自称|被称(?:为|作)|叫做|名为|由[^。！？\\n]{0,12}?(?:制造|创造|制作|造出|召唤|改造))';
+const BLOCKED_SELF_DESCRIPTION_RE = new RegExp(
+  `${SELF_DESCRIPTION_PREFIX}[^。！？\\n]{0,12}?(?:${OBJECT_NOUN_GROUP})`,
+  'i',
+);
+/** 几乎不用于人类的对象名词：出现在自由文本里就算数，除非是明喻（像…般/一样/似的）。 */
+const STRICT_OBJECT_NOUN_RE = /(?:像|如同|好似|仿佛|宛如)[^。！？\n]{0,8}?(机械造物|机器人|傀儡|人偶|机械)|(机械造物|机器人|傀儡|人偶)\s*(?:般|一样|似的)|(机械造物|机器人|傀儡|人偶)/i;
+const SIMILE_USAGE_RE = /(?:像|如同|好似|仿佛|宛如)[^。！？\n]{0,10}?(?:机械造物|机器人|机械|机关|傀儡|人偶|投影|怪物|魔物)/i;
+const ADVERBIAL_USAGE_RE = /(?:机械|机关)\s*(?:地|般|似的|一样)/i;
 /**
  * 「受保护角色」的名称级正则：由 BLOCKED_CANONICAL_NAMES 加各自别名生成，避免两处名单漂移。
  * 用于已经混进修饰语的姓名（如「可莉（火花骑士）」）上兜底。
@@ -207,11 +233,14 @@ export function getNsfwArchiveBlockReason(
   subject: NsfwArchiveSubject,
   fallbackName = '',
   fallbackText = '',
+  options?: { canonicalAdultBaseline?: boolean },
 ): string | null {
   const names = identityTexts(subject, fallbackName);
   const canonicalName = names.map((name) => matchCanonical(name)?.name).find(Boolean);
   const displayName = subject?.姓名 || fallbackName || '目标';
-  if (canonicalName && BLOCKED_CANONICAL_NAMES.has(canonicalName)) {
+  // 受保护幼态原著名单：既按原著库匹配，也按名称级正则兜底
+  // （`七七` 这类不在原著角色库里的名字同样必须拦住）。
+  if ((canonicalName && BLOCKED_CANONICAL_NAMES.has(canonicalName)) || names.some((name) => PROTECTED_NAME_RE.test(name))) {
     return `${displayName} 属于非成人或非人形对象，禁止写入 NSFW 档案`;
   }
 
@@ -219,10 +248,26 @@ export function getNsfwArchiveBlockReason(
   const minorReason = getMinorAgeEvidenceReason(subject, fallbackName, fallbackText);
   if (minorReason) return `${minorReason}，禁止写入 NSFW 档案`;
 
-  const haystack = subject
-    ? [subject.姓名, subject.别名, subject.介绍, subject.外貌, subject.备注?.join(' ')].filter(Boolean).join(' ')
-    : `${fallbackName}\n${fallbackText}`;
-  if (BLOCKED_SUBJECT_RE.test(haystack)) {
+  // 第 1 档：姓名/别名本身就是对象词（「普通人偶」「机械投影」）。
+  if (names.some((name) => BLOCKED_IDENTITY_WORD_RE.test(name))) {
+    return `${displayName} 命中非成人、机械或非人形对象屏蔽规则，禁止写入 NSFW 档案`;
+  }
+
+  // 第 3 档：原著成年基线角色的介绍/外貌/备注一律不再走自由文本词表 ——
+  // 「常年讨伐魔物」这类职责描述不再把成年人类角色挡在门外（琴的误伤即此）。
+  if (options?.canonicalAdultBaseline) return null;
+
+  const freeText = subject
+    ? [subject.介绍, subject.外貌, subject.备注?.join(' ')].filter(Boolean).join(' ')
+    : fallbackText;
+  if (!freeText) return null;
+
+  // 第 2 档：自由文本里必须带自我描述句式，或出现「几乎不用于人类」的对象名词且不是比喻用法。
+  if (BLOCKED_SELF_DESCRIPTION_RE.test(freeText)) {
+    return `${displayName} 命中非成人、机械或非人形对象屏蔽规则，禁止写入 NSFW 档案`;
+  }
+  const adverbial = ADVERBIAL_USAGE_RE.test(freeText) || SIMILE_USAGE_RE.test(freeText);
+  if (!adverbial && STRICT_OBJECT_NOUN_RE.test(freeText)) {
     return `${displayName} 命中非成人、机械或非人形对象屏蔽规则，禁止写入 NSFW 档案`;
   }
   return null;

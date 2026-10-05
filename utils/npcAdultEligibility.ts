@@ -15,14 +15,17 @@ export interface NpcAdultEligibilityInput {
 
 export function resolveNpcAdultEligibility(input: NpcAdultEligibilityInput): { confirmed: boolean; reason: string } {
   // 三条硬闸（不可放宽）：受保护幼态原著名单、未成年年龄证据、机械 / 非人形对象。
+  // 2026-10-03：原著成年基线角色不走自由文本词表（详见 getNsfwArchiveBlockReason 的第 3 档），
+  // 否则「常年讨伐魔物」这类职责描述会把琴这样的成年人类角色整条挡掉。
+  const canonicalAdultBaseline = input.canonicalBaselineAge === 'adult' && Boolean(matchCanonical(input.name));
   for (const name of [input.name, ...(input.aliases ?? [])]) {
-    const blocked = getNsfwArchiveBlockReason(undefined, name, input.description ?? '');
+    const blocked = getNsfwArchiveBlockReason(undefined, name, input.description ?? '', { canonicalAdultBaseline });
     if (blocked) return { confirmed: false, reason: blocked };
   }
   if (input.ageConfirmation === 'minor_blocked' || input.canonicalBaselineAge === 'minor_blocked') {
     return { confirmed: false, reason: '已标记为非成年角色' };
   }
-  if (input.canonicalBaselineAge === 'adult' && matchCanonical(input.name)) {
+  if (canonicalAdultBaseline) {
     return { confirmed: true, reason: '原著角色可信成年基线' };
   }
   if (input.ageConfirmation === 'adult' && input.ageSource === 'manual') {

@@ -360,8 +360,7 @@ describe('CompanionPanel behavior', () => {
     expect(records[0]?.NSFW档案).toMatchObject({ enabled: true, 年龄确认: 'adult', 年龄确认来源: 'canonical' });
   });
 
-  it('lets the player open the NSFW archive for an original adult character (manual confirmation)', async () => {
-    const record = { ...创建NPC记录({ 姓名: '原创冒险家', 阶位: 'companion', 初见回合: 1 }), id: 'npc_original' };
+  it('lets the player open the NSFW archive for an original adult character (manual confirmation)', async () => {    const record = { ...创建NPC记录({ 姓名: '原创冒险家', 阶位: 'companion', 初见回合: 1 }), id: 'npc_original' };
     record.性别 = '女';
     record.介绍 = '来自璃月的女冒险家。';
     let records = [record];

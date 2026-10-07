@@ -79,15 +79,19 @@ describe('single turn time decision', () => {
     expect(midnight.warning).toContain('不倒退');
   });
 
-  it('不主动跨日：**推测出来的**推进不会越过当天 23:59（正文写明耗时则照做）', () => {
-    // 契约修订（2026-10-03 第四轮）：正文写明「两个小时后」时跨午夜照做（见下方 explicit 组），
-    // 这里锁定的是**没有写明耗时**时的兜底：不得偷偷跨到第二天。
+  it('推测出来的推进可以跨到次日，但只到次日 01:00（2026-10-03 第四轮新契约）', () => {
+    // 「允许剧情到 23:59 自动跨越时间到下一天，但是只能到次日的凌晨一点」。
     const late = resolveTurnTimeFact('两人随便聊了几句。', '23:50');
-    expect(late.fact).toMatchObject({ mode: 'elapsed', minutes: 9 });
-    expect(late.warning).toContain('不跨日');
+    expect(late.fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
+    expect(late.warning).toContain('自动跨夜上限 01:00');
     const edge = resolveTurnTimeFact('两人又说了几句话。', '23:59');
-    expect(edge.fact).toBeNull();
-    expect(edge.warning).toContain('第二天');
+    expect(edge.fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
+    // 上限生效：模型自报 180 分钟、正文没写耗时 → 夹到「次日 01:00」（23:59 起算 = 61 分钟）
+    const capped = resolveTurnTimeFact('两人又说了几句话。', '23:59', {
+      type: 'time', mode: 'elapsed', minutes: 180, evidence: '模型推测',
+    } as never);
+    expect(capped.fact).toMatchObject({ mode: 'elapsed', minutes: 61 });
+    expect(capped.warning).toContain('次日 01:00');
   });
 
   it('明确写到第二天/翌日/深夜跨零点时才允许跨日', () => {
@@ -109,6 +113,42 @@ describe('single turn time decision', () => {
     } as never);
     expect(capped.fact).toMatchObject({ mode: 'elapsed', minutes: 180 });
     expect(capped.warning).toContain('上限');
+  });
+
+  it('多段写法里的跨零点钟点不再丢失（夜里十一点…凌晨两点）', () => {
+    // 2026-10-03 玩家实测：「明明说了凌晨两点，时间没有跳转过去」。
+    // 多段累计路径此前把「更早的钟点」一律当回溯丢弃，于是跨零点的钟点整段丢失。
+    const decided = resolveTurnTimeFact('夜里十一点，两人回到房间。凌晨两点，砂糖才睡着。', '21:00');
+    expect(decided.fact).toMatchObject({ mode: 'elapsed', minutes: 300 }); // 21:00 → 23:00 → 次日 02:00
+    expect(decided.warning).toContain('正文写明的时间线');
+    const state = createEmptyTeyvatGameState();
+    state.世界.当前日期 = '旅行历 1000.03.07';
+    state.世界.当前时间 = '21:00';
+    state.世界.旅程天数 = 1;
+    const commands = factsToTeyvatDomainCommands([decided.fact!], state, 2).commands;
+    expect(commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '当前日期', value: '旅行历 1000.03.08' }),
+      expect.objectContaining({ path: '当前时间', value: '02:00' }),
+    ]));
+  });
+
+  it('跨零点时段词（凌晨/深夜/半夜/清晨）都按次日处理', () => {
+    expect(resolveTurnTimeFact('凌晨两点，砂糖终于睡着了。', '23:30').fact).toMatchObject({ mode: 'next_day', targetTime: '02:00' });
+    expect(resolveTurnTimeFact('深夜两点，走廊里传来脚步声。', '21:00').fact).toMatchObject({ mode: 'next_day', targetTime: '02:00' });
+    expect(resolveTurnTimeFact('半夜一点半，灯还亮着。', '21:00').fact).toMatchObject({ mode: 'next_day', targetTime: '01:30' });
+  });
+
+  it('自动跨夜把日期一起推进（23:59 + 最小步长 = 次日 00:14）', () => {
+    const decided = resolveTurnTimeFact('两人又说了几句话。', '23:59');
+    const state = createEmptyTeyvatGameState();
+    state.世界.当前日期 = '旅行历 1000.03.07';
+    state.世界.当前时间 = '23:59';
+    state.世界.旅程天数 = 1;
+    const commands = factsToTeyvatDomainCommands([decided.fact!], state, 2).commands;
+    expect(commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '当前日期', value: '旅行历 1000.03.08' }),
+      expect.objectContaining({ path: '当前时间', value: '00:14' }),
+    ]));
   });
 
   it('模型报跨日但正文没写到第二天 → 拒绝并要求当天推进', () => {
@@ -200,12 +240,12 @@ describe('explicit time statements are always honored', () => {
     expect(resolveTurnTimeFact('半天后，他们终于回来了。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 720 });
   });
 
-  it('没有写明的推测推进仍受最小步长与「不跨日」约束', () => {
+  it('没有写明的推测推进仍受最小步长约束（跨夜则到次日 01:00 为止）', () => {
     expect(resolveTurnTimeFact('两分钟后，云皱起眉。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
     expect(resolveTurnTimeFact('队伍在城里逛了很久。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
     const edge = resolveTurnTimeFact('两人又说了几句话。', '23:59');
-    expect(edge.fact).toBeNull();
-    expect(edge.warning).toContain('第二天');
+    expect(edge.fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
+    expect(edge.warning).toContain('次日');
   });
 
   it('写明的小时数把日期一起推进（23:50 + 2 小时 = 次日 01:50）', () => {

@@ -709,6 +709,18 @@ export const DEFAULT_TIME_ADVANCE_POLICY: TimeAdvancePolicy = {
   explicitClockCapMinutes: 12 * 60,
 };
 
+/**
+ * 自动跨夜的终点（分钟，自次日 00:00 起算）：**次日 01:00**。
+ *
+ * 2026-10-03 玩家要求：「允许剧情到 23:59 自动跨越时间到下一天，但是只能到次日的凌晨一点」。
+ * 即：没有写明跨日证据时，允许推算出来的推进把时间带过午夜，但最多到次日 01:00，
+ * 不许一路冲到清晨。写明耗时（「两个小时后」）仍按正文跨度照做。
+ */
+export const AUTO_OVERNIGHT_DEADLINE_MINUTES = 60;
+
+/** 次日凌晨的跨零点时段词（用于「深夜/半夜写出小钟点」的过夜判定）。 */
+const 跨零点时段判据 = /凌晨|清晨|早上|夜里|半夜|深夜|午夜/;
+
 /** 设置项的最小值：玩家要求「最少 15 分钟」。 */
 export const MIN_TIME_ADVANCE_MINUTES = 15;
 
@@ -736,7 +748,7 @@ export function 正文允许跨日(body: string, currentTime: string): boolean {
   return 读取正文钟点候选(body).some((candidate) => {
     const target = 分钟序数(candidate.targetTime);
     if (target === null || target > 8 * 60) return false;
-    return /凌晨|清晨|早上|夜里|半夜/.test(读取时间证据句(body, candidate.index, candidate.end));
+    return 跨零点时段判据.test(读取时间证据句(body, candidate.index, candidate.end));
   });
 }
 
@@ -775,7 +787,7 @@ function 找同日回退钟点(body: string, currentTime: string): { current: st
     if (target === null || target >= current) continue;
     const evidence = 读取时间证据句(body, candidate.index, candidate.end);
     if (跨日证据判据.test(evidence)) continue;
-    const overnight = current >= 20 * 60 && target <= 8 * 60 && /凌晨|清晨|早上|夜里|半夜/.test(evidence);
+    const overnight = current >= 20 * 60 && target <= 8 * 60 && 跨零点时段判据.test(evidence);
     if (overnight) continue;
     return { current: currentTime, target: candidate.targetTime };
   }
@@ -797,31 +809,51 @@ function 事实结果(
 }
 
 /**
- * 把推进量夹进策略：最小步长 / 同日上限 / 不跨日。
+ * 把推进量夹进策略：最小步长 / 同日上限 / 跨夜边界。
  *
  * `allowMidnightCrossing`：正文**自己写明**了跨度（「两个小时后」「半天后」）时，故事已经说了过去多久，
- * 就该照做 —— 可以跨过午夜（日期由结算侧照常推进）。只有「应用推测出来的」推进才严格留在当天。
+ * 就该照做 —— 可以跨过午夜（日期由结算侧照常推进）。
+ * 未写明时也允许跨过午夜，但只到 **次日 01:00**（`AUTO_OVERNIGHT_DEADLINE_MINUTES`），
+ * 这样「23:59 的闲聊不会永远卡在最后一分钟」，同时不会凭空冲到清晨。
  */
 function 夹紧同日推进(
   minutes: number,
   policy: TimeAdvancePolicy,
   currentTime: string,
   cap: number,
-  options: { allowMidnightCrossing?: boolean } = {},
+  options: { allowMidnightCrossing?: boolean; storyDriven?: boolean } = {},
 ): { minutes: number; warning: string | null } {
+  const current = 分钟序数(currentTime);
   const remaining = 当天剩余分钟(currentTime);
-  const effectiveCap = options.allowMidnightCrossing || remaining === null
+  // 到「次日 01:00」为止还允许走多少分钟（current 未知时不设跨夜上限）。
+  const autoOvernightBudget = current === null ? null : (1440 - current) + AUTO_OVERNIGHT_DEADLINE_MINUTES;
+  // 未写明跨日证据时：既服从策略上限（例如同日 3 小时 / 模型自报上限），
+  // 也服从「最多自动跨到次日 01:00」这条跨夜边界 —— 两者取更小。
+  const effectiveCap = options.allowMidnightCrossing || autoOvernightBudget === null
     ? cap
-    : Math.min(cap, remaining);
+    : Math.min(cap, autoOvernightBudget);
   if (effectiveCap <= 0) {
     return { minutes: 0, warning: '已到当天最后一分钟；需要正文写出「第二天/翌日」或写明耗时才能跨日，本回合时间未推进。' };
   }
   const wanted = Math.max(minutes, policy.minStepMinutes);
-  if (wanted <= effectiveCap) return { minutes: wanted, warning: null };
+  if (wanted <= effectiveCap) {
+    const crossing = 跨夜说明(wanted, current, options.storyDriven === true);
+    return crossing ? { minutes: wanted, warning: crossing } : { minutes: wanted, warning: null };
+  }
   const note = !options.allowMidnightCrossing && remaining !== null && remaining < cap
-    ? `同日推进不得超过当天剩余时间，已按 ${effectiveCap} 分钟结算（不跨日）。`
+    ? (autoOvernightBudget !== null && autoOvernightBudget > remaining
+      ? `未写明跨日证据，最多自动推进到次日 01:00，已按 ${effectiveCap} 分钟结算。`
+      : `同日推进不得超过当天剩余时间，已按 ${effectiveCap} 分钟结算（不跨日）。`)
     : `推进上限 ${Math.round(cap / 60)} 小时，已按 ${effectiveCap} 分钟结算。`;
   return { minutes: effectiveCap, warning: note };
+}
+
+/** 推进量是否越过午夜；越过时给出说明（区分「正文时间线」与「自动跨夜兜底」）。 */
+function 跨夜说明(minutes: number, current: number | null, storyDriven: boolean): string | null {
+  if (current === null) return null;
+  if (minutes <= 1440 - current) return null;
+  if (storyDriven) return '已跨入次日（按正文写明的时间线）。';
+  return `已跨入次日（自动跨夜上限 ${String(Math.floor(AUTO_OVERNIGHT_DEADLINE_MINUTES / 60)).padStart(2, '0')}:${String(AUTO_OVERNIGHT_DEADLINE_MINUTES % 60).padStart(2, '0')}）。`;
 }
 
 function 读取正文跨日天数(body: string): { days: number; index: number; evidence: string } | null {
@@ -874,7 +906,7 @@ export function deriveNarrativeClockFact(
     const current = 分钟序数(currentTime);
     const target = 分钟序数(first.targetTime);
     const explicitDayAdvance = 有明确跨日证据(evidence) || (first.days ?? 0) > 0;
-    const overnightClock = current !== null && target !== null && (current >= 20 * 60) && (target <= 8 * 60) && /凌晨|清晨|早上|夜里|半夜/.test(evidence);
+    const overnightClock = current !== null && target !== null && (current >= 20 * 60) && (target <= 8 * 60) && 跨零点时段判据.test(evidence);
     // 2026-10-03（用户报「莫名其妙倒退」）：同一天里写出的更早钟点只是回溯/重复提及。
     // 旧实现在这里放行 set_time，于是在 02:00 读到「凌晨一点」会把时钟倒拨一小时；
     // 多事件路径更糟 —— `raw < 0` 会被加成 +1440，一步跳掉 23 小时。这里统一按「无推进信号」处理。
@@ -944,6 +976,31 @@ export function deriveNarrativeClockFact(
     // 现在的规则：只有**已经发生过跨日/耗时**时，钟点才可能是新一天里的落位；
     // 否则这一天里更早的钟点只是回溯/重复提及，忽略该事件、不产生任何推进。
     if (raw < 0) {
+      // 2026-10-03 玩家实测「明明说了凌晨两点，时间没有跳转过去」：
+      // 多段写法里（「夜里十一点，两人回到房间。凌晨两点，砂糖才睡着。」）先前只按
+      // 「更早的钟点 = 回溯」丢弃，于是跨零点的钟点整段丢失。
+      // 这里补上过夜规则：**跨零点时段**（凌晨/清晨/半夜/深夜…）里的小钟点（≤ 08:00）
+      // 一定是「次日」的时刻，按跨日处理；其余更早的钟点仍然按回溯忽略。
+      const clockHour = Math.floor(clock / 60);
+      if (clockHour <= 8 && 跨零点时段判据.test(evidence)) {
+        const overnightStep = raw + 1440;
+        totalMinutes += overnightStep;
+        dayAdvanceMinutes += 1440;
+        cursor = Math.floor(cursor / 1440) * 1440 + 1440 + clock;
+        advanced = true;
+        onlyDayAdvance = false;
+        continue;
+      }
+      // 正文明确写了跨日证据时同样按次日落位。
+      if (跨日证据判据.test(evidence)) {
+        const nextDayStep = raw + 1440;
+        totalMinutes += nextDayStep;
+        dayAdvanceMinutes += 1440;
+        cursor = Math.floor(cursor / 1440) * 1440 + 1440 + clock;
+        advanced = true;
+        onlyDayAdvance = false;
+        continue;
+      }
       if (!advanced && dayPart === 0) continue;
       // 已经跨过日：钟点落在「新的一天里更早的时刻」属于歧义写法，同样忽略。
       continue;
@@ -1126,6 +1183,7 @@ export function resolveTurnTimeFact(
     fact: Extract<变量事实, { type: 'time' }>,
     cap: number,
     allowMidnightCrossing = false,
+    storyDriven = false,
   ): { fact: Extract<变量事实, { type: 'time' }> | null; warning: string | null } => {
     if (fact.mode === 'next_day' || fact.mode === 'overnight') return 事实结果(fact);
     if (fact.mode === 'elapsed') {
@@ -1133,7 +1191,7 @@ export function resolveTurnTimeFact(
       // 不再套用「同日 3 小时」上限。
       const minutes = fact.minutes ?? 0;
       if (allowDayCrossing && minutes >= 1440) return 事实结果(fact);
-      const clamped = 夹紧同日推进(minutes, policy, currentTime, cap, { allowMidnightCrossing });
+      const clamped = 夹紧同日推进(minutes, policy, currentTime, cap, { allowMidnightCrossing, storyDriven });
       if (!clamped.minutes) return 事实结果(null, clamped.warning);
       return 事实结果({ ...fact, minutes: clamped.minutes }, clamped.warning);
     }
@@ -1157,8 +1215,11 @@ export function resolveTurnTimeFact(
     return acceptSameDayFact(
       explicit,
       hasExplicitHourSpan ? policy.explicitHoursCapMinutes : policy.explicitClockCapMinutes,
-      // 正文自己写明了跨度 → 允许跨过午夜（故事说了过去多久，就该照做）。
-      hasExplicitHourSpan && explicit.mode === 'elapsed',
+      // 正文派生出来的事实（含多段累计）一律允许跨过午夜：它是故事自己写出来的时间线，
+      // 不该被「自动跨夜只到 01:00」这条兜底规则截断。
+      // （2026-10-03 玩家实测：正文写了「夜里十一点…凌晨两点」却被夹到 01:00。）
+      true,
+      true,
     );
   }
   if (modelFact && modelFact.mode !== 'no_change') {

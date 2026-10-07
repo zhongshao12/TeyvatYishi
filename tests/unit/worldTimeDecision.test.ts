@@ -79,8 +79,10 @@ describe('single turn time decision', () => {
     expect(midnight.warning).toContain('不倒退');
   });
 
-  it('不主动跨日：推进后的时刻不会越过当天 23:59', () => {
-    const late = resolveTurnTimeFact('两个小时后，天亮了。', '23:50');
+  it('不主动跨日：**推测出来的**推进不会越过当天 23:59（正文写明耗时则照做）', () => {
+    // 契约修订（2026-10-03 第四轮）：正文写明「两个小时后」时跨午夜照做（见下方 explicit 组），
+    // 这里锁定的是**没有写明耗时**时的兜底：不得偷偷跨到第二天。
+    const late = resolveTurnTimeFact('两人随便聊了几句。', '23:50');
     expect(late.fact).toMatchObject({ mode: 'elapsed', minutes: 9 });
     expect(late.warning).toContain('不跨日');
     const edge = resolveTurnTimeFact('两人又说了几句话。', '23:59');
@@ -96,8 +98,9 @@ describe('single turn time decision', () => {
     expect(resolveTurnTimeFact('两人一直待到深夜。', '23:40').fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
   });
 
-  it('同日跨度默认封顶 3 小时，写明小时数才放行', () => {
-    expect(resolveTurnTimeFact('半天后，他们终于回来了。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
+  it('同日跨度默认封顶 3 小时，写明跨度才放行', () => {
+    // 契约修订（2026-10-03 第四轮）：「半天后」属于正文写明的跨度 → 12 小时照做（原先只给 15 分钟）。
+    expect(resolveTurnTimeFact('半天后，他们终于回来了。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 720 });
     expect(resolveTurnTimeFact('两个小时后，队伍抵达营地。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 120 });
     expect(resolveTurnTimeFact('八小时后，天已经黑了。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 480 });
     // 模型自报跨度没有正文小时证据 → 夹到 3 小时
@@ -172,6 +175,50 @@ describe('explicit no_change no longer freezes the clock', () => {
     expect(resolveTurnTimeFact('队伍休整。', '10:00', {
       type: 'time', mode: 'elapsed', minutes: 45, evidence: '模型判定休整耗时',
     } as never)).toMatchObject({ fact: { mode: 'elapsed', minutes: 45 } });
+  });
+});
+
+// 2026-10-03 用户第四轮：「明确跨越时间没有跨越，并且剧情可以自动跨越时间」。
+// 契约：**正文自己写明的跨度/跨日照做**（含跨过午夜，日期照常推进）；
+// 只有「应用推测出来的」推进才受 3 小时上限与「不跨日」约束。
+describe('explicit time statements are always honored', () => {
+  it('补齐的跨日写法：隔日 / 明日 / 转天 / 过了两天 / 两天过去', () => {
+    expect(resolveTurnTimeFact('隔日，队伍继续赶路。', '21:30').fact).toMatchObject({ mode: 'next_day', days: 1 });
+    expect(resolveTurnTimeFact('明日一早出发。', '21:30').fact).toMatchObject({ mode: 'next_day', days: 1 });
+    expect(resolveTurnTimeFact('转天清晨，他们又上路了。', '21:30').fact).toMatchObject({ mode: 'next_day' });
+    expect(resolveTurnTimeFact('过了两天，队伍抵达璃月港。', '10:00').fact).toMatchObject({ mode: 'next_day', days: 2 });
+    expect(resolveTurnTimeFact('两天过去，风平浪静。', '10:00').fact).toMatchObject({ mode: 'next_day', days: 2 });
+  });
+
+  it('同一句里重复表述的同一次跨日只算一次（醒来 + 第二天 ≠ 2 天）', () => {
+    expect(resolveTurnTimeFact('一觉醒来已是第二天。', '21:30').fact).toMatchObject({ mode: 'next_day', days: 1 });
+  });
+
+  it('写明小时数时跨过午夜也照做（不再夹成「当天剩余分钟」）', () => {
+    expect(resolveTurnTimeFact('两个小时后，天亮了。', '23:50').fact).toMatchObject({ mode: 'elapsed', minutes: 120 });
+    expect(resolveTurnTimeFact('三小时后，砂糖才醒过来。', '22:00').fact).toMatchObject({ mode: 'elapsed', minutes: 180 });
+    expect(resolveTurnTimeFact('半天后，他们终于回来了。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 720 });
+  });
+
+  it('没有写明的推测推进仍受最小步长与「不跨日」约束', () => {
+    expect(resolveTurnTimeFact('两分钟后，云皱起眉。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
+    expect(resolveTurnTimeFact('队伍在城里逛了很久。', '10:00').fact).toMatchObject({ mode: 'elapsed', minutes: 15 });
+    const edge = resolveTurnTimeFact('两人又说了几句话。', '23:59');
+    expect(edge.fact).toBeNull();
+    expect(edge.warning).toContain('第二天');
+  });
+
+  it('写明的小时数把日期一起推进（23:50 + 2 小时 = 次日 01:50）', () => {
+    const state = createEmptyTeyvatGameState();
+    state.世界.当前日期 = '旅行历 1000.03.07';
+    state.世界.当前时间 = '23:50';
+    state.世界.旅程天数 = 1;
+    const decision = resolveTurnTimeFact('两个小时后，天亮了。', '23:50');
+    const commands = factsToTeyvatDomainCommands([decision.fact!], state, 2).commands;
+    expect(commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '当前日期', value: '旅行历 1000.03.08' }),
+      expect.objectContaining({ path: '当前时间', value: '01:50' }),
+    ]));
   });
 });
 

@@ -60,6 +60,16 @@ export const CANONICAL_CHARACTERS: CanonicalCharacterDef[] = [
     personality: '责任感极强，工作狂，内心柔软。',
   },
   {
+    // 2026-10-03 玩家反馈：「留云借风真君给个别名：闲云，把闲云和留云借风真君合成两个人」。
+    // 这一条让两个名字落在同一个 `canon:` 身份键上，存档里的两条记录会在归一化时合并为一人，
+    // 而不是各占一份档案（闲云是同一仙人的化名）。
+    name: '留云借风真君',
+    aliases: ['闲云', 'Xianyun', 'Cloud Retainer', '留云', '借风留云真君'],
+    gender: '女',
+    appearance: '以「闲云」为化名的仙人：成熟女性，衣饰素雅，精通机关造物。',
+    personality: '高傲护短、嘴上不饶人，对弟子与故人极为上心。',
+  },
+  {
     name: '迪卢克',
     aliases: ['Diluc', '晨曦酒庄', '暗夜英雄'],
     gender: '男',

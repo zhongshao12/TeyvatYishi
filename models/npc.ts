@@ -572,7 +572,14 @@ function 选择NPC显示姓名(base: NPC记录, incoming: NPC记录, preferred: 
 function 选择NPC别名(base: NPC记录, incoming: NPC记录, preferred: NPC记录): string | undefined {
   const candidates = [preferred.别名, base.别名, incoming.别名];
   const tempNames = [base.姓名, incoming.姓名].filter((name) => 解析临时称呼(name));
-  return 去重文本列表([...candidates, ...tempNames].filter((item): item is string => typeof item === 'string')).join(' / ') || undefined;
+  // 2026-10-03 玩家反馈：「留云借风真君给个别名：闲云」。
+  // 两条记录按原著身份合并时，**没被选中的那个姓名本身就是一个别名** ——
+  // 旧实现只并入「临时称呼」，于是「闲云」这个名字在合并后彻底消失，档案里看不到这个别名。
+  const mergedNames = [base.姓名, incoming.姓名]
+    .map((name) => (typeof name === 'string' ? name.trim() : ''))
+    .filter((name) => Boolean(name) && name !== preferred.姓名);
+  return 去重文本列表([...candidates, ...tempNames, ...mergedNames].filter((item): item is string => typeof item === 'string'))
+    .join(' / ') || undefined;
 }
 
 function 选择更完整的NPC记录(a: NPC记录, b: NPC记录): NPC记录 {

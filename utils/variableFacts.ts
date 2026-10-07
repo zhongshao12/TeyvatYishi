@@ -668,6 +668,11 @@ const 跨日短语天数: Array<{ pattern: RegExp; days: (m: RegExpMatchArray) =
   { pattern: /(?:数|几|好几|好|许多|很多)\s*(?:天|日)(?:之)?后/gu, days: () => 3 },
   { pattern: /(?:数|几|好几|好|许多|很多)\s*(?:个)?\s*(?:周|星期|礼拜)(?:之)?后/gu, days: () => 21 },
   { pattern: /(?:数|几|好几|好|许多|很多)\s*(?:个)?\s*月(?:之)?后/gu, days: () => 90 },
+  // 2026-10-03（玩家报「明确跨越时间没有跨越」）：补上「N 天」的其它句式 ——
+  // 「过了两天」「两天过去」「隔了三天」此前一条都认不出来，全部落到最小步长 15 分钟。
+  { pattern: /(?:过了|经过|过去了)\s*(\d+|[一二两三四五六七八九十百千]+)\s*(?:天|日)/gu, days: (m) => 解析中文整数(m[1] ?? '') },
+  { pattern: /(\d+|[一二两三四五六七八九十百千]+)\s*(?:天|日)\s*(?:过去|已过|过去之后)/gu, days: (m) => 解析中文整数(m[1] ?? '') },
+  { pattern: /(?:隔了|隔)\s*(\d+|[一二两三四五六七八九十百千]+)\s*(?:天|日)/gu, days: (m) => 解析中文整数(m[1] ?? '') },
 ];
 
 /**
@@ -715,10 +720,10 @@ export function resolveTimeAdvancePolicy(input?: { minStepMinutes?: number }): T
   return { ...DEFAULT_TIME_ADVANCE_POLICY, minStepMinutes };
 }
 
-/** 「今天过完就是明天」类表达：次日 / 第二天 / 翌日 / 隔天 / 跨日 / 过夜 / 醒来。 */
-const 跨日明确表达 = /次日|第二天|翌日|隔天|跨日|跨夜|过夜|一夜(?:过去|过后|之后|后)|睡醒|醒来/gu;
+/** 「今天过完就是明天」类表达：次日 / 第二天 / 翌日 / 隔天 / 隔日 / 明日 / 转天 / 跨日 / 过夜 / 醒来。 */
+const 跨日明确表达 = /次日|第二天|翌日|隔天|隔日|明日|转天|跨日|跨夜|过夜|一夜(?:过去|过后|之后|后)|睡醒|醒来/gu;
 /** 同一套判据的非全局版本（`test` 不共享 lastIndex）。 */
-const 跨日证据判据 = /次日|第二天|翌日|隔天|跨日|跨夜|过夜|一夜|睡醒|醒来|明天/;
+const 跨日证据判据 = /次日|第二天|翌日|隔天|隔日|明日|转天|跨日|跨夜|过夜|一夜|睡醒|醒来|明天/;
 
 /** 正文是否**明确**允许跨到第二天。 */
 export function 正文允许跨日(body: string, currentTime: string): boolean {
@@ -735,9 +740,30 @@ export function 正文允许跨日(body: string, currentTime: string): boolean {
   });
 }
 
-/** 正文里是否明确写出了**小时**级跨度（「两个小时后」）。 */
+/** 正文里是否明确写出了**小时**级跨度（「两个小时后」「半天后」）。 */
 function 正文明确小时跨度(body: string): boolean {
-  return /(?:半|几|数|\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:个)?\s*(?:小时|钟头)\s*(?:以后|之后|后|过去)/u.test(body);
+  if (/(?:半|几|数|\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:个)?\s*(?:小时|钟头)\s*(?:以后|之后|后|过去)/u.test(body)) return true;
+  // 「半天后 / 半日后」同样是正文写明的跨半天跨度（2026-10-03：此前只落到 15 分钟兜底）。
+  return /半\s*(?:天|日)\s*(?:以后|之后|后|过去)/u.test(body);
+}
+
+/**
+ * 正文里的**明确跨度**（小时 / 半天）→ 分钟。返回 null 表示正文没有写明跨度。
+ * 明确写明的跨度允许跨过午夜（故事自己说了过去多久，就该照做）。
+ */
+function 读取正文明确跨度分钟(body: string): number | null {
+  let best: number | null = null;
+  const consider = (minutes: number) => {
+    if (!Number.isFinite(minutes) || minutes <= 0) return;
+    if (best === null || minutes > best) best = minutes;
+  };
+  for (const match of body.matchAll(/(半|几|数|\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:个)?\s*(小时|钟头)\s*(?:以后|之后|后|过去)/gu)) {
+    const amount = 解析中文整数(match[1] ?? '');
+    if (amount === null || amount <= 0) continue;
+    consider(Math.round(amount * 60));
+  }
+  if (/半\s*(?:天|日)\s*(?:以后|之后|后|过去)/u.test(body)) consider(12 * 60);
+  return best;
 }
 
 /** 同一天里更早的钟点（回溯/重复提及）→ 返回给调用方生成「不倒退」说明。 */
@@ -770,24 +796,31 @@ function 事实结果(
   return { fact, warning };
 }
 
-/** 把推进量夹进策略：最小步长 / 同日上限 / 不跨日。 */
+/**
+ * 把推进量夹进策略：最小步长 / 同日上限 / 不跨日。
+ *
+ * `allowMidnightCrossing`：正文**自己写明**了跨度（「两个小时后」「半天后」）时，故事已经说了过去多久，
+ * 就该照做 —— 可以跨过午夜（日期由结算侧照常推进）。只有「应用推测出来的」推进才严格留在当天。
+ */
 function 夹紧同日推进(
   minutes: number,
   policy: TimeAdvancePolicy,
   currentTime: string,
   cap: number,
+  options: { allowMidnightCrossing?: boolean } = {},
 ): { minutes: number; warning: string | null } {
   const remaining = 当天剩余分钟(currentTime);
-  // 不跨日：既要服从策略上限，也要服从「当天还剩多少」。
-  const effectiveCap = remaining === null ? cap : Math.min(cap, remaining);
+  const effectiveCap = options.allowMidnightCrossing || remaining === null
+    ? cap
+    : Math.min(cap, remaining);
   if (effectiveCap <= 0) {
-    return { minutes: 0, warning: '已到当天最后一分钟；需要正文写出「第二天/翌日」才能跨日，本回合时间未推进。' };
+    return { minutes: 0, warning: '已到当天最后一分钟；需要正文写出「第二天/翌日」或写明耗时才能跨日，本回合时间未推进。' };
   }
   const wanted = Math.max(minutes, policy.minStepMinutes);
   if (wanted <= effectiveCap) return { minutes: wanted, warning: null };
-  const note = remaining !== null && remaining < cap
+  const note = !options.allowMidnightCrossing && remaining !== null && remaining < cap
     ? `同日推进不得超过当天剩余时间，已按 ${effectiveCap} 分钟结算（不跨日）。`
-    : `同日推进上限 ${Math.round(cap / 60)} 小时，已按 ${effectiveCap} 分钟结算。`;
+    : `推进上限 ${Math.round(cap / 60)} 小时，已按 ${effectiveCap} 分钟结算。`;
   return { minutes: effectiveCap, warning: note };
 }
 
@@ -1037,7 +1070,15 @@ function 读取正文跨日候选(body: string): Array<{ index: number; end: num
     const index = match.index ?? 0;
     push(index, index + (match[0]?.length ?? 0), 1);
   }
-  return candidates.sort((a, b) => a.index - b.index || a.end - b.end);
+  // 同一句里重复表述的**同一次跨日**只算一次（2026-10-03）：
+  // 「一觉醒来已是第二天。」里的「醒来」与「第二天」是同一天，旧实现按两条事件累加，
+  // 于是跨了 2 天。按证据句归并、保留最大天数：既不会翻倍，也不会吞掉真正的多段跨度。
+  const byEvidence = new Map<string, { index: number; end: number; days: number; evidence: string }>();
+  for (const candidate of candidates) {
+    const existing = byEvidence.get(candidate.evidence);
+    if (!existing || candidate.days > existing.days) byEvidence.set(candidate.evidence, candidate);
+  }
+  return [...byEvidence.values()].sort((a, b) => a.index - b.index || a.end - b.end);
 }
 
 /** Decide the one time fact for a turn; explicit conflicts never become fabricated elapsed time. */
@@ -1052,6 +1093,7 @@ export function resolveTurnTimeFact(
   const current = 分钟序数(currentTime);
   const allowDayCrossing = 正文允许跨日(body, currentTime);
   const hasExplicitHourSpan = 正文明确小时跨度(body);
+  const explicitSpanMinutes = 读取正文明确跨度分钟(body);
   const backwardClock = 找同日回退钟点(body, currentTime);
   const clockLike = body.match(/(?:时间|现在|此时|钟楼)[^。！？\n]{0,12}?(\d{1,2}:\d{2})/u);
   if (clockLike && 分钟序数(clockLike[1]) === null) {
@@ -1083,6 +1125,7 @@ export function resolveTurnTimeFact(
   const acceptSameDayFact = (
     fact: Extract<变量事实, { type: 'time' }>,
     cap: number,
+    allowMidnightCrossing = false,
   ): { fact: Extract<变量事实, { type: 'time' }> | null; warning: string | null } => {
     if (fact.mode === 'next_day' || fact.mode === 'overnight') return 事实结果(fact);
     if (fact.mode === 'elapsed') {
@@ -1090,7 +1133,7 @@ export function resolveTurnTimeFact(
       // 不再套用「同日 3 小时」上限。
       const minutes = fact.minutes ?? 0;
       if (allowDayCrossing && minutes >= 1440) return 事实结果(fact);
-      const clamped = 夹紧同日推进(minutes, policy, currentTime, cap);
+      const clamped = 夹紧同日推进(minutes, policy, currentTime, cap, { allowMidnightCrossing });
       if (!clamped.minutes) return 事实结果(null, clamped.warning);
       return 事实结果({ ...fact, minutes: clamped.minutes }, clamped.warning);
     }
@@ -1114,6 +1157,8 @@ export function resolveTurnTimeFact(
     return acceptSameDayFact(
       explicit,
       hasExplicitHourSpan ? policy.explicitHoursCapMinutes : policy.explicitClockCapMinutes,
+      // 正文自己写明了跨度 → 允许跨过午夜（故事说了过去多久，就该照做）。
+      hasExplicitHourSpan && explicit.mode === 'elapsed',
     );
   }
   if (modelFact && modelFact.mode !== 'no_change') {
@@ -1124,10 +1169,11 @@ export function resolveTurnTimeFact(
       const modelCap = modelFact.mode === 'set_time'
         ? (读取正文钟点候选(modelFact.evidence ?? '').length ? policy.explicitClockCapMinutes : policy.sameDayCapMinutes)
         : (hasExplicitHourSpan ? policy.explicitHoursCapMinutes : policy.sameDayCapMinutes);
-      return acceptSameDayFact(modelFact, modelCap);
+      // 只有在**正文也写了跨度**时才允许越过午夜：模型单独自报的跨度仍受「不跨日」约束。
+      return acceptSameDayFact(modelFact, modelCap, hasExplicitHourSpan && modelFact.mode === 'elapsed');
     }
     // 被拒的模型事实不是终点：继续走正文/兜底，但把原因留在诊断里。
-    const fallback = 兜底推进(policy, currentTime, declaresCurrentClock, body, backwardClock);
+    const fallback = 兜底推进(policy, currentTime, declaresCurrentClock, body, backwardClock, explicitSpanMinutes);
     return 事实结果(fallback.fact, [warning, fallback.warning].filter(Boolean).join(' ') || null);
   }
   // 显式 no_change 不再冻结时钟（2026-10-03 玩家实测「时间没有正常推进」）。
@@ -1135,22 +1181,30 @@ export function resolveTurnTimeFact(
   // 而 no_change 的语义与「正文没有写出耗时证据」完全重合 —— 应用对那种情况的既定策略
   // 就是「按最小耗时推进」。因此这里让它落到同一条兜底：只有在正文**明确声明了当前钟点**
   // 时才真的不推进（那才是「故事自己说时间没变」）。
-  return 兜底推进(policy, currentTime, declaresCurrentClock, body, backwardClock);
+  return 兜底推进(policy, currentTime, declaresCurrentClock, body, backwardClock, explicitSpanMinutes);
 }
 
-/** 无任何推进证据时的最小推进（受最小步长与「不跨日」约束）。 */
+/** 无事实可用时的推进：正文写明跨度就照做，否则按设置里的最小步长（都不主动跨日，除非写明跨度）。 */
 function 兜底推进(
   policy: TimeAdvancePolicy,
   currentTime: string,
   declaresCurrentClock: boolean,
   body: string,
   backwardClock: { current: string; target: string } | null,
+  explicitSpanMinutes: number | null = null,
 ): { fact: Extract<变量事实, { type: 'time' }> | null; warning: string | null } {
   const backwardNote = backwardClock
     ? `正文提到的 ${backwardClock.target} 早于当前 ${backwardClock.current}（同日回退），已忽略该钟点，不倒退。`
     : null;
   if (declaresCurrentClock) return 事实结果(null, backwardNote);
-  const clamped = 夹紧同日推进(policy.minStepMinutes, policy, currentTime, policy.sameDayCapMinutes);
+  const 写明跨度 = typeof explicitSpanMinutes === 'number' && explicitSpanMinutes > 0;
+  const clamped = 夹紧同日推进(
+    写明跨度 ? explicitSpanMinutes : policy.minStepMinutes,
+    policy,
+    currentTime,
+    写明跨度 ? policy.explicitHoursCapMinutes : policy.sameDayCapMinutes,
+    { allowMidnightCrossing: 写明跨度 },
+  );
   if (!clamped.minutes) return 事实结果(null, [backwardNote, clamped.warning].filter(Boolean).join(' ') || null);
   const evidence = body.replace(/\s+/g, ' ').trim().slice(0, 100);
   if (!evidence) return 事实结果(null, backwardNote);

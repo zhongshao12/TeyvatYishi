@@ -282,7 +282,7 @@ export function buildVariableModelPrompt(
     '### 信使种子：courier_seed',
     '- 字段：targetType、targetId、targetName、title、context、triggerType、priority、relatedNpcIds、evidence。',
     '- 只生成“稍后可能来信”的种子，不写完整 messages。每回合最多 0-2 条；出现新约定、分头行动、任务进展、关系变化、抵达新地点、关键物品时必须审计是否写 1 条。',
-    '- targetType 用 private 或 group；targetName 必填中文 NPC 名；relatedNpcIds 写对应 NPC id。',
+    '- targetType 用 private 或 group；**默认写 private**：不要为了日常对话建群、不要把玩家拉进新群；只有正文明确写到「群 / 频道 / 公告 / 多人事件」且确有第二位相关 NPC 时，才可以用 group。targetName 必填中文 NPC 名；relatedNpcIds 写对应 NPC id。',
     '- 示例：{"type":"courier_seed","targetType":"private","targetName":"安柏","title":"低语森林的调查结果","context":"安柏想知道玩家在低语森林发现了什么。","triggerType":"quest","priority":"normal","relatedNpcIds":["npc_amber"],"evidence":"正文写明玩家完成了调查"}',
     '',
     '### 技能使用：skill_used',

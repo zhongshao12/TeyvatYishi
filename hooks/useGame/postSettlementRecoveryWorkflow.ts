@@ -250,7 +250,10 @@ export async function runPostSettlementRecoveryWorkflow(
   const traveler = legacy.旅人 as UseGameStateReturn['旅人'];
   const npcs = legacy.NPC as UseGameStateReturn['NPC'];
   const committedAlbum = legacy.相册 as UseGameStateReturn['相册'];
-  let courier = processScheduledCourierSeeds(committed.手机, turn, stableNow, { worldMoment }).next;
+  let courier = processScheduledCourierSeeds(committed.手机, turn, stableNow, {
+    worldMoment,
+    allowStoryCreatedGroups: state.gameSettings.手机系统.allowStoryCreatedGroups === true,
+  }).next;
   if (state.gameSettings.手机系统.enabled && state.gameSettings.手机系统.autoGenerateSeeds) {
     const fallbackSeed = buildFallbackCourierSeed({
       courier,

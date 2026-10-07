@@ -546,6 +546,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
           body: displayText,
           maxSeedsPerTurn: state.gameSettings.手机系统.maxSeedsPerTurn,
           contactCooldownTurns: state.gameSettings.手机系统.contactCooldownTurns,
+          allowStoryCreatedGroups: state.gameSettings.手机系统.allowStoryCreatedGroups === true,
           environment: courierEnvironment,
           travelerName: courierTravelerName,
           letterApiConfig: courierLetterApiConfig,

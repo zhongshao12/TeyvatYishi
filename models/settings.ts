@@ -404,6 +404,12 @@ export interface 手机系统设置 {
   groupCooldownTurns: number;
   privateArchiveThreshold: number;
   groupArchiveThreshold: number;
+  /**
+   * 允许**剧情**自动建群（2026-10-03 玩家反馈：「角色老是拉个群聊和我对话，这不是正常行为」）。
+   * 默认关闭：剧情来信一律进私聊，只有玩家自己在手机里建的群才存在。
+   * 打开后仍要求种子带真实的多人上下文（至少一位相关 NPC + 群组类措辞）。
+   */
+  allowStoryCreatedGroups?: boolean;
 }
 
 export interface 图鉴系统设置 {

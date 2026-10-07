@@ -82,6 +82,8 @@ export interface CourierDeliveryTaskInput {
   body: string;
   maxSeedsPerTurn: number;
   contactCooldownTurns: number;
+  /** 是否允许剧情自动建群（设置项，默认关闭）。 */
+  allowStoryCreatedGroups?: boolean;
   environment?: CourierLetterEnvironment;
   travelerName?: string;
   letterApiConfig: API配置项 | null;
@@ -144,6 +146,8 @@ export async function runCourierDeliveryTask(input: CourierDeliveryTaskInput): P
     environment: input.environment,
     travelerName: input.travelerName,
     worldMoment: input.worldMoment,
+    // 剧情自动建群默认关闭（玩家反馈「角色老是拉个群聊和我对话」）。
+    allowStoryCreatedGroups: input.allowStoryCreatedGroups === true,
   });
   if (!scheduled.due.length) {
     return {
@@ -423,6 +427,11 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
       let failedMembers = 0;
       const failedMemberIds = new Set<string>();
       for (const memberId of memberIds) {
+        // A manual retry must not call successful members or repeat their memory/affinity settlement.
+        if (conversation.messages.some((message) => message.id === `courier_group_reply_${playerMessage.id}_${memberId}`)) {
+          memberReplied += 1;
+          continue;
+        }
         const contact = updated.contacts.find((item) => item.id === memberId);
         const provisionalName = contact?.name?.trim() || memberId;
         updatedNpcs = ensureCourierContactNpcRecord(updatedNpcs, {

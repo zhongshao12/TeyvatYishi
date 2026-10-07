@@ -129,6 +129,14 @@ export function CourierSystemSettingsTab({ settings, onChange, apiSettings }: Pr
         onChange={(v) => patch({ autoGenerateSeeds: v })}
       />
 
+      {/* 2026-10-03 玩家反馈：「角色老是拉个群聊和我对话，这不是正常行为」→ 默认关闭剧情建群。 */}
+      <ToggleRow
+        label="允许剧情自动建群"
+        desc="关闭时（默认）：剧情来信一律进私聊，只有你在手机里自己建的群才存在。开启后仍需种子带真实的多人上下文（至少一位相关角色 + 群/频道类措辞）才会建群。"
+        checked={courier.allowStoryCreatedGroups === true}
+        onChange={(v) => patch({ allowStoryCreatedGroups: v })}
+      />
+
       <Field label="每回合最多主动消息">
         <input
           type="number"

@@ -811,15 +811,48 @@ export interface CourierDeliveryContext {
   environment?: CourierLetterEnvironment;
   travelerName?: string;
   worldMoment?: import('@/models/teyvat/worldMoment').WorldMoment;
+  /** 是否允许**剧情**自动建群（设置项，默认关闭；见 手机系统设置.allowStoryCreatedGroups）。 */
+  allowStoryCreatedGroups?: boolean;
 }
 
 export interface ScheduledCourierResult {
   next: CourierSystem;
   due: CourierDeliverySeed[];
+  /** 本该建群但被降级为私聊的种子（诊断用：玩家能看出「为什么没建群/为什么又建群了」）。 */
+  groupDowngrades: Array<{ seedId: string; senderName: string; reason: string }>;
 }
 
-function deriveSenderName(seed: CourierDeliverySeed, npc: NPC记录 | undefined): string {
-  if (npc?.姓名?.trim()) return npc.姓名.trim();
+/** 剧情种子里的「群组类措辞」：必须有真实多人频道语义，才允许建群。 */
+const GROUP_SEED_WORDING_RE = /群|频道|公告|通告|多人|各位|诸位|大家|会议|研讨|讨论组|联名|共同声明/;
+
+/** 种子是否具备建群的多人上下文（除寄件人外至少还有一位相关 NPC，且有群组类措辞）。 */
+export function seedQualifiesAsStoryGroup(seed: CourierDeliverySeed): boolean {
+  const related = (seed.relatedNpcIds ?? []).filter((id) => typeof id === 'string' && id.trim() && id !== seed.senderId);
+  if (related.length < 1) return false;
+  return GROUP_SEED_WORDING_RE.test(`${seed.targetId ?? ''} ${seed.title ?? ''} ${seed.context ?? ''}`);
+}
+
+/**
+ * 决定这条种子应该落在私聊还是群聊（2026-10-03 玩家反馈：角色老是拉群）。
+ * 默认关闭剧情建群：`allowStoryCreatedGroups !== true` 时一律私聊。
+ */
+export function resolveSeedConversationType(
+  seed: CourierDeliverySeed,
+  context: CourierDeliveryContext = {},
+): 'private' | 'group' {
+  if (seed.targetType !== 'group') return 'private';
+  if (context.allowStoryCreatedGroups !== true) return 'private';
+  return seedQualifiesAsStoryGroup(seed) ? 'group' : 'private';
+}
+
+function 描述建群降级原因(seed: CourierDeliverySeed, context: CourierDeliveryContext): string {
+  if (context.allowStoryCreatedGroups !== true) return '设置里未允许剧情建群（默认关闭）';
+  const related = (seed.relatedNpcIds ?? []).filter((id) => id && id !== seed.senderId);
+  if (related.length < 1) return '种子没有第二个相关 NPC，算不上群组关系';
+  return '种子缺少群组类措辞（群/频道/公告/多人事件）';
+}
+
+function deriveSenderName(seed: CourierDeliverySeed, npc: NPC记录 | undefined): string {  if (npc?.姓名?.trim()) return npc.姓名.trim();
   const fromTitle = seed.title?.trim().match(/^(.+?)(?:的(?:跟进)?来信|来信)$/);
   if (fromTitle?.[1]?.trim() && fromTitle[1].trim() !== '定时') return fromTitle[1].trim();
   if (seed.title?.trim()) return seed.title.trim();
@@ -867,7 +900,10 @@ export function deliverDueCourierSeeds(
     due.push(seed);
     return { ...seed, status: 'generated' as const };
   });
-  if (!due.length) return { next: normalizedSystem, due };
+  if (!due.length) return { next: normalizedSystem, due, groupDowngrades: [] };
+
+  /** 本该建群但按设置/上下文降级为私聊的种子（诊断用）。 */
+  const forcedPrivateSeeds: Array<{ seedId: string; senderName: string; reason: string }> = [];
 
   let contacts = [...normalizedSystem.contacts];
   let conversations = [...normalizedSystem.conversations];
@@ -885,25 +921,36 @@ export function deliverDueCourierSeeds(
       contacts = [...contacts, buildContactForSeed(seed, npc, senderName)];
     }
 
+    // 2026-10-03 玩家反馈：「角色老是拉个群聊和我对话，这不是正常行为」。
+    // 剧情种子只有在**玩家允许**（设置项，默认关闭）且种子带真实多人上下文时才建群；
+    // 否则一律按私聊投递，已有的群不受影响（玩家仍可在手机里自己建群/解散群）。
+    const targetType = resolveSeedConversationType(seed, context);
+    if (seed.targetType === 'group' && targetType === 'private') {
+      // 记录一次降级原因，便于玩家在诊断里看到「本该建群但被降级」。
+      forcedPrivateSeeds.push({ seedId: seed.id, senderName, reason: 描述建群降级原因(seed, context) });
+    }
+
     // 私聊种子只能进入私聊，不能因为寄件人也在某个群里就误投进群聊。
     // 群聊种子优先使用明确 targetId，再退回到包含寄件人的同类型群。
-    let conversationIndex = seed.targetType === 'group'
+    let conversationIndex = targetType === 'group'
       ? conversations.findIndex((conversation) => conversation.type === 'group' && conversation.id === seed.targetId)
       : conversations.findIndex((conversation) => conversation.type === 'private' && conversation.participantIds.includes(senderId));
     if (conversationIndex < 0) {
-      conversationIndex = seed.targetType === 'group'
+      conversationIndex = targetType === 'group'
         ? conversations.findIndex((conversation) => conversation.type === 'group' && conversation.participantIds.includes(senderId))
         : conversations.findIndex((conversation) => conversation.type === 'private' && conversation.id === seed.targetId);
     }
     if (conversationIndex < 0) {
-      const participantIds = Array.from(new Set(['player', senderId, ...seed.relatedNpcIds].filter(Boolean)));
+      const participantIds = targetType === 'group'
+        ? Array.from(new Set(['player', senderId, ...seed.relatedNpcIds].filter(Boolean)))
+        : Array.from(new Set(['player', senderId].filter(Boolean)));
       conversations.push({
         id: `courier_conv_${senderId}`,
         title: senderName,
         participantIds,
         messages: [],
         unread: 0,
-        type: seed.targetType,
+        type: targetType,
         typingMemberIds: [],
         updatedAt: now,
       });
@@ -957,6 +1004,7 @@ export function deliverDueCourierSeeds(
   return {
     next,
     due,
+    groupDowngrades: forcedPrivateSeeds,
   };
 }
 

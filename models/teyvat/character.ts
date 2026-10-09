@@ -330,14 +330,25 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
       // 相差的角色此前拿到 canonical:false + roleTier:'extra'（却照显示头像）。
       // 合成条目只补身份，不带性别/外貌/性格 —— 下面所有 `canonical?.x ?? 记录自身值` 兜底保持不变。
       ?? (hasBuiltinAvatarIdentity(rawName, rawAliases) ? { name: rawName } : null);
+    const avatarProfile = getAvatarCharacterProfile(canonical?.name ?? rawName, rawAliases);
+    const isCandace = rawName === '坎蒂丝' || canonical?.name === '坎蒂丝' || rawAliases.includes('Candace');
+    const resolvedClothing = text(entry.clothing) || avatarProfile?.常用穿着 || '';
+    const resolvedGender = isCandace ? '女' : (text(entry.gender) || canonical?.gender || avatarProfile?.gender || '');
     const matureArchive = normalizeTeyvatNpcMatureArchive(entry.matureArchive);
+    if (matureArchive && (resolvedGender === '女' || isCandace)) {
+      if (matureArchive.maleBodyProfile) {
+        matureArchive.maleBodyProfile.genital = undefined;
+      }
+      if (matureArchive.partImages) {
+        matureArchive.partImages.maleGenital = undefined;
+      }
+    }
     const eligibleForMeasurements = canRevealNpcMeasurements({
-      name: canonical?.name ?? rawName, aliases: rawAliases, gender: text(entry.gender) || canonical?.gender,
+      name: canonical?.name ?? rawName, aliases: rawAliases, gender: resolvedGender,
       description: [text(entry.说明), text(entry.appearance), ...textList(entry.notes)].filter(Boolean).join(' '),
       ageConfirmation: matureArchive?.ageConfirmation, ageSource: matureArchive?.ageConfirmationSource,
     });
     const appearanceFacts = normalizeNpcAppearanceFacts(entry.appearanceFacts, eligibleForMeasurements);
-    const avatarProfile = getAvatarCharacterProfile(canonical?.name ?? rawName, rawAliases);
     let finalAppearanceFacts = appearanceFacts;
     if (avatarProfile) {
       const appearanceMap: NPC外貌档案 = { ...(appearanceFacts ?? {}) };
@@ -366,8 +377,6 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
     const roleTier = archived ? 'extra' : canonical || entry.roleTier === 'companion' ? 'companion' : 'extra';
     const tierBeforeArchive = entry.tierBeforeArchive === 'companion' || entry.tierBeforeArchive === 'extra'
       ? entry.tierBeforeArchive : canonical || entry.roleTier === 'companion' ? 'companion' : 'extra';
-    const resolvedClothing = text(entry.clothing) || avatarProfile?.常用穿着 || '';
-    const resolvedGender = text(entry.gender) || canonical?.gender || avatarProfile?.gender || '';
     return [{
       id: rawId, 姓名: canonical?.name ?? rawName, 地区: text(entry.地区), 身份: text(entry.身份),
       ...(normalizeElementId(entry.元素) ? { 元素: normalizeElementId(entry.元素) } : {}),

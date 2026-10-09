@@ -565,7 +565,7 @@ export function mapTeyvatNpcsToLegacy(game: TeyvatGameState): NPC记录[] {
       首次性行为对象回合: npc.gender === '女' && npc.matureArchive.ageConfirmation !== 'minor_blocked' ? npc.matureArchive.firstSexualPartnerTurn : undefined,
       边界: npc.matureArchive.boundaries, 偏好: [...npc.matureArchive.preferences], 敏感点: [...npc.matureArchive.sensitivePoints], 禁忌: [...npc.matureArchive.taboos],
       女性身体档案: { 胸部: npc.matureArchive.femaleBodyProfile.chest, 女性私处: npc.matureArchive.femaleBodyProfile.genital, 后庭: npc.matureArchive.femaleBodyProfile.rear, 体态: npc.matureArchive.femaleBodyProfile.build, 体味: npc.matureArchive.femaleBodyProfile.scent },
-      男性身体档案: { 男性器: npc.matureArchive.maleBodyProfile.genital, 后庭: npc.matureArchive.maleBodyProfile.rear, 体态: npc.matureArchive.maleBodyProfile.build, 体味: npc.matureArchive.maleBodyProfile.scent },
+      男性身体档案: npc.matureArchive.maleBodyProfile ? { 男性器: npc.matureArchive.maleBodyProfile.genital, 后庭: npc.matureArchive.maleBodyProfile.rear, 体态: npc.matureArchive.maleBodyProfile.build, 体味: npc.matureArchive.maleBodyProfile.scent } : undefined,
       经历: [...npc.matureArchive.experiences], 长期事实: [...npc.matureArchive.longTermFacts], 标签: [...npc.matureArchive.tags],
       部位图片: { 女性胸部: npc.matureArchive.partImages.femaleChest, 女性私处: npc.matureArchive.partImages.femaleGenital, 男性器: npc.matureArchive.partImages.maleGenital, 后庭: npc.matureArchive.partImages.rear, 体态参考: npc.matureArchive.partImages.bodyReference }, 备注: npc.matureArchive.notes,
     } : undefined,

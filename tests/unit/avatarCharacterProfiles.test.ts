@@ -92,4 +92,50 @@ describe('avatar character profiles enrichment', () => {
     expect(enriched.外貌档案).toBeUndefined();
     expect(enriched.穿着).toBeUndefined();
   });
+
+  // 玩家要求（2026-10-03）：「把坎蒂丝归入女角色中和去掉坎蒂丝的NSFW档案的男性器」
+  it('classifies Candace as female and strips male genital / male body profile from her NSFW archive', () => {
+    const candaceRecord = 创建NPC记录({
+      姓名: '坎蒂丝',
+      阶位: 'companion',
+      初见回合: 1,
+      // 故意模拟错误存档标记为男且附带男性器
+      性别: '男' as never,
+      NSFW档案: {
+        enabled: true,
+        年龄确认: 'adult',
+        年龄确认来源: 'canonical',
+        男性身体档案: {
+          男性器: '不该存在于女角色档案中的男性器描述',
+          后庭: '后庭细节',
+        },
+        部位图片: {
+          男性器: '/path/to/male/genital.png',
+          女性胸部: '/path/to/chest.png',
+        },
+      },
+    });
+
+    const [normalized] = 归一化NPC记录列表([candaceRecord]);
+    expect(normalized).toBeDefined();
+    // 强制修正为女角色
+    expect(normalized?.性别).toBe('女');
+    // 去除男性身体档案与男性器部位图
+    expect(normalized?.NSFW档案?.男性身体档案).toBeUndefined();
+    expect(normalized?.NSFW档案?.部位图片?.男性器).toBeUndefined();
+    expect(normalized?.NSFW档案?.部位图片?.女性胸部).toBe('/path/to/chest.png');
+    // 补齐女性外貌细项与常用穿着
+    expect(normalized?.外貌档案?.发色).toMatchObject({ value: expect.stringContaining('深靛蓝'), source: 'canon' });
+    expect(normalized?.外貌档案?.瞳色).toMatchObject({ value: expect.stringContaining('异色双瞳'), source: 'canon' });
+    expect(normalized?.外貌档案?.身高).toMatchObject({ value: '170 cm', source: 'canon' });
+    expect(normalized?.外貌档案?.体重).toMatchObject({ value: '53 kg', source: 'canon' });
+    expect(normalized?.穿着).toContain('阿如村守护者');
+
+    // 经由 enrichNpcArchives 流程同样清理并确保女性身份
+    const enriched = enrichNpcArchives([candaceRecord], { nsfwEnabled: true, maleNsfwArchiveEnabled: true }).records[0]!;
+    expect(enriched.性别).toBe('女');
+    expect(enriched.NSFW档案?.男性身体档案).toBeUndefined();
+    expect(enriched.NSFW档案?.部位图片?.男性器).toBeUndefined();
+    expect(enriched.NSFW档案?.部位图片?.女性胸部).toBe('/path/to/chest.png');
+  });
 });

@@ -11,6 +11,11 @@ export interface CanonicalCharacterDef {
 
 export const CANONICAL_CHARACTERS: CanonicalCharacterDef[] = [
   {
+    name: '娜布·玛莉卡塔',
+    aliases: ['花神', '娜布玛莉卡塔', '娜布•玛莉卡塔', 'Nabu Malikata', 'Goddess of Flowers'],
+    gender: '女',
+  },
+  {
     name: '派蒙',
     aliases: ['Paimon', '应急食品'],
     gender: '其他',
@@ -331,6 +336,13 @@ export const CANONICAL_CHARACTERS: CanonicalCharacterDef[] = [
     gender: '女',
     appearance: '红发少女，舞者服饰，水元素单手剑。',
     personality: '温柔爱舞，害怕冲突，却为舞台挺身而出。',
+  },
+  {
+    name: '坎蒂丝',
+    aliases: ['Candace', '阿如村守护者'],
+    gender: '女',
+    appearance: '深靛蓝及腰波浪长发，左金右蓝异色双瞳，古埃及风深蓝与纯金交领长裙，持金盾长枪。',
+    personality: '沉稳温柔，威严坚定，守护阿如村安宁，对朋友真诚体贴。',
   },
   {
     name: '芙宁娜',

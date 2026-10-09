@@ -486,9 +486,12 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
   const resolvedClothing = typeof rawClothing === 'string' && rawClothing.trim()
     ? rawClothing
     : (avatarProfile?.常用穿着 ?? undefined);
-  const resolvedGender = rawGender === '男' || rawGender === '女' || rawGender === '其他'
-    ? rawGender
-    : (avatarProfile?.gender ?? undefined);
+  const isCandace = name === '坎蒂丝' || rawAlias === 'Candace' || canonical?.name === '坎蒂丝';
+  const resolvedGender = isCandace
+    ? '女'
+    : (rawGender === '男' || rawGender === '女' || rawGender === '其他'
+      ? rawGender
+      : (avatarProfile?.gender ?? undefined));
 
   return {
     id: typeof source.id === 'string' && source.id.trim()
@@ -529,15 +532,26 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
       ? rawNotes.filter((note): note is string => typeof note === 'string')
       : [],
     原著角色: shouldForceCompanion,
-    NSFW档案: archive && !nsfwPrivateAllowed ? {
-      ...archive,
-      常用内衣: undefined,
-      是否处女: undefined,
-      首次性行为对象: undefined,
-      首次性行为对象引用: undefined,
-      首次性行为对象来源: undefined,
-      首次性行为对象回合: undefined,
-    } : archive,
+    NSFW档案: (() => {
+      if (!archive) return undefined;
+      const baseArchive = !nsfwPrivateAllowed ? {
+        ...archive,
+        常用内衣: undefined,
+        是否处女: undefined,
+        首次性行为对象: undefined,
+        首次性行为对象引用: undefined,
+        首次性行为对象来源: undefined,
+        首次性行为对象回合: undefined,
+      } : { ...archive };
+      if (resolvedGender === '女') {
+        delete baseArchive.男性身体档案;
+        if (baseArchive.部位图片?.男性器) {
+          baseArchive.部位图片 = { ...baseArchive.部位图片 };
+          delete baseArchive.部位图片.男性器;
+        }
+      }
+      return baseArchive;
+    })(),
     图像档案: 归一化图像档案(rawImage, rawAvatar),
     头像: typeof rawAvatar === 'string' ? rawAvatar : undefined,
   };
@@ -548,6 +562,8 @@ function 合并NPC记录(base: NPC记录, incoming: NPC记录): NPC记录 {
   const affinity = 限制NPC好感度(选择更可信的好感度(base, incoming, preferred));
   const intimateRelationship = 选择较新的亲密关系(base, incoming, preferred);
   const archived = base.已归档 === true || incoming.已归档 === true;
+  const isCandace = base.姓名 === '坎蒂丝' || incoming.姓名 === '坎蒂丝' || preferred.姓名 === '坎蒂丝';
+  const mergedGender = isCandace ? '女' : (preferred.性别 ?? base.性别 ?? incoming.性别);
   return {
     ...preferred,
     姓名: 选择NPC显示姓名(base, incoming, preferred),
@@ -583,9 +599,22 @@ function 合并NPC记录(base: NPC记录, incoming: NPC记录): NPC记录 {
     性格: preferred.性格 ?? base.性格 ?? incoming.性格,
     介绍: preferred.介绍 ?? base.介绍 ?? incoming.介绍,
     对玩家称呼: preferred.对玩家称呼 ?? base.对玩家称呼 ?? incoming.对玩家称呼,
-    性别: preferred.性别 ?? base.性别 ?? incoming.性别,
+    性别: mergedGender,
     装备摘要: preferred.装备摘要 ?? base.装备摘要 ?? incoming.装备摘要,
-    NSFW档案: preferred.NSFW档案 ?? base.NSFW档案 ?? incoming.NSFW档案,
+    NSFW档案: (() => {
+      const mergedArchive = preferred.NSFW档案 ?? base.NSFW档案 ?? incoming.NSFW档案;
+      if (!mergedArchive) return undefined;
+      if (mergedGender === '女') {
+        const cleaned = { ...mergedArchive };
+        delete cleaned.男性身体档案;
+        if (cleaned.部位图片?.男性器) {
+          cleaned.部位图片 = { ...cleaned.部位图片 };
+          delete cleaned.部位图片.男性器;
+        }
+        return cleaned;
+      }
+      return mergedArchive;
+    })(),
     图像档案: preferred.图像档案 ?? base.图像档案 ?? incoming.图像档案,
   };
 }

@@ -419,33 +419,6 @@ const NpcDetail = memo(function NpcDetail({
   const [isEditing, setIsEditing] = useState(false);
   const [profileDraft, setProfileDraft] = useState<NpcProfileDraft>(() => makeNpcProfileDraft(npc));
   const [profileError, setProfileError] = useState('');
-  const [appearanceEditorOpen, setAppearanceEditorOpen] = useState(false);
-  const [appearanceDraft, setAppearanceDraft] = useState<Partial<Record<NpcAppearanceKey, string>>>(() => Object.fromEntries(
-    NPC_APPEARANCE_KEYS.map((key) => [key, npc.外貌档案?.[key]?.value ?? '']),
-  ));
-  const [appearanceMessage, setAppearanceMessage] = useState('');
-  const [appearanceGenerating, setAppearanceGenerating] = useState(false);
-  const appearanceAbortRef = useRef<AbortController | null>(null);
-  useEffect(() => {
-    setAppearanceDraft(Object.fromEntries(NPC_APPEARANCE_KEYS.map((key) => [key, npc.外貌档案?.[key]?.value ?? ''])));
-  }, [npc.外貌档案]);
-  useEffect(() => () => appearanceAbortRef.current?.abort(), []);
-  const generateAppearance = async () => {
-    if (!onGenerateAppearance || appearanceGenerating) return;
-    const controller = new AbortController();
-    appearanceAbortRef.current = controller;
-    setAppearanceGenerating(true);
-    setAppearanceMessage('正在补全空白外貌资料……');
-    try {
-      await onGenerateAppearance(npc, controller.signal);
-      if (!controller.signal.aborted) setAppearanceMessage('补全完成；推测值已标注来源，可手动校正。');
-    } catch (error) {
-      if (!controller.signal.aborted) setAppearanceMessage(`补全失败：${error instanceof Error ? error.message : '请检查 API 配置。'}`);
-    } finally {
-      if (!controller.signal.aborted) setAppearanceGenerating(false);
-      if (appearanceAbortRef.current === controller) appearanceAbortRef.current = null;
-    }
-  };
   const updateProfileDraft = (field: keyof NpcProfileDraft, value: string) => {
     setProfileDraft((draft) => ({ ...draft, [field]: value }));
     setProfileError('');
@@ -659,14 +632,6 @@ const NpcDetail = memo(function NpcDetail({
           </section>
 
           <DetailBlock title="外貌细项">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <button type="button" disabled={!onGenerateAppearance || appearanceGenerating} onClick={() => void generateAppearance()} className="teyvat-btn px-3 py-1.5 text-xs disabled:opacity-50">
-                {appearanceGenerating ? '正在补全……' : 'AI 补全空白外貌'}
-              </button>
-              <button type="button" onClick={() => setAppearanceEditorOpen((open) => !open)} className="teyvat-btn px-3 py-1.5 text-xs">{appearanceEditorOpen ? '收起外貌编辑' : '编辑外貌细项'}</button>
-              {!onGenerateAppearance && <span className="text-xs" style={{ color: mutedColor }}>请先配置文字模型 API</span>}
-            </div>
-            {appearanceMessage && <p role="status" className="mb-2 text-xs" style={{ color: appearanceMessage.startsWith('补全失败') ? 'var(--tj-danger)' : mutedColor }}>{appearanceMessage}</p>}
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {NPC_APPEARANCE_KEYS.filter((key) => key !== '三围' || canRevealNpcRecordMeasurements(npc)).map((key) => {
                 const fact = npc.外貌档案?.[key];
@@ -675,13 +640,6 @@ const NpcDetail = memo(function NpcDetail({
                     <span className="font-semibold">{key}</span>
                     <span className="ml-2">{fact?.value || '未记录'}</span>
                     {fact && <span className="ml-2" style={{ color: mutedColor }}>· {npcAppearanceSourceLabel(fact.source)}</span>}
-                    {appearanceEditorOpen && <div className="mt-2 flex gap-1">
-                      <input aria-label={`手动修改${key}`} className="teyvat-input min-w-0 flex-1 px-2 py-1" value={appearanceDraft[key] ?? ''} onChange={(event) => setAppearanceDraft((current) => ({ ...current, [key]: event.target.value }))} />
-                      <button type="button" className="teyvat-btn shrink-0 px-2 py-1" onClick={() => {
-                        const error = onSetAppearanceFact(npc, key, appearanceDraft[key] ?? '');
-                        setAppearanceMessage(error ? `保存失败：${error}` : `${key}已手动保存。`);
-                      }}>{`保存${key}`}</button>
-                    </div>}
                   </div>
                 );
               })}

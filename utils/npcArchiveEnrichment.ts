@@ -92,6 +92,13 @@ const CANONICAL_ARCHIVE_BASELINES: Record<string, CanonicalArchiveBaseline> = {
     介绍: '稻妻的雷神巴尔泽布本尊，雷电将军是她以自身为原型制作的人偶。',
     nsfw年龄确认: 'adult',
   },
+  坎蒂丝: {
+    性别: '女',
+    穿着: '阿如村守护者古埃及风深蓝与纯金交领长裙，缀有黄金臂钏、羽毛耳饰，持金盾长枪。',
+    说话方式: '温和有礼却不容置疑，对待村民与朋友柔和，面对敌人时果断沉稳。',
+    介绍: '须弥沙漠阿如村的守护者，性格沉稳可靠，深受村民信赖。',
+    nsfw年龄确认: 'adult',
+  },
 };
 
 export function getCanonicalArchiveBaselineAge(name: string): CanonicalArchiveBaseline['nsfw年龄确认'] {
@@ -304,6 +311,28 @@ function 清理旧版NSFW占位(nsfw: 归一化NSFW档案): 归一化NSFW档案 
   return next;
 }
 
+/**
+ * 玩家要求（2026-10-03）：「把坎蒂丝归入女角色中和去掉坎蒂丝的NSFW档案的男性器」。
+ * 女性角色（特别是坎蒂丝）的 NSFW 档案中不得残留男性身体档案或男性器部位图。
+ */
+function 清理女性角色NSFW男性字段(nsfw: 归一化NSFW档案): 归一化NSFW档案 {
+  let changed = false;
+  let partImages = nsfw.部位图片;
+  if (nsfw.男性身体档案 !== undefined) {
+    changed = true;
+  }
+  if (partImages?.男性器) {
+    partImages = { ...partImages };
+    delete partImages.男性器;
+    changed = true;
+  }
+  if (!changed) return nsfw;
+  const next: 归一化NSFW档案 = { ...nsfw };
+  delete next.男性身体档案;
+  if (partImages) next.部位图片 = partImages;
+  return next;
+}
+
 function archiveChanged(a: NPC_NSFW档案 | undefined, b: NPC_NSFW档案): boolean {
   return JSON.stringify(a ?? null) !== JSON.stringify(b);
 }
@@ -374,7 +403,10 @@ export function enrichNpcArchives(
     if (shouldPatchArchiveField(updated.穿着, baseline.穿着)) patch.穿着 = baseline.穿着;
     if (shouldPatchArchiveField(updated.说话方式, baseline.说话方式)) patch.说话方式 = baseline.说话方式;
     if (shouldPatchArchiveField(updated.介绍, baseline.介绍)) patch.介绍 = baseline.介绍;
-    if (!updated.性别 && baseline?.性别) patch.性别 = baseline.性别;
+    // 坎蒂丝明确为女角色；其他角色若无性别则按基线补齐
+    const forcedFemale = updated.姓名 === '坎蒂丝' || updated.别名 === 'Candace' || canonical?.name === '坎蒂丝';
+    if (forcedFemale && updated.性别 !== '女') patch.性别 = '女';
+    else if (!updated.性别 && baseline?.性别) patch.性别 = baseline.性别;
 
     if (avatarProfile) {
       const currentAppearance: NPC外貌档案 = { ...(updated.外貌档案 ?? {}) };
@@ -412,6 +444,14 @@ export function enrichNpcArchives(
       const archive = buildNsfwBaseline(updated, baseline);
       if (archiveChanged(updated.NSFW档案, archive)) {
         updated = { ...updated, NSFW档案: archive };
+      }
+    }
+
+    // 清理女性角色（特别是坎蒂丝）NSFW档案里的男性身体档案与男性器部位图
+    if (updated.NSFW档案 && (updated.性别 === '女' || forcedFemale)) {
+      const stripped = 清理女性角色NSFW男性字段(updated.NSFW档案);
+      if (stripped !== updated.NSFW档案) {
+        updated = { ...updated, NSFW档案: stripped };
       }
     }
 

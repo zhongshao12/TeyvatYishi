@@ -8,7 +8,7 @@ export function resolveManualChunk(rawId: string): string | undefined {
     // 它们的体积实测合计约 347.6 KB（builtinPromptModules 200.7 / codexPreset 50.1 /
     // builtinWorldbookConfig 34.1 / codexIdentityRegistry 29.5 / storyModeWorldbooks 20.2 /
     // codexCustomGovernance 13.0），移到 app-content 后可把首屏砍掉约五分之一。
-    if (/\/data\/(?:storyWeavingCanonDecomposed|teyvatAvatarRegistry\.generated|canonicalCharacters|courierWorldbook|companionArchiveWorldbook|variableWorldbook|weatherRules|nsfwWorldbook|steambirdWorldbook|modelRecommendations|openingCompanionScenes|keyboardShortcutDefaults|teyvatAvatarNameOverrides|gameMenu|homeBackgrounds|questWorldbook|storyWeavingWorldbook|characterPresets|releaseAnnouncements|journeyPresets|builtinPromptModules|codexPreset|builtinWorldbookConfig|codexIdentityRegistry|storyModeWorldbooks|codexCustomGovernance)\.(?:ts|json)$/.test(id)) {
+    if (/\/data\/(?:avatarCharacterProfiles|storyWeavingCanonDecomposed|teyvatAvatarRegistry\.generated|canonicalCharacters|courierWorldbook|companionArchiveWorldbook|variableWorldbook|weatherRules|nsfwWorldbook|steambirdWorldbook|modelRecommendations|openingCompanionScenes|keyboardShortcutDefaults|teyvatAvatarNameOverrides|gameMenu|homeBackgrounds|questWorldbook|storyWeavingWorldbook|characterPresets|releaseAnnouncements|journeyPresets|builtinPromptModules|codexPreset|builtinWorldbookConfig|codexIdentityRegistry|storyModeWorldbooks|codexCustomGovernance)\.(?:ts|json)$/.test(id)) {
       return 'app-content';
     }
     // 内容数据直接使用的运行时工具与其调用方同包，避免 app-content 反向导入 app-core。

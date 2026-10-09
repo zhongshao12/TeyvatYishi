@@ -2,6 +2,7 @@ import { ELEMENT_IDS, type ElementalAttunement, type ElementId, type PowerSource
 import { isReservedNpcIdentityName, type NPC外貌档案 } from '../npc';
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
 import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
+import { getAvatarCharacterProfile } from '@/data/avatarCharacterProfiles';
 import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 import type { WorldMoment, WorldMomentRange } from './worldMoment';
 import { normalizeWorldMoment, normalizeWorldMomentRange } from '@/services/worldMoment';
@@ -336,6 +337,25 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
       ageConfirmation: matureArchive?.ageConfirmation, ageSource: matureArchive?.ageConfirmationSource,
     });
     const appearanceFacts = normalizeNpcAppearanceFacts(entry.appearanceFacts, eligibleForMeasurements);
+    const avatarProfile = getAvatarCharacterProfile(canonical?.name ?? rawName, rawAliases);
+    let finalAppearanceFacts = appearanceFacts;
+    if (avatarProfile) {
+      const appearanceMap: NPC外貌档案 = { ...(appearanceFacts ?? {}) };
+      let appearanceChanged = false;
+      for (const key of ['发色', '瞳色', '身高', '体重'] as const) {
+        const val = avatarProfile[key];
+        if (val) {
+          const existing = appearanceMap[key];
+          if (!existing || (existing.source !== 'manual' && existing.value !== val)) {
+            appearanceMap[key] = { value: val, source: 'canon' };
+            appearanceChanged = true;
+          }
+        }
+      }
+      if (appearanceChanged) {
+        finalAppearanceFacts = appearanceMap;
+      }
+    }
     // NSFW 私密字段的资格：放宽后只受三条硬闸约束（与三围的严格成年口径不同）。
     const nsfwPrivateAllowed = canUseNsfwPrivateFields({
       name: canonical?.name ?? rawName, aliases: rawAliases,
@@ -346,6 +366,8 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
     const roleTier = archived ? 'extra' : canonical || entry.roleTier === 'companion' ? 'companion' : 'extra';
     const tierBeforeArchive = entry.tierBeforeArchive === 'companion' || entry.tierBeforeArchive === 'extra'
       ? entry.tierBeforeArchive : canonical || entry.roleTier === 'companion' ? 'companion' : 'extra';
+    const resolvedClothing = text(entry.clothing) || avatarProfile?.常用穿着 || '';
+    const resolvedGender = text(entry.gender) || canonical?.gender || avatarProfile?.gender || '';
     return [{
       id: rawId, 姓名: canonical?.name ?? rawName, 地区: text(entry.地区), 身份: text(entry.身份),
       ...(normalizeElementId(entry.元素) ? { 元素: normalizeElementId(entry.元素) } : {}),
@@ -355,8 +377,8 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
       ...(archived ? { archived: true, tierBeforeArchive } : {}), affinity: finiteNumber(entry.affinity),
       relationship: text(entry.relationship), intimate: entry.intimate === true, travelingTogether: !archived && entry.travelingTogether === true,
       firstSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.firstSeenTurn))), lastSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.lastSeenTurn))),
-      gender: text(entry.gender) || canonical?.gender || '', playerAddress: text(entry.playerAddress), appearance: text(entry.appearance) || canonical?.appearance || '',
-      ...(appearanceFacts ? { appearanceFacts } : {}), clothing: text(entry.clothing),
+      gender: resolvedGender, playerAddress: text(entry.playerAddress), appearance: text(entry.appearance) || canonical?.appearance || '',
+      ...(finalAppearanceFacts ? { appearanceFacts: finalAppearanceFacts } : {}), clothing: resolvedClothing,
       speechStyle: text(entry.speechStyle), personality: canonical?.personality || text(entry.personality), equipmentSummary: text(entry.equipmentSummary),
       sharedMemories: Array.isArray(entry.sharedMemories) ? entry.sharedMemories.flatMap((item) => normalizeTeyvatNpcSharedMemory(item) ?? []) : [],
       relationshipLedger: {

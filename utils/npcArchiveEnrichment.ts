@@ -1,5 +1,6 @@
 import { matchCanonical } from '@/data/canonicalCharacters';
-import type { NPC记录, NPC性别, NPC_NSFW档案 } from '@/models/npc';
+import { getAvatarCharacterProfile } from '@/data/avatarCharacterProfiles';
+import type { NPC记录, NPC性别, NPC_NSFW档案, NPC外貌档案 } from '@/models/npc';
 import type { ArchiveCodex, CodexEntry } from '@/models/teyvat/codex';
 import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
 
@@ -11,6 +12,11 @@ export type CanonicalArchiveBaseline = {
   说话方式?: string;
   介绍?: string;
   nsfw年龄确认?: NonNullable<NPC_NSFW档案['年龄确认']>;
+  外貌档案?: NPC外貌档案;
+  发色?: string;
+  瞳色?: string;
+  身高?: string;
+  体重?: string;
 };
 
 interface NpcArchiveEnrichmentCacheEntry {
@@ -342,11 +348,20 @@ export function enrichNpcArchives(
       return cached.result;
     }
     const canonical = matchCanonical(npc.姓名) ?? (npc.别名 ? matchCanonical(npc.别名) : null);
+    const avatarProfile = getAvatarCharacterProfile(npc.姓名, npc.别名 ? [npc.别名] : undefined);
     const codexBaseline = buildCodexArchiveBaseline(npc, options.codex);
     const baseline: CanonicalArchiveBaseline = {
       ...(canonical ? {
         外貌: canonical.appearance,
         性格: canonical.personality,
+      } : {}),
+      ...(avatarProfile ? {
+        穿着: avatarProfile.常用穿着,
+        性别: avatarProfile.gender,
+        发色: avatarProfile.发色,
+        瞳色: avatarProfile.瞳色,
+        身高: avatarProfile.身高,
+        体重: avatarProfile.体重,
       } : {}),
       ...(canonical ? CANONICAL_ARCHIVE_BASELINES[canonical.name] : {}),
       ...(codexBaseline ?? {}),
@@ -360,6 +375,25 @@ export function enrichNpcArchives(
     if (shouldPatchArchiveField(updated.说话方式, baseline.说话方式)) patch.说话方式 = baseline.说话方式;
     if (shouldPatchArchiveField(updated.介绍, baseline.介绍)) patch.介绍 = baseline.介绍;
     if (!updated.性别 && baseline?.性别) patch.性别 = baseline.性别;
+
+    if (avatarProfile) {
+      const currentAppearance: NPC外貌档案 = { ...(updated.外貌档案 ?? {}) };
+      let appearanceChanged = false;
+      const keys = ['发色', '瞳色', '身高', '体重'] as const;
+      for (const key of keys) {
+        const val = avatarProfile[key];
+        if (val) {
+          const existing = currentAppearance[key];
+          if (!existing || (existing.source !== 'manual' && existing.value !== val)) {
+            currentAppearance[key] = { value: val, source: 'canon' };
+            appearanceChanged = true;
+          }
+        }
+      }
+      if (appearanceChanged) {
+        patch.外貌档案 = currentAppearance;
+      }
+    }
     // 图鉴匹配只用于补全文本，不能把原创路人误判成原著角色。
     // 只有真正命中内置原著角色库时，才升级为原著同伴。
     if (canonical) {

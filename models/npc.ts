@@ -5,6 +5,7 @@
 import { matchCanonical } from '@/data/canonicalCharacters';
 import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
+import { getAvatarCharacterProfile } from '@/data/avatarCharacterProfiles';
 import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
 import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 import type { WorldMoment, WorldMomentRange } from './teyvat/worldMoment';
@@ -360,6 +361,7 @@ export function 创建NPC记录(input: {
   原著角色?: boolean;
   性别?: NPC性别;
   外貌?: string;
+  外貌档案?: NPC外貌档案;
   穿着?: string;
   说话方式?: string;
   性格?: string;
@@ -381,6 +383,7 @@ export function 创建NPC记录(input: {
     最近回合: input.初见回合,
     性别: input.性别,
     外貌: input.外貌,
+    外貌档案: input.外貌档案,
     穿着: input.穿着,
     说话方式: input.说话方式,
     性格: input.性格,
@@ -455,11 +458,37 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
     ageConfirmation: archive?.年龄确认, ageSource: archive?.年龄确认来源,
   });
   const appearanceFacts = normalizeNpcAppearanceFacts(source.外貌档案 ?? source.appearanceFacts, eligibleForMeasurements);
+  const avatarProfile = getAvatarCharacterProfile(name, typeof rawAlias === 'string' ? [rawAlias] : undefined);
+  let finalAppearanceFacts = appearanceFacts;
+  if (avatarProfile) {
+    const appearanceMap: NPC外貌档案 = { ...(appearanceFacts ?? {}) };
+    let appearanceChanged = false;
+    for (const key of ['发色', '瞳色', '身高', '体重'] as const) {
+      const val = avatarProfile[key];
+      if (val) {
+        const existing = appearanceMap[key];
+        if (!existing || (existing.source !== 'manual' && existing.value !== val)) {
+          appearanceMap[key] = { value: val, source: 'canon' };
+          appearanceChanged = true;
+        }
+      }
+    }
+    if (appearanceChanged) {
+      finalAppearanceFacts = appearanceMap;
+    }
+  }
   const canonical = 匹配NPC原著角色(name, typeof rawAlias === 'string' ? rawAlias : undefined);
   const shouldForceCompanion = Boolean(canonical || source.原著角色 || source.canonical);
   const archived = source.已归档 === true || source.archived === true;
   const tierBeforeArchive = source.归档前阶位 === 'companion' || source.tierBeforeArchive === 'companion'
     ? 'companion' : source.归档前阶位 === 'extra' || source.tierBeforeArchive === 'extra' ? 'extra' : undefined;
+
+  const resolvedClothing = typeof rawClothing === 'string' && rawClothing.trim()
+    ? rawClothing
+    : (avatarProfile?.常用穿着 ?? undefined);
+  const resolvedGender = rawGender === '男' || rawGender === '女' || rawGender === '其他'
+    ? rawGender
+    : (avatarProfile?.gender ?? undefined);
 
   return {
     id: typeof source.id === 'string' && source.id.trim()
@@ -477,11 +506,11 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
     最近回合: Number.isFinite(recentTurn)
       ? recentTurn
       : (Number.isFinite(firstTurn) ? firstTurn : 1),
-    性别: rawGender === '男' || rawGender === '女' || rawGender === '其他' ? rawGender : undefined,
+    性别: resolvedGender,
     对玩家称呼: typeof rawPlayerName === 'string' ? rawPlayerName : undefined,
     外貌: typeof rawAppearance === 'string' ? rawAppearance : undefined,
-    ...(appearanceFacts ? { 外貌档案: appearanceFacts } : {}),
-    穿着: typeof rawClothing === 'string' ? rawClothing : undefined,
+    ...(finalAppearanceFacts ? { 外貌档案: finalAppearanceFacts } : {}),
+    穿着: resolvedClothing,
     说话方式: typeof rawSpeech === 'string' ? rawSpeech : undefined,
     性格: typeof rawPersonality === 'string' ? rawPersonality : undefined,
     介绍: typeof rawIntro === 'string' ? rawIntro : undefined,
@@ -546,7 +575,9 @@ function 合并NPC记录(base: NPC记录, incoming: NPC记录): NPC记录 {
     原著角色: Boolean(base.原著角色 || incoming.原著角色),
     头像: preferred.头像 ?? base.头像 ?? incoming.头像,
     外貌: preferred.外貌 ?? base.外貌 ?? incoming.外貌,
-    外貌档案: preferred.外貌档案 ?? base.外貌档案 ?? incoming.外貌档案,
+    外貌档案: (base.外貌档案 || incoming.外貌档案)
+      ? { ...(incoming.外貌档案 ?? {}), ...(base.外貌档案 ?? {}), ...(preferred.外貌档案 ?? {}) }
+      : undefined,
     穿着: preferred.穿着 ?? base.穿着 ?? incoming.穿着,
     说话方式: preferred.说话方式 ?? base.说话方式 ?? incoming.说话方式,
     性格: preferred.性格 ?? base.性格 ?? incoming.性格,

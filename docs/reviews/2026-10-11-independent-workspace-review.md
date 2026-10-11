@@ -49,7 +49,19 @@
 
 更新两条门禁后，重新执行完整 `pnpm test` **退出 0**：300 文件 / 2221 单测、发布资源、原体积预算、**192/192 回归脚本全部通过**。新增代码及两条脚本另行 scoped lint 退出 0、无警告；`git diff --check` 退出 0。
 
-合并前验证完成；即将提交工作区全部修改并快进合并到 main，再从 main 工作树执行完整验证。本节不是合并后验证完成声明。
+## 本地合并与 main 工作树复验
+
+全部工作区修改已提交为 `a116a21`，并将原分支及该提交快进并入本地 main。main 工作树位于 `C:/Users/zhong/.codex/worktrees/teyvat-publish-review/yuanshen`；保留原工作树与分支，未推送 GitHub。
+
+从 main 实际执行完整 `pnpm test`：生产构建、300 文件 / 2221 单测、发布资源和原体积预算通过；脚本首轮为 **189/192**，最终退出 1，不能将原工作区 192/192 的结果替代这个失败。
+
+三项差异均在回归脚本，而非生产实现：Windows `core.autocrlf=true` 检出源码为 CRLF，两个多行 `includes` 依赖 LF；Git 不跟踪空目录，旧 `public/zhiku-presets` 不存在时另一个脚本直接 `readdir` 报 ENOENT。修复仅归一化被检查源码的换行、允许已删除的旧资源目录不存在；所有原断言与存在文件的逐项检查保留。修复提交 `e8c1066` 已快进并入 main，三个脚本与 scoped lint 实际通过。
+
+独立审查者再次只读审查这三项修复，结论 **Ready to merge: Yes**。独立反例验证移除男性档案门禁、移除抢话接线、加入 story 条目/旧剧情来源、损坏 JSON、恢复旧章节文件均仍被拒绝；CRLF 与目录缺失正常通过。
+
+随后从真实 main 工作树重跑 `pnpm test:all`，**退出 0，192/192 全部通过**，包括三个曾失败的脚本，未跳过或删除断言。结合此前 main 实跑的构建、2221 单测、发布资源及体积门禁，Web 检查全部通过。`a116a21..e8c1066` 仅这三项测试脚本修复，没有任何运行时代码变化；本报告后续收口提交仅修改 Markdown，不将文档更新伪称为重跑了构建。
+
+**Rust 合并后复验限制**：main 的 `cargo test --lib --offline` 在 Tauri 自定义构建阶段两次退出 101，均为 Windows `拒绝访问 (os error 5)`，第二次已换用新的忽略临时 target 目录，仍失败；该生成目录存在继承的 Everyone `Deny DeleteSubdirectoriesAndFiles`。没有修改系统 ACL、删除旧缓存或跳过构建。后续 `cargo check` 因前置失败未执行，因此不能报告 main Rust 复验通过。本轮开始时原工作树相同 Rust 源码的 13/13 与 check 退出 0 仍是历史实测，不能取代本次 main 的限制。
 
 ## 限制
 

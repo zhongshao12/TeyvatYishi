@@ -5,6 +5,8 @@ import type { 文生图系统设置 } from '@/models/settings';
 import type { 相册系统 } from '@/models/imageGeneration';
 import type { TeyvatGameState } from '@/models/teyvat/state';
 import { useCourierPhotoGeneration } from './useCourierPhotoGeneration';
+import { ImagePromptLibraryPicker } from '@/components/features/ImageGeneration/ImagePromptLibraryPicker';
+import { applyImagePromptSelection } from '@/utils/imagePromptLibrary';
 
 export interface CourierPhotoComposerProps {
   target: CourierPhotoTarget;
@@ -27,6 +29,7 @@ export function CourierPhotoComposer(props: CourierPhotoComposerProps) {
     {!photo.description.trim() && <p role="note" className="my-2 text-xs">未能确定本次玩家拍照要求，请在下方填写照片需求，再更新提示词。</p>}
     <label className="block text-xs">照片描述<textarea aria-label="照片描述" placeholder="填写本次拍照要求：地点、动作、构图等" rows={2} value={photo.description} disabled={photo.busy} onChange={event => photo.setDescription(event.target.value)} className="teyvat-input mt-1 w-full" /></label>
     <button type="button" disabled={photo.busy} onClick={photo.rebuild} className="teyvat-btn my-2 min-h-11 px-3 text-xs">更新提示词</button>
+    <ImagePromptLibraryPicker disabled={photo.busy} onApply={selection => photo.setDraft(previous => applyImagePromptSelection(previous, selection))} />
     <label className="block text-xs">正面提示词<textarea aria-label="照片正面提示词" rows={4} value={photo.draft.prompt} disabled={photo.busy} onChange={event => photo.setDraft(previous => ({ ...previous, prompt: event.target.value, error: '' }))} className="teyvat-input mt-1 w-full" /></label>
     <label className="mt-2 block text-xs">负面提示词<textarea aria-label="照片负面提示词" rows={2} value={photo.draft.negative} disabled={photo.busy} onChange={event => photo.setDraft(previous => ({ ...previous, negative: event.target.value }))} className="teyvat-input mt-1 w-full" /></label>
     <p role="status" className="my-2 whitespace-pre-wrap text-xs">{photo.disabledReason || photo.draft.error || photo.status}</p>

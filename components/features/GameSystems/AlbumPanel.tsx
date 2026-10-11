@@ -25,6 +25,8 @@ import {
 } from '@/utils/albumActions';
 import { buildNovelAIRequestPayload, generateImage } from '@/services/ai/imageGeneration';
 import { ImageRuleTemplateEditor } from '@/components/features/ImageGeneration/ImageRuleTemplateEditor';
+import { ImagePromptLibraryPicker } from '@/components/features/ImageGeneration/ImagePromptLibraryPicker';
+import { appendImagePromptFragments, applyImagePromptSelection } from '@/utils/imagePromptLibrary';
 import { ImageGenerationSettingsTab } from '@/components/features/Settings/ImageGenerationSettingsTab';
 import { parseSceneImagePrompt } from '@/services/ai/narrativeImageParse';
 import { resolveStorySnapshot, trimStorySnapshotSource } from '@/services/ai/storySnapshotPipeline';
@@ -1334,6 +1336,15 @@ function SessionAlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
 
         <section className={`relative z-[2] min-h-0 min-w-0 pr-1 ${activeTab === 'gallery' ? 'xl:overflow-hidden' : 'overflow-y-auto'}`}>
           <main className={activeTab === 'gallery' ? 'h-full min-h-0 min-w-0' : 'min-w-0'}>
+            {(['manual', 'scene', 'sceneImage', 'phone'] as WorkTab[]).includes(activeTab) && <ImagePromptLibraryPicker
+              disabled={generating || tokenizing || storySnapshotAnalyzing || sceneImageAnalyzing}
+              onApply={selection => {
+                setPrompt(previous => appendImagePromptFragments(previous, selection.positive ?? ''));
+                setNegativePrompt(previous => appendImagePromptFragments(previous, selection.negative ?? ''));
+                if (activeTab === 'scene') setStorySnapshotContext(previous => applyImagePromptSelection({ prompt: '', negative: '', context: previous }, selection).context ?? null);
+                setPromptEditorOpen(true);
+              }}
+            />}
             {activeTab === 'gallery' && (
               <ImageLibraryWorkspace
                 records={libraryRecords}

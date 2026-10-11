@@ -94,7 +94,10 @@ export function createMemoryMaintenanceCoordinator(deps: { getState: () => UseGa
   };
   const rebuildPatch = (binding: Binding, task: MemoryRebuildTask): MemoryMaintenancePatch => {
     const recoverable = new Set(task.turns.map(turn => turn.turn));
-    const removed = (task.rebuildScope?.replaceable ?? []).filter(item => item.sourceTurns.every(turn => recoverable.has(turn)));
+    const reconstructedMessages = new Set(task.turns.flatMap(turn => turn.sourceMessageIds));
+    const entryIds = new Set([...readMemorySourceItems(binding.base).flatMap(item => item.id ? [item.id] : []), ...binding.base.irminsul.entries.map(entry => entry.id)]);
+    const removed = (task.rebuildScope?.replaceable ?? []).filter(item => item.sourceTurns.every(turn => recoverable.has(turn))
+      && item.sourceMessageIds.filter(id => !entryIds.has(id)).every(id => reconstructedMessages.has(id)));
     const items = readMemorySourceItems({ memory: task.staging, irminsul: task.stagedIrminsul });
     const removedIds = new Set(removed.map(item => item.id));
     const originalArrayIds = new Set([...(binding.base.memory.即时记忆ID ?? []), ...(binding.base.memory.短期归档ID ?? []),

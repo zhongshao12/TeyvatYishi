@@ -24,6 +24,20 @@ function history(count: number): 聊天消息[] {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('per-turn resumable memory rebuild', () => {
+  it('keeps distinct users with duplicate turn numbers ambiguous instead of fabricating a reroll pair', () => {
+    const duplicate = [...history(1), ...history(1).map(message => ({ ...message, id: `${message.id}-second`, content: `second-${message.content}` }))];
+    const extracted = extractMemoryRebuildTurns(duplicate);
+    expect(extracted.turns).toEqual([]);
+    expect(extracted.warnings.join('\n')).toMatch(/重复回合|多个玩家输入/);
+  });
+
+  it('does not treat a reply after another user segment as a reroll of an earlier turn', () => {
+    const raw = history(2);
+    const extracted = extractMemoryRebuildTurns([...raw, { ...raw[1]!, id: 'late-a1', content: '迟到旧回复' }]);
+    expect(extracted.turns[0]?.assistantId).toBe('a1');
+    expect(extracted.turns[0]?.body).not.toContain('迟到');
+  });
+
   it.each([15, 30])('summarizes each of 15 turns independently with progress grouping %i', async batchSize => {
     const task = future(createMemoryRebuildTask({ chatHistory: history(15), batchSize }));
     const calls: Array<{ kind: string; items: string[]; turn: number }> = [];

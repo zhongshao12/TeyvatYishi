@@ -232,9 +232,11 @@ export function extractMemoryRebuildTurns(
 
   const duplicated = new Set(duplicateIds);
   const users: Array<{ message: 聊天消息; index: number; turn: number }> = [];
-  const assistants: Array<{ message: 聊天消息; index: number; turn: number | null }> = [];
+  const assistants: Array<{ message: 聊天消息; index: number; turn: number | null; userIndex: number | null }> = [];
+  let lastUserIndex: number | null = null;
   for (let index = 0; index < chatHistory.length; index += 1) {
     const message = chatHistory[index];
+    if (message?.role === 'user') lastUserIndex = index;
     if (!message || !message.id?.trim() || duplicated.has(message.id)) continue;
     if (message.role === 'user') {
       const parsedTurn = parseTurn(message.gameTime);
@@ -247,23 +249,21 @@ export function extractMemoryRebuildTurns(
       const parsedTurn = parseTurn(message.gameTime);
       if (message.isStreaming) { warnings.push(`AI 消息 ${message.id} 仍在生成，已跳过。`); continue; }
       if (parsedTurn === null) { warnings.push(`AI 消息 ${message.id} 缺少可靠回合号，已跳过。`); continue; }
-      assistants.push({ message, index, turn: parsedTurn });
+      assistants.push({ message, index, turn: parsedTurn, userIndex: lastUserIndex });
     }
   }
 
   const usedUsers = new Set<string>();
   const pairs = new Map<number, MemoryRebuildTurn>();
+  const userCounts = new Map<number, number>();
+  users.forEach(user => userCounts.set(user.turn, (userCounts.get(user.turn) ?? 0) + 1));
+  const ambiguousTurns = new Set([...userCounts].filter(([, count]) => count > 1).map(([turn]) => turn));
+  ambiguousTurns.forEach(turn => warnings.push(`第 ${turn} 回合存在多个玩家输入（重复回合号），原始记录保留，未纳入重建。`));
   for (const assistant of assistants) {
-    // A reroll can leave two assistant messages for one gameTime. Reuse the
-    // already paired user for that exact turn so the newest assistant replaces
-    // the old one instead of being silently dropped.
-    const existingPair = assistant.turn === null ? undefined : pairs.get(assistant.turn);
-    const candidate = existingPair
-      ? users.find((user) => user.message.id === existingPair.userId)
-      : users
-        .filter((user) => !usedUsers.has(user.message.id) && user.index < assistant.index)
-        .filter((user) => assistant.turn === null || user.turn === assistant.turn)
-        .at(-1);
+    if (assistant.turn !== null && ambiguousTurns.has(assistant.turn)) continue;
+    // Only replies in the same user's response segment can be rerolls.
+    // Turn numbers alone cannot authorize pairing across an intervening user.
+    const candidate = users.find(user => user.index === assistant.userIndex && user.turn === assistant.turn);
     if (!candidate) {
       warnings.push(`AI 消息 ${assistant.message.id} 没有可配对的用户输入，已跳过。`);
       continue;

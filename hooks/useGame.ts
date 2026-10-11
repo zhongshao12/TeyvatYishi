@@ -6,6 +6,7 @@ import {
   clearActiveSaveTreeMetaIfMatches,
   handleLoadLatest,
   handleManualSave,
+  getActiveSaveTreeIdentity,
 } from '@/hooks/useGame/saveLoadWorkflow';
 import { restorePreTurnSnapshot } from '@/hooks/useGame/turnSnapshot';
 import { 创建空记忆系统 } from '@/models/memory';
@@ -67,16 +68,18 @@ export function useGame(): UseGameReturn {
   const maintenanceRef = useRef<Promise<ReturnType<typeof createMemoryMaintenanceCoordinator>> | null>(null);
   const mountedRef = useRef(true);
   const maintenanceSessionRef = useRef(state.getGameSessionId());
+  const maintenanceGenerationRef = useRef(0);
   useLayoutEffect(() => {
     stateRef.current = state;
     if (maintenanceSessionRef.current !== state.getGameSessionId()) {
       maintenanceSessionRef.current = state.getGameSessionId();
-      void maintenanceRef.current?.then(coordinator => coordinator.cancel());
+      maintenanceGenerationRef.current++;
+      void maintenanceRef.current?.then(coordinator => coordinator.cancel()).catch(() => {});
     }
   }, [state]);
   useLayoutEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; void maintenanceRef.current?.then(coordinator => coordinator.dispose()).catch(() => {}); };
+    return () => { mountedRef.current = false; maintenanceGenerationRef.current++; void maintenanceRef.current?.then(coordinator => coordinator.dispose()).catch(() => {}); };
   }, []);
   const rerollContextRef = useRef<{ nonce: string; previousResponse: string } | null>(null);
 
@@ -251,7 +254,10 @@ export function useGame(): UseGameReturn {
     };
   }, [getActiveConfig]);
 
-  const getMemoryMaintenance = useCallback(() => {
+  const getMemoryMaintenance = useCallback(async () => {
+    const sessionId = stateRef.current.getGameSessionId();
+    const rootId = getActiveSaveTreeIdentity()?.rootId ?? null;
+    const generation = maintenanceGenerationRef.current;
     if (!maintenanceRef.current) {
       maintenanceRef.current = import('@/hooks/useGame/memoryMaintenanceStage').then(({ createMemoryMaintenanceCoordinator }) => {
         const coordinator = createMemoryMaintenanceCoordinator({ getState: () => stateRef.current,
@@ -260,26 +266,34 @@ export function useGame(): UseGameReturn {
         return coordinator;
       });
     }
-    return maintenanceRef.current;
+    const coordinator = await maintenanceRef.current;
+    if (!mountedRef.current || generation !== maintenanceGenerationRef.current || sessionId !== stateRef.current.getGameSessionId()
+      || (rootId !== null && rootId !== (getActiveSaveTreeIdentity()?.rootId ?? null))) throw new DOMException('记忆整理已取消或存档已切换。', 'AbortError');
+    return coordinator;
   }, [getMemoryCompressionConfig]);
+  const runMemoryMaintenanceAction = useCallback(async (run: (coordinator: Awaited<ReturnType<typeof getMemoryMaintenance>>) => Promise<void>) => {
+    try { await run(await getMemoryMaintenance()); }
+    catch (error) { if (!(error instanceof DOMException && error.name === 'AbortError')) throw error; }
+  }, [getMemoryMaintenance]);
   const handleRetryMemoryFailureDraft = useCallback(async (id: string) => {
-    await (await getMemoryMaintenance()).retryDraft(id);
-  }, [getMemoryMaintenance]);
+    await runMemoryMaintenanceAction(coordinator => coordinator.retryDraft(id));
+  }, [runMemoryMaintenanceAction]);
   const handleIgnoreMemoryFailureDraft = useCallback(async (id: string) => {
-    await (await getMemoryMaintenance()).ignoreDraft(id);
-  }, [getMemoryMaintenance]);
+    await runMemoryMaintenanceAction(coordinator => coordinator.ignoreDraft(id));
+  }, [runMemoryMaintenanceAction]);
   const handleBatchMemoryRebuild = useCallback(async (options: Parameters<UseGameReturn['actions']['handleBatchMemoryRebuild']>[0]) => {
     return (await getMemoryMaintenance()).runRebuild(options);
   }, [getMemoryMaintenance]);
   const handleCancelMemoryMaintenance = useCallback(() => {
-    void maintenanceRef.current?.then(coordinator => coordinator.cancel());
+    maintenanceGenerationRef.current++;
+    void maintenanceRef.current?.then(coordinator => coordinator.cancel()).catch(() => {});
   }, []);
   const handleCompressMemory = useCallback(async (layer?: MemorySourceLayer) => {
-    await (await getMemoryMaintenance()).compress('manual', layer);
-  }, [getMemoryMaintenance]);
+    await runMemoryMaintenanceAction(coordinator => coordinator.compress('manual', layer));
+  }, [runMemoryMaintenanceAction]);
   const handleCompressIrminsul = useCallback(async () => {
-    await (await getMemoryMaintenance()).compress('irminsul');
-  }, [getMemoryMaintenance]);
+    await runMemoryMaintenanceAction(coordinator => coordinator.compress('irminsul'));
+  }, [runMemoryMaintenanceAction]);
 
       // 重新开局：清掉所有运行时累积的变量切片，保留创角设定（名字 / 元素 / 世界周期等）。
   // 不这样做的话，老的 NPC / 蒸汽鸟报 / 剧情节点 / variableBatches / 全局事件

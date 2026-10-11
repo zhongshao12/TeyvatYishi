@@ -12,6 +12,7 @@ import { addImmediateMemory, autoCompressMemorySystemWithArchivesAsync } from '@
 import { clearActiveSaveTreeMetaIfMatches } from '@/hooks/useGame/saveLoadWorkflow';
 import type { MemoryRebuildTask } from '@/services/memoryRebuild';
 import { isMemoryMaintenanceBusy } from '@/services/memoryMaintenanceRegistry';
+import { fingerprintMemoryText } from '@/models/memorySource';
 
 const external = vi.hoisted(() => ({ state: null as unknown, summarize: vi.fn(), save: vi.fn() }));
 vi.mock('@/hooks/useGameState', async importActual => ({ ...await importActual<typeof import('@/hooks/useGameState')>(), useGameState: () => external.state }));
@@ -87,6 +88,27 @@ it('merges unrelated newly added memory and commits archives in the same live up
   expect(toLegacyMemory(runtime.game).短期记忆).toEqual(['- 获得信物并约定归还']);
   expect(runtime.game.世界树.entries.some(entry => entry.sourceText.includes('获得信物，约定归还'))).toBe(true);
   expect(external.save.mock.calls[0]?.[0]).toMatchObject({ 记忆: { immediate: ['新第2回合'] }, 世界树: { entries: expect.any(Array) } });
+});
+
+it('retains generated sources whose message identities are not reconstructed even if their turn number matches', async () => {
+  await act(async () => runtime.updateGameState(game => withLegacyMemory(game, { ...toLegacyMemory(game),
+    短期记忆: ['另一段第1回合'], 短期归档ID: ['different-pair'], 来源回合: { ...toLegacyMemory(game).来源回合, 'different-pair': [1] },
+    生成文本指纹: { 'different-pair': fingerprintMemoryText('另一段第1回合') },
+    来源时刻: { 'different-pair': { start: null, end: null, sourceIds: ['other-user', 'other-assistant'] } },
+  })));
+  const { release, pending } = await startDelayed(); await act(async () => { release(); await pending; });
+  expect(toLegacyMemory(runtime.game).短期记忆).toEqual(['另一段第1回合', '- 获得信物并约定归还']);
+});
+
+it('does not replace a source when two distinct player pairs share its turn number', async () => {
+  await act(async () => runtime.updateGameState(game => withLegacyChat(game, [ ...toLegacyChat(game),
+    { id: 'u-second', role: 'user', content: '另一段输入', gameTime: '1', timestamp: 3 },
+    { id: 'a-second', role: 'assistant', content: '另一段正文', gameTime: '1', timestamp: 4 },
+  ])));
+  external.summarize.mockResolvedValue({ summary: '- 错配摘要', usedModel: true });
+  await act(async () => gameApi.actions.handleBatchMemoryRebuild({ batchSize: 15 }));
+  expect(toLegacyMemory(runtime.game).即时记忆).toEqual(['旧第1回合']);
+  expect(external.summarize).not.toHaveBeenCalled(); expect(external.save).not.toHaveBeenCalled();
 });
 
 it('starts only one model request for overlapping maintenance and never aborts the main-turn controller', async () => {

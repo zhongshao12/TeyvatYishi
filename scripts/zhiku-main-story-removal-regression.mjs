@@ -24,7 +24,10 @@ for (const file of removedChapterFiles) {
 }
 
 const presetDir = 'public/zhiku-presets';
-for (const file of fs.readdirSync(presetDir).filter((item) => item.endsWith('.json'))) {
+// Git does not track empty directories. An absent legacy resource directory is
+// valid after removal; if present, every remaining JSON must still be checked.
+const presetFiles = fs.existsSync(presetDir) ? fs.readdirSync(presetDir) : [];
+for (const file of presetFiles.filter((item) => item.endsWith('.json'))) {
   const data = JSON.parse(fs.readFileSync(path.join(presetDir, file), 'utf8'));
   for (const entry of data.entries ?? []) {
     assert(entry['分类'] !== 'story', `智库预设不应再包含主线剧情 story 条目：${file} :: ${entry['标题']}`);

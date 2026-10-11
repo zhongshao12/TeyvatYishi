@@ -11,7 +11,8 @@ const sendWorkflow = readWorkflowSources();
 const canonicalCharacters = fs.readFileSync('data/canonicalCharacters.ts', 'utf8');
 const companionPanel = fs.readFileSync('components/features/GameSystems/CompanionPanel.tsx', 'utf8');
 const app = fs.readFileSync('App.tsx', 'utf8');
-const promptBuilder = fs.readFileSync('hooks/useGame/systemPromptBuilder.ts', 'utf8');
+// Git checkout may use CRLF on Windows; contracts must not depend on line endings.
+const promptBuilder = fs.readFileSync('hooks/useGame/systemPromptBuilder.ts', 'utf8').replace(/\r\n/g, '\n');
 const courierService = fs.readFileSync('services/ai/courierService.ts', 'utf8');
 const nsfwPolicy = fs.readFileSync('utils/nsfwArchivePolicy.ts', 'utf8');
 

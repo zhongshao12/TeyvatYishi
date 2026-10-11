@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 
-const read = (path) => fs.readFileSync(path, 'utf8');
+const read = (path) => fs.readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
 
 const promptIds = read('models/prompts.ts');
 const builtinModules = read('data/builtinPromptModules.ts');

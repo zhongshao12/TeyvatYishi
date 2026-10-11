@@ -16,6 +16,7 @@ function assert(condition, message) {
 const memoryModel = read('models/memory.ts');
 const settings = read('models/settings.ts');
 const memoryUtils = read('hooks/useGame/memoryUtils.ts');
+const memoryLayers = read('services/memoryLayerCompression.ts');
 const memoryCompression = read('services/memoryCompression.ts');
 const memoryPanel = read('components/features/GameSystems/MemoryPanel.tsx');
 const memorySettings = read('components/features/Settings/MemorySystemSettings.tsx');
@@ -35,9 +36,10 @@ assert(settings.includes('input.中期转长期提示词 ?? input.短期转长�
 
 assert(memoryUtils.includes('compressToMiddleTerm'), '必须有短期压缩到中期的函数。');
 assert(memoryUtils.includes('createMiddleTermArchiveEntry'), '短期到中期压缩必须写入中期压缩回忆档案。');
-assert(memoryUtils.includes("kind: 'middle'"), '异步记忆总结必须支持 middle 压缩类型。');
-assert(memoryUtils.includes('prompt: settings.短期转中期提示词'), '短期到中期压缩必须使用短期转中期提示词。');
-assert(memoryUtils.includes('prompt: settings.中期转长期提示词'), '中期到长期压缩必须使用中期转长期提示词。');
+assert(memoryLayers.includes("kind: 'middle'"), '异步记忆总结必须支持 middle 压缩类型。');
+assert(memoryLayers.includes('prompt: input.settings.短期转中期提示词'), '短期到中期压缩必须使用短期转中期提示词。');
+assert(memoryLayers.includes('prompt: input.settings.中期转长期提示词'), '中期到长期压缩必须使用中期转长期提示词。');
+assert(memoryUtils.includes('runMemoryLayerCompression'), '自动入口必须委托共享分层晋升。');
 const bundledMemory = await build({
   entryPoints: ['models/memory.ts'], bundle: true, write: false,
   platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent',

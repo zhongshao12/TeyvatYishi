@@ -152,7 +152,8 @@ function pruneMemorySourceMoments(system: 记忆系统): 记忆系统 {
 }
 
 export function addImmediateMemory(system: 记忆系统, memory: string, turn: number, moment?: WorldMoment, explicitId?: string): 记忆系统 {
-  const id = moment ? (explicitId?.trim() || `memory_${moment.settlementId}_${turn}`) : null;
+  const id = explicitId?.trim() || (moment ? `memory_${moment.settlementId}_${turn}`
+    : Number.isSafeInteger(turn) && turn >= 0 ? `memory_turn_${turn}_${fingerprintMemoryText(memory)}` : null);
   if (id) {
     const activeIds = [
       ...(system.即时记忆ID ?? []), ...(system.短期归档ID ?? []),
@@ -161,12 +162,11 @@ export function addImmediateMemory(system: 记忆系统, memory: string, turn: n
     if (activeIds.some((activeId) => activeId === id || system.来源时刻?.[activeId]?.sourceIds.includes(id))) return system;
   }
   const newMemories = [...system.即时记忆, memory];
-  const trimmed = newMemories.length > 50 ? newMemories.slice(-50) : newMemories;
   const newIds = [...(system.即时记忆ID ?? system.即时记忆.map(() => null)), id];
   return pruneMemorySourceMoments({
     ...system,
-    即时记忆: trimmed,
-    ...(moment || system.即时记忆ID ? { 即时记忆ID: newIds.slice(-50) } : {}),
+    即时记忆: newMemories,
+    ...(id || system.即时记忆ID ? { 即时记忆ID: newIds } : {}),
     ...(id ? {
       来源回合: { ...system.来源回合, [id]: [turn] },
       生成文本指纹: { ...system.生成文本指纹, [id]: fingerprintMemoryText(memory) },
@@ -468,200 +468,17 @@ export async function autoCompressMemorySystemWithArchivesAsync(
   usedFallback: boolean;
   usedModel: boolean;
   usedLocal: boolean;
+  blockedReason?: string;
 }> {
-  let next = system;
-  const archives: IrminsulEntry[] = [];
-  let workingIrminsul = irminsul ?? { entries: [] };
-  const failures: 记忆失败草稿[] = [];
-  const immediateThreshold = Math.max(1, Math.trunc(settings.即时转短期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD));
-  const shortThreshold = Math.max(1, Math.trunc(settings.短期转中期阈值 || settings.短期转长期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD));
-  const middleThreshold = Math.max(1, Math.trunc(settings.中期转长期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD));
-  const retryCount = settings.记忆总结API?.retryCount ?? 2;
-  let usedFallback = false;
-  let usedModel = false;
-  let usedLocal = false;
-
-  const unresolvedFallbacks = new Set(
-    (next.失败草稿 ?? [])
-      .filter((draft) => draft.status === 'pending' || draft.status === 'retrying')
-      .map((draft) => draft.fallbackSummary),
-  );
-
-  const appendFailure = async (
-    source: { kind: 'short' | 'middle' | 'long'; turn: number; items: string[]; sourceTurns?: { start: number; end: number } },
-    result: Awaited<ReturnType<typeof summarizeMemoryBatch>>,
-    archiveEntryId: string,
-  ): Promise<void> => {
-    if (!result.failureCode) return;
-    const sourceSnapshot = await serializeMemoryFailureSource(source.items);
-    const duplicate = (next.失败草稿 ?? []).find(
-      (draft) => (draft.status === 'pending' || draft.status === 'retrying')
-        && draft.kind === source.kind
-        && draft.archiveEntryId === archiveEntryId
-        && draft.sourceSnapshot.checksum === sourceSnapshot.checksum,
-    );
-    if (duplicate) {
-      unresolvedFallbacks.add(duplicate.fallbackSummary);
-      return;
-    }
-    const now = Date.now();
-    const draft: 记忆失败草稿 = {
-      id: `memory_failure_${now}_${Math.random().toString(36).slice(2, 8)}`,
-      archiveEntryId,
-      origin: 'automatic',
-      kind: source.kind,
-      status: 'pending',
-      sourceTurns: source.sourceTurns ?? { start: source.turn, end: source.turn },
-      sourceSnapshot,
-      targetLayer: source.kind === 'short' ? '短期记忆' : source.kind === 'middle' ? '中期记忆' : '长期记忆',
-      fallbackSummary: result.summary,
-      failureCode: result.failureCode,
-      failureMessage: result.failureMessage ?? '记忆总结失败。',
-      attemptCount: 1,
-      createdAt: now,
-      updatedAt: now,
-    };
-    failures.push(draft);
-    next = { ...next, 失败草稿: [...(next.失败草稿 ?? []), draft] };
-    unresolvedFallbacks.add(draft.fallbackSummary);
-  };
-
-  const pickEligible = (items: string[], size: number): { raw: string[]; indexes: number[] } | null => {
-    const indexes = items
-      .map((item, index) => unresolvedFallbacks.has(item) ? -1 : index)
-      .filter((index) => index >= 0)
-      .slice(0, size);
-    return indexes.length >= size
-      ? { raw: indexes.map((index) => items[index]).filter((item): item is string => item !== undefined), indexes }
-      : null;
-  };
-
-  const removeIndexes = <T>(items: T[], indexes: number[]): T[] => {
-    const selected = new Set(indexes);
-    return items.filter((_item, index) => !selected.has(index));
-  };
-
-  const inferSourceTurns = (items: string[], currentTurn: number): { start: number; end: number } => {
-    const embeddedTurns = items.flatMap((item) => {
-      const matches = String(item).matchAll(/(?:回合|回合纪要|短期纪要|中期纪要)[^\d]{0,8}(\d{1,5})/g);
-      return Array.from(matches, (match) => Number(match[1])).filter(Number.isFinite);
-    });
-    const end = embeddedTurns.length
-      ? Math.max(1, ...embeddedTurns)
-      : Math.max(1, Math.trunc(currentTurn) || 1);
-    const start = embeddedTurns.length ? Math.min(...embeddedTurns) : Math.max(1, end - items.length + 1);
-    return { start, end };
-  };
-
-  while (next.即时记忆.length >= immediateThreshold) {
-    const picked = pickEligible(next.即时记忆, immediateThreshold);
-    if (!picked) break;
-    const raw = picked.raw;
-    const result = await summarizeMemoryBatch(
-      {
-        kind: 'short',
-        turn,
-        items: raw,
-        prompt: settings.即时转短期提示词,
-      },
-      settings,
-      mainConfig,
-      signal,
-      retryCount,
-    );
-    usedFallback = usedFallback || result.usedFallback;
-    usedModel = usedModel || result.usedModel;
-    usedLocal = usedLocal || result.usedLocal;
-    const immediateIds = picked.indexes.map((index) => next.即时记忆ID?.[index] ?? null);
-    const archive = archiveWithProvenance(createShortTermArchiveEntry(raw, turn, result.summary), raw, turn,
-      archives.filter((entry) => entry.archiveType === 'short').length, null, immediateIds, workingIrminsul, Boolean(result.failureCode),
-      immediateIds.map((id) => id ? next.来源时刻?.[id] ?? null : null));
-    await appendFailure({ kind: 'short', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result, archive.id);
-    archives.push(archive);
-    workingIrminsul = promoteIrminsulEntry(workingIrminsul, archive);
-    next = {
-      ...next,
-      即时记忆: removeIndexes(next.即时记忆, picked.indexes),
-      ...(next.即时记忆ID ? { 即时记忆ID: removeIndexes(next.即时记忆ID, picked.indexes) } : {}),
-      短期记忆: [...next.短期记忆, result.summary],
-      短期归档ID: [...(next.短期归档ID ?? next.短期记忆.map(() => null)), archive.id],
-      ...(archive.sourceMomentRange ? { 来源时刻: { ...next.来源时刻, [archive.id]: archive.sourceMomentRange } } : {}),
-    };
-  }
-
-  while (next.短期记忆.length >= shortThreshold) {
-    const picked = pickEligible(next.短期记忆, shortThreshold);
-    if (!picked) break;
-    const raw = picked.raw;
-    const result = await summarizeMemoryBatch(
-      {
-        kind: 'middle',
-        turn,
-        items: raw,
-        prompt: settings.短期转中期提示词,
-      },
-      settings,
-      mainConfig,
-      signal,
-      retryCount,
-    );
-    usedFallback = usedFallback || result.usedFallback;
-    usedModel = usedModel || result.usedModel;
-    usedLocal = usedLocal || result.usedLocal;
-    const sourceIds = picked.indexes.map((index) => next.短期归档ID?.[index] ?? null);
-    const archive = archiveWithProvenance(createMiddleTermArchiveEntry(raw, turn, result.summary), raw, turn,
-      archives.filter((entry) => entry.archiveType === 'medium').length, 'short', sourceIds, workingIrminsul, Boolean(result.failureCode),
-      sourceIds.map((id) => id ? next.来源时刻?.[id] ?? null : null));
-    await appendFailure({ kind: 'middle', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result, archive.id);
-    archives.push(archive);
-    workingIrminsul = promoteIrminsulEntry(workingIrminsul, archive);
-    next = {
-      ...next,
-      短期记忆: removeIndexes(next.短期记忆, picked.indexes),
-      短期归档ID: removeIndexes(next.短期归档ID ?? next.短期记忆.map(() => null), picked.indexes),
-      中期记忆: [...(next.中期记忆 ?? []), result.summary],
-      中期归档ID: [...(next.中期归档ID ?? (next.中期记忆 ?? []).map(() => null)), archive.id],
-      ...(archive.sourceMomentRange ? { 来源时刻: { ...next.来源时刻, [archive.id]: archive.sourceMomentRange } } : {}),
-    };
-  }
-
-  while ((next.中期记忆 ?? []).length >= middleThreshold) {
-    const picked = pickEligible(next.中期记忆 ?? [], middleThreshold);
-    if (!picked) break;
-    const raw = picked.raw;
-    const result = await summarizeMemoryBatch(
-      {
-        kind: 'long',
-        turn,
-        items: raw,
-        prompt: settings.中期转长期提示词 || settings.短期转长期提示词,
-      },
-      settings,
-      mainConfig,
-      signal,
-      retryCount,
-    );
-    usedFallback = usedFallback || result.usedFallback;
-    usedModel = usedModel || result.usedModel;
-    usedLocal = usedLocal || result.usedLocal;
-    const sourceIds = picked.indexes.map((index) => next.中期归档ID?.[index] ?? null);
-    const archive = archiveWithProvenance(createLongTermArchiveEntry(raw, turn, result.summary), raw, turn,
-      archives.filter((entry) => entry.archiveType === 'long').length, 'medium', sourceIds, workingIrminsul, Boolean(result.failureCode),
-      sourceIds.map((id) => id ? next.来源时刻?.[id] ?? null : null));
-    await appendFailure({ kind: 'long', turn, items: raw, sourceTurns: inferSourceTurns(raw, turn) }, result, archive.id);
-    archives.push(archive);
-    workingIrminsul = promoteIrminsulEntry(workingIrminsul, archive);
-    next = {
-      ...next,
-      中期记忆: removeIndexes(next.中期记忆 ?? [], picked.indexes),
-      中期归档ID: removeIndexes(next.中期归档ID ?? (next.中期记忆 ?? []).map(() => null), picked.indexes),
-      长期记忆: [...next.长期记忆, result.summary],
-      长期归档ID: [...(next.长期归档ID ?? next.长期记忆.map(() => null)), archive.id],
-      ...(archive.sourceMomentRange ? { 来源时刻: { ...next.来源时刻, [archive.id]: archive.sourceMomentRange } } : {}),
-    };
-  }
-
-  return { memory: pruneMemorySourceMoments(next), archives, failures, usedFallback, usedModel, usedLocal };
+  const { runMemoryLayerCompression } = await import('@/services/memoryLayerCompression');
+  const result = await runMemoryLayerCompression({
+    state: { memory: system, irminsul: irminsul ?? { entries: [] } },
+    turn, settings, mode: 'automatic', signal,
+    summarizer: (source, context) => summarizeMemoryBatch(source, settings, mainConfig, context.signal, settings.记忆总结API?.retryCount ?? 2),
+  });
+  return { memory: result.state.memory, archives: result.patch.archiveUpserts, failures: result.failures,
+    usedFallback: result.usedFallback, usedModel: result.usedModel, usedLocal: result.usedLocal,
+    blockedReason: result.blockedReason };
 }
 
 export interface RetryMemoryFailureDraftResult {
@@ -697,6 +514,19 @@ export async function retryMemoryFailureDraft(
   }
 
   const items = await deserializeMemoryFailureSource(draft.sourceSnapshot);
+  if (signal?.aborted) throw new DOMException('记忆整理已取消。', 'AbortError');
+  if (draft.sourceIds?.length) {
+    const { readMemoryCompressionMaterials, resolveMemoryCompressionSources } = await import('@/services/memoryLayerCompression');
+    const currentState = { memory: system, irminsul: irminsul ?? { entries: [] } };
+    const expectedLayer = draft.kind === 'short' ? 'immediate' : draft.kind === 'middle' ? 'short' : 'middle';
+    const sources = resolveMemoryCompressionSources(currentState, draft.sourceIds, expectedLayer);
+    if (new Set(draft.sourceIds).size !== draft.sourceIds.length || sources.some(item => !item)
+      || JSON.stringify(readMemoryCompressionMaterials(currentState, sources.filter((item): item is NonNullable<typeof item> => Boolean(item))).items) !== JSON.stringify(items)) {
+      const conflicted: 记忆失败草稿 = { ...draft, status: 'pending', failureCode: 'source_changed', failureMessage: '原始来源已修改或删除，未发起重试。', updatedAt: Date.now() };
+      return { memory: { ...system, 失败草稿: (system.失败草稿 ?? []).map(item => item.id === draft.id ? conflicted : item) },
+        irminsul, draft: conflicted, usedModel: false, usedFallback: false };
+    }
+  }
   const prompt = draft.kind === 'short'
     ? settings.即时转短期提示词
     : draft.kind === 'middle'
@@ -719,6 +549,7 @@ export async function retryMemoryFailureDraft(
     // 开关在请求前已检查，这个分支只是防止调用方传入被并发修改的设置。
     throw new Error('记忆总结 API 已关闭，未发起重试请求。');
   }
+  if (signal?.aborted) throw new DOMException('记忆整理已取消。', 'AbortError');
 
   const now = Date.now();
   if (result.failureCode) {
@@ -740,6 +571,29 @@ export async function retryMemoryFailureDraft(
       usedModel: false,
       usedFallback: true,
     };
+  }
+
+  if (draft.sourceIds?.length) {
+    const { runMemoryLayerCompression } = await import('@/services/memoryLayerCompression');
+    const { mergeMemoryMaintenancePatch } = await import('@/services/memoryMaintenanceMerge');
+    const sourceText = draft.kind === 'short' ? '即时记忆' : draft.kind === 'middle' ? '短期记忆' : '中期记忆';
+    const sourceIdField = draft.kind === 'short' ? '即时记忆ID' : draft.kind === 'middle' ? '短期归档ID' : '中期归档ID';
+    const ids = new Set(draft.sourceIds);
+    const selected = system[sourceText].flatMap((text, index) => ids.has(system[sourceIdField]?.[index] ?? '') ? [{ text, id: system[sourceIdField]?.[index] ?? null }] : []);
+    const partial: 记忆系统 = { ...system, 即时记忆: [], 即时记忆ID: [], 短期记忆: [], 短期归档ID: [], 中期记忆: [], 中期归档ID: [], 长期记忆: [], 长期归档ID: [],
+      [sourceText]: selected.map(item => item.text), [sourceIdField]: selected.map(item => item.id), 失败草稿: (system.失败草稿 ?? []).filter(item => item.id !== draft.id) };
+    const selectedSettings = { ...settings, 即时转短期阈值: Number.MAX_SAFE_INTEGER, 短期转中期阈值: Number.MAX_SAFE_INTEGER, 中期转长期阈值: Number.MAX_SAFE_INTEGER,
+      [draft.kind === 'short' ? '即时转短期阈值' : draft.kind === 'middle' ? '短期转中期阈值' : '中期转长期阈值']: draft.sourceIds.length };
+    const compressed = await runMemoryLayerCompression({ state: { memory: partial, irminsul: irminsul ?? { entries: [] } },
+      turn: draft.sourceTurns.end, settings: selectedSettings, mode: 'irminsul', sourceIds: draft.sourceIds, signal, summarizer: async () => result });
+    if (compressed.failures.length || (!compressed.patch.added.length && !compressed.patch.archiveUpserts.some(entry => entry.status !== 'pending'))) {
+      throw new Error('原始来源当前不可晋升，原文与失败草稿保持不变。');
+    }
+    const resolved: 记忆失败草稿 = { ...draft, status: 'resolved', sourceSnapshot: { ...draft.sourceSnapshot, payload: '' }, updatedAt: now };
+    const base = { memory: system, irminsul: irminsul ?? { entries: [] } };
+    const merged = mergeMemoryMaintenancePatch(base, base, { ...compressed.patch, failureUpserts: [resolved] });
+    if (!merged.ok) throw new Error(merged.message);
+    return { memory: merged.state.memory, irminsul: merged.state.irminsul, draft: resolved, usedModel: true, usedFallback: false };
   }
 
   const layerKey = draft.targetLayer;

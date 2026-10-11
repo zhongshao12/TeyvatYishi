@@ -113,7 +113,7 @@ export async function settlePostNarrativeMemory(
   const irminsul = compression.archives.reduce(promoteIrminsulEntry, input.irminsul);
   const failureCount = compression.failures.length;
   const detail = failureCount > 0
-    ? `记忆总结有 ${failureCount} 批 API 失败，已保留完整失败草稿；当前回合继续使用本地 fallback。`
+    ? `记忆总结有 ${failureCount} 批 API 失败，原层来源与完整失败草稿均已保留，等待手动重试。`
     : compression.usedModel
       ? '即时/短期/中期/长期记忆已调用记忆总结 API 完成整理。'
       : '即时/短期/中期/长期记忆已使用本地摘要完成整理。';

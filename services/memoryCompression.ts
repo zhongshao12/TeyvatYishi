@@ -141,7 +141,7 @@ function sanitizeFailureMessage(error: unknown, secrets: string[]): string {
   return message.slice(0, 240) || '记忆总结请求失败。';
 }
 
-function buildFallbackSummary(items: string[], turn: number, kind: MemoryCompressionKind): string {
+export function buildFallbackSummary(items: string[], turn: number, kind: MemoryCompressionKind): string {
   const title = kind === 'short' ? '即时转短期' : kind === 'middle' ? '短期转中期' : '中期转长期';
   const lines = dedupeLines(
     items
@@ -173,7 +173,7 @@ function normalizeSummaryOutput(raw: string): string {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => line.replace(/^[\d一二三四五六七八九十]+\s*[.、)]\s*/, '- '))
-    .map((line) => line.replace(/^[*-•‣·\s]+/, '- '))
+    .map((line) => line.replace(/^[-*•‣·\s]+/, '- '))
     .map((line) => (line.startsWith('- ') ? line : `- ${line}`));
 
   return dedupeLines(lines).slice(0, 8).join('\n');

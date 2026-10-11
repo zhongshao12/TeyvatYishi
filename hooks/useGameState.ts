@@ -490,7 +490,7 @@ export function toLegacyMemory(game: TeyvatGameState): 记忆系统 {
     中期记忆: [...game.记忆.mediumTerm], ...(game.记忆.mediumArchiveIds ? { 中期归档ID: [...game.记忆.mediumArchiveIds] } : {}),
     长期记忆: [...game.记忆.longTerm], ...(game.记忆.longArchiveIds ? { 长期归档ID: [...game.记忆.longArchiveIds] } : {}),
     失败草稿: game.记忆.failedDrafts.map((draft) => ({
-    id: draft.id, archiveEntryId: draft.archiveEntryId, origin: draft.origin, kind: draft.kind, status: draft.status,
+    id: draft.id, archiveEntryId: draft.archiveEntryId, sourceIds: draft.sourceIds ? [...draft.sourceIds] : undefined, origin: draft.origin, kind: draft.kind, status: draft.status,
     sourceTurns: { start: draft.sourceTurns.start, end: draft.sourceTurns.end },
     sourceSnapshot: { encoding: draft.sourceSnapshot.encoding, payload: draft.sourceSnapshot.payload, checksum: draft.sourceSnapshot.checksum, itemCount: draft.sourceSnapshot.itemCount, uncompressedBytes: draft.sourceSnapshot.uncompressedBytes },
     targetLayer: draft.targetLayer, fallbackSummary: draft.fallbackSummary, failureCode: draft.failureCode,
@@ -509,7 +509,7 @@ export function withLegacyMemory(game: TeyvatGameState, memory: 记忆系统): T
     mediumTerm: memory.中期记忆, ...(memory.中期归档ID ? { mediumArchiveIds: memory.中期归档ID } : {}),
     longTerm: memory.长期记忆, ...(memory.长期归档ID ? { longArchiveIds: memory.长期归档ID } : {}),
     failedDrafts: (memory.失败草稿 ?? []).map((draft) => ({
-      id: draft.id, archiveEntryId: draft.archiveEntryId, origin: draft.origin, kind: draft.kind, status: draft.status,
+      id: draft.id, archiveEntryId: draft.archiveEntryId, sourceIds: draft.sourceIds ? [...draft.sourceIds] : undefined, origin: draft.origin, kind: draft.kind, status: draft.status,
       sourceTurns: { start: draft.sourceTurns.start, end: draft.sourceTurns.end },
       sourceSnapshot: { encoding: draft.sourceSnapshot.encoding, payload: draft.sourceSnapshot.payload, checksum: draft.sourceSnapshot.checksum, itemCount: draft.sourceSnapshot.itemCount, uncompressedBytes: draft.sourceSnapshot.uncompressedBytes },
       targetLayer: draft.targetLayer, fallbackSummary: draft.fallbackSummary, failureCode: draft.failureCode,

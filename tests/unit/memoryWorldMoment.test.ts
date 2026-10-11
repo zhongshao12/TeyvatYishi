@@ -26,17 +26,17 @@ function moment(turn: number, clock: string) {
 describe('memory world-moment provenance', () => {
   beforeEach(() => model.summarize.mockReset());
 
-  it('keeps immediate IDs aligned when the oldest memory is trimmed', () => {
+  it('keeps immediate IDs aligned without trimming unarchived memories', () => {
     let memory = 创建空记忆系统();
     for (let turn = 1; turn <= 51; turn += 1) {
       memory = addImmediateMemory(memory, `回合 ${turn}`, turn, moment(1, '10:00'));
     }
-    expect(memory.即时记忆).toHaveLength(50);
-    expect(memory.即时记忆[0]).toBe('回合 2');
-    expect(memory.即时记忆ID).toHaveLength(50);
-    expect(memory.即时记忆ID?.[0]).toBe('memory_turn-1_2');
+    expect(memory.即时记忆).toHaveLength(51);
+    expect(memory.即时记忆[0]).toBe('回合 1');
+    expect(memory.即时记忆ID).toHaveLength(51);
+    expect(memory.即时记忆ID?.[0]).toBe('memory_turn-1_1');
     expect(memory.来源时刻?.[memory.即时记忆ID?.[0] ?? '']?.start?.clock).toBe('10:00');
-    expect(Object.keys(memory.来源时刻 ?? {})).toHaveLength(50);
+    expect(Object.keys(memory.来源时刻 ?? {})).toHaveLength(51);
   });
 
   it('carries first-to-last source moments into a compressed archive', async () => {

@@ -3,7 +3,7 @@ export function resolveManualChunk(rawId: string): string | undefined {
   if (!id.includes('/node_modules/')) {
     // Only lazy phone/album/narrative-image entries consume these image tools.
     // Do not force their growing prompt/commit logic into the first-screen core.
-    if (/\/services\/(?:memoryRebuild|memorySources|memoryMaintenanceMerge)\.ts$/.test(id)) return undefined;
+    if (/\/services\/(?:memoryRebuild|memorySources|memoryMaintenanceMerge|memoryLayerCompression)\.ts$/.test(id)) return undefined;
     if (/\/services\/(?:courierPhoto|ai\/(?:imagePromptTokenizer|storySnapshotPipeline))\.ts$/.test(id)) return undefined;
     if (/\/hooks\/useGame\/(?:contextSnapshot|narrativeImageWorkflow|postSettlementRecoveryWorkflow|variableSettlementWorkflow|postSettlementCommitStage|sendPreparationStage|variableCalibrationStage|mainPromptAssembly|aiMessageStage|autoSaveStage|apiMessagesStage|elementalSettlementStage|memoryUpdateStage|worldCommitStage|mainNarrativeStreamingStage|mainNarrativeRequestStage)\.ts$/.test(id)) return undefined;
     if (id.includes('/prompts/')) return 'app-content';

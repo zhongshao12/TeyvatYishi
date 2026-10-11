@@ -1,11 +1,10 @@
 import type { MemoryMaintenancePatch, MemoryMaintenanceState, MemorySourceItem } from '@/models/memorySource';
 import type { MemoryRebuildRange } from './memoryRebuild';
-import { fingerprintMemoryText } from '@/models/memorySource';
+import { fingerprintMemoryText, memorySourceValuesEqual as same } from '@/models/memorySource';
 import { readMemorySourceItems } from './memorySources';
 import { hasVerifiedIrminsulCoverage, type IrminsulEntry } from '@/models/teyvat/irminsul';
 import type { 记忆系统 } from '@/models/memory';
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const layerFields = {
   immediate: ['即时记忆', '即时记忆ID'], short: ['短期记忆', '短期归档ID'],
   middle: ['中期记忆', '中期归档ID'], long: ['长期记忆', '长期归档ID'],
@@ -88,9 +87,10 @@ export function mergeMemoryMaintenancePatch(base: MemoryMaintenanceState, live: 
     if (fromBase.length > 1 || fromLive.length > 1 || !same(fromBase, fromLive)) return reject();
   }
   // Deleting an archive needs proof of all facts, independently of array-layer replacement.
-  const coverageSources = [...live.irminsul.entries, ...patch.archiveUpserts.filter(entry => !findArchive(live, entry.id).length)];
+  const coverageSources = [...live.irminsul.entries.filter(entry => !upserts.has(entry.id)), ...patch.archiveUpserts];
+  const survivingProofs = coverageSources.filter(entry => !removedArchives.has(entry.id));
   for (const entry of patch.archiveRemoved) {
-    if (!patch.archiveUpserts.some(upper => upper.coveredEntryIds?.includes(entry.id)
+    if (!survivingProofs.some(upper => upper.coveredEntryIds?.includes(entry.id)
       && hasVerifiedIrminsulCoverage(coverageSources.filter(source => source.id !== upper.id), upper))) return reject();
   }
   const memory: 记忆系统 = { ...live.memory };

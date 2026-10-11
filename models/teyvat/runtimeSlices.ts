@@ -153,6 +153,7 @@ export interface MemorySourceSnapshotDto {
 export interface MemoryFailedDraftDto {
   id: string;
   archiveEntryId?: string;
+  sourceIds?: string[];
   origin?: 'automatic' | 'batch_rebuild';
   kind: 'short' | 'middle' | 'long';
   status: 'pending' | 'retrying' | 'resolved' | 'ignored';
@@ -517,7 +518,7 @@ export function normalizeMemoryLedger(value: unknown): MemoryLedger {
     recoveryLog: Array.isArray(raw.recoveryLog) ? raw.recoveryLog.flatMap((entry) => isRecord(entry) ? [{ id: text(entry.id), sourceTurns: normalizeTurnRange(entry.sourceTurns), summary: text(entry.summary), status: recoveryStatuses.find((item) => item === entry.status) ?? 'pending', ...(optionalText(entry.failureCode) ? { failureCode: text(entry.failureCode) } : {}), createdAt: number(entry.createdAt), updatedAt: number(entry.updatedAt) }] : []) : [], failedDrafts: Array.isArray(raw.failedDrafts) ? raw.failedDrafts.flatMap((entry) => {
     if (!isRecord(entry)) return [];
     const snapshot = isRecord(entry.sourceSnapshot) ? entry.sourceSnapshot : {};
-    return [{ id: text(entry.id), ...(optionalText(entry.archiveEntryId) ? { archiveEntryId: text(entry.archiveEntryId) } : {}), ...(entry.origin === 'automatic' || entry.origin === 'batch_rebuild' ? { origin: entry.origin } : {}), kind: draftKinds.find((item) => item === entry.kind) ?? 'short', status: recoveryStatuses.find((item) => item === entry.status) ?? 'pending', sourceTurns: normalizeTurnRange(entry.sourceTurns), sourceSnapshot: { encoding: snapshot.encoding === 'gzip-base64' ? 'gzip-base64' : 'plain-json', payload: text(snapshot.payload), checksum: text(snapshot.checksum), itemCount: integer(snapshot.itemCount), uncompressedBytes: integer(snapshot.uncompressedBytes) }, targetLayer: entry.targetLayer === '中期记忆' || entry.targetLayer === '长期记忆' ? entry.targetLayer : '短期记忆', fallbackSummary: text(entry.fallbackSummary), failureCode: failureCodes.find((item) => item === entry.failureCode) ?? 'request_failed', failureMessage: text(entry.failureMessage), attemptCount: integer(entry.attemptCount), createdAt: number(entry.createdAt), updatedAt: number(entry.updatedAt) }];
+    return [{ id: text(entry.id), ...(Array.isArray(entry.sourceIds) ? { sourceIds: [...new Set(textList(entry.sourceIds).filter(id => id.trim()))] } : {}), ...(optionalText(entry.archiveEntryId) ? { archiveEntryId: text(entry.archiveEntryId) } : {}), ...(entry.origin === 'automatic' || entry.origin === 'batch_rebuild' ? { origin: entry.origin } : {}), kind: draftKinds.find((item) => item === entry.kind) ?? 'short', status: recoveryStatuses.find((item) => item === entry.status) ?? 'pending', sourceTurns: normalizeTurnRange(entry.sourceTurns), sourceSnapshot: { encoding: snapshot.encoding === 'gzip-base64' ? 'gzip-base64' : 'plain-json', payload: text(snapshot.payload), checksum: text(snapshot.checksum), itemCount: integer(snapshot.itemCount), uncompressedBytes: integer(snapshot.uncompressedBytes) }, targetLayer: entry.targetLayer === '中期记忆' || entry.targetLayer === '长期记忆' ? entry.targetLayer : '短期记忆', fallbackSummary: text(entry.fallbackSummary), failureCode: failureCodes.find((item) => item === entry.failureCode) ?? 'request_failed', failureMessage: text(entry.failureMessage), attemptCount: integer(entry.attemptCount), createdAt: number(entry.createdAt), updatedAt: number(entry.updatedAt) }];
   }) : [] };
 }
 

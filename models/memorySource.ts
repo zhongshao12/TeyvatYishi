@@ -50,3 +50,14 @@ export function fingerprintMemoryText(text: string): string {
   for (let index = 0; index < text.length; index += 1) hash = Math.imul(hash ^ text.charCodeAt(index), 16777619);
   return `fnv1a:${text.length}:${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
+
+/** Value comparison for JSON DTOs; object field order is not a source change. */
+export function memorySourceValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) || Array.isArray(right)) return Array.isArray(left) && Array.isArray(right)
+    && left.length === right.length && left.every((item, index) => memorySourceValuesEqual(item, right[index]));
+  const a = left as Record<string, unknown>; const b = right as Record<string, unknown>;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(key => Object.prototype.hasOwnProperty.call(b, key) && memorySourceValuesEqual(a[key], b[key]));
+}

@@ -1,3 +1,5 @@
+import { normalizeSourceTurns } from '@/models/memorySource';
+
 export interface IrminsulEntry {
   id: string;
   title: string;
@@ -62,7 +64,7 @@ export function normalizeIrminsulMemory(input: unknown): IrminsulMemory {
       ? value.archiveType as IrminsulEntry['archiveType'] : 'short';
     return [{
       id: String(value.id ?? ''), title: String(value.title ?? ''), summary: String(value.summary ?? ''),
-      sourceTurns: Array.isArray(value.sourceTurns) ? value.sourceTurns.map((turn) => Math.max(0, Math.trunc(Number(turn) || 0))) : [],
+      sourceTurns: normalizeSourceTurns(value.sourceTurns),
       keywords: Array.isArray(value.keywords) ? value.keywords.map(String) : [],
       recordedAt: String(value.recordedAt ?? ''), archiveType, sourceText: String(value.sourceText ?? ''),
       turn: Math.max(0, Math.trunc(Number(value.turn) || 0)),

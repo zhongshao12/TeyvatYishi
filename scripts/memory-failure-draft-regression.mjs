@@ -26,6 +26,8 @@ assert.equal(snapshot.itemCount, 15, '快照必须记录完整材料条数。');
 assert.deepEqual(await memoryModel.deserializeMemoryFailureSource(snapshot), exactItems, '快照解码后必须逐字一致。');
 
 const emptyMemory = memoryModel.创建空记忆系统();
+const recordedMemory = exactItems.reduce((memory, item, index) =>
+  memoryUtils.addImmediateMemory(memory, item, index + 1), emptyMemory);
 const settings = {
   启用中短长期API总结: true,
   即时转短期阈值: 15,
@@ -38,7 +40,7 @@ const settings = {
   记忆总结API: { provider: '', baseUrl: '', apiKey: '', model: '', retryCount: 0 },
 };
 const unconfigured = await memoryUtils.autoCompressMemorySystemWithArchivesAsync(
-  { ...emptyMemory, 即时记忆: exactItems },
+  recordedMemory,
   15,
   settings,
   { provider: 'openai_compatible', baseUrl: '', apiKey: '', model: '' },
@@ -51,7 +53,14 @@ assert.deepEqual(
   exactItems,
   '自动失败草稿必须保存实际送入总结器的完整 15 条材料。',
 );
-assert.equal(unconfigured.memory.短期记忆.length, 1, '失败时仍应保留本地 fallback，主流程不能中断。');
+assert.equal(unconfigured.memory.短期记忆.length, 0, '失败不能把 fallback 当成成功摘要晋升。');
+assert.deepEqual(unconfigured.memory.即时记忆, exactItems, '失败必须完整保留原层来源，主流程不能中断。');
+assert.equal(unconfigured.archives[0].status, 'pending', '失败归档必须明确标为待重试。');
+const unknownSource = await memoryUtils.autoCompressMemorySystemWithArchivesAsync(
+  { ...emptyMemory, 即时记忆: exactItems }, 15, settings,
+  { provider: 'openai_compatible', baseUrl: '', apiKey: '', model: '' },
+);
+assert.deepEqual(unknownSource.failures[0].sourceTurns, { start: 0, end: 0 }, '旧记录缺乏正式来源时不能从文字猜测回合范围。');
 
 const localSettings = { ...settings, 启用中短长期API总结: false };
 const localResult = await memoryCompression.summarizeMemoryBatch(

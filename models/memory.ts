@@ -25,6 +25,8 @@ export interface 记忆失败草稿 {
   id: string;
   /** World-tree pending archive corresponding to this fallback, when provenance is available. */
   archiveEntryId?: string;
+  /** Retained original source identities; absent on historical fallback-only drafts. */
+  sourceIds?: string[];
   /** 批量重建草稿不能按普通 fallback 替换逻辑重试。旧存档缺失时按 automatic 处理。 */
   origin?: 'automatic' | 'batch_rebuild';
   kind: 记忆压缩层级;

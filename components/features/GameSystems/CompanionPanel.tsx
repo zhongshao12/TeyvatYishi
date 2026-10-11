@@ -17,7 +17,8 @@ import { displayFirstPartner } from '@/utils/npcFirstPartner';
 import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
 import { getCanonicalArchiveBaselineAge, enableNpcNsfwArchive, disableNpcNsfwArchive } from '@/utils/npcArchiveEnrichment';
 import { archiveNpc, restoreNpc } from '@/services/npcArchiving';
-import { canRevealNpcRecordMeasurements, NPC_APPEARANCE_KEYS, npcAppearanceSourceLabel } from '@/services/npcAppearanceFacts';
+import { canRevealNpcRecordMeasurements, normalizeNpcAppearanceFacts, NPC_APPEARANCE_KEYS, npcAppearanceSourceLabel } from '@/services/npcAppearanceFacts';
+import { reconcileNpcAppearanceRecord } from '@/utils/npcAppearanceReconciliation';
 import type { NpcAppearanceKey } from '@/services/npcAppearanceFacts';
 import { applyNpcAppearanceEstimate, generateNpcAppearanceEstimate, setNpcAppearanceFact } from '@/services/ai/npcAppearanceEstimate';
 import { resolveActiveApiConfig } from '@/services/ai/activeApiConfig';
@@ -173,7 +174,11 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
   const activeApiConfig = useMemo(() => apiSettings ? resolveActiveApiConfig(apiSettings, enableClaudeMode) : null, [apiSettings, enableClaudeMode]);
 
   const updateRecord = useCallback((id: string, patch: Partial<NPC记录>) => {
-    onNpcRecordsChange((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
+    onNpcRecordsChange((prev) => prev.map((n) => {
+      if (n.id !== id) return n;
+      const updated = { ...n, ...patch };
+      return reconcileNpcAppearanceRecord(updated, normalizeNpcAppearanceFacts(updated.外貌档案, canRevealNpcRecordMeasurements(updated)));
+    }));
   }, [onNpcRecordsChange]);
 
   const promoteToCompanion = useCallback((id: string) => updateRecord(id, { 阶位: 'companion' }), [updateRecord]);

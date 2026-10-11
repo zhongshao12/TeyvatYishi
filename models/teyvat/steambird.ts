@@ -60,6 +60,11 @@ export interface SteambirdArticle {
 export interface SteambirdNews {
   articles: SteambirdArticle[];
   confirmedFacts?: ConfirmedSteambirdFact[];
+  generationTasks?: SteambirdGenerationTask[];
+}
+export interface SteambirdGenerationTask {
+  id: string; settlementId: string; turn: number; worldMoment: WorldMoment;
+  facts: ConfirmedSteambirdFact[]; status: 'pending' | 'success' | 'failed'; reason?: string;
 }
 
 export function createEmptySteambirdNews(): SteambirdNews {
@@ -69,6 +74,12 @@ export function createEmptySteambirdNews(): SteambirdNews {
 export function normalizeSteambirdNews(input: unknown): SteambirdNews {
   const raw = isRecord(input) ? input : {};
   return {
+    ...(Array.isArray(raw.generationTasks) ? { generationTasks: raw.generationTasks.flatMap(value => {
+      if (!isRecord(value)) return [];
+      const worldMoment = normalizeWorldMoment(value.worldMoment), facts = normalizeConfirmedSteambirdFacts(value.facts);
+      if (typeof value.id !== 'string' || !value.id.trim() || !worldMoment || value.turn !== worldMoment.turn || value.settlementId !== worldMoment.settlementId || !facts.length || !['pending', 'success', 'failed'].includes(String(value.status))) return [];
+      return [{ id: value.id, settlementId: worldMoment.settlementId, turn: worldMoment.turn, worldMoment, facts, status: value.status as SteambirdGenerationTask['status'], ...(typeof value.reason === 'string' ? { reason: value.reason } : {}) }];
+    }) } : {}),
     ...(Array.isArray(raw.confirmedFacts) ? { confirmedFacts: normalizeConfirmedSteambirdFacts(raw.confirmedFacts) } : {}),
     articles: Array.isArray(raw.articles) ? raw.articles.flatMap((value) => {
       if (!isRecord(value)) return [];

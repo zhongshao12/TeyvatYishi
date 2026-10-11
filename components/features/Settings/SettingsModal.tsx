@@ -46,7 +46,7 @@ import { toUserFacingError } from '@/utils/userFacingError';
 
 export type SettingsTab = Tab;
 
-interface SettingsModalProps {
+export interface SettingsModalProps {
   onClose: () => void;
   apiSettings: API设置;
   onApiSettingsChange: (s: API设置) => void;

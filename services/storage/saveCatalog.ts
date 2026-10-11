@@ -18,6 +18,10 @@ export interface SaveListItemSummary {
   saveTree?: 存档树元信息;
   travelerName: string;
   turnCount: number;
+  /** Only an explicit non-negative integer is eligible for automatic rotation. */
+  turnCountSource?: 'explicit' | 'inferred' | 'unknown';
+  journeyOrdinal?: number;
+  journeyDisplayName?: string;
   worldPeriodName: string;
   currentDate: string;
   currentTime: string;
@@ -79,16 +83,38 @@ export interface SaveCatalogSnapshot {
   hiddenBaseCount: number;
   totalStoredCount: number;
   catalogComplete: boolean;
+  /** Identity-bearing metadata for reconciling hidden nodes across backends. */
+  storedIds?: number[];
+  hiddenBaseIds?: number[];
 }
 
-/** Desktop files are primary, unless their index is demonstrably missing saves still present in IndexedDB. */
+/** Desktop is primary per ID, never per total count. */
 export function selectPreferredSaveCatalogSnapshot(
   desktop: SaveCatalogSnapshot,
   indexed: SaveCatalogSnapshot,
 ): SaveCatalogSnapshot {
-  if (indexed.totalStoredCount > desktop.totalStoredCount) return indexed;
-  if (desktop.totalStoredCount > 0) return desktop;
-  return indexed;
+  const idsOf = (snapshot: SaveCatalogSnapshot) => snapshot.storedIds
+    ?? [...snapshot.items, ...snapshot.legacyBackups].map(item => item.id).concat(snapshot.pendingIds, snapshot.unreadableIds, snapshot.hiddenBaseIds ?? []);
+  const desktopIds = new Set(idsOf(desktop));
+  const storedIds = Array.from(new Set([...idsOf(indexed), ...desktopIds]));
+  const mergeSummaries = (primary: SaveListItemSummary[], fallback: SaveListItemSummary[]) => sortSummaries([
+    ...primary, ...fallback.filter(item => !desktopIds.has(item.id)),
+  ]);
+  const mergeIds = (primary: number[], fallback: number[]) => Array.from(new Set([
+    ...primary, ...fallback.filter(id => !desktopIds.has(id)),
+  ])).sort((a, b) => b - a);
+  const pendingIds = mergeIds(desktop.pendingIds, indexed.pendingIds);
+  const unreadableIds = mergeIds(desktop.unreadableIds, indexed.unreadableIds);
+  const hiddenBaseIds = mergeIds(desktop.hiddenBaseIds ?? [], indexed.hiddenBaseIds ?? []);
+  return {
+    items: mergeSummaries(desktop.items, indexed.items),
+    legacyBackups: mergeSummaries(desktop.legacyBackups, indexed.legacyBackups),
+    pendingIds, unreadableIds,
+    staleCatalogIds: mergeIds(desktop.staleCatalogIds, indexed.staleCatalogIds).filter(id => !storedIds.includes(id)),
+    hiddenBaseIds, hiddenBaseCount: hiddenBaseIds.length,
+    storedIds, totalStoredCount: storedIds.length,
+    catalogComplete: pendingIds.length === 0 && unreadableIds.length === 0,
+  };
 }
 
 export function formatStorageOperationError(action: string, error: unknown): string {
@@ -230,13 +256,14 @@ export function buildSaveCatalogSnapshot(
   const legacyBackups: SaveListItemSummary[] = [];
   const unreadableIds: number[] = [];
   let hiddenBaseCount = 0;
+  const hiddenBaseIds: number[] = [];
 
   for (const id of saveIds) {
     const record = byId.get(id);
     if (!record) continue;
     if (record.visibility === 'visible') items.push(stripCatalogMetadata(record));
     else if (record.visibility === 'legacy-backup') legacyBackups.push(stripCatalogMetadata(record));
-    else if (record.visibility === 'hidden-delta-base') hiddenBaseCount += 1;
+    else if (record.visibility === 'hidden-delta-base') { hiddenBaseCount += 1; hiddenBaseIds.push(id); }
     else if (record.visibility === 'unreadable') unreadableIds.push(id);
   }
 
@@ -252,6 +279,8 @@ export function buildSaveCatalogSnapshot(
     unreadableIds: unreadableIds.sort((a, b) => b - a),
     staleCatalogIds,
     hiddenBaseCount,
+    hiddenBaseIds,
+    storedIds: saveIds,
     totalStoredCount: saveIds.length,
     catalogComplete: pendingIds.length === 0 && unreadableIds.length === 0,
   };
@@ -289,7 +318,13 @@ function normalizeSaveListItemSummary(raw: Record<string, unknown>): SaveListIte
     timestamp,
     ...(saveTree ? { saveTree } : {}),
     travelerName: normalizeText(raw.travelerName),
-    turnCount: Math.max(0, Math.floor(Number(raw.turnCount) || 0)),
+    turnCount: typeof raw.turnCount === 'number' && Number.isSafeInteger(raw.turnCount) && raw.turnCount >= 0 ? raw.turnCount : 0,
+    turnCountSource: typeof raw.turnCount === 'number' && Number.isSafeInteger(raw.turnCount) && raw.turnCount >= 0
+      ? raw.turnCountSource === 'explicit' ? 'explicit' : raw.turnCountSource === 'inferred' ? 'inferred' : 'unknown'
+      : 'unknown',
+    ...(typeof raw.journeyOrdinal === 'number' && Number.isSafeInteger(raw.journeyOrdinal) && raw.journeyOrdinal > 0
+      ? { journeyOrdinal: raw.journeyOrdinal } : {}),
+    ...(typeof raw.journeyDisplayName === 'string' ? { journeyDisplayName: raw.journeyDisplayName } : {}),
     worldPeriodName: normalizeText(raw.worldPeriodName),
     currentDate: normalizeText(raw.currentDate),
     currentTime: normalizeText(raw.currentTime),

@@ -24,6 +24,13 @@ describe('manual chunk strategy', () => {
     expect(resolveManualChunk('/repo/hooks/useGame/mainNarrativeRequestStage.ts')).toBeUndefined();
   });
 
+  it('keeps the lazy phone photo service outside the eagerly forced core chunk', () => {
+    expect(resolveManualChunk('/repo/services/courierPhoto.ts')).toBeUndefined();
+    expect(resolveManualChunk('C:\\repo\\services\\courierPhoto.ts')).toBeUndefined();
+    expect(resolveManualChunk('/repo/services/ai/imagePromptTokenizer.ts')).toBeUndefined();
+    expect(resolveManualChunk('/repo/services/ai/storySnapshotPipeline.ts')).toBeUndefined();
+  });
+
   it('keeps vendor packages in stable package-oriented chunks', () => {
     expect(resolveManualChunk('/repo/node_modules/react/index.js')).toBe('vendor-react');
     expect(resolveManualChunk('/repo/node_modules/lucide-react/dist/index.js')).toBe('vendor-icons');

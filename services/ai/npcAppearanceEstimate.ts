@@ -1,6 +1,7 @@
 import type { NPC外貌档案, NPC记录 } from '@/models/npc';
 import type { API配置项 } from '@/models/settings';
-import { canRevealNpcRecordMeasurements, NPC_APPEARANCE_KEYS, type NpcAppearanceKey } from '@/services/npcAppearanceFacts';
+import { canRevealNpcRecordMeasurements, normalizeNpcAppearanceFacts, NPC_APPEARANCE_KEYS, type NpcAppearanceKey } from '@/services/npcAppearanceFacts';
+import { reconcileNpcAppearanceRecord } from '@/utils/npcAppearanceReconciliation';
 import { chatCompletionNonStream } from './chatCompletionClient';
 
 const allowedKeys = new Set<string>(NPC_APPEARANCE_KEYS);
@@ -32,7 +33,8 @@ export function setNpcAppearanceFact(npc: NPC记录, key: NpcAppearanceKey, rawV
   const facts = { ...npc.外貌档案 };
   if (value) facts[key] = { value: validateAppearanceValue(key, value), source: 'manual' };
   else delete facts[key];
-  return { ...npc, 外貌档案: Object.keys(facts).length ? facts : undefined };
+  const permitted = normalizeNpcAppearanceFacts(facts, canRevealNpcRecordMeasurements(npc));
+  return reconcileNpcAppearanceRecord({ ...npc, 外貌档案: permitted });
 }
 
 export function applyNpcAppearanceEstimate(npc: NPC记录, estimate: Partial<NPC外貌档案>): NPC记录 {
@@ -47,7 +49,8 @@ export function applyNpcAppearanceEstimate(npc: NPC记录, estimate: Partial<NPC
     if (key === '三围' && !canRevealNpcRecordMeasurements(npc)) continue;
     if (!facts[key] && prepared[key]) facts[key] = prepared[key];
   }
-  return { ...npc, 外貌档案: Object.keys(facts).length ? facts : undefined };
+  const permitted = normalizeNpcAppearanceFacts(facts, canRevealNpcRecordMeasurements(npc));
+  return reconcileNpcAppearanceRecord({ ...npc, 外貌档案: permitted });
 }
 
 function parseEstimate(raw: string, npc: NPC记录, requestedKeys: readonly NpcAppearanceKey[]): Partial<NPC外貌档案> {

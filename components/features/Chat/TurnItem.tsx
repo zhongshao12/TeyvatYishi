@@ -1,5 +1,8 @@
 import { CLIP_CARD, CLIP_MEDIUM, CLIP_SECTION, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing } from '@/styles/clipPaths';
-import { memo, useState } from 'react';
+import { memo, useState, useMemo } from 'react';
+import type { STPreset } from '@/models/stTypes';
+import { applyTavernScopedRegexScripts } from '@/hooks/useGame/tavernRegexProcessor';
+import { createMacroContext, processMacros } from '@/utils/macroEngine';
 import type { 聊天消息 } from '@/models/chat';
 import type { NPC记录 } from '@/models/npc';
 import type { 角色数据结构 } from '@/models/character';
@@ -32,6 +35,8 @@ interface TurnItemProps {
   previousUserInput?: string;
   visualTextSettings?: VisualTextSettings;
   rewriteConfig?: API配置项;
+  tavernPreset?: STPreset;
+  regexDepth?: number;
   // 历史回响消息若元素 ID 为空，由 ChatList 向前查找补齐。
   fallbackElementId?: string;
 }
@@ -86,16 +91,22 @@ function resolveTurnPlaceholderStyle(
   };
 }
 
-function TurnItemImpl({ message, settlementReceipt, isStreaming, deferOffscreen = false, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, fallbackElementId, previousUserInput, visualTextSettings, rewriteConfig }: TurnItemProps) {
+function TurnItemImpl({ message, settlementReceipt, isStreaming, deferOffscreen = false, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, fallbackElementId, previousUserInput, visualTextSettings, rewriteConfig, tavernPreset, regexDepth = 0 }: TurnItemProps) {
   const isUser = message.role === 'user';
   const parsed = message.parsedResponse;
   const shouldDeferOffscreen = deferOffscreen && !isStreaming && !message.isStreaming;
   const visibilityStyle = shouldDeferOffscreen ? resolveTurnPlaceholderStyle(message) : undefined;
+  const displayText = useMemo(() => {
+    const original = parsed ? narrativeTurnBodyText(parsed) : message.content;
+    if (!tavernPreset || message.role === 'system' || isStreaming || message.isStreaming) return original;
+    const context = createMacroContext(undefined, { userName: traveler?.姓名 ?? '', charName: '当前剧情角色' });
+    return applyTavernScopedRegexScripts(original, tavernPreset, { destination: 'display', placement: isUser ? 1 : 2, depth: regexDepth, resolveMacros: text => processMacros(text, context) }).text;
+  }, [parsed, message.content, message.role, message.isStreaming, isStreaming, tavernPreset, regexDepth, traveler?.姓名, isUser]);
 
   if (isUser) {
     return (
       <div className="journal-turn journal-turn--traveler mb-4 animate-slide-up" style={visibilityStyle}>
-        <UserTurnBubble content={message.content} traveler={traveler} album={album} fontSize={visualTextSettings?.playerFontSize ?? 14} />
+        <UserTurnBubble content={displayText} traveler={traveler} album={album} fontSize={visualTextSettings?.playerFontSize ?? 14} />
       </div>
     );
   }
@@ -106,6 +117,7 @@ function TurnItemImpl({ message, settlementReceipt, isStreaming, deferOffscreen 
         <AiTurnCard
           message={message}
           parsed={parsed}
+          displayBodyText={displayText}
           settlementReceipt={!isStreaming && !message.isStreaming && message.role === 'assistant' ? settlementReceipt : null}
           isStreaming={isStreaming}
           deferOffscreen={shouldDeferOffscreen}
@@ -185,6 +197,7 @@ export function UserTurnBubble({ content, traveler, album, fontSize = 14 }: { co
 interface AiTurnCardProps {
   message: 聊天消息;
   parsed: NonNullable<聊天消息['parsedResponse']>;
+  displayBodyText?: string;
   settlementReceipt?: TurnSettlementReceiptModel | null;
   isStreaming?: boolean;
   deferOffscreen?: boolean;
@@ -202,7 +215,7 @@ interface AiTurnCardProps {
   rewriteConfig?: API配置项;
 }
 
-function AiTurnCard({ message, parsed, settlementReceipt, isStreaming, deferOffscreen = false, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, fallbackElementId, previousUserInput, visualTextSettings, rewriteConfig }: AiTurnCardProps) {
+function AiTurnCard({ message, parsed, displayBodyText, settlementReceipt, isStreaming, deferOffscreen = false, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, fallbackElementId, previousUserInput, visualTextSettings, rewriteConfig }: AiTurnCardProps) {
   const bodyText = narrativeTurnBodyText(parsed);
   const [openTool, setOpenTool] = useState<ToolKey | null>(null);
   const [draft, setDraft] = useState(bodyText);
@@ -372,7 +385,7 @@ function AiTurnCard({ message, parsed, settlementReceipt, isStreaming, deferOffs
 
       {/* 正文（无边框，铺满列宽）。 */}
       <div className="px-1 py-2">
-        <BodyBlock content={bodyText} npcRecords={npcRecords} traveler={traveler} album={album} showInnerVoice={showInnerVoice} userInput={previousUserInput} visualTextSettings={visualTextSettings} deferOffscreen={deferOffscreen} />
+        <BodyBlock content={displayBodyText ?? bodyText} npcRecords={npcRecords} traveler={traveler} album={album} showInnerVoice={showInnerVoice} userInput={previousUserInput} visualTextSettings={visualTextSettings} deferOffscreen={deferOffscreen} />
 
         {isStreaming && (
           <span

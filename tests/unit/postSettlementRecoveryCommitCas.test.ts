@@ -91,6 +91,20 @@ describe('post-settlement recovery CAS commit', () => {
     // flushSync 已同步提交：DOM 立刻反映新状态，落盘才不会写到过期快照。
     expect(host.textContent).toBe('turn:3');
   });
+  it('passes the actual React live root to finalization without a nested live-state probe', () => {
+    const token = capturePostSettlementSaveToken(initialState);
+    const edited = { ...initialState, 旅行者: { ...initialState.旅行者, 姓名: '并发编辑' } };
+    act(() => replaceLive!(edited));
+    let seen: TeyvatGameState | null = null;
+    act(() => {
+      commitPostSettlementBackgroundState(stateApi!, token, initialState, initialState, undefined, (merged, live) => {
+        seen = live;
+        return { ...merged, 旅行者: { ...live.旅行者, 外貌: '本回合增量' } };
+      });
+    });
+    expect(seen).toBe(edited);
+    expect(readLive!().旅行者).toMatchObject({ 姓名: '并发编辑', 外貌: '本回合增量' });
+  });
 
   it('keeps a player edit made while the tail was awaiting (A3 class)', async () => {
     const token = capturePostSettlementSaveToken(initialState);

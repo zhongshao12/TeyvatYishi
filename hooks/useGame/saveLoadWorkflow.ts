@@ -23,7 +23,7 @@ import {
   归一化额外功能设置,
   归一化视觉文本设置,
 } from '@/models/settings';
-import { loadLatestSave, loadSave, deleteSave as dbDeleteSave, saveGame, saveSetting } from '@/services/dbService';
+import { loadLatestSave, loadSave, deleteSave as dbDeleteSave, saveGame, saveSetting, getSaveCatalogSnapshot } from '@/services/dbService';
 import { clearWorkflowRecoveryJournal, isWorkflowRecoveryComplete } from '@/services/workflowRecovery';
 import { normalizeMemorySystem } from './memoryUtils';
 import { 归一化世界状态 } from '@/models/world';
@@ -40,15 +40,18 @@ import { compactChatHistoryForLongSession, compactVariableBatchHistory } from '@
 import { runTrackedSave, saveStatusStore } from '@/utils/saveStatus';
 
 let activeSaveTreeMeta: 存档树元信息 | null = null;
+let activeManualSave: { id: number; tree: 存档树元信息 } | null = null;
+let manualSaveQueue: Promise<number> | null = null;
 
 export function getActiveSaveTreeNodeId(): string | null {
   return activeSaveTreeMeta?.nodeId ?? null;
 }
 
 export function clearActiveSaveTreeMetaIfMatches(target?: { rootId?: string; nodeId?: string } | null): void {
-  if (!activeSaveTreeMeta) return;
+  if (!activeSaveTreeMeta) { activeManualSave = null; return; }
   if (!target?.rootId && !target?.nodeId) {
     activeSaveTreeMeta = null;
+    activeManualSave = null;
     return;
   }
   if (
@@ -56,6 +59,7 @@ export function clearActiveSaveTreeMetaIfMatches(target?: { rootId?: string; nod
     (target.nodeId && activeSaveTreeMeta.nodeId === target.nodeId)
   ) {
     activeSaveTreeMeta = null;
+    activeManualSave = null;
   }
 }
 
@@ -112,8 +116,16 @@ export function buildSavePayload(
   return compactDuplicatedSaveImages(withTree) as unknown as TeyvatSaveData;
 }
 
-export function commitActiveSaveTreeMeta(save: unknown): void {
+export function commitActiveSaveTreeMeta(save: unknown, options: { loaded?: boolean } = {}): void {
+  // Explicit loading changes the active branch even within the same tree.
+  // Autosave completion, in contrast, must retain that branch's manual target.
+  if (options.loaded) activeManualSave = null;
   activeSaveTreeMeta = getSaveTreeMeta(save as 存档数据);
+  const record = save as 存档数据;
+  if (activeManualSave?.tree.rootId !== activeSaveTreeMeta?.rootId) activeManualSave = null;
+  if (record.type === 'manual' && record.id && activeSaveTreeMeta) {
+    activeManualSave = { id: record.id, tree: activeSaveTreeMeta };
+  }
 }
 
 function buildSaveGameSettingsSnapshot(settings: 游戏设置): 游戏设置 {
@@ -239,14 +251,44 @@ export async function handleLoadById(
   return true;
 }
 
-export async function handleManualSave(state: UseGameStateReturn): Promise<number> {
+export function handleManualSave(state: UseGameStateReturn, options: { asNewNode?: boolean } = {}): Promise<number> {
   const sessionId = state.getGameSessionId();
+  const run = () => {
+    if (state.getGameSessionId() !== sessionId) return Promise.reject(new Error('MANUAL_SAVE_SESSION_CHANGED'));
+    return saveManualSlot(state, sessionId, options);
+  };
+  // Start the first write immediately so the save-status indicator is synchronous;
+  // only overlapping requests wait for the previous ID/target to be committed.
+  const result = manualSaveQueue ? manualSaveQueue.catch(() => {}).then(run) : run();
+  manualSaveQueue = result;
+  const release = () => { if (manualSaveQueue === result) manualSaveQueue = null; };
+  void result.then(release, release);
+  return result;
+}
+
+async function saveManualSlot(state: UseGameStateReturn, sessionId: number, options: { asNewNode?: boolean }): Promise<number> {
+  if (!options.asNewNode && !activeManualSave && activeSaveTreeMeta) {
+    const tree = activeSaveTreeMeta;
+    const { items: saves } = await getSaveCatalogSnapshot();
+    if (state.getGameSessionId() !== sessionId) throw new Error('MANUAL_SAVE_SESSION_CHANGED');
+    const nodes = new Map(saves.filter(save => save.saveTree?.rootId === tree.rootId).map(save => [save.saveTree!.nodeId, save]));
+    let node = nodes.get(tree.nodeId);
+    const visited = new Set<string>();
+    while (node?.saveTree && !visited.has(node.saveTree.nodeId)) {
+      visited.add(node.saveTree.nodeId);
+      if (node.type === 'manual') { activeManualSave = { id: node.id, tree: node.saveTree }; break; }
+      node = node.saveTree.parentNodeId ? nodes.get(node.saveTree.parentNodeId) : undefined;
+    }
+  }
+  if (state.getGameSessionId() !== sessionId) throw new Error('MANUAL_SAVE_SESSION_CHANGED');
   const liveRoot = readLiveGameState(state);
-  const payload = buildSavePayload(state, 'manual', undefined, liveRoot);
+  const target = options.asNewNode ? null : activeManualSave;
+  const fresh = buildSavePayload(state, 'manual', undefined, liveRoot);
+  const payload = target ? attachSaveTreeMeta({ ...fresh, id: target.id } as unknown as 存档数据, target.tree) as unknown as TeyvatSaveData : fresh;
   return runTrackedSave(saveStatusStore, sessionId, liveRoot, 'manual', async () => {
-    const id = await saveGame(payload);
+    const id = await saveGame(payload, target ? { overwriteManualId: target.id } : undefined);
     if (state.getGameSessionId() === sessionId) {
-      commitActiveSaveTreeMeta(payload);
+      commitActiveSaveTreeMeta({ ...payload, id });
       state.setHasSave(true);
     }
     return id;
@@ -256,7 +298,9 @@ export async function handleManualSave(state: UseGameStateReturn): Promise<numbe
 export async function handleDeleteSave(id: number): Promise<void> {
   const save = await loadSave(id);
   await dbDeleteSave(id);
-  clearActiveSaveTreeMetaIfMatches((save as { saveTree?: 存档树元信息 } | null)?.saveTree);
+  if (activeManualSave?.id === id) activeManualSave = null;
+  const nodeId = (save as { saveTree?: 存档树元信息 } | null)?.saveTree?.nodeId;
+  if (nodeId) clearActiveSaveTreeMetaIfMatches({ nodeId });
 }
 
 export type SaveLoadTransactionClassification =
@@ -378,7 +422,7 @@ export async function applySaveToState(
   const nextAlbum = materializeAlbumRuntimePayload(nextGame.相册);
   pruneAlbumAssetCache(nextAlbum.assets.map((asset) => asset.id));
 
-  activeSaveTreeMeta = nextTreeMeta;
+  commitActiveSaveTreeMeta({ ...(rawSave as 存档数据), saveTree: nextTreeMeta }, { loaded: true });
   state.setHasSave(true);
   state.setView('game');
   const loadedTimestamp = Number((rawSave as { timestamp?: unknown } | null)?.timestamp);

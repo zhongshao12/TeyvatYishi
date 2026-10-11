@@ -1,10 +1,14 @@
 import type { 图片槽位, StorySnapshotRenderContext } from '@/models/imageGeneration';
-import { normalizeStorySnapshotRenderContext } from '@/models/imageGeneration';
+import { normalizeStorySnapshotRenderContext, STORY_SNAPSHOT_CONTEXT_LIMITS } from '@/models/imageGeneration';
+import { compactImagePrompts, sanitizeImageModelPrompt, type PromptCharacter } from '@/utils/imagePromptCompaction';
 import type { 角色数据结构 } from '@/models/character';
 import type { NPC记录 } from '@/models/npc';
 import type { API配置项, 文生图规则中心设置 } from '@/models/settings';
 import {
   buildSceneImagePrompt,
+  readImagePromptCharacter,
+  readImagePromptParserCharacter,
+  selectImagePromptSceneNpcs,
   获取当前故事快照解析规则,
   应用场景角色锚点锁,
   应用质量增强提示词,
@@ -278,7 +282,23 @@ function subjectTypeFromGender(gender?: string): 'girl' | 'boy' | 'other' {
 }
 
 function readActualSnapshotNpcs(params: ResolveStorySnapshotParams, summary: StorySnapshotSummary): NPC记录[] {
-  return params.presentNpcs.filter((npc) => summary.characters.some((name) => matchesSnapshotName(name, npc.姓名, npc.别名)));
+  const sourceNpcs = selectImagePromptSceneNpcs(params.presentNpcs, params.body);
+  return params.presentNpcs.filter((npc) => sourceNpcs.includes(npc) || summary.characters.some((name) => matchesSnapshotName(name, npc.姓名, npc.别名)));
+}
+
+function readSnapshotPromptCharacters(params: ResolveStorySnapshotParams, characters: StorySnapshotRenderContext['characters']): PromptCharacter[] {
+  return characters.map(character => {
+    const profile = character.source === 'traveler' ? params.traveler : params.presentNpcs.find(npc => matchesSnapshotName(character.name, npc.姓名, npc.别名));
+    return profile ? { ...readImagePromptCharacter(profile, true), name: character.name, visualPrompt: character.visualPrompt } : character;
+  });
+}
+
+function compactSnapshotPrompts(params: ResolveStorySnapshotParams, renderContext: StorySnapshotRenderContext, prompt: string, negative: string) {
+  return compactImagePrompts({
+    prompt: [prompt, ...renderContext.characters.map(character => character.visualPrompt)].join('\n'),
+    negative,
+    characters: readSnapshotPromptCharacters(params, renderContext.characters),
+  });
 }
 
 function findParsedCharacter(
@@ -301,8 +321,9 @@ function buildStorySnapshotRenderContext(
     || (params.playerAppearanceMode !== 'off' && summary.characters.some((name) => matchesSnapshotName(name, params.traveler.姓名, params.traveler.别名)));
   if (travelerVisible) {
     const parsed = findParsedCharacter(parsedCharacters, params.traveler.姓名, params.traveler.别名);
-    const travelerVisualSource = params.traveler.图像档案?.角色锚点?.正面提示词 || params.traveler.外貌;
-    const travelerNegativeSource = params.traveler.图像档案?.角色锚点?.负面提示词;
+    const travelerVisual = readImagePromptCharacter(params.traveler, true);
+    const travelerVisualSource = travelerVisual.visualPrompt;
+    const travelerNegativeSource = travelerVisual.negativePrompt;
     const travelerActionSource = summary.characters.length === 1
       ? params.body
       : readCharacterActionSource(params.body, params.traveler.姓名, params.traveler.别名);
@@ -310,7 +331,8 @@ function buildStorySnapshotRenderContext(
       name: params.traveler.姓名 || params.traveler.别名 || 'Traveler',
       subjectType: parsed?.subjectType ?? subjectTypeFromGender(params.traveler.性别),
       visualPrompt: parsed?.visualPrompt
-        || buildLocalCharacterVisualPrompt([travelerVisualSource, travelerActionSource].filter(Boolean).join('，'), 'traveler, player character'),
+        ? sanitizeImageModelPrompt(parsed.visualPrompt, [travelerVisual])
+        : buildLocalCharacterVisualPrompt([travelerVisualSource, travelerActionSource].filter(Boolean).join('，'), 'traveler, player character'),
       negativePrompt: parsed?.negativePrompt
         || (travelerNegativeSource ? buildLocalCharacterVisualPrompt(travelerNegativeSource, '') : ''),
       source: 'traveler',
@@ -319,8 +341,9 @@ function buildStorySnapshotRenderContext(
   }
   for (const npc of readActualSnapshotNpcs(params, summary)) {
     const parsed = findParsedCharacter(parsedCharacters, npc.姓名, npc.别名);
-    const npcVisualSource = npc.图像档案?.角色锚点?.正面提示词 || [npc.外貌, npc.穿着].filter(Boolean).join(', ');
-    const npcNegativeSource = npc.图像档案?.角色锚点?.负面提示词;
+    const npcVisual = readImagePromptCharacter(npc, true);
+    const npcVisualSource = npcVisual.visualPrompt;
+    const npcNegativeSource = npcVisual.negativePrompt;
     const npcActionSource = summary.characters.length === 1
       ? params.body
       : readCharacterActionSource(params.body, npc.姓名, npc.别名);
@@ -328,18 +351,23 @@ function buildStorySnapshotRenderContext(
       name: npc.姓名,
       subjectType: parsed?.subjectType ?? subjectTypeFromGender(npc.性别),
       visualPrompt: parsed?.visualPrompt
-        || buildLocalCharacterVisualPrompt([npcVisualSource, npcActionSource].filter(Boolean).join('，'), 'supporting character'),
+        ? sanitizeImageModelPrompt(parsed.visualPrompt, [npcVisual])
+        : buildLocalCharacterVisualPrompt([npcVisualSource, npcActionSource].filter(Boolean).join('，'), 'supporting character'),
       negativePrompt: parsed?.negativePrompt
         || (npcNegativeSource ? buildLocalCharacterVisualPrompt(npcNegativeSource, '') : ''),
       source: 'npc',
       enabled: true,
     });
   }
+  const compactedScene = compactImagePrompts({ prompt: scenePrompt, negative: sceneNegativePrompt, limit: STORY_SNAPSHOT_CONTEXT_LIMITS.scenePrompt, negativeLimit: STORY_SNAPSHOT_CONTEXT_LIMITS.sceneNegativePrompt });
   return normalizeStorySnapshotRenderContext({
     schemaVersion: 1,
-    scenePrompt,
-    sceneNegativePrompt,
-    characters,
+    scenePrompt: compactedScene.prompt,
+    sceneNegativePrompt: compactedScene.negative,
+    characters: characters.map(character => {
+      const compacted = compactImagePrompts({ prompt: character.visualPrompt, negative: character.negativePrompt, characters: readSnapshotPromptCharacters(params, [character]), limit: STORY_SNAPSHOT_CONTEXT_LIMITS.characterPrompt, negativeLimit: STORY_SNAPSHOT_CONTEXT_LIMITS.characterNegativePrompt });
+      return { ...character, visualPrompt: compacted.prompt, negativePrompt: compacted.negative };
+    }),
   })!;
 }
 
@@ -371,11 +399,12 @@ function buildLocalResolution(
     buildLocalStoryScenePrompt(params.body, summary),
     built.negative,
   );
+  const compacted = compactSnapshotPrompts(params, renderContext, built.prompt, built.negative);
   return {
     summary,
     sceneText,
-    prompt: built.prompt,
-    negativePrompt: built.negative,
+    prompt: compacted.prompt,
+    negativePrompt: compacted.negative,
     sourcePrompt: built.prompt,
     renderContext,
     source: 'local',
@@ -396,20 +425,11 @@ export async function resolveStorySnapshot(
       body: params.body,
       semanticRules: 获取当前故事快照解析规则(params.rules).语义规则,
       traveler: params.playerAppearanceMode === 'off' ? undefined : {
-        name: params.traveler.姓名 || params.traveler.别名 || '玩家角色',
-        gender: params.traveler.性别 || undefined,
-        appearance: params.traveler.外貌 || undefined,
+        ...readImagePromptParserCharacter(params.traveler),
         identity: params.traveler.身份 || undefined,
-        anchorPrompt: params.traveler.图像档案?.角色锚点
-          ? JSON.stringify(params.traveler.图像档案.角色锚点)
-          : undefined,
       },
       playerAppearanceMode: params.playerAppearanceMode ?? 'auto',
-      presentNpcs: params.presentNpcs.map((npc) => ({
-        name: npc.姓名,
-        appearance: npc.外貌,
-        clothing: npc.穿着,
-      })),
+      presentNpcs: params.presentNpcs.map(readImagePromptParserCharacter),
     }, params.signal);
     const summary: StorySnapshotSummary = {
       title: parsed.title,
@@ -424,8 +444,10 @@ export async function resolveStorySnapshot(
     const actualNpcs = readActualSnapshotNpcs(params, summary);
     const travelerVisible = params.playerAppearanceMode === 'force'
       || (params.playerAppearanceMode !== 'off' && summary.characters.some((name) => matchesSnapshotName(name, params.traveler.姓名, params.traveler.别名)));
+    const modelCharacters = [...(travelerVisible ? [readImagePromptCharacter(params.traveler, true)] : []), ...actualNpcs.map(npc => readImagePromptCharacter(npc, true))];
+    const modelPrompt = sanitizeImageModelPrompt(parsed.prompt, modelCharacters);
     const lockedPrompt = 应用场景角色锚点锁({
-      prompt: parsed.prompt,
+      prompt: modelPrompt,
       negative: parsed.negativePrompt,
       traveler: travelerVisible ? params.traveler : undefined,
       forceTravelerVisible: params.playerAppearanceMode === 'force',
@@ -435,15 +457,16 @@ export async function resolveStorySnapshot(
     const renderContext = buildStorySnapshotRenderContext(
       params,
       summary,
-      parsed.prompt,
+      modelPrompt,
       parsed.negativePrompt,
       parsed.characterPrompts,
     );
+    const compacted = compactSnapshotPrompts(params, renderContext, refined.prompt, refined.negative);
     return {
       summary,
       sceneText,
-      prompt: refined.prompt,
-      negativePrompt: refined.negative,
+      prompt: compacted.prompt,
+      negativePrompt: compacted.negative,
       sourcePrompt: parsed.prompt,
       renderContext,
       source: 'model',

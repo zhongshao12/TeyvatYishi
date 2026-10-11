@@ -75,6 +75,15 @@ describe('Dou Dizhu atomic settlement', () => {
     expect(thrice.斗地主.settledGameIds).toEqual([state.斗地主.currentGame!.id]);
   });
 
+  it('records card memories using the live world date, weather, place and travel day', () => {
+    const { before, action } = terminal('landlord');
+    const state = { ...before, 世界: { ...before.世界, 当前日期: '旅行历 1000.03.11', 当前时间: '18:20', 当前地点: '蒙德城', 当前天气: '晴', 旅程天数: 5 } };
+    const settled = applyDoudizhuGameAction(state, action);
+    expect(settled.NPC[0]?.sharedMemories.at(-1)?.worldMoment).toMatchObject({
+      worldName: '提瓦特', date: '旅行历 1000.03.11', clock: '18:20', location: '蒙德城', weather: '晴', travelDay: 5,
+    });
+  });
+
   it('clamps at the existing affinity maximum and derives the relationship stage', () => {
     const { before, action } = terminal('landlord');
     const state = { ...before, NPC: before.NPC.map((npc, index) => ({ ...npc, affinity: index === 0 ? 149 : 150 })) };

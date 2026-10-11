@@ -17,7 +17,7 @@ const storageManager = [
 ].join('\n');
 
 assert(treeView.includes('buildSaveTreeGroups'), '必须提供存档树分组工具。');
-assert(treeView.includes('buildLegacyRootIdMap') && treeView.includes('buildLegacyNodeIdMap'), '旧存档必须按旅人与时间顺序合并成兼容路线。');
+assert(treeView.includes('let rootId = `legacy-root-${save.id}`') && treeView.includes('occupiedRootIds.has(rootId)') && !treeView.includes('byTraveler'), '缺少明确 root 身份的旧存档必须逐 ID 隔离，避免与真实 root ID 碰撞，不能按姓名和单调回合猜测路线。');
 assert(treeView.includes('legacyRootIds') && treeView.includes('currentRootId'), '旧存档节点父子关系必须按当前兼容树计算。');
 assert(treeView.includes('parentNodeId') && treeView.includes('parent.children.push(node)'), '树分组必须按 parentNodeId 建立父子关系。');
 assert(treeView.includes('depth') && treeView.includes('isLatest'), '树节点必须包含深度与最新节点标记。');
@@ -41,7 +41,9 @@ assert(saveModal.includes('SAVE TREE CONTROL'), '读档弹窗必须保留控制�
 assert(saveModal.includes('SaveActionButton'), '读档弹窗必须保留左侧控制台操作区。');
 assert(saveModal.includes('MiniSaveTreeMap'), '读档弹窗必须保留左侧迷你存档树图。');
 assert(saveModal.includes('hidden w-full flex-shrink-0 flex-col md:flex md:min-h-0') && saveModal.includes('md:overflow-y-auto'), '读档弹窗左侧控制栏内容过高时必须独立滚动。');
-assert(saveModal.includes('存档树数量不限') && saveModal.includes('每棵树手动节点最多 5 个、自动节点最多 6 个'), '读档弹窗必须提示树数量不限和单树分类节点上限。');
+assert(saveModal.includes('存档树数量不限') && saveModal.includes('每棵树手动节点最多 5 个') && saveModal.includes('最新 10 个不同回合') && saveModal.includes('同回合分支保留') && saveModal.includes('旧无有效回合数保守保留'), '读档弹窗必须提示树数量不限、手动五节点和自动十不同回合的保守保留规则。');
+assert(saveModal.includes('getSaveJourneyLabel(group.latestSave)') && saveModal.includes('getSaveJourneyLabel(item)') && saveModal.includes('getSaveJourneyLabel(group.rootSave)'), '读档弹窗树选择、详情和时间线必须使用统一旅程展示名。');
+assert(storageManager.includes('getSaveJourneyLabel(group.latestSave)') && storageManager.includes('getSaveJourneyLabel(save)'), '设置列表和详情必须使用统一旅程展示名。');
 assert(saveModal.includes('历史恢复点') && saveModal.includes('导入存档'), '读档弹窗必须把旧恢复点与导入存档分开。');
 assert(saveModal.includes('teyvat-options-scroll relative overflow-x-hidden') && saveModal.includes('md:overflow-y-auto'), '读档弹窗中间存档详情区必须使用同风格内部滚动。');
 assert(saveModal.includes('teyvat-options-scroll min-h-0 flex-1 px-3 py-3 pb-5'), '读档弹窗右侧存档树列表必须留出底部滚动余量。');

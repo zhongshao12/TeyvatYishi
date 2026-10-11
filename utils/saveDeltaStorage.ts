@@ -195,6 +195,8 @@ export function restoreSaveFromDelta(baseSave: 存档数据, storedSave: 存档�
     turnCount: storedSave.turnCount,
     对话: { entries: chatHistory },
     saveTree: (storedSave as SaveWithTree).saveTree,
+    // Visibility/restore-origin markers belong to this node, never its base.
+    saveRuntime: (storedSave as 存档数据 & { saveRuntime?: unknown }).saveRuntime,
     saveStorage: {
       mode: 'checkpoint',
     },
@@ -248,7 +250,7 @@ function buildChatDelta(current: 聊天消息[], base: 聊天消息[]): {
 
 function isChatPrefix(current: 聊天消息[], base: 聊天消息[]): boolean {
   return base.length <= current.length
-    && base.every((message, index) => message.id === current[index]?.id);
+    && base.every((message, index) => jsonCompatibleEqual(message, current[index]));
 }
 
 function collectAssetIds(save: FormalDeltaSave): string[] {
@@ -303,8 +305,8 @@ function hashSaveCheckpoint(save: FormalDeltaSave): string {
 function isFormalSave(save: unknown): save is FormalDeltaSave {
   if (!save || typeof save !== 'object') return false;
   return (save as { universe?: unknown }).universe === 'teyvat'
-    && '对话' in save
-    && '手机' in save;
+    && (save as { schemaVersion?: unknown }).schemaVersion === 2
+    && Array.isArray((save as { 对话?: { entries?: unknown } }).对话?.entries);
 }
 
 function jsonCompatibleEqual(

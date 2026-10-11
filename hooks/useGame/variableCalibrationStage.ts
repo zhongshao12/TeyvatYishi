@@ -36,6 +36,10 @@ import { mergeNpcWriteBack, mergeSettlementSliceWriteBack, rebaseStoryProgressMe
 import { applyStoryArchiveCodexRuntimeUnlock } from '@/services/codexRuntimeUnlock';
 import { buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 import { runPostTurnBackgroundTasks, runSteambirdPostTurnTask } from './postTurnBackgroundTasks';
+import { collectSteambirdPublicFacts, selectUnreportedPublicFacts } from '@/services/steambirdPublicFacts';
+import { normalizeConfirmedSteambirdFacts } from '@/models/teyvat/steambird';
+import { resolveSteambirdApiConfig } from '@/services/ai/steambirdModel';
+import { steambirdTaskId } from './postTurnSteambirdTask';
 import { runPostTurnIrminsulArchiveTask } from './postTurnIrminsulTask';
 import { runPostTurnNarrativeImageTask } from './postTurnNarrativeImageTask';
 import {
@@ -52,6 +56,7 @@ import { evaluateStoryWeavingGate } from '@/services/storyWeaving';
 import { 天气列表 } from '@/data/weatherRules';
 import { 创建默认记忆系统设置 } from '@/models/settings';
 import { runVariableCalibrationStep } from './sendWorkflow';
+import { markSettlementTailTask, type SettlementTailTask } from './postSettlementTaskState';
 
 export interface VariableCalibrationDeps {
   state: UseGameStateReturn;
@@ -110,9 +115,18 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
   let mem = deps.mem;
   let irminsulWithCompression = deps.irminsulWithCompression;
   let recoveryJournal = deps.recoveryJournal;
+  const checkpointTailTask = async (task: SettlementTailTask) => {
+    assertWorkflowActive();
+    flushSync(() => state.updateGameState(current => current.叙事.lastCommittedMoment?.settlementId === recoveryJournal.workflowId
+      ? markSettlementTailTask(current, recoveryJournal.workflowId, task) : current));
+    recoveryJournal = updateWorkflowRecoveryJournal(recoveryJournal, { committedState: readLiveGameState(state) });
+    deps.onJournalUpdated(recoveryJournal);
+    await persistWorkflowRecoveryJournal(recoveryJournal);
+    assertWorkflowActive();
+  };
 
     // 8.5 变量模型校准：主回复完成 → 调用独立的变量模型分析正文，把结构化命令落地。
-    //     失败/超时不影响主流程，只在 console 报警。
+    //     失败时保留冻结正文与恢复日志，不允许继续后台任务或自动存档。
     pushQueueTask(state, 'variable', 'pending', {
       detail: '正在调用变量模型并结算回复后的状态变化。',
     });
@@ -148,6 +162,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
     });
     deps.onJournalUpdated(recoveryJournal);
     await persistWorkflowRecoveryJournal(recoveryJournal);
+    assertWorkflowActive();
     const variableOverrides = await runVariableCalibrationStep({
       state,
       mainApiConfig: config,
@@ -172,9 +187,15 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       questEnabled: state.gameSettings.任务系统?.enabled === true,
       settlementId: recoveryJournal.workflowId,
       });
+      assertWorkflowActive();
+      if (abortController.signal.aborted || !isCurrentWorkflow()) {
+        throw new DOMException('本回合已停止。', 'AbortError');
+      }
       if (!variableOverrides?.committedGame) {
-        // 两种来源：等待期间存档已切换（CAS 拒绝）/ 流程已被取消（shouldCommit 为 false，走 abort 分支）。
-        throw new Error('TEYVAT_SETTLEMENT_REJECTED：本次变量结算未写入活体存档（等待期间存档已切换或流程已取消）。');
+        const failure = variableOverrides?.failure;
+        const reasons = variableOverrides?.batch?.results
+          .filter(item => !item.ok && item.reason).map(item => item.reason).slice(0, 4).join('；');
+        throw new Error(`${failure?.code ?? 'TEYVAT_SETTLEMENT_REJECTED'}：${failure?.detail || reasons || '变量结算未返回已提交结果，正文已保留，请重试变量结算。'}`);
       }
       // The settlement callback may rebase concurrent player edits; use the actual live committed root.
       let committedSettlementGame = readLiveGameState(state);
@@ -259,6 +280,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       if (memoryWrite.commit.compressionDeferred) {
         pushQueueTask(state, 'memory', 'success', { detail: '压缩期间检测到记忆或世界树来源发生修改，已保留编辑与本回合记忆；压缩推迟到下回合。' });
       }
+      await checkpointTailTask('memory');
 
       const npcSource = variableOverrides?.NPC ?? state.NPC;
       const memorySettings = state.gameSettings.记忆系统 ?? 创建默认记忆系统设置();
@@ -364,10 +386,12 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       });
       committedSettlementGame = committedTurn.game;
       const committedTurnContext = committedTurn.context;
+      committedSettlementGame = { ...committedSettlementGame, 蒸汽鸟报: collectSteambirdPublicFacts(committedSettlementGame.蒸汽鸟报, parsedForDisplay, committedTurnContext.moment) };
       state.updateGameState((current) => {
         if (current.叙事.lastCommittedMoment?.settlementId !== committedTurnContext.settlementId) return current;
         return {
           ...current,
+          蒸汽鸟报: { ...current.蒸汽鸟报, confirmedFacts: normalizeConfirmedSteambirdFacts([...(current.蒸汽鸟报.confirmedFacts ?? []), ...(committedSettlementGame.蒸汽鸟报.confirmedFacts ?? [])]) },
           叙事: {
             ...current.叙事,
             lastCommittedMoment: committedTurnContext.moment,
@@ -382,6 +406,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       // B07：提交点读取 **live**，按各自明确的追加/压缩 delta 合并 ——
       // 不再用记忆压缩 await 之前算出的旧数组无条件替换当前切片。
       // 这段等待（压缩 + 剧情设置落库 + 恢复日志保存）里玩家改的同伴资料与新增的记忆必须保留。
+      assertWorkflowActive();
       if (npcChanged) {
         state.setNPC((current) => {
           const merged = mergeSettlementSliceWriteBack({
@@ -420,6 +445,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         }
       }
       const steambirdSettings = state.gameSettings.蒸汽鸟报系统;
+      await checkpointTailTask('npcStory');
       const steambirdEnabled = Boolean(steambirdSettings?.enabled && steambirdSettings?.autoGenerate);
       const steambirdInterval = Math.max(5, Math.min(10, Math.trunc(steambirdSettings?.generateIntervalTurns ?? 5) || 5));
       const steambirdTurn = state.turnCount + 1;
@@ -445,29 +471,34 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
       let finalHistoryForSave = finalHistory;
 
       const runSteambirdBackgroundJob = async (): Promise<void> => {
-        const taskResult = runSteambirdPostTurnTask({
+        const sessionId = state.getGameSessionId();
+        const current = readLiveGameState(state).蒸汽鸟报;
+        const task = { sessionId, settlementId: committedTurnContext.settlementId, turn: steambirdTurn, worldMoment: committedTurnContext.moment,
+          facts: selectUnreportedPublicFacts(current, { firstTurn: Math.max(0, steambirdTurn - steambirdInterval + 1), lastTurn: steambirdTurn }),
+          config: resolveSteambirdApiConfig(steambirdSettings?.api, config), promptModules: state.gameSettings.promptModules,
+          maxEntries: steambirdSettings?.maxNewEntriesPerTurn ?? 3, signal: abortController.signal };
+        const batchId = steambirdTaskId(task);
+        if (shouldRunSteambird && task.facts.length) pushQueueTask(state, 'steambird', 'pending', { detail: '正在调用独立 API，仅投递确认公开事实。', turn: steambirdTurn, targetBatchId: batchId, cancellable: true });
+        const taskResult = await runSteambirdPostTurnTask({
           enabled: Boolean(steambirdSettings?.enabled && steambirdSettings?.autoGenerate),
           shouldRun: shouldRunSteambird,
           openingTurn: shouldRunOpeningSteambird,
           interval: steambirdInterval,
-          current: committedSettlementGame.蒸汽鸟报,
+          current,
           turn: steambirdTurn,
           userInput,
           body: displayText,
           worldMoment: committedTurnContext.moment,
+          task, owner: { read: () => readLiveGameState(state).蒸汽鸟报, isCurrent: () => state.getGameSessionId() === sessionId,
+            update: updater => flushSync(() => state.set蒸汽鸟报(updater)) },
         });
+        assertWorkflowActive();
         if (taskResult.status === 'skipped') {
           pushQueueTask(state, 'steambird', 'skipped', { detail: taskResult.detail });
           return;
         }
-        pushQueueTask(state, 'steambird', 'pending', {
-          detail: taskResult.pendingDetail,
-          cancellable: true,
-        });
-        assertWorkflowActive();
         steambirdAfterGeneration = taskResult.news;
-        if (taskResult.changed) state.set蒸汽鸟报(steambirdAfterGeneration);
-        pushQueueTask(state, 'steambird', 'success', { detail: taskResult.detail });
+        pushQueueTask(state, 'steambird', taskResult.status, { detail: taskResult.detail, turn: steambirdTurn, targetBatchId: batchId });
         if (taskResult.changed) {
           notifyEvent(state.gameSettings.notificationSettings ?? DEFAULT_NOTIFICATION_SETTINGS, 'steambird', '蒸汽鸟报已更新', steambirdAfterGeneration.articles[0]?.title);
           if ((state.gameSettings.notificationSettings?.events.steambird) !== false) {
@@ -666,6 +697,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         courierReply: runCourierReplyJob,
         narrativeImage: runNarrativeImageJob,
       });
+      await checkpointTailTask('phone');
 
   return {
     variableOverrides,

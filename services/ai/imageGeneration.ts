@@ -4,6 +4,7 @@ import type { NovelAITaskOverrides, StorySnapshotRenderContext } from '@/models/
 import { fetchModels } from '@/services/ai/apiTools';
 import { compileNovelAIPrompt, resolveNovelAIModelProfile } from './novelaiPromptCompiler';
 import { findEndOfCentralDirectory } from '@/utils/zip';
+import { generateLatentImage, latentEndpoint } from './latentImageGeneration';
 
 export interface ImageGenerationRequest {
   prompt: string;
@@ -30,6 +31,11 @@ export interface ImageGenerationResult {
   model?: string;
   backend?: string;
   originalUrl?: string;
+  width?: number;
+  height?: number;
+  finalPrompt?: string;
+  finalNegativePrompt?: string;
+  promptCompacted?: boolean;
 }
 
 export interface ComfyWorkflowCandidate {
@@ -50,6 +56,8 @@ const NOVELAI_IMAGE_MODELS = [
 export async function generateImage(config: 文生图API配置, request: ImageGenerationRequest): Promise<ImageGenerationResult> {
   if (!config.enabled) throw new Error('当前文生图接口未启用。');
   if (!request.prompt.trim()) throw new Error('请先填写生图提示词。');
+
+  if (config.backend === 'latent') return generateLatentImage(config, request, readNovelAIImageBlob);
 
   if (config.backend === 'novelai') {
     return generateNovelAIImage(config, request);
@@ -97,10 +105,11 @@ export async function generateNarrativeImage(
       dataUrl: result.src,
       type,
       kind: type === 'scene' ? 'snapshot' : 'character',
-      prompt,
-      negativePrompt,
+      prompt: result.finalPrompt ?? prompt,
+      negativePrompt: result.finalNegativePrompt ?? negativePrompt,
       description,
       status: 'done',
+      dimensions: result.width && result.height ? `${result.width}x${result.height}` : undefined,
     };
   } catch (err) {
     return {
@@ -144,14 +153,17 @@ export async function testImageGenerationConnection(config: 文生图API配置):
     throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
   }
 
-  if (config.backend === 'novelai') {
-    if (!config.apiKey.trim()) throw new Error('NovelAI 接口需要 Token。');
-    const response = await fetch(joinUrl(config.baseUrl.replace(/^https:\/\/novelai\.net/i, 'https://image.novelai.net'), readPath(config)), {
+  if (config.backend === 'novelai' || config.backend === 'latent') {
+    const label = config.backend === 'latent' ? 'Latent' : 'NovelAI';
+    if (!config.apiKey.trim()) throw new Error(`${label} 接口需要 API Key / Token。`);
+    const probeEndpoint = config.backend === 'latent' ? latentEndpoint(config)
+      : joinUrl(config.baseUrl.replace(/^https:\/\/novelai\.net/i, 'https://image.novelai.net'), readPath(config));
+    const response = await fetch(probeEndpoint, {
       method: 'OPTIONS',
       headers: { Authorization: `Bearer ${config.apiKey}` },
     });
-    if (response.ok || response.status === 204 || response.status === 405 || response.status === 404) {
-      return `NovelAI 端点可达：${endpoint}。`;
+    if (response.ok || response.status === 405) {
+      return `${label} 端点可达：${probeEndpoint}。仅检查连通性，未验证密钥、额度或生成能力。`;
     }
     const text = await response.text().catch(() => '');
     throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
@@ -188,6 +200,7 @@ export async function fetchComfyCheckpoints(config: 文生图API配置): Promise
 }
 
 export async function fetchImageGenerationModels(config: 文生图API配置): Promise<string[]> {
+  if (config.backend === 'latent') return [];
   if (config.backend === 'novelai') {
     return NOVELAI_IMAGE_MODELS;
   }
@@ -403,6 +416,8 @@ function normalizeNovelAISize(size: string): { width: number; height: number } {
 function readPath(config: 文生图API配置): string {
   if (config.pathMode === 'custom' && config.customPath.trim()) return config.customPath.trim();
   switch (config.backend) {
+    case 'latent':
+      return '/api/novelai/ai/generate-image';
     case 'novelai':
       return '/ai/generate-image';
     case 'sd_webui':
@@ -897,31 +912,20 @@ async function generateComfyUIImage(config: 文生图API配置, request: ImageGe
   const firstReferenceImage = referenceImages[0]?.src
     ? await referenceSrcToBase64(referenceImages[0].src, request.signal, configuredHostsOf(config))
     : '';
-  const workflowText = config.comfyWorkflowJson
-    .replaceAll('__PROMPT__', request.prompt.trim())
-    .replaceAll('{{prompt}}', request.prompt.trim())
-    .replaceAll('__NEGATIVE_PROMPT__', negativePrompt)
-    .replaceAll('{{negative_prompt}}', negativePrompt)
-    .replaceAll('__WIDTH__', String(width))
-    .replaceAll('{{width}}', String(width))
-    .replaceAll('__HEIGHT__', String(height))
-    .replaceAll('{{height}}', String(height))
-    .replaceAll('__STEPS__', String(config.steps))
-    .replaceAll('{{steps}}', String(config.steps))
-    .replaceAll('__CFG__', String(config.cfgScale))
-    .replaceAll('{{cfg}}', String(config.cfgScale))
-    .replaceAll('__SEED__', String(seed))
-    .replaceAll('{{seed}}', String(seed))
-    .replaceAll('__SAMPLER__', comfySampler)
-    .replaceAll('{{sampler}}', comfySampler)
-    .replaceAll('__SCHEDULER__', comfyScheduler)
-    .replaceAll('{{scheduler}}', comfyScheduler)
-    .replaceAll('__MODEL__', modelName)
-    .replaceAll('__CKPT_NAME__', modelName)
-    .replaceAll('{{model}}', modelName)
-    .replaceAll('{{ckpt_name}}', modelName)
-    .replaceAll('__REFERENCE_IMAGE__', firstReferenceImage)
-    .replaceAll('{{reference_image}}', firstReferenceImage);
+  const replacements: Record<string, string | number> = {
+    prompt: request.prompt.trim(), negative_prompt: negativePrompt, width, height,
+    steps: config.steps, cfg: config.cfgScale, seed, sampler: comfySampler,
+    scheduler: comfyScheduler, model: modelName, ckpt_name: modelName, reference_image: firstReferenceImage,
+  };
+  // Escape string fragments once, keeping quoted and bare numeric placeholders compatible.
+  // A single pass also prevents a placeholder-like phrase inside the user's prompt being substituted again.
+  const workflowText = config.comfyWorkflowJson.replace(
+    /__(PROMPT|NEGATIVE_PROMPT|WIDTH|HEIGHT|STEPS|CFG|SEED|SAMPLER|SCHEDULER|MODEL|CKPT_NAME|REFERENCE_IMAGE)__|\{\{(prompt|negative_prompt|width|height|steps|cfg|seed|sampler|scheduler|model|ckpt_name|reference_image)\}\}/g,
+    (_match, upper: string | undefined, lower: string | undefined) => {
+      const value = replacements[String(upper || lower).toLowerCase()];
+      return typeof value === 'number' ? String(value) : JSON.stringify(value ?? '').slice(1, -1);
+    },
+  );
   if (referenceImages.length > 0 && !/__REFERENCE_IMAGE__|\{\{reference_image\}\}/.test(config.comfyWorkflowJson)) {
     throw new Error('当前 ComfyUI 工作流没有参考图占位符。请在工作流中预留 __REFERENCE_IMAGE__ 或 {{reference_image}}，或关闭参考图参与生成。');
   }
@@ -1092,8 +1096,8 @@ async function readNovelAIImageBlob(blob: Blob, contentType: string): Promise<{ 
   if (isZipHeader(header)) {
     return readFirstImageFromZip(blob);
   }
-  const mimeType = normalizeImageMimeType(declaredType, undefined);
-  return { src: await blobToDataUrl(blob), mimeType };
+  const mimeType = await validatedImageMimeType(blob);
+  return { src: await blobToDataUrl(new Blob([blob], { type: mimeType })), mimeType };
 }
 
 async function persistRemoteImage(
@@ -1108,7 +1112,7 @@ async function persistRemoteImage(
     const response = await fetch(url, { signal: meta.signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const blob = await response.blob();
-    const mimeType = normalizeImageMimeType(blob.type || response.headers.get('content-type') || '', undefined);
+    const mimeType = await validatedImageMimeType(blob);
     return {
       src: await blobToDataUrl(new Blob([blob], { type: mimeType })),
       mimeType,
@@ -1144,7 +1148,7 @@ async function readFirstImageFromZip(blob: Blob): Promise<{ src: string; mimeTyp
       : undefined;
   if (!imageBytes) throw new Error(`NovelAI 返回的压缩包使用了暂不支持的压缩方式：${entry.compressionMethod}。`);
 
-  const mimeType = normalizeImageMimeType('', entry.filename, imageBytes);
+  const mimeType = await validatedImageMimeType(new Blob([imageBytes]));
   const imageBlob = new Blob([imageBytes], { type: mimeType });
   return { src: await blobToDataUrl(imageBlob), mimeType };
 }
@@ -1211,6 +1215,18 @@ async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
   if (!Decompression) throw new Error('当前浏览器不支持解压 NovelAI 返回的 zip 图片包。');
   const stream = new Blob([bytes]).stream().pipeThrough(new Decompression('deflate-raw'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function validatedImageMimeType(blob: Blob): Promise<string> {
+  const header = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+  if (header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) return 'image/png';
+  if (header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) return 'image/jpeg';
+  const text = new TextDecoder().decode(header);
+  if (text.startsWith('RIFF') && text.slice(8, 12) === 'WEBP') return 'image/webp';
+  if (text.startsWith('GIF87a') || text.startsWith('GIF89a')) return 'image/gif';
+  if (text.slice(4, 8) === 'ftyp' && /avif|avis/.test(text.slice(8))) return 'image/avif';
+  if (text.startsWith('BM')) return 'image/bmp';
+  throw new Error('接口未返回有效的图片数据（可能为空、HTML 错误页面或损坏的图片）。');
 }
 
 function normalizeImageMimeType(contentType: string, filename?: string, bytes?: Uint8Array): string {

@@ -67,6 +67,10 @@ function createProxyRequest(
 }
 
 export default defineConfig({
+  // Keep the running dev optimizer separate from test/tool caches. Prebundle lazy
+  // settings dependencies up front instead of discovering them on the first click.
+  cacheDir: 'node_modules/.vite-dev',
+  optimizeDeps: { include: ['react', 'react-dom/client', 'lucide-react', '@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'] },
   plugins: [
     react(),
     {

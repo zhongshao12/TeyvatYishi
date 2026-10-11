@@ -431,7 +431,7 @@ export interface 剧情编织系统设置 {
 
 export type 文生图响应格式 = 'url' | 'b64_json' | 'dataUrl';
 export type 文生图默认风格 = 'hsr' | 'anime' | 'realistic' | 'custom';
-export type 文生图后端类型 = 'openai_compatible' | 'novelai' | 'sd_webui' | 'comfyui';
+export type 文生图后端类型 = 'openai_compatible' | 'novelai' | 'latent' | 'sd_webui' | 'comfyui';
 export type 文生图接口路径模式 = 'preset' | 'custom';
 export type 自动生图场景构图 = '纯场景' | '故事快照' | '剧照';
 export type 自动NPC生图构图 = '头像' | '半身' | '立绘';
@@ -442,6 +442,7 @@ export type PNG画风预设来源 = 'novelai' | 'sd_webui' | 'comfyui' | 'unknow
 export type 文生图预设接口路径 =
   | 'openai_images'
   | 'novelai_generate'
+  | 'latent_generate'
   | 'sd_txt2img'
   | 'comfyui_prompt';
 export type NovelAI采样器 = 'k_euler' | 'k_euler_ancestral' | 'k_dpmpp_2m' | 'k_dpmpp_2s_ancestral' | 'k_dpmpp_sde' | 'k_dpmpp_2m_sde';
@@ -831,7 +832,7 @@ export function 归一化文生图API配置(input?: Partial<文生图API配置>)
     pathMode: input.pathMode === 'custom' ? 'custom' : 'preset',
     presetPath: input.presetPath ?? defaults.presetPath,
     customPath: String(input.customPath ?? defaults.customPath),
-    steps,
+    steps: backend === 'latent' ? Math.max(8, Math.min(12, steps)) : steps,
     cfgScale,
     seed: Number.isFinite(Number(input.seed)) ? Math.trunc(Number(input.seed)) : defaults.seed,
     sampler: input.sampler ?? defaults.sampler,
@@ -839,7 +840,7 @@ export function 归一化文生图API配置(input?: Partial<文生图API配置>)
     useDefaultComfyWorkflow: input.useDefaultComfyWorkflow !== false,
     comfyWorkflowJson: String(input.comfyWorkflowJson ?? ''),
     negativePrompt: String(input.negativePrompt ?? ''),
-    retryCount: Math.max(0, Math.trunc(Number(input.retryCount ?? defaults.retryCount) || 0)),
+    retryCount: backend === 'latent' ? 0 : Math.max(0, Math.trunc(Number(input.retryCount ?? defaults.retryCount) || 0)),
     novelAIUcPreset: ['recommended', 'heavy', 'light', 'furry_focus', 'human_focus', 'none'].includes(String(input.novelAIUcPreset))
       ? input.novelAIUcPreset as NovelAIUcPreset
       : defaults.novelAIUcPreset,

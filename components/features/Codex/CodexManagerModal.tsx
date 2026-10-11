@@ -1,13 +1,16 @@
 import { CLIP_ITEM, CLIP_SECTION } from '@/styles/clipPaths';
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import type { ArchiveCodex, CodexEntry } from '@/models/teyvat';
+import type { NPC记录 } from '@/models/npc';
 import { buildCodexArchiveItems } from './productionAdapter';
 import { buildCodexEntryInjectionPreview, retrieveCodexEntries } from '@/services/codexRetrieval';
 import { useModalAccessibility } from '@/components/ui/Modal';
 import { getContentResourceStatuses, subscribeContentResourceStatuses } from '@/services/contentResourceStatus';
+import { CodexCharacterDetails } from './CodexCharacterDetails';
 
 export interface CodexManagerModalProps {
   codex: ArchiveCodex;
+  npcRecords?: readonly NPC记录[];
   onClose: () => void;
 }
 
@@ -37,12 +40,8 @@ const USAGE_LABELS: Array<{ key: keyof CodexEntry['usage']; label: string }> = [
   { key: 'variables', label: '变量' },
 ];
 
-function entryMatchesQuery(entry: CodexEntry, query: string, unlocked: boolean): boolean {
-  const source = (unlocked
-    ? [entry.name, entry.category, entry.summary, entry.description, entry.source, ...entry.tags, ...entry.keywords]
-    : [entry.name, entry.category])
-    .join('\n')
-    .toLocaleLowerCase();
+function entryMatchesQuery(searchText: string, query: string): boolean {
+  const source = searchText.toLocaleLowerCase();
   return query
     .trim()
     .toLocaleLowerCase()
@@ -51,13 +50,13 @@ function entryMatchesQuery(entry: CodexEntry, query: string, unlocked: boolean):
     .every((term) => source.includes(term));
 }
 
-export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
+export function CodexManagerModal({ codex, npcRecords, onClose }: CodexManagerModalProps) {
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const dialogRef = useModalAccessibility<HTMLElement>(onClose);
 
-  const items = useMemo(() => buildCodexArchiveItems(codex), [codex]);
-  const entryById = useMemo(() => new Map(codex.entries.map((entry) => [entry.id, entry])), [codex]);
+  const items = useMemo(() => buildCodexArchiveItems(codex, npcRecords), [codex, npcRecords]);
+  const entryById = useMemo(() => new Map(items.map(item => [item.id, item.entry])), [items]);
   const resourceStatuses = useSyncExternalStore(subscribeContentResourceStatuses, getContentResourceStatuses);
   const resourceFailure = resourceStatuses.find((status) => status.resourceId.startsWith('codex:') && status.state === 'failed');
   const resourceLoading = resourceStatuses.some((status) => status.resourceId.startsWith('codex:') && status.state === 'loading');
@@ -75,14 +74,13 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
     return items.filter((item) => {
       if (activeCategory !== 'all' && item.category !== activeCategory) return false;
       if (!query.trim()) return true;
-      const entry = entryById.get(item.id);
-      return entry ? entryMatchesQuery(entry, query, item.unlocked) : false;
+      return entryMatchesQuery(item.searchText, query);
     });
-  }, [items, entryById, activeCategory, query]);
+  }, [items, activeCategory, query]);
 
   const selectedItem = listItems.find((item) => item.id === selectedId) ?? listItems[0] ?? null;
   const selectedEntry: CodexEntry | null = selectedItem ? entryById.get(selectedItem.id) ?? null : null;
-  const selectedUnlocked = selectedItem?.unlocked === true;
+  const selectedReadable = selectedItem?.readable === true;
 
   // 用领域检索服务演示：当前搜索词若在回合内出现，会召回并注入哪些条目。
   const recallPreview = useMemo(() => {
@@ -94,14 +92,14 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
   }, [codex, query, listItems]);
 
   const relatedEntries = useMemo(() => {
-    if (!selectedUnlocked || !selectedEntry?.relatedEntryIds?.length) return [];
+    if (!selectedReadable || !selectedEntry?.relatedEntryIds?.length) return [];
     return selectedEntry.relatedEntryIds
       .map((id) => entryById.get(id))
       .filter((entry): entry is CodexEntry => Boolean(entry));
-  }, [selectedEntry, selectedUnlocked, entryById]);
+  }, [selectedEntry, selectedReadable, entryById]);
 
   const injectionSections = useMemo(() => {
-    if (!selectedEntry || !selectedUnlocked) return [];
+    if (!selectedEntry || !selectedReadable) return [];
     const injection = selectedEntry.injection;
     const sections: Array<{ label: string; value?: string }> = [
       { label: '身份与阵营', value: injection.identityAndFaction },
@@ -118,7 +116,7 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
       { label: '边界', value: injection.boundaries },
     ];
     return sections.filter((section) => section.value?.trim());
-  }, [selectedEntry, selectedUnlocked]);
+  }, [selectedEntry, selectedReadable]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-0 sm:p-4">
@@ -245,12 +243,13 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
               <p className="py-12 text-center text-sm leading-6" style={{ color: muted(0.75) }}>
                 从左侧选择一个条目，查看它的档案与注入预览。
               </p>
-            ) : !selectedUnlocked ? (
+            ) : !selectedReadable ? (
               <p className="py-12 text-center text-sm leading-6" style={{ color: muted(0.85) }}>
                 条目尚未解锁。{selectedEntry.runtimeUnlock.note || selectedEntry.runtimeUnlock.condition || '继续探索以查看档案内容。'}
               </p>
             ) : (
               <div className="space-y-4">
+                {selectedItem?.characterFacts && <CodexCharacterDetails facts={selectedItem.characterFacts} />}
                 {selectedEntry.summary && (
                   <p className="text-sm leading-7" style={{ color: ink(0.94) }}>{selectedEntry.summary}</p>
                 )}
@@ -263,6 +262,8 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
                     ))}
                   </div>
                 )}
+                {selectedEntry.description && selectedEntry.description !== selectedEntry.summary && <p className="whitespace-pre-wrap text-sm leading-7">{selectedEntry.description}</p>}
+                {selectedEntry.sourceText && <p className="whitespace-pre-wrap text-sm leading-7">{selectedEntry.sourceText}</p>}
                 {injectionSections.length > 0 && (
                   <section>
                     <h4 className="mb-2 font-serif text-[13px] tracking-[0.2em]" style={{ color: gold }}>档案注入内容</h4>
@@ -278,7 +279,8 @@ export function CodexManagerModal({ codex, onClose }: CodexManagerModalProps) {
                 )}
                 {(
                   <section>
-                    <h4 className="mb-2 font-serif text-[13px] tracking-[0.2em]" style={{ color: gold }}>回合内注入预览</h4>
+                    <h4 className="mb-2 font-serif text-[13px] tracking-[0.2em]" style={{ color: gold }}>{selectedItem?.unlocked ? '回合内注入预览' : '公开内容预览'}</h4>
+                    {!selectedItem?.unlocked && <p className="mb-2 text-xs leading-5" style={{ color: muted(0.8) }}>仅供阅读，未解锁时不会在回合中注入。</p>}
                     <p className="whitespace-pre-wrap border-l-2 pl-3 text-[13px] leading-6" style={{ borderColor: goldSoft(0.5), color: muted(0.9) }}>
                       {buildCodexEntryInjectionPreview(selectedEntry) || '（无注入内容）'}
                     </p>

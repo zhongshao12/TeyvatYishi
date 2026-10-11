@@ -57,6 +57,8 @@ transpileModule('utils/stSettingsNormalizer.ts');
 transpileModule('utils/presetPresentation.ts');
 transpileModule('models/prompts.ts');
 transpileModule('hooks/useGame/tavernFormatGuard.ts');
+transpileModule('hooks/useGame/tavernRegexProcessor.ts');
+transpileModule('models/teyvat/narrativeTurn.ts');
 transpileModule('hooks/useGame/tavernMessageChainBuilder.ts');
 
 const builderUrl = pathToFileURL(path.join(tempDir, 'hooks/useGame/tavernMessageChainBuilder.mjs')).href;

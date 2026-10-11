@@ -3,7 +3,7 @@ import { normalizeArchiveCodex } from '@/models/teyvat/codex';
 import { normalizeIrminsulMemory } from '@/models/teyvat/irminsul';
 
 describe('long-session archive entry limits', () => {
-  it('keeps only the newest 600 Irminsul entries', () => {
+  it('does not evict unverifiable legacy Irminsul entries at the soft capacity', () => {
     const entries = Array.from({ length: 605 }, (_, index) => ({
       id: `memory-${index}`,
       turn: index,
@@ -11,8 +11,8 @@ describe('long-session archive entry limits', () => {
 
     const normalized = normalizeIrminsulMemory({ entries });
 
-    expect(normalized.entries).toHaveLength(600);
-    expect(normalized.entries[0]?.id).toBe('memory-5');
+    expect(normalized.entries).toHaveLength(605);
+    expect(normalized.entries[0]?.id).toBe('memory-0');
     expect(normalized.entries.at(-1)?.id).toBe('memory-604');
   });
 

@@ -21,6 +21,7 @@ import type { NovelAIContentMode } from '@/models/imageGeneration';
 import { saveSetting } from '@/services/dbService';
 import { fetchModels } from '@/services/ai/apiTools';
 import { fetchComfyWorkflowCandidates, fetchImageGenerationModels, testImageGenerationConnection, type ComfyWorkflowCandidate } from '@/services/ai/imageGeneration';
+import { LATENT_BASE_URL, LATENT_IMAGE_PATH, latentEndpoint, acknowledgeLatentJobResolved } from '@/services/ai/latentImageGeneration';
 
 interface Props {
   settings: 游戏设置;
@@ -52,6 +53,7 @@ const pages: { id: Page; label: string; desc: string }[] = [
 const backendOptions: { value: 文生图后端类型; label: string }[] = [
   { value: 'openai_compatible', label: 'OpenAI 兼容图片接口' },
   { value: 'novelai', label: 'NovelAI 官方' },
+  { value: 'latent', label: 'Latent（浏览器兼容接口）' },
   { value: 'sd_webui', label: 'Stable Diffusion WebUI' },
   { value: 'comfyui', label: 'ComfyUI' },
 ];
@@ -70,6 +72,7 @@ const responseOptions: { value: 文生图响应格式; label: string }[] = [
 const presetPathOptions: Record<文生图后端类型, { value: 文生图预设接口路径; label: string }[]> = {
   openai_compatible: [{ value: 'openai_images', label: '/images/generations' }],
   novelai: [{ value: 'novelai_generate', label: '/ai/generate-image' }],
+  latent: [{ value: 'latent_generate', label: LATENT_IMAGE_PATH }],
   sd_webui: [{ value: 'sd_txt2img', label: '/sdapi/v1/txt2img' }],
   comfyui: [{ value: 'comfyui_prompt', label: '/prompt' }],
 };
@@ -127,6 +130,7 @@ const novelAIOfficialAdvancedDefaults: 文生图API配置['novelAIAdvanced'] = {
 const modelSuggestions: Record<文生图后端类型, string[]> = {
   openai_compatible: ['gpt-image-2', 'gpt-image-1'],
   novelai: ['nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated', 'nai-diffusion-4-full'],
+  latent: [],
   sd_webui: ['由 WebUI 当前模型决定，可留空', 'AnythingV5', 'Counterfeit-V3.0'],
   comfyui: ['由 Workflow 决定，可留空'],
 };
@@ -640,7 +644,14 @@ function ApiBlock({
                 value={api.backend}
                 onChange={(e) => {
                   const backend = e.target.value as 文生图后端类型;
-                  onChange({ backend, presetPath: presetPathOptions[backend][0]?.value ?? api.presetPath });
+                  onChange({ backend, presetPath: presetPathOptions[backend][0]?.value ?? api.presetPath,
+                    ...(backend === 'latent' ? {
+                      baseUrl: LATENT_BASE_URL, apiKey: '', model: '', pathMode: 'preset', customPath: '',
+                      steps: 8, retryCount: 0, defaultSize: '1024x1024',
+                    } : api.backend === 'latent' ? {
+                      baseUrl: '', apiKey: '', model: '', pathMode: 'preset', customPath: '', steps: 28, retryCount: 2,
+                    } : {}),
+                  });
                 }}
                 className="teyvat-input w-full px-3 py-2 text-sm"
                 style={{ clipPath: CLIP_SMALL }}
@@ -648,11 +659,11 @@ function ApiBlock({
                 {backendOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
             </Field>
-            <Field label="响应格式">
+            {api.backend === 'latent' ? <ReadOnlyValue label="响应格式" value="ZIP → 图片 → 本地相册" /> : <Field label="响应格式">
               <select value={api.responseFormat} onChange={(e) => onChange({ responseFormat: e.target.value as 文生图响应格式 })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }}>
                 {responseOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
-            </Field>
+            </Field>}
           </div>
 
           <Field label="Base URL">
@@ -680,11 +691,11 @@ function ApiBlock({
           )}
 
           <Field label="API Key / Token">
-            <input type="password" value={api.apiKey} onChange={(e) => onChange({ apiKey: e.target.value })} placeholder={api.backend === 'sd_webui' || api.backend === 'comfyui' ? '本地后端通常可留空' : '请填写密钥或 Token'} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
+            <input type="password" value={api.apiKey} onChange={(e) => onChange({ apiKey: e.target.value })} placeholder={api.backend === 'latent' ? 'Latent Designer API Key：lat_sk_…' : api.backend === 'sd_webui' || api.backend === 'comfyui' ? '本地后端通常可留空' : '请填写密钥或 Token'} className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
           </Field>
 
           <div className="grid gap-3 md:grid-cols-2">
-            <Field label={api.backend === 'comfyui' ? 'Checkpoint / 模型名' : '模型'}>
+            {api.backend === 'latent' ? <ReadOnlyValue label="模型" value="Latent 固定模型（不支持选择）" /> : <Field label={api.backend === 'comfyui' ? 'Checkpoint / 模型名' : '模型'}>
               <div className="flex gap-2">
                 <input value={api.model} onChange={(e) => onChange({ model: e.target.value })} placeholder={api.backend === 'comfyui' ? '填写本机已有 ckpt_name，例如 novaAnimeXL_v70Happyhalloween.safetensors' : suggestions[0] ?? '模型 ID'} list={`${apiKey}-models`} className="teyvat-input min-w-0 flex-1 px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
                 <button type="button" onClick={handleFetchImageModels} disabled={modelLoading || (api.backend !== 'novelai' && !api.baseUrl.trim()) || (api.backend === 'openai_compatible' && !api.apiKey.trim())} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
@@ -699,9 +710,11 @@ function ApiBlock({
                   {modelMessage}
                 </div>
               )}
-            </Field>
+            </Field>}
             <Field label="默认尺寸">
-              <input value={api.defaultSize} onChange={(e) => onChange({ defaultSize: e.target.value })} placeholder="1024x1024" className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
+              {api.backend === 'latent' ? <select value={api.defaultSize} onChange={e => onChange({ defaultSize: e.target.value })} className="teyvat-input w-full px-3 py-2 text-sm">
+                <option value="1024x1024">方形 1024×1024</option><option value="920x1536">竖图 920×1536</option><option value="1536x920">横图 1536×920</option>
+              </select> : <input value={api.defaultSize} onChange={(e) => onChange({ defaultSize: e.target.value })} placeholder="1024x1024" className="teyvat-input w-full px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />}
             </Field>
           </div>
 
@@ -714,15 +727,15 @@ function ApiBlock({
             ) : (
               <>
                 <Field label="步数">
-                  <input type="number" min={1} max={80} value={api.steps} onChange={(e) => onChange({ steps: Math.max(1, Number(e.target.value) || 1) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
+                  <input type="number" min={api.backend === 'latent' ? 8 : 1} max={api.backend === 'latent' ? 12 : 80} value={api.steps} onChange={(e) => onChange({ steps: api.backend === 'latent' ? Math.max(8, Math.min(12, Number(e.target.value) || 8)) : Math.max(1, Number(e.target.value) || 1) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
                 </Field>
-                <Field label="CFG">
+                {api.backend === 'latent' ? <ReadOnlyValue label="CFG" value="服务端固定（不支持调整）" /> : <Field label="CFG">
                   <input type="number" min={0} max={30} step={0.5} value={api.cfgScale} onChange={(e) => onChange({ cfgScale: Math.max(0, Number(e.target.value) || 0) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
-                </Field>
+                </Field>}
               </>
             )}
             <Field label="Seed">
-              <input type="number" value={api.seed} onChange={(e) => onChange({ seed: Number(e.target.value) || -1 })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
+              <input type="number" value={api.seed} onChange={(e) => onChange({ seed: e.target.value.trim() && Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : -1 })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
             </Field>
           </div>
         </div>
@@ -739,8 +752,16 @@ function ApiBlock({
               画风、画师串、负面词由规则中心统一控制；这里仅保留接口调用和失败重试。
             </Notice>
             <Field label="失败重试">
-              <input type="number" min={0} max={5} value={api.retryCount} onChange={(e) => onChange({ retryCount: Math.max(0, Number(e.target.value) || 0) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
+              <input type="number" min={0} max={5} disabled={api.backend === 'latent'} value={api.backend === 'latent' ? 0 : api.retryCount} onChange={(e) => onChange({ retryCount: Math.max(0, Number(e.target.value) || 0) })} className="teyvat-input w-full px-3 py-2 text-sm" style={{ clipPath: CLIP_SMALL }} />
             </Field>
+            {api.backend === 'latent' && <>
+              <Notice>遇到超时、断网或运行中取消后，账号的后续提交会暂停。请先确认 Latent 控制台没有运行中的任务，再恢复。</Notice>
+              <button type="button" className="teyvat-input w-full px-3 py-2 text-xs" onClick={() => {
+                acknowledgeLatentJobResolved(api);
+                setModelMessage('已解除本地暂停；下次生成将提交一个新任务。');
+              }}>已检查控制台，恢复生成</button>
+              {modelMessage && <div className="text-xs">{modelMessage}</div>}
+            </>}
           </SubPanel>
           {testMessage && (
             <div className="px-3 py-2 text-xs leading-relaxed" style={{ color: testMessage.startsWith('连接失败') ? 'rgba(255,180,180,0.92)' : 'rgba(165,230,170,0.9)', background: 'rgba(var(--tj-bg-primary),0.46)', boxShadow: insetRing(0.14), clipPath: CLIP_SMALL }}>
@@ -943,6 +964,7 @@ function GuidePage() {
       <div className="grid gap-3 md:grid-cols-2">
         <GuideCard title="OpenAI 兼容" desc="Base URL 通常是服务根地址，路径用 /images/generations。需要 API Key 和模型名，响应格式可选 URL 或 b64_json。" />
         <GuideCard title="NovelAI" desc="Base URL 可填 https://image.novelai.net，路径 /ai/generate-image。Token 必填，模型建议使用 nai-diffusion 系列。" />
+        <GuideCard title="Latent" desc="选择 Latent 后端，Base URL 为 https://latent.moe，填写 Designer API Key（lat_sk_…）。使用浏览器兼容接口，固定模型、三种尺寸，不支持参考图。超时请先检查 Latent 控制台，不要立即重复生成。" />
         <GuideCard title="SD WebUI" desc="Base URL 通常是 http://127.0.0.1:7860，路径 /sdapi/v1/txt2img。API Key 常可留空，模型可留空使用当前 checkpoint。" />
         <GuideCard title="ComfyUI" desc="Base URL 通常是 http://127.0.0.1:8188，路径 /prompt。必须提供 Workflow JSON；模型名要填写本机 ckpt_name，采样器和调度器会从设置自动映射。" />
       </div>
@@ -1083,12 +1105,14 @@ function normalizeOpenAICompatibleImagePath(path: string): string {
 }
 
 function endpointPreview(api: 文生图API配置): string {
+  if (api.backend === 'latent') return latentEndpoint(api);
   if (!api.baseUrl.trim()) return '';
   const path = api.backend === 'openai_compatible' ? normalizeOpenAICompatibleImagePath(readPath(api)) : readPath(api);
   return `${api.baseUrl.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 function baseUrlPlaceholder(backend: 文生图后端类型): string {
+  if (backend === 'latent') return LATENT_BASE_URL;
   if (backend === 'novelai') return 'https://image.novelai.net';
   if (backend === 'sd_webui') return 'http://127.0.0.1:7860';
   if (backend === 'comfyui') return 'http://127.0.0.1:8188';
@@ -1096,6 +1120,7 @@ function baseUrlPlaceholder(backend: 文生图后端类型): string {
 }
 
 function backendHints(backend: 文生图后端类型): string[] {
+  if (backend === 'latent') return ['Latent 不支持参考图、V4 多角色定位、模型选择和 CFG；角色描述会合并到主提示词。', '同一时间仅提交一张；取消或关闭请求不会停止服务器生成，仍可能消耗额度。', '连接测试只检查端点连通性，不验证密钥或额度；超时不自动重试，请先查看 Latent 控制台。'];
   if (backend === 'novelai') return ['NovelAI 返回图片流或压缩包时会自动转成 dataUrl。', 'Token 必填，建议为 NSFW 单独准备接口配置。'];
   if (backend === 'sd_webui') return ['本地 WebUI 需要开启 API 参数。', '模型可留空，系统会使用当前 WebUI checkpoint。'];
   if (backend === 'comfyui') return ['ComfyUI 必须提供 Workflow JSON。', '工作流中至少要能通过占位符替换 prompt 和尺寸。'];

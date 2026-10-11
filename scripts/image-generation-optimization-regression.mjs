@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { readWorkflowSources } from './lib/workflowSources.mjs';
+import { runFocusedBehaviorRegression } from './lib/runFocusedBehaviorRegression.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -143,7 +144,7 @@ assert(storySnapshotPipeline.includes('const parsed = await parseStorySnapshotPr
 assert(storySnapshotPipeline.includes("source: 'local'") && storySnapshotPipeline.includes('extractLocalStorySnapshot'), '共享故事快照管线必须在模型失败时回退本地草稿。');
 assert(storySnapshotPipeline.includes('buildSceneImagePrompt({') && storySnapshotPipeline.includes('formatStorySnapshotSceneText(summary)'), '本地草稿必须通过统一场景 Prompt 构建器进入生图。');
 assert(storySnapshotPipeline.includes('应用场景角色锚点锁') && storySnapshotPipeline.includes('应用质量增强提示词'), '共享管线的模型成功路径必须重新应用角色锚点锁和质量增强。');
-assert(storySnapshotPipeline.includes('anchorPrompt: params.traveler.图像档案?.角色锚点') && storySnapshotPipeline.includes("playerAppearanceMode: params.playerAppearanceMode ?? 'auto'"), '共享管线必须向模型传入主控锚点与玩家出镜模式。');
+assert(storySnapshotPipeline.includes('...readImagePromptParserCharacter(params.traveler)') && storySnapshotPipeline.includes("playerAppearanceMode: params.playerAppearanceMode ?? 'auto'"), '共享管线必须通过启用/场景开关守卫的角色视觉读取器向模型传入主控锚点，并保留玩家出镜模式。');
 assert(albumPanel.includes("resolution.source === 'local'") && albumPanel.includes('已用本地草稿整理故事快照'), '手动入口必须明确显示本地兜底状态。');
 assert(albumPanel.includes('setNegativePrompt(resolution.negativePrompt)'), '故事快照每次解析后必须覆盖负向提示词，避免沿用上次残留。');
 assert(narrativeParser.includes('parseStructuredJsonWithRepair') && narrativeParser.includes('parseLooseJsonWithRepair'), '故事快照解析必须兼容代码块、思考文本和宽松 JSON。');
@@ -157,7 +158,8 @@ assert(albumPanel.includes('const [sceneImageSummary, setSceneImageSummary]'), '
 assert(albumPanel.includes('handleBuildSceneImagePrompt'), '场景图必须有专用解析提示词入口。');
 assert(albumPanel.includes('parsed = await parseSceneImagePrompt'), '场景图提示词整理必须优先调用模型解析，而不是只做本地 prompt 包装。');
 assert(albumPanel.includes('title: parsed.title') && albumPanel.includes('subject: parsed.subject') && albumPanel.includes('camera: parsed.camera'), '场景图右侧字段必须来自模型解析结果。');
-assert(albumPanel.includes('const enhanced = 应用质量增强提示词(imageSettings.rules, lockedPrompt.prompt, lockedPrompt.negative)') && albumPanel.includes('setPrompt(enhanced.prompt)') && albumPanel.includes('setNegativePrompt(enhanced.negative)'), '场景图最终生成提示词必须来自模型解析结果、锚点锁和质量增强层。');
+// Verify the rendered draft, not direct setter spelling: compaction is now the final layer.
+runFocusedBehaviorRegression(['tests/unit/albumCrossSessionCommit.test.ts'], '场景图模型成功后');
 assert(albumPanel.includes('SceneImageParsedPanel') && albumPanel.includes('场景解析'), '场景图页面必须展示结构化场景解析结果。');
 assert(albumPanel.includes('场景图模型解析失败，已改用本地草稿兜底'), '场景图模型解析失败时必须明确提示本地兜底。');
 assert(albumPanel.includes('sceneText={sceneImageText}') && albumPanel.includes('setSceneText={setSceneImageText}'), '场景图页面不得继续绑定故事快照使用的 sceneText 输入。');

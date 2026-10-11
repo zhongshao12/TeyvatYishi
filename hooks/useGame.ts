@@ -44,7 +44,7 @@ export interface UseGameReturn {
     handleNewGame: () => void;
     handleContinue: () => Promise<boolean>;
     handleGoHome: () => void;
-    handleSave: () => Promise<number>;
+    handleSave: (options?: { asNewNode?: boolean }) => Promise<number>;
     handleReroll: () => Promise<string | void>;
     handleRegenerateNarrativeImage: (messageId: string) => Promise<void>;
     handleRetryQueueTask: (task: 队列任务记录, mode?: 'retry' | 'reroll') => Promise<void>;
@@ -122,8 +122,8 @@ export function useGame(): UseGameReturn {
     s.setView('home');
   }, []);
 
-  const handleSave = useCallback(async (): Promise<number> => {
-    return handleManualSave(stateRef.current);
+  const handleSave = useCallback(async (options?: { asNewNode?: boolean }): Promise<number> => {
+    return handleManualSave(stateRef.current, options);
   }, []);
 
   // 重roll：找到最后一条 user → AI 对，回滚状态，并把 user 输入交还给输入框。

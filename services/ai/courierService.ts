@@ -1,10 +1,11 @@
 import type { NPC关系阶段, NPC记录 } from '@/models/npc';
 import { buildNpcMemoryLedgerView, 创建NPC记录, 格式化NPC关系, 获取NPC关系阶段, 获取NPC兼容关系, 读取NPC头像, 限制NPC好感度 } from '@/models/npc';
 import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
-import { matchCanonical } from '@/data/canonicalCharacters';
+import { matchCanonical, matchCanonicalIdentity } from '@/data/canonicalCharacters';
 import { normalizeCourierConversation, normalizeCourierSystem, type CourierContact, type CourierConversation, type CourierDeliverySeed, type CourierMessage, type CourierSystem } from '@/models/teyvat/courier';
 import type { 提示词模块 } from '@/models/prompts';
 import { buildIndependentPromptModulesSection } from '@/services/promptModuleScopes';
+import { isCourierLedgerNarrative, sanitizeCourierFactText, sanitizeCourierMessageText } from '@/utils/courierTextSanitizer';
 
 export function buildCourierPromptModulesSection(promptModules?: 提示词模块[]): string {
   return buildIndependentPromptModulesSection(promptModules, 'courier');
@@ -17,13 +18,15 @@ export function calculateCourierUnread(system: Pick<CourierSystem, 'conversation
 }
 
 export function appendCourierMessage(system: CourierSystem, conversationId: string, message: CourierMessage): CourierSystem {
+  const content = sanitizeCourierMessageText(message.content);
+  if (!content && !message.photo) throw new Error('PHONE_MESSAGE_HAS_NO_SAFE_TEXT');
   const conversations = system.conversations.map((conversation) => conversation.id !== conversationId
     ? conversation
     : conversation.messages.some((existing) => existing.id === message.id)
       ? conversation
       : {
           ...conversation,
-          messages: [...conversation.messages, { ...message, readBy: [...message.readBy] }],
+          messages: [...conversation.messages, { ...message, content, readBy: [...message.readBy] }],
           unread: conversation.unread + 1,
           updatedAt: Math.max(conversation.updatedAt, message.timestamp),
         });
@@ -66,6 +69,12 @@ export function mergeCourierSystemUpdates(
   const baseById = new Map(taskBase.conversations.map((conversation) => [conversation.id, conversation]));
   const currentById = new Map(current.conversations.map((conversation) => [conversation.id, conversation]));
   const resultById = new Map(taskResult.conversations.map((conversation) => [conversation.id, conversation]));
+  const deletedContactIds = new Set(current.deletedContactIds ?? []);
+  const deletedNpcIds = new Set(current.deletedNpcIds ?? []);
+  const deletedConversationIds = new Set(current.deletedConversationIds ?? []);
+  const contactDeleted = (contact: CourierContact) => deletedContactIds.has(contact.id) || deletedNpcIds.has(contact.npcId ?? '')
+    || Boolean(current.deletedLegacyCanonicalNames?.includes(matchCanonicalIdentity({ id: contact.npcId || contact.id, name: contact.name })?.name ?? ''));
+  for (const contact of taskResult.contacts) if (contactDeleted(contact)) deletedContactIds.add(contact.id);
   const conversationIds = Array.from(new Set([
     ...current.conversations.map((conversation) => conversation.id),
     ...taskResult.conversations.map((conversation) => conversation.id),
@@ -73,14 +82,16 @@ export function mergeCourierSystemUpdates(
   const conversations = conversationIds.flatMap((id) => {
     const live = currentById.get(id);
     const result = resultById.get(id);
-    if (!live) return result ? [{ ...result, messages: result.messages.map((message) => ({ ...message, readBy: [...message.readBy] })) }] : [];
+    if (deletedConversationIds.has(id)) return [];
+    if (!live) return result && !baseById.has(id) && !result.participantIds.some((memberId) => deletedContactIds.has(memberId))
+      ? [{ ...result, messages: result.messages.map((message) => ({ ...message, readBy: [...message.readBy] })) }] : [];
     if (!result) return [live];
     const messageIds = new Set(live.messages.map((message) => message.id));
     const appended = result.messages
-      .filter((message) => !messageIds.has(message.id))
+      .filter((message) => !messageIds.has(message.id) && !deletedContactIds.has(message.senderId))
       .map((message) => ({ ...message, readBy: [...message.readBy] }));
     const baseUnread = baseById.get(id)?.unread ?? 0;
-    const unreadDelta = Math.max(0, result.unread - baseUnread);
+    const unreadDelta = appended.length ? Math.max(0, result.unread - baseUnread) : 0;
     return [{
       ...live,
       messages: [...live.messages, ...appended],
@@ -98,8 +109,15 @@ export function mergeCourierSystemUpdates(
   for (const seed of current.deliverySeeds) {
     if (!resultSeeds.has(seed.id)) resultSeeds.set(seed.id, seed);
   }
-  const contacts = normalizeCourierSystem({ contacts: [...current.contacts, ...taskResult.contacts] }).contacts;
-  const deliverySeeds = Array.from(resultSeeds.values());
+  const liveContactIds = new Set(current.contacts.map((contact) => contact.id));
+  const baseContactIds = new Set(taskBase.contacts.map((contact) => contact.id));
+  const contacts = normalizeCourierSystem({ contacts: [...current.contacts, ...taskResult.contacts.filter((contact) =>
+    !contactDeleted(contact) && (!baseContactIds.has(contact.id) || liveContactIds.has(contact.id)))] }).contacts;
+  const liveSeedIds = new Set(current.deliverySeeds.map((seed) => seed.id));
+  const baseSeedIds = new Set(taskBase.deliverySeeds.map((seed) => seed.id));
+  const deliverySeeds = Array.from(resultSeeds.values()).filter((seed) =>
+    !deletedConversationIds.has(seed.targetId) && !deletedContactIds.has(seed.senderId) && !deletedNpcIds.has(seed.senderId)
+    && (!baseSeedIds.has(seed.id) || liveSeedIds.has(seed.id)));
   const merged = {
     ...current,
     contacts,
@@ -146,6 +164,7 @@ export function dissolveCourierGroupConversation(
     ...system,
     conversations,
     deliverySeeds,
+    deletedConversationIds: Array.from(new Set([...(system.deletedConversationIds ?? []), conversationId])),
     unreadTotal: calculateCourierUnread({ conversations, deliverySeeds }),
   };
 }
@@ -165,6 +184,11 @@ export function canAddNpcToCourierContacts(npc: NPC记录): boolean {
 export function addNpcToCourierContacts(system: CourierSystem, npc: NPC记录): CourierSystem {
   const name = npc.姓名.trim();
   if (!name || !canAddNpcToCourierContacts(npc)) return system;
+  system = { ...system,
+    deletedNpcIds: (system.deletedNpcIds ?? []).filter((id) => id !== npc.id),
+    deletedContactIds: (system.deletedContactIds ?? []).filter((id) => id !== npc.id && id !== `contact_${npc.id}`),
+    deletedLegacyCanonicalNames: (system.deletedLegacyCanonicalNames ?? []).filter((name) => name !== matchCanonicalIdentity({ id: npc.id, name: npc.姓名 })?.name),
+  };
   const existing = system.contacts.find((contact) => contact.npcId === npc.id || contact.id === `contact_${npc.id}`);
   if (existing) {
     const contacts = system.contacts.map((contact) => contact !== existing ? contact : {
@@ -191,6 +215,19 @@ export function addNpcToCourierContacts(system: CourierSystem, npc: NPC记录): 
       lastActiveTurn: npc.最近回合,
     }],
   });
+}
+
+/** Removing a contact is user intent, not an invitation to recreate it next turn. */
+export function removeCourierContact(system: CourierSystem, contactId: string): CourierSystem {
+  const contact = system.contacts.find((item) => item.id === contactId);
+  if (!contact) return system;
+  const legacyCanonicalName = !contact.npcId ? matchCanonicalIdentity({ id: contact.id, name: contact.name })?.name : undefined;
+  return { ...system,
+    contacts: system.contacts.filter((item) => item.id !== contactId),
+    deletedContactIds: Array.from(new Set([...(system.deletedContactIds ?? []), contactId])),
+    deletedNpcIds: Array.from(new Set([...(system.deletedNpcIds ?? []), contact.npcId || contact.id])),
+    deletedLegacyCanonicalNames: Array.from(new Set([...(system.deletedLegacyCanonicalNames ?? []), ...(legacyCanonicalName ? [legacyCanonicalName] : [])])),
+  };
 }
 
 export function consumeCourierSeed(system: CourierSystem, seedId: string): CourierSystem {
@@ -231,6 +268,7 @@ export function buildCourierSenderProfile(
   fallbackName = '联系人',
 ): CourierSenderProfile {
   const ledger = npc ? buildNpcMemoryLedgerView(npc, 6) : null;
+  const facts = (values: string[]) => values.map(sanitizeCourierFactText).filter(Boolean);
   const canonical = matchCanonical(npc?.姓名?.trim() || fallbackName);
   const canonicalBackground = canonical
     ? [canonical.appearance, canonical.aliases?.length ? `常用身份或别名：${canonical.aliases.join('、')}` : '']
@@ -244,17 +282,17 @@ export function buildCourierSenderProfile(
     ...(npc?.说话方式?.trim() ? { speechStyle: npc.说话方式.trim() } : {}),
     ...(npc?.介绍?.trim() || canonicalBackground ? { background: npc?.介绍?.trim() || canonicalBackground } : {}),
     ...(npc ? { affinityLabel: 格式化NPC关系(npc.好感度, Boolean(npc.亲密关系)), affinity: npc.好感度 } : {}),
-    recentMemories: ledger?.最近原始记忆 ?? [],
-    summaryMemories: ledger?.总结记忆.map((item) => item.摘要).filter(Boolean) ?? [],
-    ...(ledger?.最近互动 ? { recentInteraction: ledger.最近互动 } : {}),
-    ...(ledger?.对玩家长期印象 ? { longTermImpression: ledger.对玩家长期印象 } : {}),
-    sharedExperiences: ledger?.共同经历 ?? [],
-    unfinishedBusiness: ledger?.未完成事项 ?? [],
-    unresolvedConflicts: ledger?.未解决冲突 ?? [],
-    mustRemember: [...(ledger?.必须记得 ?? []), ...(ledger?.禁止遗忘 ?? [])],
+    recentMemories: facts(ledger?.最近原始记忆 ?? []),
+    summaryMemories: facts(ledger?.总结记忆.map((item) => item.摘要).filter(Boolean) ?? []),
+    ...(ledger?.最近互动 ? { recentInteraction: sanitizeCourierFactText(ledger.最近互动) } : {}),
+    ...(ledger?.对玩家长期印象 ? { longTermImpression: sanitizeCourierFactText(ledger.对玩家长期印象) } : {}),
+    sharedExperiences: facts(ledger?.共同经历 ?? []),
+    unfinishedBusiness: facts(ledger?.未完成事项 ?? []),
+    unresolvedConflicts: facts(ledger?.未解决冲突 ?? []),
+    mustRemember: facts([...(ledger?.必须记得 ?? []), ...(ledger?.禁止遗忘 ?? [])]),
     recentMessages: (conversation?.messages ?? [])
       .slice(-8)
-      .map((message) => `${message.senderName || (message.senderId === 'player' ? '旅行者' : message.senderId)}：${message.content.trim()}`)
+      .map((message) => `${message.senderName || (message.senderId === 'player' ? '旅行者' : message.senderId)}：${sanitizeCourierMessageText(message.content)}`)
       .filter((line) => !line.endsWith('：')),
   };
 }
@@ -266,17 +304,22 @@ export interface CourierContactNpcRegistrationInput {
   turn: number;
 }
 
+/** Durable IDs win. Only identity-less legacy contacts may use an unambiguous display alias. */
+export function resolveCourierContactNpc(npcs: NPC记录[], input: CourierContactNpcRegistrationInput): NPC记录 | undefined {
+  if (input.npcId) return npcs.find((npc) => npc.id === input.npcId);
+  const exact = npcs.find((npc) => npc.id === input.contactId);
+  if (exact) return exact;
+  const matches = npcs.filter((npc) => npc.姓名 === input.name || npc.别名 === input.name);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 /** 首次手机聊天时补建联系人档案，使第一轮对话即可回写同行记忆。 */
 export function ensureCourierContactNpcRecord(
   npcs: NPC记录[],
   input: CourierContactNpcRegistrationInput,
 ): NPC记录[] {
   const name = input.name.trim() || '未知联系人';
-  const existing = npcs.find((npc) =>
-    (input.npcId && npc.id === input.npcId)
-    || npc.id === input.contactId
-    || npc.姓名 === name
-    || npc.别名 === name);
+  const existing = resolveCourierContactNpc(npcs, { ...input, name });
   if (existing) return npcs;
 
   const canonical = matchCanonical(name);
@@ -316,8 +359,9 @@ export function appendPhoneExchangeMemory(npcs: NPC记录[], input: PhoneExchang
     if (npc.id !== input.npcId) return npc;
     const memories = npc.同行记忆 ?? [];
     if (memories.some((memory) => memory.id === memoryId)) return npc;
-    const playerText = input.playerText?.replace(/\s+/g, ' ').trim() || '';
-    const replyText = input.replyTexts.map((text) => text.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ');
+    const playerText = sanitizeCourierMessageText(input.playerText ?? '').replace(/\s+/g, ' ').trim();
+    const replyText = input.replyTexts.map((text) => sanitizeCourierMessageText(text).replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ');
+    if (!replyText) return npc;
     const original = [playerText ? `旅行者：${playerText}` : '', replyText ? `${npc.姓名}：${replyText}` : '']
       .filter(Boolean)
       .join('\n');
@@ -364,15 +408,12 @@ export function appendPhoneDeliveryMemories(
     const conversation = system.conversations.find((item) =>
       item.messages.some((message) => message.sourceSeedId === seed.id));
     if (!conversation) continue;
-    const contact = system.contacts.find((item) => item.id === seed.senderId);
-    const npc = updated.find((item) =>
-      (contact?.npcId && item.id === contact.npcId)
-      || item.id === seed.senderId
-      || seed.relatedNpcIds.includes(item.id)
-      || (contact?.name && item.姓名 === contact.name));
+    const contact = system.contacts.find((item) => item.id === seed.senderId)
+      ?? system.contacts.find((item) => item.npcId === seed.senderId);
+    const npc = resolveCourierContactNpc(updated, { contactId: contact?.id ?? seed.senderId, npcId: contact?.npcId, name: contact?.name ?? '', turn });
     if (!npc) continue;
     const replyTexts = conversation.messages
-      .filter((message) => message.sourceSeedId === seed.id && message.senderId === seed.senderId)
+      .filter((message) => message.sourceSeedId === seed.id && (message.senderId === seed.senderId || message.senderId === contact?.id))
       .map((message) => message.content);
     if (!replyTexts.length) continue;
     updated = appendPhoneExchangeMemory(updated, {
@@ -423,13 +464,7 @@ export interface CourierLetterContext {
 
 /** Remove machine-only time/scene envelopes before a seed becomes character speech. */
 export function sanitizeCourierSeedFact(context: string): string {
-  return context
-    .replace(/<time_format\b[^>]*>[\s\S]*?<\/time_format\s*>/giu, ' ')
-    .replace(/<time_format\b[^>]*>[^\n\r]*/giu, ' ')
-    .replace(/^\s*(?:time|scene)\s*[:：][^\n\r]*/gimu, ' ')
-    .replace(/<\/?time_format\b[^>]*>/giu, ' ')
-    .replace(/^[ \t]*\n/gmu, '')
-    .trim();
+  return sanitizeCourierFactText(context);
 }
 
 /** 从种子描述里提取「发生过什么事」：剥离投递指令式语句，只留事件本体。 */
@@ -446,9 +481,11 @@ function extractEventBasis(context: string): string {
 }
 
 /** Only concrete events may be paraphrased into dialogue; delivery instructions and ledger summaries are not speech. */
-export function extractCourierSpeechEvent(context: string): string | null {
+export function extractCourierSpeechEvent(context: string, senderName?: string): string | null {
   const event = extractEventBasis(context).trim();
-  if (!event || /关于.{0,30}对.*(?:印象|好感)|可能会有后续|可低频投递|玩家一行人|已发生事实/u.test(event)) return null;
+  const namedSubject = event.match(/^([^，。！？:：\s]{1,20}?)(?=在|曾|已经|近期|最近|和|与|对)/u)?.[1];
+  const canonicalSubject = namedSubject ? matchCanonical(namedSubject)?.name : undefined;
+  if (!event || isCourierLedgerNarrative(event, [senderName ?? '', canonicalSubject ?? ''])) return null;
   return event.slice(0, 90);
 }
 
@@ -492,8 +529,8 @@ const TRIGGER_BODY_TEMPLATES: Record<CourierDeliverySeed['triggerType'], readonl
     '关于{event}……谁都有失手的时候。好好休息，来日方长。',
   ],
   location_change: [
-    '听说你到了{place}。那边{weatherHint}多加小心，若是遇到有意思的事，记得告诉我。',
-    '听说你一路走到了{place}。那里我也有许久没去，{weatherHint}路上千万当心。',
+    '关于{event}，路上多加小心，若是遇到有意思的事，记得告诉我。',
+    '听说{event}，路上千万当心。',
   ],
   important_item: [
     '关于{event}——那件东西非同小可，务必收好，别在人前显露。',
@@ -508,7 +545,7 @@ const TRIGGER_BODY_TEMPLATES: Record<CourierDeliverySeed['triggerType'], readonl
     '报上都在传{event}的事。眼看风波不小，你务必谨慎行事。',
   ],
   quest: [
-    '提醒一声：{event}。约定的事别忘了，我这边也都安排好了。',
+    '想起{event}，想问问你那边的情况。',
     '关于{event}——时间不等人，若已有了眉目，记得给我个消息。',
   ],
   time: [
@@ -537,7 +574,7 @@ const TRIGGER_FALLBACK_LINES: Record<CourierDeliverySeed['triggerType'], readonl
 
 /** 把种子改写成一封寄件人视角的书信（本地兜底版；不照抄 seed.context，随好感阶段变温度）。 */
 export function composeCourierLetterLocally(context: CourierLetterContext): string {
-  const { seed, sender, environment } = context;
+  const { seed, sender } = context;
   const senderName = sender?.name?.trim() || seed.senderId || '联系人';
   const address = sender?.playerAddress?.trim();
   const travelerName = context.travelerName?.trim() || '旅行者';
@@ -546,25 +583,19 @@ export function composeCourierLetterLocally(context: CourierLetterContext): stri
     ? `${address}，`
     : tone === 'close' || tone === 'devoted' ? `${travelerName}，` : '';
 
-  const event = extractCourierSpeechEvent(seed.context);
+  const event = extractCourierSpeechEvent(seed.context, senderName);
   const templates = TRIGGER_BODY_TEMPLATES[seed.triggerType] ?? TRIGGER_BODY_TEMPLATES.custom;
   const body = event
     ? pick(templates, `${seed.id}:${event}`).replace('{event}', event.length > 90 ? `${event.slice(0, 89)}…` : event)
-    : pick(TRIGGER_FALLBACK_LINES[seed.triggerType] ?? TRIGGER_FALLBACK_LINES.custom, seed.id);
+    : '刚好想问候一声，近来还好吗？';
 
-  const place = environment?.location?.trim();
-  const weather = environment?.weather?.trim();
-  const weatherHint = weather ? `${weather}，` : '';
-  const bodyWithEnv = body
-    .replace('{place}', place || '新的地方')
-    .replace('{weatherHint}', weatherHint);
   // 只有关系够近的寄件人才添一句私人挂念，冷淡关系保持简短，信件温度贴合人设。
-  const personalLine = tone === 'warm' || tone === 'close' || tone === 'devoted'
+  const personalLine = event && (tone === 'warm' || tone === 'close' || tone === 'devoted')
     ? pick(STAGE_PERSONAL_LINES[tone], `${seed.id}:personal`)
     : '';
-  return [greeting, personalLine, bodyWithEnv]
+  return sanitizeCourierMessageText([greeting, personalLine, body]
     .filter(Boolean)
-    .join('\n');
+    .join('\n'));
 }
 
 // ── 玩家来信的回信 ───────────────────────────────────────────
@@ -642,7 +673,7 @@ export function composeCourierReplyLocally(context: CourierReplyContext): string
   const tone = stageToTone(resolveAffinityStage(context.sender?.affinity));
   const greeting = address ? `${address}，` : (tone === 'close' || tone === 'devoted' ? `${travelerName}，` : '');
 
-  const playerText = context.playerMessage.content.replace(/\s+/g, ' ').trim();
+  const playerText = sanitizeCourierMessageText(context.playerMessage.content).replace(/\s+/g, ' ').trim();
   const isInvitation = /一起|陪我|愿意|约好|要不要|能不能|可以吗|好吗/u.test(playerText);
   const isQuestion = /[？?]|怎么|什么|哪里|为何|为什么|是否/u.test(playerText);
   const body = playerText.length < 6
@@ -730,7 +761,7 @@ export function composeCourierGroupReplyLocally(context: CourierGroupReplyContex
   const seedText = `${context.conversation.id}:${context.playerMessage.id}:${context.sender?.name ?? ''}`;
   const tone = stageToTone(resolveAffinityStage(context.sender?.affinity));
   const opener = pick(GROUP_REPLY_OPENERS[tone], seedText);
-  const playerText = context.playerMessage.content
+  const playerText = sanitizeCourierMessageText(context.playerMessage.content)
     .replace(/[@＠][^\s，。！？、,.!?]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -772,6 +803,7 @@ function splitOutsideChineseQuotes(line: string): string[] {
 
 /** 把完整手机回复拆成逐句消息；中文引号中的句读保持在同一气泡内。 */
 export function splitLetterIntoLines(letter: string): string[] {
+  letter = sanitizeCourierMessageText(letter);
   const parts: string[] = [];
   for (const rawLine of letter.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -887,20 +919,26 @@ export function deliverDueCourierSeeds(
   // Runtime state is already canonical. Re-normalizing the whole phone here
   // cloned every message in every conversation before and after one delivery.
   const normalizedSystem = system;
-  const npcByName = new Map<string, NPC记录>();
-  for (const npc of context.npcs ?? []) {
-    if (npc.姓名 && !npcByName.has(npc.姓名)) npcByName.set(npc.姓名, npc);
-    if (npc.别名 && !npcByName.has(npc.别名)) npcByName.set(npc.别名, npc);
-  }
-
   const due: CourierDeliverySeed[] = [];
   const deliverySeeds = normalizedSystem.deliverySeeds.map((seed) => {
     const dueTurn = seed.scheduledAtTurn ?? seed.turn;
     if (seed.status !== 'pending' || currentTurn < dueTurn) return seed;
+    const contact = system.contacts.find((item) => item.id === seed.senderId || item.npcId === seed.senderId);
+    const npc = (context.npcs ?? []).find((item) => item.id === (contact?.npcId ?? seed.senderId));
+    const canonicalName = matchCanonicalIdentity({ id: contact?.npcId ?? seed.senderId, name: npc?.姓名 ?? contact?.name })?.name;
+    if (system.deletedConversationIds?.includes(seed.targetId)
+      || system.deletedContactIds?.includes(seed.senderId)
+      || system.deletedNpcIds?.includes(contact?.npcId ?? seed.senderId)
+      || (canonicalName && system.deletedLegacyCanonicalNames?.includes(canonicalName))) return { ...seed, status: 'dismissed' as const };
     due.push(seed);
     return { ...seed, status: 'generated' as const };
   });
-  if (!due.length) return { next: normalizedSystem, due, groupDowngrades: [] };
+  if (!due.length) return {
+    next: deliverySeeds.some((seed, index) => seed !== system.deliverySeeds[index])
+      ? { ...system, deliverySeeds, unreadTotal: calculateCourierUnread({ conversations: system.conversations, deliverySeeds }) }
+      : normalizedSystem,
+    due, groupDowngrades: [],
+  };
 
   /** 本该建群但按设置/上下文降级为私聊的种子（诊断用）。 */
   const forcedPrivateSeeds: Array<{ seedId: string; senderName: string; reason: string }> = [];
@@ -909,12 +947,13 @@ export function deliverDueCourierSeeds(
   let conversations = [...normalizedSystem.conversations];
 
   for (const seed of due) {
-    const npc = npcByName.get(seed.senderId)
-      ?? (context.npcs ?? []).find((item) => item.id === seed.senderId)
-      ?? seed.relatedNpcIds.map((id) => (context.npcs ?? []).find((item) => item.id === id)).find(Boolean);
-    const knownContact = contacts.find((contact) => contact.id === seed.senderId)
+    const senderContact = contacts.find((contact) => contact.id === seed.senderId)
+      ?? contacts.find((contact) => contact.npcId === seed.senderId);
+    const npc = resolveCourierContactNpc(context.npcs ?? [], { contactId: senderContact?.id ?? seed.senderId, npcId: senderContact?.npcId, name: senderContact?.name ?? seed.senderId, turn: currentTurn });
+    const legacyContacts = contacts.filter((contact) => !contact.npcId && contact.name.trim() === seed.senderId);
+    const knownContact = senderContact
       ?? (npc ? contacts.find((contact) => contact.npcId === npc.id) : undefined)
-      ?? (!npc ? contacts.find((contact) => contact.name.trim() === deriveSenderName(seed, npc)) : undefined);
+      ?? (legacyContacts.length === 1 ? legacyContacts[0] : undefined);
     const senderName = knownContact?.name?.trim() || deriveSenderName(seed, npc);
     const senderId = knownContact?.id ?? seed.senderId;
     if (!knownContact) {
@@ -942,10 +981,11 @@ export function deliverDueCourierSeeds(
     }
     if (conversationIndex < 0) {
       const participantIds = targetType === 'group'
-        ? Array.from(new Set(['player', senderId, ...seed.relatedNpcIds].filter(Boolean)))
+        ? Array.from(new Set(['player', senderId, ...seed.relatedNpcIds.map((id) =>
+          contacts.find((contact) => contact.id === id)?.id ?? contacts.find((contact) => contact.npcId === id)?.id ?? id)].filter(Boolean)))
         : Array.from(new Set(['player', senderId].filter(Boolean)));
       conversations.push({
-        id: `courier_conv_${senderId}`,
+        id: `courier_conv_${targetType}_${senderId}_${seed.id}`,
         title: senderName,
         participantIds,
         messages: [],
@@ -1021,14 +1061,15 @@ export interface CourierSenderRegistrationInput {
 export function buildCourierSenderNpcRecords(input: CourierSenderRegistrationInput): NPC记录[] {
   const records: NPC记录[] = [];
   for (const seed of input.dueSeeds) {
-    const contact = input.contacts.find((item) => item.id === seed.senderId);
+    const contact = input.contacts.find((item) => item.id === seed.senderId)
+      ?? input.contacts.find((item) => item.npcId === seed.senderId);
     const senderName = contact?.name?.trim() || seed.title || seed.senderId;
-    const exists = input.npcs.some((npc) =>
-      npc.id === seed.senderId || npc.姓名 === senderName || (npc.别名 != null && npc.别名 === senderName))
-      || records.some((npc) => npc.id === seed.senderId || npc.姓名 === senderName);
+    const exists = resolveCourierContactNpc([...input.npcs, ...records], {
+      contactId: contact?.id ?? seed.senderId, npcId: contact?.npcId, name: senderName, turn: input.turn,
+    });
     if (exists) continue;
     records.push({
-      id: seed.senderId,
+      id: contact?.npcId || seed.senderId,
       姓名: senderName,
       阶位: 'extra',
       好感度: 0,

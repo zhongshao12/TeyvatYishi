@@ -66,8 +66,9 @@ export function evaluateNewGameApiReadiness(
     image = { status: 'warning', label: '图片生成', detail: '图片系统已开启，但普通接口未启用。' };
   } else {
     const config = imageSettings.普通接口;
-    const needsCredentials = config.backend === 'openai_compatible' || config.backend === 'novelai';
-    image = item('图片生成', missingFields(config, needsCredentials, needsCredentials), '已配置（尚未测试连接）。');
+    const needsModel = config.backend === 'openai_compatible' || config.backend === 'novelai';
+    const needsCredentials = needsModel || config.backend === 'latent';
+    image = item('图片生成', missingFields(config, needsCredentials, needsModel), '已配置（尚未测试连接）。');
   }
 
   return { main, variable, image };

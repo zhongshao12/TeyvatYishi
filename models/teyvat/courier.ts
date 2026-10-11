@@ -1,7 +1,9 @@
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
+import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import type { TeyvatNpcRecord } from './character';
 import type { WorldMoment } from './worldMoment';
 import { normalizeWorldMoment } from '@/services/worldMoment';
+import { sanitizeCourierMessageText } from '@/utils/courierTextSanitizer';
 
 export type CourierDeliveryStatus = 'pending' | 'delivered' | 'dismissed' | 'expired';
 
@@ -32,6 +34,12 @@ export interface CourierLetter {
   worldMoment?: WorldMoment;
 }
 
+export interface CourierPhotoReference {
+  entryId: string;
+  assetId: string;
+  npcId: string;
+}
+
 export interface CourierMessage {
   id: string;
   senderId: string;
@@ -43,6 +51,12 @@ export interface CourierMessage {
   /** Event time in the game world; timestamp is wall-clock transport order. */
   worldMoment?: WorldMoment;
   avatar?: string;
+  /** Only album references; never duplicate image payload in chat saves. */
+  photo?: CourierPhotoReference;
+  /** Exact player batch answered by this reply; never infer a batch from adjacent bubbles. */
+  replyToMessageIds?: string[];
+  /** Stored once per batch, on its first delivered reply; absence is not proof of completion. */
+  expectedReplyIds?: string[];
   sourceSeedId?: string;
   readBy: string[];
   scheduledAtTurn?: number;
@@ -146,6 +160,12 @@ export interface CourierSystem {
   wallpapers: { home?: string; conversation?: string };
   /** Optional for older in-memory fixtures; all normalized saves contain an array. */
   moments?: CourierMoment[];
+  /** Durable user intent; absent in older saves. Explicit manual re-add clears it. */
+  deletedContactIds?: string[];
+  deletedNpcIds?: string[];
+  deletedConversationIds?: string[];
+  /** Only for legacy canon contacts that had no NPC ID to retain. */
+  deletedLegacyCanonicalNames?: string[];
 }
 
 export const MAX_COURIER_MESSAGES_PER_CONVERSATION = 400;
@@ -178,10 +198,19 @@ function normalizeContact(value: unknown): CourierContact | null {
 function normalizeMessage(value: unknown): CourierMessage | null {
   if (!isRecord(value)) return null;
   const worldMoment = normalizeWorldMoment(value.worldMoment);
+  const photo = isRecord(value.photo) && text(value.photo.entryId).trim() && text(value.photo.assetId).trim() && text(value.photo.npcId).trim()
+    ? { entryId: text(value.photo.entryId).trim(), assetId: text(value.photo.assetId).trim(), npcId: text(value.photo.npcId).trim() }
+    : undefined;
   return {
     id: text(value.id), senderId: text(value.senderId), senderName: text(value.senderName), role: text(value.role),
     content: text(value.content), turn: integer(value.turn), timestamp: Number(value.timestamp) || 0,
     ...(worldMoment ? { worldMoment } : {}),
+    ...(photo ? { photo } : {}),
+    // Keep an explicitly broken binding as an empty binding, not as legacy data.
+    ...(value.replyToMessageIds !== undefined ? { replyToMessageIds: Array.isArray(value.replyToMessageIds) && value.replyToMessageIds.every(id => typeof id === 'string' && id.trim())
+      ? textList(value.replyToMessageIds) : [] } : {}),
+    ...(Array.isArray(value.expectedReplyIds) ? { expectedReplyIds: value.expectedReplyIds.length <= 120 && value.expectedReplyIds.every(id => typeof id === 'string' && id.trim())
+      ? [...new Set(textList(value.expectedReplyIds))] : [] } : {}),
     ...(optionalText(value.avatar) ? { avatar: text(value.avatar) } : {}), ...(optionalText(value.sourceSeedId) ? { sourceSeedId: text(value.sourceSeedId) } : {}),
     readBy: textList(value.readBy), ...(Number.isFinite(Number(value.scheduledAtTurn)) ? { scheduledAtTurn: integer(value.scheduledAtTurn) } : {}),
     ...(Number.isFinite(Number(value.deliveredAtTurn)) ? { deliveredAtTurn: integer(value.deliveredAtTurn) } : {}),
@@ -224,7 +253,10 @@ export function normalizeCourierConversation(value: unknown): CourierConversatio
   if (!first || !last) return { ...normalized, messages: kept };
   const archiveId = `courier_archive_${normalized.id}_${first.id}_${last.id}`;
   const summarySamples = [trimmed[0], trimmed[Math.floor(trimmed.length / 2)], trimmed.at(-1)]
-    .flatMap((message) => message ? [`${message.senderName}：${message.content.replace(/\s+/g, ' ').trim().slice(0, 80)}`] : []);
+    .flatMap((message) => {
+      const content = message ? sanitizeCourierMessageText(message.content).replace(/\s+/g, ' ').trim().slice(0, 80) : '';
+      return content && message ? [`${message.senderName}：${content}`] : [];
+    });
   const summary = `已归档早期通讯 ${trimmed.length} 条（回合 ${first.turn}—${last.turn}）：${summarySamples.join('；')}`;
   const previousArchive = normalized.localArchive ?? {
     threshold: MAX_COURIER_MESSAGES_PER_CONVERSATION,
@@ -335,6 +367,10 @@ function normalizeMoment(value: unknown): CourierMoment | null {
 
 export function normalizeCourierSystem(value: unknown): CourierSystem {
   const raw = isRecord(value) ? value : {};
+  const deletedContactIds = Array.from(new Set(textList(raw.deletedContactIds).filter(Boolean)));
+  const deletedNpcIds = Array.from(new Set(textList(raw.deletedNpcIds).filter(Boolean)));
+  const deletedConversationIds = Array.from(new Set(textList(raw.deletedConversationIds).filter(Boolean)));
+  const deletedLegacyCanonicalNames = Array.from(new Set(textList(raw.deletedLegacyCanonicalNames).filter(Boolean)));
   const seenMomentIds = new Set<string>();
   const moments = (Array.isArray(raw.moments) ? raw.moments : []).flatMap((item) => {
     const moment = normalizeMoment(item);
@@ -394,7 +430,20 @@ export function normalizeCourierSystem(value: unknown): CourierSystem {
   }
   const remapId = (id: string) => id === 'player' ? id : (idAliases.get(id) ?? id);
   const uniqueIds = (ids: string[]) => Array.from(new Set(ids.map(remapId).filter(Boolean)));
+  const conversationIds = new Set<string>();
+  const conversationIdAliases = new Map<string, string>();
   const conversations = (Array.isArray(raw.conversations) ? raw.conversations.flatMap((item) => normalizeCourierConversation(item) ?? []) : [])
+    .filter((conversation) => !deletedConversationIds.includes(conversation.id))
+    .map((conversation, index) => {
+      const originalId = conversation.id;
+      let id = originalId;
+      let suffix = index;
+      while (conversationIds.has(id)) id = `${originalId}_${conversation.type}_${suffix++}`;
+      conversationIds.add(id);
+      const aliasKey = `${conversation.type}:${originalId}`;
+      if (!conversationIdAliases.has(aliasKey)) conversationIdAliases.set(aliasKey, id);
+      return id === originalId ? conversation : { ...conversation, id };
+    })
     .map((conversation) => ({
       ...conversation,
       participantIds: uniqueIds(conversation.participantIds),
@@ -408,14 +457,19 @@ export function normalizeCourierSystem(value: unknown): CourierSystem {
     return [{ id: text(item.id), senderId: remapId(text(item.senderId)), senderName: text(item.senderName), content: text(item.content), turn: integer(item.turn), timestamp: Number(item.timestamp) || 0, status, ...(Number.isFinite(Number(item.deliveredAtTurn)) ? { deliveredAtTurn: integer(item.deliveredAtTurn) } : {}), ...(worldMoment ? { worldMoment } : {}) }];
   }) : [];
   const deliverySeeds = (Array.isArray(raw.deliverySeeds) ? raw.deliverySeeds.flatMap((item) => normalizeSeed(item) ?? []) : [])
-    .map((seed) => ({ ...seed, senderId: remapId(seed.senderId), targetId: remapId(seed.targetId), relatedNpcIds: uniqueIds(seed.relatedNpcIds) }));
+    .map((seed) => ({ ...seed, senderId: remapId(seed.senderId), targetId: conversationIdAliases.get(`${seed.targetType}:${seed.targetId}`) ?? remapId(seed.targetId), relatedNpcIds: uniqueIds(seed.relatedNpcIds) }));
   return {
-    contacts,
+    contacts: contacts.filter((contact) => !deletedContactIds.includes(contact.id) && !deletedNpcIds.includes(contact.npcId ?? '')
+      && !deletedLegacyCanonicalNames.includes(matchCanonicalIdentity({ id: contact.npcId || contact.id, name: contact.name })?.name ?? '')),
     letters,
-    conversations,
+    conversations: conversations.filter((conversation) => !deletedConversationIds.includes(conversation.id)),
     deliverySeeds,
     moments,
     unreadTotal: integer(raw.unreadTotal), wallpapers: { home: optionalText(wallpapers.home), conversation: optionalText(wallpapers.conversation) },
+    ...(deletedContactIds.length ? { deletedContactIds } : {}),
+    ...(deletedNpcIds.length ? { deletedNpcIds } : {}),
+    ...(deletedConversationIds.length ? { deletedConversationIds } : {}),
+    ...(deletedLegacyCanonicalNames.length ? { deletedLegacyCanonicalNames } : {}),
   };
 }
 
@@ -424,6 +478,7 @@ function courierNpcAvatar(npc: TeyvatNpcRecord): string | undefined {
     || npc.visualArchive.slotImages.profile
     || npc.visualArchive.profileImage
     || npc.avatar
+    || getDefaultBuiltinAvatar(npc.姓名)
     || undefined;
 }
 
@@ -448,6 +503,7 @@ export function reconcileCourierContactsWithNpcs(value: unknown, npcs: readonly 
     const exactId = contact.npcId || contact.id;
     const exact = npcById.get(exactId) ?? npcById.get(contact.id);
     if (exact) return exact;
+    if (contact.npcId) return undefined;
     const canonical = matchCanonicalIdentity({ id: exactId, name: contact.name });
     if (canonical) return npcByCanonicalName.get(canonical.name);
     return npcByName.get(contact.name);
@@ -478,7 +534,9 @@ export function reconcileCourierContactsWithNpcs(value: unknown, npcs: readonly 
       && npc.roleTier === 'companion'
       && (npc.firstSeenTurn > 0 || npc.lastSeenTurn > 0 || Boolean(npc.relationshipLedger.recentInteraction));
     if (!encounteredCanon) continue;
+    if (normalized.deletedNpcIds?.includes(npc.id) || normalized.deletedContactIds?.includes(`contact_${npc.id}`)) continue;
     const canonical = matchCanonicalIdentity({ id: npc.id, name: npc.姓名, aliases: npc.aliases });
+    if (canonical && normalized.deletedLegacyCanonicalNames?.includes(canonical.name)) continue;
     const exists = contactNpcIds.has(npc.id)
       || contactNames.has(npc.姓名)
       || (Boolean(canonical) && contactCanonicalNames.has(canonical!.name));

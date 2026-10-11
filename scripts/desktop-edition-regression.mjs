@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { runFocusedBehaviorRegression } from './lib/runFocusedBehaviorRegression.mjs';
 
 const root = process.cwd();
 
@@ -328,8 +329,9 @@ assert(saveBackup.includes('deleteDesktopSaveBackup'), 'desktop save backup serv
 assert(saveBackup.includes('isBackupPath'), 'desktop save backup reads must validate backup paths');
 assert(saveBackup.includes("backupPath.startsWith(`${BACKUP_DIR}/${BACKUP_PREFIX}`)"), 'desktop save backup reads must stay inside the backup namespace');
 assert(saveBackup.includes('await adapter.remove(backupPath)'), 'desktop save backup deletion must remove only validated backup paths');
-assert(saveBackup.includes('stripSaveAssetPayloadForStorage'), 'desktop save backups must strip embedded image payloads before writing backup JSON');
-assert(saveBackup.includes('const strippedSaves = saves.map((save) => stripSaveAssetPayloadForStorage(save))'), 'desktop save backups must build a stripped save list');
+// S02: backup must remain independently restorable after live save/delta/asset
+// mirrors disappear. This behavior also guards against reintroducing stripping.
+runFocusedBehaviorRegression(['tests/unit/storageAuditRepair.test.ts']);
 assert(saveBackup.includes('DesktopSaveBackupIntegrityStatus'), 'desktop save backups must expose integrity status');
 assert(saveBackup.includes("'unreadable'"), 'desktop save backups must expose unreadable backup status');
 assert(saveBackup.includes('reason?: DesktopSaveBackupReason'), 'desktop save backup summaries must allow unreadable backups without a reason');
@@ -440,8 +442,9 @@ const dbService = read('services/dbService.ts').replace(/\r\n/g, '\n');
 const indexedSettingsStore = read('services/storage/indexedSettingsStore.ts').replace(/\r\n/g, '\n');
 assert(dbService.includes('mirrorSaveToDesktop'), 'saveGame must mirror saves into the desktop data directory');
 assert(dbService.includes('reserveDesktopSaveId'), 'saveGame must reserve desktop save ids before the IndexedDB compatibility write');
-const desktopSaveReservation = 'const desktopSaveId = options.requireIndexedDbAtomicCommit ? 0 : await reserveDesktopSaveIdSafely(db)';
-assert(dbService.includes(desktopSaveReservation), 'ordinary saveGame must reserve a desktop save id while atomic migration defers desktop mirroring until after IndexedDB commit');
+const desktopSaveReservation = 'const desktopSaveId = options.requireIndexedDbAtomicCommit ? 0';
+assert(dbService.includes(desktopSaveReservation) && dbService.includes(': overwriteId && isDesktopRuntime() ? overwriteId : await reserveDesktopSaveIdSafely(db)'), 'new desktop saves reserve an id, explicit manual replacement reuses its validated id, and atomic migration defers desktop mirroring');
+assert(dbService.includes("throw new Error('MANUAL_SAVE_TARGET_MISMATCH')") && dbService.includes('await materializeManualSaveDependents(db, overwriteId)'), 'manual file replacement must validate identity and freeze historical deltas before changing the base');
 assert(dbService.indexOf(desktopSaveReservation) < dbService.indexOf('saved = await new Promise<{ id: number; save:'), 'ordinary desktop save id reservation must happen before the IndexedDB write transaction');
 assert(dbService.includes('requireIndexedDbAtomicCommit: true'), 'migration saves must select the IndexedDB-first atomic commit path');
 assert(dbService.includes('writeDesktopPrimarySaveBeforeIndexedDbSafely'), 'desktop saveGame must expose a desktop-primary write helper');
@@ -459,13 +462,14 @@ assert(
   'desktop saveGame must clear transaction markers after save, delta, and asset files are written',
 );
 assert(
-  dbService.indexOf('await writeDesktopPrimarySaveBeforeIndexedDbSafely(desktopPrimarySave, desktopPrimaryDelta, assetRecords)') < dbService.indexOf('const saveForIndexedDb = desktopSaveId ? { ...rest, id: desktopSaveId } : rest'),
+  dbService.indexOf('await writeDesktopPrimarySaveBeforeIndexedDbSafely(desktopPrimarySave, desktopPrimaryDelta, assetRecords, Boolean(overwriteId))') >= 0
+    && dbService.indexOf('await writeDesktopPrimarySaveBeforeIndexedDbSafely(desktopPrimarySave, desktopPrimaryDelta, assetRecords, Boolean(overwriteId))') < dbService.indexOf('const saveForIndexedDb = desktopSaveId || overwriteId'),
   'desktop saveGame must write desktop files before writing the IndexedDB compatibility cache',
 );
 assert(dbService.includes('IndexedDB compatibility save failed after desktop primary write'), 'desktop saveGame must tolerate IndexedDB cache failure after a desktop-primary write');
 assert(dbService.includes('desktop primary save write failed, falling back to IndexedDB primary write'), 'desktop saveGame must fall back to IndexedDB primary when desktop file writes fail');
-assert(dbService.includes('const saveForIndexedDb = desktopSaveId ? { ...rest, id: desktopSaveId } : rest'), 'desktop save id reservation must be used as the IndexedDB compatibility key');
-assert(dbService.includes('const request = store.add(saveForIndexedDb as'), 'saveGame must write the reserved desktop id into the compatibility store when available');
+assert(dbService.includes('const saveForIndexedDb = desktopSaveId || overwriteId ? { ...rest, id: desktopSaveId || overwriteId } : rest'), 'newly reserved or explicitly validated replacement ids must be used as the IndexedDB compatibility key');
+assert(dbService.includes('const request = overwriteId ? store.put(saveForIndexedDb as 存档数据) : store.add(saveForIndexedDb as 存档数据)'), 'new files must use add while explicit manual replacement uses put');
 assert(dbService.includes('getNextIndexedSaveIdFloor(db)'), 'desktop save id reservation must use current IndexedDB max id as a floor');
 assert(dbService.includes('save id reservation failed, falling back to IndexedDB autoIncrement'), 'desktop save id reservation failures must fall back to IndexedDB autoIncrement');
 assert(dbService.includes('listDesktopSaveMirror'), 'dbService must read the desktop save mirror index');
@@ -481,46 +485,43 @@ assert(dbService.includes('loadDesktopSaveNodeDeltasSafely'), 'dbService must re
 assert(dbService.includes('loadIndexedAndDesktopSaveSummaries'), 'auto-save delta base and retention selection must merge IndexedDB and desktop mirror summaries');
 assert(dbService.includes('const desktopSummaries = await loadDesktopSaveMirrorListFirstSafely()'), 'auto-save delta base selection must use desktop mirror summaries');
 assert(dbService.includes('loadDeltaBaseCandidateSave'), 'auto-save delta base selection must load base saves through a desktop fallback helper');
-assert(dbService.includes('return loadDesktopSaveMirrorSaveFallbackSafely(id)'), 'auto-save delta base selection must fall back to desktop mirrored saves when IndexedDB misses a candidate');
+const deltaBaseReader = dbService.slice(dbService.indexOf('async function loadDeltaBaseCandidateSave'), dbService.indexOf('async function loadRawSave'));
+assert(deltaBaseReader.includes('await loadDesktopSaveMirrorSave(id, { strict: true })') && deltaBaseReader.includes('?? await loadRawSave(db, id)'), 'delta creation must use the same strict desktop-first base as materialization, with IDB used only when no file exists');
 assert(saveMirror.includes('export async function hideSaveInDesktopMirror'), 'desktop retention must hide referenced delta bases without deleting their payload files');
 assert(saveMirror.includes("visibility: 'hidden-delta-base'"), 'desktop save index must mark hidden delta bases explicitly');
 assert(saveMirror.includes('.filter(isVisibleDesktopSaveSummary)'), 'desktop visible save lists must exclude hidden delta bases');
 assert(dbService.includes('await hideDesktopSaveMirrorSafely(item.id)'), 'managed rotation must hide referenced desktop delta bases');
 assert(dbService.includes('loadHiddenDesktopSaveMirrorIdsSafely'), 'orphan cleanup must include hidden desktop delta bases');
-assert(dbService.includes('const rawBase = await loadDeltaBaseCandidateSave(db, baseSaveId)'), 'delta-only save restore must load base saves through the desktop fallback helper');
-assert(
-  dbService.indexOf('const rawBase = await loadDeltaBaseCandidateSave(db, baseSaveId)') < dbService.indexOf('return restoreSaveFromDelta(base, save, delta)'),
-  'delta-only save restore must resolve the base save through desktop fallback before merging delta payloads',
-);
+// The executable S01/S04 cases above resolve desktop-only base + delta after
+// real JSON serialization; they replace the old helper-spelling/order checks.
 assert(dbService.includes('removeDesktopSaveDeltasBySaveIdSafely(item.id)'), 'managed save pruning must clean desktop delta mirrors');
 assert(dbService.includes('removeDesktopSaveDeltasBySaveIdSafely(id)'), 'deleteSave must clean desktop delta mirrors');
 assert(dbService.includes('replaceDesktopSaveDeltaMirrorSafely(mirroredDeltas)'), 'replaceAllSaves must rebuild desktop delta mirrors');
 assert(dbService.includes('scanIndexedDeltaRecords(db, (delta) =>') && dbService.includes('loadDesktopSaveNodeDeltasSafely()'), 'delta base checks must stream IndexedDB records and merge desktop delta records');
-assert(dbService.includes('const desktopList = await loadDesktopSaveMirrorListFirstSafely()'), 'getSaveList must prefer desktop mirror summaries in desktop runtime');
+assert(dbService.includes('listDesktopSaveMirror({ includeHidden: true })'), 'getSaveList must prefer desktop mirror summaries including hidden bases in desktop runtime');
 assert(dbService.includes('if (desktopList.length > 0)'), 'getSaveList must use desktop mirror summaries before IndexedDB when available');
 const saveCatalogSection = dbService.slice(
   dbService.indexOf('export async function getSaveCatalogSnapshot'),
   dbService.indexOf('export async function loadSave'),
 );
 assert(
-  saveCatalogSection.indexOf('const desktopList = await loadDesktopSaveMirrorListFirstSafely()') < saveCatalogSection.indexOf('const db = await openDB()'),
+  saveCatalogSection.indexOf('listDesktopSaveMirror({ includeHidden: true })') < saveCatalogSection.indexOf('const db = await openDB()'),
   'getSaveList must try the desktop save mirror before reading IndexedDB summaries',
 );
 assert(saveCatalogSection.includes('const fallbackList = await loadDesktopSaveMirrorListFallbackSafely()'), 'getSaveList must still fall back to desktop mirror summaries when IndexedDB summaries are empty');
 assert(dbService.includes('const desktopSave = await loadDesktopSaveMirrorSaveFirstSafely(id)'), 'loadSave must prefer a desktop mirrored save in desktop runtime');
-assert(dbService.includes('if (desktopSave) return restoreDesktopAssetPayloadSafely(desktopSave)'), 'loadSave must restore local desktop asset payloads before returning mirrored saves');
+// S01 covers materialization plus asset restoration before desktop results escape.
 assert(
   dbService.indexOf('const desktopSave = await loadDesktopSaveMirrorSaveFirstSafely(id)') < dbService.indexOf('const db = await openDB();\n  const save = await loadRawSave(db, id)'),
   'loadSave must try the desktop save mirror before opening IndexedDB',
 );
 assert(dbService.includes('const fallbackSave = await loadDesktopSaveMirrorSaveFallbackSafely(id)'), 'loadSave must still fall back to a desktop mirrored save when IndexedDB misses the record');
-assert(dbService.includes('return fallbackSave ? restoreDesktopAssetPayloadSafely(fallbackSave) : null'), 'desktop fallback saves must also restore local asset payloads');
 assert(dbService.includes('loadDesktopSaveMirrorListFirstSafely'), 'dbService must wrap desktop mirror list priority reads safely');
 assert(dbService.includes('loadDesktopSaveMirrorListFallbackSafely'), 'dbService must wrap desktop mirror list fallback safely');
 assert(dbService.includes('loadDesktopSaveMirrorSaveFirstSafely'), 'dbService must wrap desktop mirror save priority reads safely');
 assert(dbService.includes('loadDesktopSaveMirrorSaveFallbackSafely'), 'dbService must wrap desktop mirror save fallback safely');
-assert(dbService.includes('const mirroredSave = await loadDesktopSaveMirrorSaveFirstSafely(item.id)'), 'desktop asset reference collection must prefer mirrored saves');
-assert(dbService.includes('await loadDesktopSaveMirrorSaveFallbackSafely(item.id)'), 'desktop asset reference collection must still use mirrored saves when IndexedDB misses records');
+// S03 covers desktop-only delta and hidden-checkpoint image references, with
+// missing dependency fail-closed assertions instead of the old raw-save helper.
 assert(dbService.includes('save mirror list priority read failed'), 'desktop mirror list priority failures must not break IndexedDB reads');
 assert(dbService.includes('save mirror priority load failed'), 'desktop mirror save priority failures must not break IndexedDB reads');
 assert(dbService.includes('save mirror list fallback failed'), 'desktop mirror list fallback failures must not break IndexedDB reads');
@@ -531,15 +532,12 @@ assert(dbService.includes('restoreSavesFromDesktopMirror'), 'dbService must expo
 assert(dbService.includes('return rebuildIndexedSaveCacheFromDesktopMirror();'), 'desktop mirror recovery must delegate to the explicit IndexedDB cache rebuild path');
 assert(dbService.includes('restoreSavesFromDesktopBackup'), 'dbService must expose desktop backup recovery');
 assert(dbService.includes('backupCurrentSavesToDesktop'), 'dbService must expose desktop save backup creation');
-assert(dbService.includes("backupCurrentSavesToDesktop('before-restore')"), 'desktop mirror recovery must back up current saves before replacing them');
-assert(dbService.includes('const restoredSaves = await restoreDesktopAssetPayloadForSavesSafely(mirroredSaves)'), 'desktop mirror recovery must restore image payloads before replacement');
-assert(dbService.includes('replaceAllSaves(restoredSaves, { skipDesktopBackup: true })'), 'desktop mirror recovery must reuse the save replacement path after asset restoration');
-assert(dbService.indexOf("backupCurrentSavesToDesktop('before-restore')") < dbService.indexOf('const restoredSaves = await restoreDesktopAssetPayloadForSavesSafely(mirroredSaves)'), 'desktop mirror recovery must backup before restoring payloads');
-assert(dbService.indexOf('const restoredSaves = await restoreDesktopAssetPayloadForSavesSafely(mirroredSaves)') < dbService.indexOf('replaceAllSaves(restoredSaves, { skipDesktopBackup: true })'), 'desktop mirror recovery must restore payloads before replaceAllSaves');
+const mirrorRecovery = dbService.slice(dbService.indexOf('async function rebuildIndexedSaveCacheFromDesktopMirrorInternal'), dbService.indexOf('export async function restoreSavesFromDesktopMirror'));
+assert(mirrorRecovery.includes("backupCurrentSavesToDesktopInternal('before-restore')") && mirrorRecovery.indexOf('backupCurrentSavesToDesktopInternal') < mirrorRecovery.indexOf('replaceAllSavesInternal'), 'desktop mirror recovery must back up current saves before replacing them while holding the lifecycle lock');
+assert(mirrorRecovery.includes('replaceAllSavesInternal(restoredSaves, { skipDesktopBackup: true })') && dbService.includes('runWithSaveMutationPriority(rebuildIndexedSaveCacheFromDesktopMirrorInternal)'), 'desktop mirror recovery must reuse replacement under one lock without recursively acquiring its public entrypoint');
+// S02 runs rebuild/backup restore, verifies chat + image preservation, and proves
+// no live store or file changes when a checkpoint/dependency is unreadable.
 assert(dbService.includes('loadDesktopSaveBackup'), 'dbService must load desktop backup files for recovery');
-assert(dbService.includes('const restoredSaves = await restoreDesktopAssetPayloadForSavesSafely(backup.saves)'), 'desktop backup recovery must restore image payloads before replacement');
-assert(dbService.includes('restoreDesktopAssetPayloadForSavesSafely'), 'dbService must expose a helper for restoring payloads across save lists');
-assert(dbService.indexOf("backupCurrentSavesToDesktop('before-restore')") < dbService.indexOf('const restoredSaves = await restoreDesktopAssetPayloadForSavesSafely(backup.saves)'), 'desktop backup recovery must backup before restoring payloads');
 assert(dbService.includes('writeDesktopSaveBackup'), 'dbService must write desktop save backups through the backup service');
 assert(dbService.includes('loadCurrentSavesForDesktopBackup'), 'dbService must load current saves before writing a backup');
 assert(dbService.includes('if (!isDesktopRuntime()) return null'), 'dbService desktop backups must no-op before reading large saves in web runtime');
@@ -582,7 +580,8 @@ assert(dbService.includes('replaceDesktopAssetMirrorSafely(mirroredAssetRecords)
 assert(dbService.includes('summarizeDesktopAssets'), 'dbService must expose desktop asset usage summaries');
 assert(dbService.includes('cleanupUnreferencedDesktopAssets'), 'dbService must expose desktop asset cleanup');
 assert(dbService.includes('collectReferencedDesktopAssetIds'), 'dbService must collect referenced asset ids before desktop asset maintenance');
-assert(dbService.includes('collectSaveAlbumAssetIds(restoredSave)'), 'desktop asset maintenance must use restored saves to collect album asset references');
+// The S03 executable cases above verify that references come from full nodes,
+// including delta-only images/hidden bases, and abort cleanup on missing deps.
 assert(dbService.includes('cleanupDesktopAssetMirror(referencedAssetIds)'), 'dbService must clean desktop assets using the referenced asset set');
 
 // StorageManager 的桌面存储状态与存档树视图已拆到 components/features/Settings/storage/；按「存储设置 UI」整体读取。

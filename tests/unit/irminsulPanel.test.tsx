@@ -21,7 +21,7 @@ it('shows_active_archive_and_pending_retry_status', () => {
     sourceTurns: [1, 2], turn: 2, recordedAt: '第2回', archiveType: 'short',
   };
   const promoted: IrminsulEntry = {
-    ...source, id: 'medium-1', title: '蒙德开端', summary: '安柏陪同玩家进入蒙德', archiveType: 'medium',
+    ...source, id: 'medium-1', title: '蒙德开端', summary: '城门原文；安柏陪同玩家进入蒙德', archiveType: 'medium',
     coveredEntryIds: ['short-1'],
     sourceMomentRange: {
       start: { worldName: '提瓦特', date: '旅行历 1000.03.07', clock: '10:00', weather: '晴', location: '蒙德城', travelDay: 1, turn: 1, settlementId: 'turn-1' },

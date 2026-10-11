@@ -120,6 +120,9 @@ export async function runValidatedMainNarrativeRequest(
     request: options.request,
     evaluate: async (attemptResult, context) => {
       const candidateText = narrativeTurnBodyText(attemptResult.parsed);
+      const narrativeText = attemptResult.parsed.body
+        .filter(block => block.kind === 'narration' || block.kind === 'dialogue')
+        .map(block => block.text).join('\n');
       const canRetry = shouldRetryNarrativeAttempt({
         attempt: context.attempt,
         maxAttempts: context.maxAttempts,
@@ -138,7 +141,7 @@ export async function runValidatedMainNarrativeRequest(
         protocolIssues,
         canRetry,
         wordCountTarget: wordCountRetried ? null : (options.wordCountTarget ?? null),
-        bodyCharacterCount: countVisibleBodyCharacters(candidateText),
+        bodyCharacterCount: countVisibleBodyCharacters(narrativeText),
       });
 
       if (validation.kind === 'empty') {

@@ -35,6 +35,7 @@ export function backendLabel(backend: 文生图API配置['backend'] | string): s
   return {
     openai_compatible: 'OpenAI 兼容',
     novelai: 'NovelAI',
+    latent: 'Latent',
     sd_webui: 'SD WebUI',
     comfyui: 'ComfyUI',
   }[backend] ?? String(backend || '未选择');
@@ -56,6 +57,7 @@ export function referenceBackendCapability(
       : { usable: false, message: '默认不向 OpenAI 兼容接口发送参考图，可通过兼容开关选择启用。' };
   }
   if (backend === 'novelai') return { usable: false, message: 'NovelAI 参考图参数尚未接入。' };
+  if (backend === 'latent') return { usable: false, message: 'Latent 不支持参考图，仅使用文字提示词。' };
   return { usable: false, message: '当前后端未声明参考图能力。' };
 }
 

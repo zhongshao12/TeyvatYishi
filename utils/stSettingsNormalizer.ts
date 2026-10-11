@@ -218,10 +218,21 @@ export function normalizeSTPreset(raw: unknown): STPreset | null {
 
   if (prompts.length === 0 || promptOrder.length === 0) return null;
 
+  // Only lift the known regex extension payload. Never retain/evaluate helper
+  // scripts or unrelated extension settings from an untrusted preset export.
+  const extensions = obj.extensions && typeof obj.extensions === 'object'
+    ? obj.extensions as Record<string, unknown> : {};
+  const embeddedRegex = extensions.regex_scripts;
+  const regexValues = (value: unknown): unknown[] => Array.isArray(value)
+    ? value : value && typeof value === 'object' ? Object.values(value) : [];
+  const regexScripts = embeddedRegex === undefined ? obj.regex_scripts
+    : [...regexValues(obj.regex_scripts), ...regexValues(embeddedRegex)];
+
   return {
     ...pickKnownFields(obj, ST_PRESET_FIELDS),
     prompts,
     prompt_order: promptOrder,
+    ...(regexScripts !== undefined ? { regex_scripts: regexScripts as STPreset['regex_scripts'] } : {}),
     ...extractSamplingParams(obj),
   };
 }

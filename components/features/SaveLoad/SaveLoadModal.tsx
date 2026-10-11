@@ -25,6 +25,7 @@ import { formatStorageOperationError } from '@/services/storage/saveCatalog';
 import { clearActiveSaveTreeMetaIfMatches } from '@/hooks/useGame/saveLoadWorkflow';
 import { buildSaveTreeGroups, buildSaveTreeTimeline, filterSaveTreeDisplayGroup, type SaveTreeDisplayGroup } from '@/utils/saveTreeView';
 import { formatByteSize } from '@/utils/formatByteSize';
+import { getSaveJourneyLabel } from '@/utils/saveJourneyLabel';
 import { classifyAndMigrateDbSaveRecord, migratePartialTeyvatSave, type MigrationIssue, type MigrationReport } from '@/compat/legacy-hsr/migrate';
 import { normalizeTeyvatGameState, type ParsedSavePackage, type TeyvatSaveData } from '@/models/teyvat';
 import { parseSavePackageByUniverse } from '@/services/savePackage';
@@ -39,7 +40,7 @@ import type { 聊天消息 } from '@/models/chat';
 import { ConfirmDialogHost, useConfirmDialog, useModalAccessibility } from '@/components/ui/Modal';
 
 interface Props {
-  onSave: () => Promise<number>;
+  onSave: (options?: { asNewNode?: boolean }) => Promise<number>;
   onLoad: (id: number) => Promise<boolean>;
   onClose: () => void;
   chatHistory?: 聊天消息[];
@@ -164,10 +165,10 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
     }
   };
 
-  const handleSave = async () => {
+  const saveCurrent = async (asNewNode = false) => {
     setSaving(true);
     try {
-      await onSave();
+      await onSave({ asNewNode });
       await refresh();
       setTab('manual');
     } catch (err) {
@@ -177,6 +178,9 @@ export function SaveLoadModal({ onSave, onLoad, onClose, chatHistory, 旅人, wo
       setSaving(false);
     }
   };
+
+  const handleSave = () => saveCurrent();
+  const handleSaveAs = () => saveCurrent(true);
 
   const handleExportCurrent = async () => {
     setSaving(true);
@@ -531,7 +535,7 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
               const timeline = buildSaveTreeTimeline(group);
               return (
                 <div key={group.rootId} className="flex items-center gap-1">
-                  <span className="mr-1 text-[10px]" style={{ color: "rgba(var(--tj-text-secondary),0.65)" }}>{group.rootSave.travelerName || '存档树'}</span>
+                  <span className="mr-1 text-[10px]" style={{ color: "rgba(var(--tj-text-secondary),0.65)" }}>{getSaveJourneyLabel(group.rootSave)}</span>
                   {timeline.map((node) => (
                     <span key={node.nodeId} className="flex items-center gap-1">
                       <span title={`第 ${node.turnCount} 回合`} style={{ width: 8, height: 8, borderRadius: '50%', background: node.isLatest ? 'rgb(var(--tj-accent-primary))' : node.isBranchPoint ? 'rgba(var(--tj-accent-secondary),0.9)' : 'rgba(var(--tj-text-secondary),0.35)' }} />
@@ -555,8 +559,9 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
             <div className="flex flex-col gap-4">
               <div className="grid gap-2">
                 <SaveActionButton primary onClick={handleSave} disabled={saving}>
-                  {saving ? '保存中' : '保存新节点'}
+                  {saving ? '保存中' : '保存当前手动档'}
                 </SaveActionButton>
+                <SaveActionButton onClick={handleSaveAs} disabled={saving}>另存为新节点</SaveActionButton>
                 <SaveActionButton onClick={handleImport} disabled={importing}>
                   {importing ? '导入中' : '导入存档包'}
                 </SaveActionButton>
@@ -596,10 +601,11 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
                   存档策略
                 </div>
                 <div>存档树数量不限，不会因树数量清理旧存档</div>
-                <div>每棵树手动节点最多 5 个、自动节点最多 6 个</div>
+                <div>每棵树手动节点最多 5 个；自动档保留最新 10 个不同回合</div>
+                <div>同回合分支保留；旧无有效回合数保守保留</div>
                 <div>导入存档不计入手动上限</div>
                 <div>历史恢复点已停止新建，可在列表中手动清理</div>
-                <div>读取节点后继续保存会生成新分支</div>
+                <div>保存覆盖当前手动档，另存为才新增节点</div>
                 <div>整树导出会带走当前旅程分叉</div>
               </div>
 
@@ -618,6 +624,7 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
                 <SaveActionButton primary size="sm" onClick={handleSave} disabled={saving} className="flex-1 min-w-0">
                   {saving ? '保存中' : '保存'}
                 </SaveActionButton>
+                <SaveActionButton size="sm" onClick={handleSaveAs} disabled={saving} className="flex-1 min-w-0">另存为</SaveActionButton>
                 <SaveActionButton size="sm" onClick={handleImport} disabled={importing} className="flex-1 min-w-0">
                   {importing ? '导入中' : '导入'}
                 </SaveActionButton>
@@ -649,7 +656,7 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
                     <div className="flex gap-2 w-max">
                       {visibleTreeGroups.map((group) => {
                         const active = group.rootId === selectedTree?.rootId;
-                        const title = group.latestSave.travelerName || group.rootSave.travelerName || '未命名旅人';
+                        const title = getSaveJourneyLabel(group.latestSave);
                         return (
                           <button
                             key={group.rootId}
@@ -787,7 +794,7 @@ borderBottom: '1px solid rgba(var(--tj-border), 0.20)',
                   }
                   detail={
                     tab === 'manual'
-                      ? '点击左侧“保存新节点”留下第一道印记。'
+                      ? '点击“保存当前手动档”留下第一道印记；另存为可新增节点。'
                       : '推进旅程后，新的节点会显示在这里。'
                   }
                 />
@@ -1029,7 +1036,7 @@ function SaveTreeSelector({
         <div className="grid gap-2">
           {groups.map((group) => {
             const active = group.rootId === selectedRootId;
-            const title = group.latestSave.travelerName || group.rootSave.travelerName || '未命名旅人';
+            const title = getSaveJourneyLabel(group.latestSave);
             return (
               <button
                 key={group.rootId}
@@ -1204,7 +1211,7 @@ function SaveTreeGroup({
               存档树
             </span>
             <span className="truncate text-[15px] font-semibold tracking-wider" style={{ color: 'rgba(var(--tj-accent-secondary),1)' }}>
-              {group.latestSave.travelerName || group.rootSave.travelerName || '未命名旅人'}
+              {getSaveJourneyLabel(group.latestSave)}
             </span>
             <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-primary),0.42)' }}>
               最新 #{group.latestSave.id}
@@ -1321,7 +1328,7 @@ function SaveRow({
             {typeLabel(item.type)}
           </span>
           <span className={`truncate font-serif font-semibold tracking-wider ${isLatest ? 'text-[17px]' : 'text-[15px]'}`} style={{ color: 'rgba(var(--tj-accent-secondary),1)' }}>
-            {item.travelerName || '未命名旅人'}
+            {getSaveJourneyLabel(item)}
           </span>
           <span className="font-serif text-[11px] tracking-wider" style={{ color: 'rgba(var(--tj-text-primary),0.42)' }}>
             #{item.id}

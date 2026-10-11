@@ -12,6 +12,7 @@ import {
   composeCourierGroupReplyLocally,
   composeCourierReplyLocally,
   ensureCourierContactNpcRecord,
+  resolveCourierContactNpc,
   endCourierReply,
   findCourierReplyCandidates,
   type CourierReplyCandidate,
@@ -159,7 +160,8 @@ export async function runCourierDeliveryTask(input: CourierDeliveryTaskInput): P
 
   for (const seed of scheduled.due.slice(0, 2)) {
     if (!input.letterApiConfig) break;
-    const senderNpc = npcs.find((npc) => npc.id === seed.senderId || seed.relatedNpcIds.includes(npc.id));
+    const senderContact = courier.contacts.find((contact) => contact.id === seed.senderId || contact.npcId === seed.senderId);
+    const senderNpc = resolveCourierContactNpc(npcs, { contactId: senderContact?.id ?? seed.senderId, npcId: senderContact?.npcId, name: senderContact?.name ?? seed.senderId, turn: input.turn });
     const senderConversation = courier.conversations.find((conversation) =>
       conversation.messages.some((message) => message.sourceSeedId === seed.id)
       || conversation.participantIds.includes(seed.senderId));
@@ -303,10 +305,11 @@ function replaceSeedMessagesWithAiLetter(
   return {
     ...courier,
     conversations: courier.conversations.map((conversation) => {
-      if (!conversation.participantIds.includes(seed.senderId)) return conversation;
-      const firstIndex = conversation.messages.findIndex((message) => message.sourceSeedId === seed.id);
+      const senderContact = courier.contacts.find((contact) => contact.id === seed.senderId || contact.npcId === seed.senderId);
+      const matchesSeed = (message: typeof conversation.messages[number]) => message.sourceSeedId === seed.id
+        && (message.senderId === seed.senderId || message.senderId === senderContact?.id);
+      const firstIndex = conversation.messages.findIndex(matchesSeed);
       if (firstIndex < 0) return conversation;
-      const seedMessageCount = conversation.messages.filter((message) => message.sourceSeedId === seed.id).length;
       const template = conversation.messages[firstIndex];
       if (!template) return conversation;
       const rebuilt = splitLetterIntoLines(letter).map((text, lineIndex) => ({
@@ -320,7 +323,7 @@ function replaceSeedMessagesWithAiLetter(
         messages: [
           ...conversation.messages.slice(0, firstIndex),
           ...rebuilt,
-          ...conversation.messages.slice(firstIndex + seedMessageCount),
+          ...conversation.messages.slice(firstIndex).filter((message) => !matchesSeed(message)),
         ],
       };
     }),
@@ -414,7 +417,16 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
 
     // 群聊：多位成员跟帖（至少一人），每人一条口语化短消息，署名各自联系人。
     if (conversation.type === 'group') {
-      const memberIds = selectGroupReplyMembers(conversation, playerMessage, input.maxGroupReplies ?? 3, updated.contacts);
+      const prefix = `courier_group_reply_${playerMessage.id}_`;
+      const requestKey = JSON.stringify(input.replyBatch?.messageIds ?? [playerMessage.id]);
+      const priorProofs = conversation.messages.filter(message => message.id === `${prefix}${message.senderId}`
+        && JSON.stringify(message.replyToMessageIds) === requestKey && message.expectedReplyIds !== undefined);
+      const selectedMembers = selectGroupReplyMembers(conversation, playerMessage, input.maxGroupReplies ?? 3, updated.contacts);
+      // A retry inherits the original full set, never its current selection/subset.
+      const expectedReplyIds = priorProofs.length ? [...new Set(priorProofs.flatMap(message => message.expectedReplyIds ?? []))]
+        : selectedMembers.map(memberId => `${prefix}${memberId}`);
+      const memberIds = priorProofs.length ? expectedReplyIds.filter(id => id.startsWith(prefix)).map(id => id.slice(prefix.length)) : selectedMembers;
+      let proofWritten = priorProofs.length > 0;
       let nextCourier = updated;
       let memberReplied = 0;
       // 成员级隔离（2026-09-29，用户报的「@全体成员 老是回信失败」）：
@@ -440,8 +452,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
           name: provisionalName,
           turn: input.turn,
         });
-        const senderNpc = updatedNpcs.find((npc) =>
-          (contact?.npcId && npc.id === contact.npcId) || npc.id === memberId || (contact?.name?.trim() && npc.姓名 === contact.name.trim()));
+        const senderNpc = resolveCourierContactNpc(updatedNpcs, { contactId: memberId, npcId: contact?.npcId, name: provisionalName, turn: input.turn });
         const senderName = contact?.name?.trim() || senderNpc?.姓名?.trim() || memberId;
         const groupContext: CourierGroupReplyContext = {
           conversation,
@@ -479,6 +490,8 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
         const memberAvatar = contact?.avatar?.trim() || undefined;
         nextCourier = appendCourierMessage(nextCourier, conversation.id, {
           id: `courier_group_reply_${playerMessage.id}_${memberId}`,
+          replyToMessageIds: [...(input.replyBatch?.messageIds ?? [playerMessage.id])],
+          ...(!proofWritten ? { expectedReplyIds: expectedReplyIds.length <= 120 ? expectedReplyIds : [] } : {}),
           senderId: memberId,
           senderName,
           role: 'contact',
@@ -489,6 +502,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
           ...(memberAvatar ? { avatar: memberAvatar } : {}),
           readBy: [],
         });
+        proofWritten = true;
         if (senderNpc) {
           updatedNpcs = appendPhoneExchangeMemory(updatedNpcs, {
             npcId: senderNpc.id,
@@ -528,8 +542,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
       name: provisionalName,
       turn: input.turn,
     });
-    const senderNpc = updatedNpcs.find((npc) =>
-      (contact?.npcId && npc.id === contact.npcId) || npc.id === contactId || (contact?.name?.trim() && npc.姓名 === contact.name.trim()));
+    const senderNpc = resolveCourierContactNpc(updatedNpcs, { contactId, npcId: contact?.npcId, name: provisionalName, turn: input.turn });
     const senderName = contact?.name?.trim() || senderNpc?.姓名?.trim() || conversation.title?.trim() || contactId;
     const replyContext: CourierReplyContext = {
       conversation,
@@ -559,10 +572,13 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
     const replyAvatar = contact?.avatar?.trim() || undefined;
     // 一句一句话：回信按句读拆成多条消息依次发出。
     const replyLines = splitLetterIntoLines(letter);
+    const expectedReplyIds = replyLines.map((_text, index) => `courier_reply_${playerMessage.id}_${index}`);
     let nextCourier = updated;
     replyLines.forEach((text, lineIndex) => {
       nextCourier = appendCourierMessage(nextCourier, conversation.id, {
         id: `courier_reply_${playerMessage.id}_${lineIndex}`,
+        replyToMessageIds: [...(input.replyBatch?.messageIds ?? [playerMessage.id])],
+        ...(lineIndex === 0 ? { expectedReplyIds: expectedReplyIds.length <= 120 ? expectedReplyIds : [] } : {}),
         senderId: contactId,
         senderName,
         role: 'contact',

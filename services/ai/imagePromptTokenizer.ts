@@ -1,6 +1,8 @@
 import type { API配置项, API设置, 游戏设置 } from '@/models/settings';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
 import { withRetries } from '@/services/ai/retry';
+import { compactImagePrompts, sanitizeImageModelPrompt, type PromptCharacter } from '@/utils/imagePromptCompaction';
+import { formatImageCharacterFacts } from '@/utils/imageCharacterFacts';
 import { 获取当前PNG画风预设, 获取当前模型规则集, 获取当前画师串预设, 获取当前规则模板, 获取当前详细画风预设 } from '@/utils/imagePromptRules';
 
 export interface ImagePromptTokenizerInput {
@@ -12,6 +14,7 @@ export interface ImagePromptTokenizerInput {
   extraRequirement?: string;
   anchorMode?: boolean;
   anchorSummary?: string;
+  characters?: readonly PromptCharacter[];
 }
 
 export interface ImagePromptTokenizerResult {
@@ -109,6 +112,7 @@ export async function tokenizeImagePrompt(
               input.anchorMode ? `锚点模式：已启用。${input.anchorSummary || ''}` : '锚点模式：未启用，按档案回退。',
               '',
               '# 规则中心要求',
+              '自动精简：prompt 与 negative 各最多 1800 字符。只保留可绘制的角色辨识特征、动作、地点、光线和构图；去掉重复风格、生成步骤、格式指令及无关经历。不得删除画面中的角色或其标志外观。',
               '必须遵守当前生效的规则模板、构图、角色锚点、模型兼容、画师串、PNG画风、NSFW隔离与输出格式规则。',
               input.anchorMode
                 ? '锚点模式下，稳定外观必须沿用角色锚点，只补本次镜头、动作、姿态、表情、构图、环境和临时道具。不得重新发明发色、发型、眼睛、体型、常驻服装或标志配饰。'
@@ -116,6 +120,8 @@ export async function tokenizeImagePrompt(
               '',
               '# 来源档案',
               input.sourceText,
+              ...(input.characters ?? []).filter(character => character.enabled !== false && character.facts).map(character => formatImageCharacterFacts(character.facts!)),
+              '姓名、性别、外貌摘要、常驻服装及已记录外貌字段的 value/source 必须保留；缺失的身高、体重、三围不得臆造。锚点稳定外观冲突时优先锚点。',
               '',
               '# 本地基础 Prompt',
               input.basePrompt,
@@ -133,20 +139,27 @@ export async function tokenizeImagePrompt(
       }),
     { retries: retryCount, signal, label: '文生图词组转化器' },
   );
-  return parseTokenizerJson(raw, input.basePrompt, input.baseNegative);
+  const parsed = parseTokenizerJson(raw, input.basePrompt, input.baseNegative);
+  return compactImagePrompts({
+    ...parsed,
+    prompt: parsed.modelPrompt ? sanitizeImageModelPrompt(parsed.prompt, input.characters) : parsed.prompt,
+    characters: input.characters,
+  });
 }
 
-function parseTokenizerJson(raw: string, fallbackPrompt: string, fallbackNegative: string): ImagePromptTokenizerResult {
+function parseTokenizerJson(raw: string, fallbackPrompt: string, fallbackNegative: string): ImagePromptTokenizerResult & { modelPrompt: boolean } {
   const text = raw.trim();
   const jsonText = text.match(/\{[\s\S]*\}/)?.[0] ?? text;
   try {
     const parsed = JSON.parse(jsonText) as Partial<ImagePromptTokenizerResult>;
     return {
+      modelPrompt: Boolean(parsed.prompt),
       prompt: String(parsed.prompt || fallbackPrompt).trim(),
       negative: String(parsed.negative || fallbackNegative).trim(),
     };
   } catch {
     return {
+      modelPrompt: false,
       prompt: fallbackPrompt,
       negative: fallbackNegative,
     };

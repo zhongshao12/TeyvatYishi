@@ -99,6 +99,14 @@ describe('mergeNpcWriteBack', () => {
     expect(merged.records[0]!.好感度).toBe(7);
   });
 
+  it('keeps an in-flight deletion while still admitting a newly created NPC', () => {
+    const start = [npc('amber')];
+    const produced = [npc('amber', { 好感度: 2 }), npc('new-lisa')];
+    const current = [npc('kaeya')];
+    expect(mergeNpcWriteBack({ start, next: produced, current }).records.map(record => record.id))
+      .toEqual(['kaeya', 'new-lisa']);
+  });
+
   it('does not duplicate a memory line both sides already have', () => {
     const memory = { id: 'phone_1' } as never;
     const start = [npc('amber', { 同行记忆: [memory] })];

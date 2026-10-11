@@ -14,13 +14,13 @@ const snapshot = (totalStoredCount: number): SaveCatalogSnapshot => ({
 });
 
 describe('save failure visibility and catalog fallback', () => {
-  it('falls back to the IndexedDB catalog when it contains more stored saves', () => {
+  it('retains pending saves from either backend instead of selecting a catalog by total count', () => {
     const select = Reflect.get(saveCatalog, 'selectPreferredSaveCatalogSnapshot') as undefined | ((desktop: SaveCatalogSnapshot, indexed: SaveCatalogSnapshot) => SaveCatalogSnapshot);
     expect(select).toBeTypeOf('function');
-    const desktop = snapshot(1);
-    const indexed = snapshot(3);
-    expect(select?.(desktop, indexed)).toBe(indexed);
-    expect(select?.(snapshot(4), snapshot(3)).totalStoredCount).toBe(4);
+    const desktop = { ...snapshot(1), pendingIds: [10], storedIds: [10], catalogComplete: false };
+    const indexed = { ...snapshot(3), pendingIds: [1, 2, 3], storedIds: [1, 2, 3], catalogComplete: false };
+    expect(select?.(desktop, indexed).pendingIds).toEqual([10, 3, 2, 1]);
+    expect(select?.(desktop, indexed).totalStoredCount).toBe(4);
   });
 
   it('shows the real save error and gives quota exhaustion a clear explanation', () => {

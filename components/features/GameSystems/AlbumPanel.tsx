@@ -29,10 +29,11 @@ import { ImageGenerationSettingsTab } from '@/components/features/Settings/Image
 import { parseSceneImagePrompt } from '@/services/ai/narrativeImageParse';
 import { resolveStorySnapshot, trimStorySnapshotSource } from '@/services/ai/storySnapshotPipeline';
 import { extractCharacterAnchorWithAI } from '@/services/ai/characterAnchorExtract';
-import { applyNovelAIRulePreset, buildNpcImagePrompt, buildSceneImagePrompt, buildTravelerImagePrompt, 应用场景角色锚点锁, 应用质量增强提示词 } from '@/utils/imagePromptRules';
+import { applyNovelAIRulePreset, buildNpcImagePrompt, buildSceneImagePrompt, buildTravelerImagePrompt, readImagePromptCharacter, readImagePromptParserCharacter, selectImagePromptSceneNpcs, 应用场景角色锚点锁, 应用质量增强提示词 } from '@/utils/imagePromptRules';
 import { readImageError, runImageGenerationWithRetry } from '@/utils/imageGenerationRetry';
 import { globalImageTaskQueue, recoverInterruptedTasks, recoverStaleTasks } from '@/utils/imageTaskQueue';
 import { buildImagePromptTokenizerConfig, buildImagePromptTokenizerSystemPrompt, tokenizeImagePrompt } from '@/services/ai/imagePromptTokenizer';
+import { compactImagePrompts, sanitizeImageModelPrompt, type PromptCharacter } from '@/utils/imagePromptCompaction';
 
 import {
   generateTargets, smallClip, groupForTab, navGroups, tabs,
@@ -128,7 +129,14 @@ function mergeHydratedContentHashes(
   return changed ? { ...current, assets } : current;
 }
 
-export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, npcs, onNpcChange, apiSettings, gameSettings, onGameSettingsChange, imageSettings, nsfwEnabled, nsfwImageEnabled, mainChatHistory = [], getGameSessionId }: AlbumPanelProps) {
+export function AlbumPanel(props: AlbumPanelProps) {
+  // Keep each panel's async closures bound to one session. A new session needs
+  // a fresh guard and fresh UI drafts even when the surrounding system stays open.
+  const sessionId = props.getGameSessionId?.() ?? getLiveGameSessionId() ?? 0;
+  return <SessionAlbumPanel key={sessionId} {...props} />;
+}
+
+function SessionAlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, npcs, onNpcChange, apiSettings, gameSettings, onGameSettingsChange, imageSettings, nsfwEnabled, nsfwImageEnabled, mainChatHistory = [], getGameSessionId }: AlbumPanelProps) {
   const [activeTab, setActiveTab] = useState<WorkTab>('manual');
   const [showNsfw, setShowNsfw] = useState(false);
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
@@ -637,14 +645,14 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
         targetType: target.targetType,
         targetId: resolvedTargetId,
         slot: target.slot,
-        prompt: promptText,
-        negativePrompt: negativeText,
+        prompt: result.finalPrompt ?? promptText,
+        negativePrompt: result.finalNegativePrompt ?? negativeText,
         sourcePrompt,
-        finalPrompt: promptText,
-        finalNegativePrompt: negativeText,
+        finalPrompt: result.finalPrompt ?? promptText,
+        finalNegativePrompt: result.finalNegativePrompt ?? negativeText,
         anchorMode: taskAnchorMode,
         anchorSummary: taskAnchorSummary,
-        dimensions: targetSize,
+        dimensions: result.width && result.height ? `${result.width}x${result.height}` : targetSize,
         model: result.model,
         backend: result.backend,
         mimeType: result.mimeType,
@@ -654,10 +662,10 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
       });
       提交相册((prev) => ({
         ...添加图片到相册(prev, item),
-        tasks: prev.tasks.map((old) => old.id === task.id ? { ...old, status: 'success', resultAssetId: item.asset.id, finishedAt: Date.now() } : old),
+        tasks: prev.tasks.map((old) => old.id === task.id ? { ...old, status: 'success', finalPrompt: result.finalPrompt ?? promptText, finalNegativePrompt: result.finalNegativePrompt ?? negativeText, resultAssetId: item.asset.id, finishedAt: Date.now() } : old),
       }));
       setActiveEntryId(item.entry.id);
-      setMessage('图片已生成并加入相册。');
+      setMessage(result.promptCompacted ? '图片已生成并加入相册；发送前已自动精简，实际提示词已保存在图片详情中。' : '图片已生成并加入相册。');
     } catch (err) {
       const error = readImageError(err);
       提交相册((prev) => ({
@@ -1025,9 +1033,11 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
     negative: string;
     anchorMode: boolean;
     anchorSummary: string;
+    characters?: PromptCharacter[];
   }) => {
+    const finalize = (value: { prompt: string; negative: string }) => ({ ...input, ...compactImagePrompts({ ...value, characters: input.characters }) });
     const tokenizerConfig = buildImagePromptTokenizerConfig(gameSettings, apiSettings);
-    if (!tokenizerConfig) return input;
+    if (!tokenizerConfig) return finalize(input);
     setTokenizing(true);
     try {
       const refined = await tokenizeImagePrompt(
@@ -1042,14 +1052,15 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
           extraRequirement,
           anchorMode: input.anchorMode,
           anchorSummary: input.anchorSummary,
+          characters: input.characters,
         },
         tokenizerConfig.retryCount ?? 2,
       );
       setMessage('已通过词组转化器整理最终提示词。');
-      return { ...input, prompt: refined.prompt, negative: refined.negative };
+      return finalize(refined);
     } catch (err) {
-      setMessage(`词组转化器失败，已保留本地基础提示词：${err instanceof Error ? err.message : String(err)}`);
-      return input;
+      setMessage(`词组转化器失败，已自动精简本地提示词：${err instanceof Error ? err.message : String(err)}`);
+      return finalize(input);
     } finally {
       setTokenizing(false);
     }
@@ -1058,13 +1069,14 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
   const buildPromptForTarget = async (target: typeof currentTarget, override?: { sceneText?: string }) => {
     if (target.tokenizerMode === 'scene') {
       const sourceSceneText = override?.sceneText ?? sceneText;
-      const presentNpcs = buildPresentSceneNpcs(npcs, sourceSceneText);
+      const presentNpcs = buildPresentSceneNpcs(npcs, sourceSceneText).filter(npc => sourceSceneText.includes(npc.姓名) || Boolean(npc.别名 && sourceSceneText.includes(npc.别名)));
+      const visibleTraveler = (traveler.姓名 && sourceSceneText.includes(traveler.姓名)) || (traveler.别名 && sourceSceneText.includes(traveler.别名)) ? traveler : undefined;
       const anchorInfo = getSceneAnchorStatus(traveler, presentNpcs);
       const built = buildSceneImagePrompt({
         text: sourceSceneText,
         mode: target.id === 'phone_wallpaper' ? 'phone_wallpaper' : 'scene',
         rules: imageSettings.rules,
-        traveler,
+        traveler: visibleTraveler,
         presentNpcs,
         extraRequirement,
         size: resolvedSize,
@@ -1078,6 +1090,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
         negative: built.negative,
         anchorMode: anchorInfo.anchorMode,
         anchorSummary: anchorInfo.anchorSummary,
+        characters: [...(visibleTraveler ? [readImagePromptCharacter(visibleTraveler, true)] : []), ...presentNpcs.map(npc => readImagePromptCharacter(npc, true))],
       });
       return { prompt: refined.prompt, negative: refined.negative, anchorMode: anchorInfo.anchorMode, anchorSummary: anchorInfo.anchorSummary, sourcePrompt: built.prompt };
     }
@@ -1098,6 +1111,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
         negative: built.negative,
         anchorMode: anchorInfo.anchorMode,
         anchorSummary: anchorInfo.anchorSummary,
+        characters: [readImagePromptCharacter(traveler)],
       });
       return { prompt: refined.prompt, negative: refined.negative, anchorMode: anchorInfo.anchorMode, anchorSummary: anchorInfo.anchorSummary, sourcePrompt: built.prompt };
     }
@@ -1117,32 +1131,37 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
     const refined = await applyTokenizerIfAvailable({
       title: target.label,
       mode: target.id,
-      sourceText: buildNpcSourceText(npc),
+      sourceText: buildNpcSourceText(npc, { nsfw: target.nsfw }),
       prompt: built.prompt,
       negative: built.negative,
       anchorMode: anchorInfo.anchorMode,
       anchorSummary: anchorInfo.anchorSummary,
+      characters: [readImagePromptCharacter(npc)],
     });
     return { prompt: refined.prompt, negative: refined.negative, anchorMode: anchorInfo.anchorMode, anchorSummary: anchorInfo.anchorSummary, sourcePrompt: built.prompt };
   };
 
   const handleBuildPrompt = async () => {
-    const target = currentTarget;
-    const built = await buildPromptForTarget(target);
-    if (!built) return;
-    setPrompt(built.prompt);
-    setNegativePrompt((prev) => prev || built.negative);
-    setLastPromptMeta({ anchorMode: built.anchorMode, anchorSummary: built.anchorSummary, sourcePrompt: built.sourcePrompt });
-    if (target.tokenizerMode === 'scene') {
-      setGenerateTitle(sceneText.trim().slice(0, 16) || target.label);
-    } else if (target.targetType === 'traveler' || (target.nsfw && selectedCharacterId === 'traveler')) {
-      setGenerateTitle(`${traveler.姓名 || '旅人'}${target.label}`);
-    } else {
-      const npc = npcs.find((item) => item.id === selectedCharacterId);
-      setGenerateTitle(`${npc?.姓名 || ''}${target.label}`);
+    try {
+      const target = currentTarget;
+      const built = await buildPromptForTarget(target);
+      if (!built) return;
+      setPrompt(built.prompt);
+      setNegativePrompt(built.negative);
+      setLastPromptMeta({ anchorMode: built.anchorMode, anchorSummary: built.anchorSummary, sourcePrompt: built.sourcePrompt });
+      if (target.tokenizerMode === 'scene') {
+        setGenerateTitle(sceneText.trim().slice(0, 16) || target.label);
+      } else if (target.targetType === 'traveler' || (target.nsfw && selectedCharacterId === 'traveler')) {
+        setGenerateTitle(`${traveler.姓名 || '旅人'}${target.label}`);
+      } else {
+        const npc = npcs.find((item) => item.id === selectedCharacterId);
+        setGenerateTitle(`${npc?.姓名 || ''}${target.label}`);
+      }
+      setPromptEditorOpen(true);
+      setMessage(`${built.anchorMode ? '已按角色锚点模式生成提示词。' : '已按档案回退模式生成提示词。'}已自动精简，可在高级编辑里微调。`);
+    } catch (error) {
+      setMessage(`提示词生成失败，已保留原草稿：${error instanceof Error ? error.message : String(error)}`);
     }
-    setPromptEditorOpen(true);
-    setMessage(`${built.anchorMode ? '已按角色锚点模式生成提示词。' : '已按档案回退模式生成提示词。'}可在高级编辑里微调。`);
   };
 
   const handleBuildSceneImagePrompt = async () => {
@@ -1153,7 +1172,6 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
     }
     const target = generateTargets.find((item) => item.id === 'scene') ?? currentTarget;
     setSceneImageAnalyzing(true);
-    setSceneImageSummary(null);
     setMessage('正在解析场景画面...');
     try {
       const parserConfig = resolveStorySnapshotParserConfig();
@@ -1166,18 +1184,11 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
           parsed = await parseSceneImagePrompt(parserConfig, {
             body: sourceText,
             traveler: {
-              name: traveler.姓名 || traveler.别名 || '玩家角色',
-              gender: traveler.性别 || undefined,
-              appearance: traveler.外貌 || undefined,
+              ...readImagePromptParserCharacter(traveler),
               identity: traveler.身份 || undefined,
-              anchorPrompt: traveler.图像档案?.角色锚点 ? JSON.stringify(traveler.图像档案.角色锚点) : undefined,
             },
             playerAppearanceMode: 'auto',
-            presentNpcs: presentNpcs.map((npc) => ({
-              name: npc.姓名,
-              appearance: npc.外貌,
-              clothing: npc.穿着,
-            })),
+            presentNpcs: presentNpcs.map(readImagePromptParserCharacter),
           });
         } catch (error) {
           usedLocalFallback = true;
@@ -1189,11 +1200,15 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
       }
 
       if (parsed) {
+        const visibleText = `${parsed.subject}\n${parsed.prompt}`;
+        const visibleNpcs = selectImagePromptSceneNpcs(presentNpcs, sourceText, visibleText);
+        const visibleTraveler = (traveler.姓名 && visibleText.includes(traveler.姓名)) || (traveler.别名 && visibleText.includes(traveler.别名)) ? traveler : undefined;
+        const characters = [...(visibleTraveler ? [readImagePromptCharacter(visibleTraveler, true)] : []), ...visibleNpcs.map(npc => readImagePromptCharacter(npc, true))];
         const lockedPrompt = 应用场景角色锚点锁({
-          prompt: parsed.prompt,
+          prompt: sanitizeImageModelPrompt(parsed.prompt, characters),
           negative: parsed.negativePrompt,
-          traveler,
-          presentNpcs,
+          traveler: visibleTraveler,
+          presentNpcs: visibleNpcs,
         });
         const enhanced = 应用质量增强提示词(imageSettings.rules, lockedPrompt.prompt, lockedPrompt.negative);
         const summary: SceneImageSummary = {
@@ -1204,24 +1219,28 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
           camera: parsed.camera,
           avoid: parsed.avoid,
         };
+        const compacted = compactImagePrompts({ ...enhanced, characters });
         setSceneImageSummary(summary);
         setGenerateTitle(summary.title);
-        setPrompt(enhanced.prompt);
-        setNegativePrompt(enhanced.negative);
+        setPrompt(compacted.prompt);
+        setNegativePrompt(compacted.negative);
         setLastPromptMeta({ anchorMode: anchorInfo.anchorMode, anchorSummary: anchorInfo.anchorSummary, sourcePrompt: parsed.prompt });
         setPromptEditorOpen(false);
-        setMessage('已完成场景图解析和提示词整理，可直接普通生成。');
+        setMessage('已完成场景图解析并自动精简提示词，可直接普通生成。');
         return;
       }
 
       const built = await buildPromptForTarget(target, { sceneText: sourceText });
       if (!built) return;
+      setSceneImageSummary(null);
       setPrompt(built.prompt);
       setNegativePrompt(built.negative);
       setLastPromptMeta({ anchorMode: built.anchorMode, anchorSummary: built.anchorSummary, sourcePrompt: built.sourcePrompt });
       setGenerateTitle(sourceText.slice(0, 16) || target.label);
       setPromptEditorOpen(true);
-      setMessage(usedLocalFallback ? '已用本地兜底草稿整理场景图，可在高级编辑里微调。' : '已完成场景图提示词整理。');
+      setMessage(usedLocalFallback ? '已用本地兜底草稿整理并自动精简场景图提示词，可在高级编辑里微调。' : '已完成场景图提示词整理并自动精简。');
+    } catch (error) {
+      setMessage(`场景提示词生成失败，已保留原草稿：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setSceneImageAnalyzing(false);
     }
@@ -1234,9 +1253,6 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
       return;
     }
     setStorySnapshotAnalyzing(true);
-    setStorySnapshotSummary(null);
-    setStorySnapshotContext(null);
-    setNovelAIOverrides({});
     setMessage('正在解析正文画面...');
     try {
       const target = generateTargets.find((item) => item.id === 'scene') ?? currentTarget;
@@ -1254,6 +1270,7 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
         size: resolvedSize,
         slot: target.slot,
       });
+      setNovelAIOverrides({});
       setSceneText('');
       setGenerateTitle(resolution.summary.title);
       setStorySnapshotSummary(resolution.summary);
@@ -1268,8 +1285,10 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
       });
       setPromptEditorOpen(false);
       setMessage(resolution.source === 'local'
-        ? `模型解析未完成，已用本地草稿整理故事快照，可直接普通生成。${resolution.warning ? ` 原因：${resolution.warning.slice(0, 160)}` : ''}`
-        : '已完成故事快照解析和提示词整理，可直接普通生成。');
+        ? `模型解析未完成，已用本地草稿整理故事快照并自动精简提示词，可直接普通生成。${resolution.warning ? ` 原因：${resolution.warning.slice(0, 160)}` : ''}`
+        : '已完成故事快照解析并自动精简提示词，可直接普通生成。');
+    } catch (error) {
+      setMessage(`快照提示词生成失败，已保留原草稿：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setStorySnapshotAnalyzing(false);
     }

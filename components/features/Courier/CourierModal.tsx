@@ -1,5 +1,5 @@
 import { CLIP_ITEM, CLIP_SECTION } from '@/styles/clipPaths';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CourierContact, CourierMessage, CourierSystem } from '@/models/teyvat/courier';
 import type { WorldMoment } from '@/models/teyvat/worldMoment';
 import type { NPC记录 } from '@/models/npc';
@@ -10,6 +10,7 @@ import { 解析相册资源引用 } from '@/utils/albumActions';
 import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { useModalAccessibility } from '@/components/ui/Modal';
 import { pushToast } from '@/utils/toastStore';
+import { sanitizeCourierMessageText } from '@/utils/courierTextSanitizer';
 import { CourierConversationList } from './CourierConversationList';
 import { CourierMessageTimeline } from './CourierMessageTimeline';
 import { CourierContactTools } from './CourierContactTools';
@@ -17,10 +18,19 @@ import { CourierMomentsPanel } from './CourierMomentsPanel';
 import { countEligibleMomentCommenters, createMoment, deleteMoment, editMoment, parseMomentMentions, restoreMoment } from '@/services/courierMoments';
 import { createCourierPlayerMessageId } from '@/utils/courierReplyBatch';
 import { displayCourierContactName } from '@/services/courierContactRemark';
+import { resolveCourierPhotoTarget, sameCourierPhotoTarget, type CourierPhotoTarget } from '@/services/courierPhoto';
+import type { CourierPhotoComposerProps } from './CourierPhotoComposer';
+import type { 文生图系统设置 } from '@/models/settings';
+import { CourierPhotoAction, type CourierPhotoReplyQueue } from './CourierPhotoAction';
+
+const CourierPhotoComposer = lazy(() => import('./CourierPhotoComposer').then(module => ({ default: module.CourierPhotoComposer })));
 
 export interface CourierModalProps {
   courier: CourierSystem;
   album?: 相册系统;
+  imageSettings?: 文生图系统设置;
+  onAlbumChange?: CourierPhotoComposerProps['onAlbumChange'];
+  onCommitPhoto?: CourierPhotoComposerProps['onCommitPhoto'];
   npcRecords?: NPC记录[];
   travelerName?: string;
   travelerAvatar?: string;
@@ -31,6 +41,7 @@ export interface CourierModalProps {
   /** 玩家发送后请求回信；第二个参数是刚提交的玩家消息 ID。 */
   onRequestReply?: (conversationId: string, messageId: string) => void;
   replyErrorByConversationId?: Record<string, string>;
+  replyQueue?: CourierPhotoReplyQueue;
   onRetryReply?: (conversationId: string) => void;
   getGameSessionId?: () => number;
   onRequestMomentComments?: (postId: string, revision: number, npcId?: string) => void;
@@ -62,7 +73,7 @@ function formatWallTime(timestamp: number): string {
   return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-export const CourierModal = memo(function CourierModal({ courier, album, npcRecords = [], travelerName, travelerAvatar, currentTurn = 0, worldMoment, onCourierChange, onRequestReply, replyErrorByConversationId, onRetryReply, getGameSessionId, onRequestMomentComments, canGenerateMomentComments = false, onClose }: CourierModalProps) {
+export const CourierModal = memo(function CourierModal({ courier, album, imageSettings, onAlbumChange, onCommitPhoto, npcRecords = [], travelerName, travelerAvatar, currentTurn = 0, worldMoment, onCourierChange, onRequestReply, replyErrorByConversationId, replyQueue, onRetryReply, getGameSessionId, onRequestMomentComments, canGenerateMomentComments = false, onClose }: CourierModalProps) {
   const [selectedId, setSelectedId] = useState(courier.conversations[0]?.id ?? '');
   // U02（PROJECT_AUDIT_2026-10-03）：草稿按**会话**隔离 —— 旧实现只有一个 draft，
   // 切到别的会话再切回来时草稿内容会跟着走，容易发错人。这里按 conversationId 暂存，
@@ -89,6 +100,7 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
   const [filter, setFilter] = useState<ConversationFilter>('all');
   const [mobileView, setMobileView] = useState<MobileView>('list');
   const [phoneSection, setPhoneSection] = useState<'chats' | 'moments'>('chats');
+  const [photoSelection, setPhotoSelection] = useState<{ target: CourierPhotoTarget; sessionId: number | null } | null>(null);
   const [showGroupEditor, setShowGroupEditor] = useState(false);
   const [editGroupName, setEditGroupName] = useState('');
   const [editGroupMemberIds, setEditGroupMemberIds] = useState<string[]>([]);
@@ -155,6 +167,24 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
     ?? courier.conversations.find((conversation) => conversation.id === selectedId)
     ?? conversations[0]
     ?? null;
+  const photoConversationId = selected?.id;
+  const photoRequestInputs = useRef({ courier, npcRecords, photoConversationId, getGameSessionId });
+  useLayoutEffect(() => { photoRequestInputs.current = { courier, npcRecords, photoConversationId, getGameSessionId }; }, [courier, npcRecords, photoConversationId, getGameSessionId]);
+  const requestPhoto = useCallback((messageId: string) => {
+    const inputs = photoRequestInputs.current;
+    const resolved = inputs.photoConversationId && resolveCourierPhotoTarget(inputs.courier, inputs.npcRecords, inputs.photoConversationId, messageId);
+    if (resolved) setPhotoSelection({ target: resolved.target, sessionId: inputs.getGameSessionId?.() ?? null });
+  }, []);
+  const resolvePhoto = useCallback((message: CourierMessage) => {
+    const ref = message.photo;
+    const entry = ref && album?.entries.find(item => item.id === ref.entryId && item.assetId === ref.assetId && item.targetId === ref.npcId && !item.nsfw);
+    const asset = entry && album?.assets.find(item => item.id === ref?.assetId && !item.nsfw);
+    return asset ? 解析相册资源引用(album, `asset:${asset.id}`) || undefined : undefined;
+  }, [album]);
+  const resolvedPhotoTarget = photoSelection && photoSelection.target.conversationId === selected?.id && photoSelection.sessionId === draftSessionId
+    ? resolveCourierPhotoTarget(courier, npcRecords, photoSelection.target.conversationId, photoSelection.target.messageId)?.target : undefined;
+  const photoTarget = photoSelection && resolvedPhotoTarget && sameCourierPhotoTarget(photoSelection.target, resolvedPhotoTarget) ? photoSelection.target : undefined;
+  useEffect(() => { setPhotoSelection(null); }, [selected?.id, draftSessionId, filter, phoneSection, mobileView]);
 
   const contactNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -340,8 +370,12 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
   };
 
   const sendMessage = () => {
-    const content = draft.trim();
-    if (!selected || !content || selected.type === 'system') return;
+    if (!selected || !draft.trim() || selected.type === 'system') return;
+    const content = sanitizeCourierMessageText(draft);
+    if (!content) {
+      pushToast({ kind: 'error', title: '消息正文含内部记录，无法发送。', detail: '请填写正常聊天内容。' });
+      return;
+    }
     const timestamp = Date.now();
     const messageId = createCourierPlayerMessageId();
     onCourierChange((previous) => {
@@ -625,7 +659,12 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
             onScroll={handleMessageScroll}
             resolveSenderAvatar={resolveSenderAvatar}
             onShowEarlier={handleShowEarlierMessages}
+            resolvePhoto={album ? resolvePhoto : undefined}
           />
+          {photoTarget && chatSurfaceVisible && selectedIsVisible && album && imageSettings && onAlbumChange && onCommitPhoto && <Suspense fallback={<p role="status" className="p-3 text-xs">照片工具载入中…</p>}>
+            <CourierPhotoComposer key={`${draftSessionId}:${photoTarget.conversationId}:${photoTarget.messageId}`} target={photoTarget} courier={courier} album={album} npcRecords={npcRecords}
+              imageSettings={imageSettings} getGameSessionId={getGameSessionId} onAlbumChange={onAlbumChange} onCommitPhoto={onCommitPhoto} onClose={() => setPhotoSelection(null)} />
+          </Suspense>}
 
           {pendingNewMessages > 0 && (
             <div className="flex justify-center px-3 pb-1">
@@ -649,6 +688,8 @@ export const CourierModal = memo(function CourierModal({ courier, album, npcReco
 
           {selected && selected.type !== 'system' ? (
             <div className="flex items-end gap-2 border-t border-[rgba(var(--tj-accent-primary),0.2)] p-3">
+              {imageSettings && onAlbumChange && onCommitPhoto && <CourierPhotoAction courier={courier} npcRecords={npcRecords} conversationId={selected.id}
+                replyQueue={replyQueue} failed={Boolean(replyErrorByConversationId?.[selected.id])} onRequest={requestPhoto} />}
               <div className="min-w-0 flex-1">
                 {selected.type === 'group' && (
                   <div className="mb-1.5 flex flex-wrap gap-1" aria-label="@群成员">

@@ -14,7 +14,6 @@ import { isNonRetryableAIError } from '@/services/ai/deepSeekRecovery';
 import { resolveMainNarrativeMaxAttempts } from '@/services/ai/mainNarrativeRetryPolicy';
 import { WORD_COUNT_ENFORCEMENT_MIN_TARGET } from '@/services/ai/mainNarrativeValidation';
 import { resolvePresetPresentation, resolveNarrativeMaxTokens } from '@/utils/presetPresentation';
-import { applyTavernOutputRegexScripts } from './tavernRegexProcessor';
 import {
   createDocumentVisibilitySource,
   createVisibilityBufferedPublisher,
@@ -65,9 +64,7 @@ export async function runMainNarrativeStreamingStage(deps: MainNarrativeStreamin
     isCurrentWorkflow,
     deepSeekMainActive,
     systemPrompt,
-    tavernV2Messages,
     apiMessages,
-    currentPresetV2,
     streamMessageSetter,
     streamDelayController,
     mainStoryConfig,
@@ -130,14 +127,7 @@ export async function runMainNarrativeStreamingStage(deps: MainNarrativeStreamin
           streaming: shouldStreamMainRequest,
           prefixMode: effectivePrefixMode,
           prefixContent: effectivePrefixContent,
-          transformOutput: tavernV2Messages && currentPresetV2
-            ? (text) => {
-                const regexCleanup = applyTavernOutputRegexScripts(text || streamingSession.streamedText, currentPresetV2.preset);
-                if (regexCleanup.applied.length === 0 || regexCleanup.text === text) return null;
-                console.info('[ST V2] 已执行安全输出正则清理:', regexCleanup.applied);
-                return regexCleanup.text;
-              }
-            : undefined,
+          // Imported regexes belong to outgoing/display copies, never raw response or saved state.
         });
       },
       getMissingPartyMembers: (candidateText) => getMissingPartyMembers(candidateText, state.NPC),

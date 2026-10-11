@@ -120,6 +120,8 @@ export interface 叙事插图 {
   error?: string;
   /** 关联的相册资源 ID */
   assetId?: string;
+  /** 后端实际提供的尺寸，而非用户请求尺寸。 */
+  dimensions?: string;
 }
 
 export interface 缓存前缀诊断 {

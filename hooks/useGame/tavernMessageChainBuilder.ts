@@ -17,6 +17,8 @@ import {
   type PresetPresentation,
 } from '@/utils/presetPresentation';
 import { applyTavernFormatGuard, matchesTavernCotPlaceholder, matchesTavernFormatPlaceholder } from './tavernFormatGuard';
+import { applyTavernScopedRegexScripts, extractTavernRegexScripts } from './tavernRegexProcessor';
+import { narrativeTurnBodyText } from '@/models/teyvat/narrativeTurn';
 
 export const TAVERN_CHAR_COMPAT_PROMPT =
   '当前剧情中的主要互动对象、出场 NPC、同伴、敌对角色以及由 AI 负责扮演和调度的剧情角色集合。不要把 {{char}} 理解为固定角色卡；应根据最近剧情、玩家输入、聊天历史和世界状态判断当前焦点对象。';
@@ -72,6 +74,8 @@ export interface TavernChainReport {
   dangling: string[];
   /** 渲染后仍残留的未展开宏（如非标准写法），它们会以字面量进入请求。 */
   unresolvedMacros: string[];
+  regexApplied?: string[];
+  regexSkipped?: string[];
 }
 
 /** 每条消息的来源标注 → 人类可读的投递结论。 */
@@ -82,6 +86,8 @@ function buildReportNote(report: TavernChainReport): string {
     `原生占位 ${report.markers.length}`,
     `悬空 ${report.dangling.length}`,
     report.unresolvedMacros.length ? `未展开宏 ${report.unresolvedMacros.join('/')}` : '宏全部展开',
+    report.regexApplied?.length ? `正则处理 ${report.regexApplied.length}` : '',
+    report.regexSkipped?.length ? `正则跳过 ${report.regexSkipped.length}（${report.regexSkipped.join('；')}）` : '',
   ].join(' · ');
 }
 
@@ -162,7 +168,8 @@ export function buildTavernMessageChain(params: TavernChainParams, reportOut?: {
     .trim();
 
   // 7. 构建历史消息
-  const historyMessages = buildTavernChatHistory(params.chatHistory);
+  const historyMessages = buildTavernChatHistory(params.chatHistory, params.preset);
+  const historyHasLatestInput = historyContainsLatestInput(historyMessages, params.latestUserInput);
   const personaProfile = buildTavernPersonaProfile(params.playerRole);
   const charRuntimeProfile = buildTavernCharRuntimeProfile(params);
   const macroCtx = params.macroCtx ?? createMacroContext(undefined, {
@@ -187,11 +194,19 @@ export function buildTavernMessageChain(params: TavernChainParams, reportOut?: {
   const report: TavernChainReport = {
     built: false, enabledSlots: enabledOrderSlots.length,
     delivered: [], markers: [], definitionOnly: [], dangling: [], unresolvedMacros: [],
+    regexApplied: [], regexSkipped: [],
   };
   if (reportOut) reportOut.current = report;
 
   // 8. 遍历启用的 slot，按 identifier 分派
   const messages: TavernInternalMessage[] = [];
+  const inChat: Array<{ message: TavernInternalMessage; depth: number; order: number; index: number }> = [];
+  const scopeText = (content: string, placement: number, depth?: number) => {
+    const result = applyTavernScopedRegexScripts(content, params.preset, { destination: 'prompt', placement, depth, resolveMacros: text => processMacros(text, macroCtx) });
+    report.regexApplied!.push(...result.applied);
+    report.regexSkipped!.push(...result.skipped);
+    return result.text;
+  };
   let worldbookInjected = false;
   let latestInputInjected = false;
   let cotInjectedViaPlaceholder = false;
@@ -205,15 +220,19 @@ export function buildTavernMessageChain(params: TavernChainParams, reportOut?: {
     // 数组里附带对应对象，因此必须先按槽位处理，再要求普通 prompt 存在。
     if (identifier === 'worldInfoBefore' || identifier === 'worldInfoAfter') {
       if (!worldbookInjected && combinedWorldbookText) {
-        messages.push({ role: 'system', content: combinedWorldbookText, source: 'worldbook' });
+        messages.push({ role: 'system', content: scopeText(combinedWorldbookText, 5), source: 'worldbook' });
         worldbookInjected = true;
       }
       continue;
     }
 
     if (identifier === 'chatHistory') {
-      historyMessages.forEach((msg) => messages.push({ ...msg, source: 'history' }));
-      if (historyContainsLatestInput(historyMessages, params.latestUserInput)) latestInputInjected = true;
+      historyMessages.forEach((msg, index) => {
+        const depth = historyMessages.length - 1 - index + (historyHasLatestInput ? 0 : 1);
+        const content = msg.role === 'system' ? msg.content : scopeText(msg.content, msg.role === 'user' ? 1 : 2, depth);
+        if (content.trim()) messages.push({ ...msg, content, source: 'history' });
+      });
+      if (historyHasLatestInput) latestInputInjected = true;
       continue;
     }
 
@@ -227,7 +246,7 @@ export function buildTavernMessageChain(params: TavernChainParams, reportOut?: {
 
     if (identifier === 'userInput' || identifier === 'user_input' || identifier === 'latestUserInput' || identifier === 'input') {
       if (params.latestUserInput) {
-        messages.push({ role: 'user', content: params.latestUserInput, source: 'latest_input' });
+        messages.push({ role: 'user', content: scopeText(params.latestUserInput, 1, 0), source: 'latest_input' });
         latestInputInjected = true;
       }
       continue;
@@ -268,16 +287,28 @@ export function buildTavernMessageChain(params: TavernChainParams, reportOut?: {
     if (resolved.usedCotPlaceholder) cotInjectedViaPlaceholder = true;
     if (resolved.usedFormatPlaceholder) formatInjectedViaPlaceholder = true;
     const role = prompt.role === 'user' || prompt.role === 'assistant' ? prompt.role : 'system';
-    messages.push({ role, content, source: 'preset' });
+    const message: TavernInternalMessage = { role, content, source: 'preset' };
+    if (prompt.injection_position === 1) {
+      inChat.push({ message, depth: Math.max(0, Math.trunc(Number(prompt.injection_depth) || 0)), order: Number(prompt.injection_order) || 0, index: inChat.length });
+    } else messages.push(message);
     report.delivered.push(slotName);
   }
 
   // 9. 兜底注入（若预设缺失关键槽位）
   if (!worldbookInjected && combinedWorldbookText) {
-    messages.push({ role: 'system', content: combinedWorldbookText, source: 'worldbook' });
+    messages.push({ role: 'system', content: scopeText(combinedWorldbookText, 5), source: 'worldbook' });
   }
-  if (!latestInputInjected && !historyContainsLatestInput(historyMessages, params.latestUserInput) && params.latestUserInput) {
-    messages.push({ role: 'user', content: params.latestUserInput, source: 'latest_input' });
+  if (!latestInputInjected && !historyHasLatestInput && params.latestUserInput) {
+    messages.push({ role: 'user', content: scopeText(params.latestUserInput, 1, 0), source: 'latest_input' });
+  }
+
+  // Anchor depth to conversational messages, not previously injected prompts.
+  const anchors = messages.filter(item => item.source === 'history' || item.source === 'latest_input');
+  const roleRank = { user: 0, assistant: 1, system: 2 };
+  inChat.sort((a, b) => b.depth - a.depth || roleRank[a.message.role] - roleRank[b.message.role] || a.order - b.order || a.index - b.index);
+  for (const item of inChat) {
+    const anchor = anchors[Math.max(0, anchors.length - item.depth)];
+    messages.splice(anchor ? messages.indexOf(anchor) : messages.length, 0, item.message);
   }
 
   messages.push({
@@ -351,7 +382,9 @@ export function buildTavernMessageChain(params: TavernChainParams, reportOut?: {
   });
 
   // 11. 后处理
-  return applyTavernPostProcess(messages, params.settings?.stPostProcessMode || '未选择');
+  const result = applyTavernPostProcess(messages, params.settings?.stPostProcessMode || '未选择');
+  report.built = result.length > 0;
+  return result;
 }
 
 //  ---------- 辅助函数 ----------
@@ -583,11 +616,11 @@ function readNumber(value: unknown, fallback: number): number {
   return fallback;
 }
 
-function buildTavernChatHistory(history: 聊天消息[]): Array<{role: STMessageRole; content: string; source: 'history'}> {
+function buildTavernChatHistory(history: 聊天消息[], preset: STPreset): Array<{role: STMessageRole; content: string; source: 'history'}> {
   const messages: Array<{role: STMessageRole; content: string; source: 'history'}> = [];
   for (const msg of history) {
     const role = msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system' ? msg.role : 'system';
-    const content = buildTavernHistoryContent(msg);
+    const content = buildTavernHistoryContent(msg, preset);
     if (!content) continue;
     messages.push({
       role,
@@ -598,9 +631,20 @@ function buildTavernChatHistory(history: 聊天消息[]): Array<{role: STMessage
   return messages;
 }
 
-function buildTavernHistoryContent(msg: 聊天消息): string {
+function buildTavernHistoryContent(msg: 聊天消息, preset: STPreset): string {
   if (msg.role !== 'assistant') return typeof msg.content === 'string' ? msg.content.trim() : '';
   const parsed = msg.parsedResponse;
+  // Historical, disposable shell projection lets tag-based summary/depth rules
+  // consume structured turns. It is never used as a new response or saved state.
+  const historyFilters = extractTavernRegexScripts(preset).some(script => script.disabled !== true && Array.isArray(script.placement) && script.placement.includes(2) && (script.promptOnly === true || script.markdownOnly !== true));
+  if (parsed && historyFilters) {
+    return [
+      `<content>${narrativeTurnBodyText(parsed)}</content>`,
+      `<meow_FM>${parsed.continuation.summary}</meow_FM>`,
+      parsed.continuation.unresolved.length ? `<seeds>${parsed.continuation.unresolved.join('\n')}</seeds>` : '',
+      parsed.choices.length ? `<branches>${parsed.choices.map(choice => choice.label).join('\n')}</branches>` : '',
+    ].filter(Boolean).join('\n');
+  }
   return parsed ? JSON.stringify(parsed) : (typeof msg.content === 'string' ? msg.content.trim() : '');
 }
 
@@ -617,7 +661,8 @@ function getLastMessageContent(history: 聊天消息[], role?: STMessageRole): s
 
 function historyContainsLatestInput(history: Array<{role: STMessageRole; content: string; source: 'history'}> | undefined, latestInput: string): boolean {
   if (!history || !latestInput) return false;
-  return history.some(msg => msg.role === 'user' && msg.content.includes(latestInput));
+  const last = history.at(-1);
+  return last?.role === 'user' && last.content.trim() === latestInput.trim();
 }
 
 function buildTavernPersonaProfile(playerRole: 角色数据结构 | null): string {

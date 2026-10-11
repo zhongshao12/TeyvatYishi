@@ -3,6 +3,8 @@ import type { 角色数据结构 } from '@/models/character';
 import type { NPC记录, NPC角色锚点档案 } from '@/models/npc';
 import type { NovelAI模型族, PNG画风预设来源, 故事快照解析规则预设, 文生图API配置, 文生图NAI规则预设, 文生图PNG画风预设, 文生图画师串预设, 文生图模型规则集, 文生图规则模板, 文生图规则模板类型, 文生图规则中心设置, 文生图详细画风预设, 文生图质量增强预设, 画师串预设适用范围 } from '@/models/settings';
 import { migrateLegacyImageRuleKeys } from '@/compat/legacy-hsr/migrate';
+import { formatImageCharacterFacts, readImageCharacterFacts, resolveImageCharacterFactsForAnchor, type ImageCharacterFactInput } from '@/utils/imageCharacterFacts';
+import type { PromptCharacter } from '@/utils/imagePromptCompaction';
 
 export type 生图Prompt模式 = 'avatar' | 'portrait' | 'scene' | 'phone_wallpaper' | 'nsfw';
 
@@ -1071,6 +1073,47 @@ function readCharacterAnchorNegative(anchor: NPC角色锚点档案 | undefined):
   return anchor.负面提示词 || '';
 }
 
+/** Select visual facts with the same anchor switches as the image builders. */
+export function readImagePromptCharacter(character: ImageCharacterFactInput & {
+  图像档案?: { 角色锚点?: NPC角色锚点档案 };
+}, scene = false): PromptCharacter {
+  const anchor = character.图像档案?.角色锚点;
+  const eligible = !scene || anchor?.场景生图自动注入 !== false;
+  const anchorPrompt = eligible ? readCharacterAnchorPrompt(anchor, 'character') : '';
+  const facts = resolveImageCharacterFactsForAnchor(readImageCharacterFacts(character), anchorPrompt);
+  return {
+    name: facts.name,
+    facts,
+    anchorPrompt,
+    visualPrompt: anchorPrompt || [facts.appearance, facts.outfit].filter(Boolean).join(', '),
+    negativePrompt: eligible ? readCharacterAnchorNegative(anchor) : '',
+  };
+}
+
+/** The parser's existing appearance field carries the complete safe fact block. */
+export function readImagePromptParserCharacter(character: ImageCharacterFactInput & {
+  图像档案?: { 角色锚点?: NPC角色锚点档案 };
+}) {
+  const visual = readImagePromptCharacter(character, true);
+  return {
+    name: visual.name,
+    gender: visual.facts?.gender,
+    clothing: visual.facts?.outfit,
+    appearance: [
+      formatImageCharacterFacts(visual.facts!),
+      visual.anchorPrompt ? `stable anchor (priority over profile): ${visual.anchorPrompt}` : '',
+      visual.negativePrompt ? `anchor negative: ${visual.negativePrompt}` : '',
+      'Only use recorded measurements; never invent missing height, weight or bust/waist/hips.',
+    ].filter(Boolean).join('\n'),
+    anchorPrompt: visual.anchorPrompt || undefined,
+  };
+}
+
+/** Source-explicit people must not disappear merely because a model replaces their names with descriptions. */
+export function selectImagePromptSceneNpcs(npcs: readonly NPC记录[], sourceText: string, modelText = ''): NPC记录[] {
+  return npcs.filter(npc => [npc.姓名, npc.别名].some(name => name && (sourceText.includes(name) || modelText.includes(name))));
+}
+
 function readNpcCharacterAnchorPrompt(npc: NPC记录): string {
   return readCharacterAnchorPrompt(npc.图像档案?.角色锚点, 'character');
 }
@@ -1174,10 +1217,7 @@ export function buildNpcImagePrompt(params: {
     mode === 'nsfw' ? rules.nsfwIsolationRule : undefined,
     mode === 'nsfw' ? rules.nsfwPartRule : undefined,
     npc.原著角色 ? 'faithful to the official Genshin Impact / Teyvat character identity while using an original travel-journal composition' : undefined,
-    `character name: ${npc.姓名}`,
-    npc.性别 ? `gender: ${npc.性别}` : undefined,
-    npc.外貌 ? `appearance: ${npc.外貌}` : undefined,
-    npc.穿着 ? `outfit: ${npc.穿着}` : undefined,
+    formatImageCharacterFacts(readImagePromptCharacter(npc).facts!),
     npc.性格 ? `visible personality impression: ${npc.性格}` : undefined,
     npc.装备摘要 ? `equipment: ${npc.装备摘要}` : undefined,
     anchorPrompt,
@@ -1259,6 +1299,7 @@ export function buildSceneImagePrompt(params: {
       ruleForMode(mode, rules),
       mode === 'scene' ? rules.sceneCharacterRule : undefined,
       text,
+      ...((presentNpcs ?? []).map(npc => formatImageCharacterFacts(readImagePromptCharacter(npc, true).facts!))),
       forceTravelerVisible && traveler ? `required visible player character: include ${traveler.姓名 || 'the player character'} as a visible person in the image, not an unseen POV; show their body language, expression, and spatial relationship to the scene` : undefined,
       sceneAnchors.prompt,
       size ? `target canvas size: ${size}` : undefined,

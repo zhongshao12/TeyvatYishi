@@ -12,6 +12,7 @@ export default [
       '.tmp-*/**',
       '.audit/**',
       '.triage/**',
+      '.superpowers/**',
       'coverage/**',
       '.storybook/**',
       'stories/**',

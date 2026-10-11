@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { readWorkflowSources } from './lib/workflowSources.mjs';
+import { runFocusedBehaviorRegression } from './lib/runFocusedBehaviorRegression.mjs';
 
 function readSource(path) {
   return fs.readFileSync(path, 'utf8').replace(/\r\n?/g, '\n');
@@ -20,7 +21,6 @@ const turnItemSource = readSource('components/features/Chat/TurnItem.tsx');
 const saveLoadSource = readSource('hooks/useGame/saveLoadWorkflow.ts');
 const steambirdSource = readSource('hooks/useGame/steambirdWorkflow.ts');
 const settingsSource = readSource('models/settings.ts');
-const dbSource = readSource('services/dbService.ts');
 const compactorSource = readSource('utils/saveRuntimeCompactor.ts');
 // 迁移: 重roll 的相似度/守卫工具、重试预算与相似度阈值已从 sendWorkflow.ts 拆到请求装配阶段与策略模块。
 // 为保住这些断言保护的「行为」而不是「文件位置」，把新归属文件一并纳入读取源（mainNarrativeRequestStage.ts
@@ -109,10 +109,9 @@ assert(steambirdSource.includes('buildSteambirdWorkflowRequest(params.publicFact
 // 迁移: 旧 `steambirdGenerationResult?.changed` -> 新 `taskResult.changed`，
 //   理由: 蒸汽鸟报生成已抽成阶段任务对象，返回值由 steambirdGenerationResult 改名为 taskResult（见 runSteambirdJob）。
 //   断言意图不变：蒸汽鸟报写入前必须先过当前工作流闸门，且只写入闸门通过后的结果。
-assert(
-  /assertWorkflowActive\(\);\s*steambirdAfterGeneration = taskResult\.news;[\s\S]*?if \(taskResult\.changed\) state\.set蒸汽鸟报\(steambirdAfterGeneration\)/.test(source),
-  '蒸汽鸟报写入前必须检查当前工作流闸门。',
-);
+// Run the real async news task/session owner boundary. The deferred fetch proves
+// that switching saves before completion cannot write news or pending task state.
+runFocusedBehaviorRegression(['tests/unit/steambirdTaskIntegration.test.ts']);
 assert(settingsSource.includes('turnCount?: number'), '存档数据必须持久化真实 turnCount。');
 assert(
   saveLoadSource.includes('const baseGame = explicitBaseGame ?? state.game;') &&
@@ -125,7 +124,9 @@ assert(
     saveLoadSource.includes('dependencies.replaceGameState(nextGame);'),
   '读档必须通过正式状态归一化与原子替换恢复真实 turnCount。',
 );
-assert(dbSource.includes('turnCount: save.turnCount ?? ((save.chatHistory?.length ?? 0) + 1)'), '存档摘要必须优先显示真实 turnCount。');
+// Real saves deliberately have more dialogue entries than game rounds. Verify
+// summary priority, invalid/inferred provenance and read-back, not a ternary's spelling.
+runFocusedBehaviorRegression(['tests/unit/saveJourneyLabel.test.ts', 'tests/unit/saveRoundRetention.test.ts']);
 
 // ── 主剧情生成失败后重 roll 不多回退一回合 ──
 // user 消息必须携带 preTurnSnapshot，这样生成失败时重 roll 能只砍孤立 user

@@ -12,6 +12,11 @@ export interface CourierReplyBatchIntent {
 
 export type CourierReplyDispatchResult = 'sent' | 'retry' | 'defer';
 
+/** Queue ownership must reflect member-level failures, not just the number of delivered conversations. */
+export function classifyCourierReplyResult(result: { replied: number; failedMemberNames?: readonly string[] }): CourierReplyDispatchResult {
+  return result.failedMemberNames?.length ? 'retry' : result.replied > 0 ? 'sent' : 'retry';
+}
+
 export interface CourierReplyQueueOptions {
   getSessionId: () => number;
   dispatch: (batch: CourierReplyBatchIntent) => Promise<CourierReplyDispatchResult>;
@@ -24,6 +29,9 @@ interface PendingConversation {
   pendingIds: string[];
   /** 模型失败、需要玩家手动重试的 id；自动派发**不会**重发它们。 */
   failedIds: string[];
+  /** Keep original request identities so retry never combines distinct group exchanges. */
+  failedBatches: string[][];
+  retryBatches: string[][];
   /** 本次 ready 由玩家点「重试回信」触发 → 只重发 `failedIds`。 */
   retryRequested: boolean;
   ready: boolean;
@@ -47,6 +55,9 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
   let activeSessionId: number | null = null;
   let nextToken = 0;
   let disposed = false;
+  let revision = 0;
+  const listeners = new Set<() => void>();
+  const notify = () => { revision++; for (const listener of listeners) listener(); };
 
   const clearTimer = (entry: PendingConversation) => {
     if (entry.timer !== undefined) clearTimeout(entry.timer);
@@ -74,7 +85,7 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
   /** 本次可以自动派发的 id（排除等待手动重试的失败批次）。 */
   const autoIds = (entry: PendingConversation) => entry.pendingIds.filter((id) => !entry.failedIds.includes(id));
   const readyToSend = (entry: PendingConversation) => (entry.retryRequested
-    ? entry.failedIds.length > 0
+    ? entry.retryBatches.length > 0
     : autoIds(entry).length > 0);
 
   const pump = async (): Promise<void> => {
@@ -85,7 +96,8 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
     if (!next) return;
     const [conversationId, entry] = next;
     entry.ready = false;
-    const sendIds = entry.retryRequested ? [...entry.failedIds] : autoIds(entry);
+    const retrying = entry.retryRequested;
+    const sendIds = retrying ? [...entry.retryBatches[0]!] : autoIds(entry);
     const messageIds = sendIds;
     entry.pendingIds = entry.pendingIds.filter((id) => !messageIds.includes(id));
     const token = ++nextToken;
@@ -104,12 +116,18 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
     if (disposed) return;
     removeOldSessions();
     if (pending.get(conversationId) === entry) {
+      const sameBatch = (ids: string[]) => ids.length === messageIds.length && ids.every((id, index) => id === messageIds[index]);
+      if (retrying && result !== 'defer') entry.retryBatches = entry.retryBatches.filter((ids) => !sameBatch(ids));
+      entry.retryRequested = entry.retryBatches.length > 0;
       if (result === 'sent') {
-        entry.retryRequested = false;
         entry.failedIds = entry.failedIds.filter((id) => !messageIds.includes(id));
+        entry.failedBatches = entry.failedBatches.filter((ids) => !sameBatch(ids));
         if (!entry.pendingIds.length && !entry.failedIds.length) {
           clearTimer(entry);
           pending.delete(conversationId);
+        } else if (entry.retryRequested) {
+          clearTimer(entry);
+          entry.ready = true;
         } else if (!autoIds(entry).length) {
           // 只剩等待手动重试的失败批次：不再自动重发（契约：模型失败不自动重试）。
           clearTimer(entry);
@@ -124,11 +142,14 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
         entry.pendingIds = [...messageIds, ...entry.pendingIds];
         if (result === 'retry') {
           entry.failedIds = [...new Set([...entry.failedIds, ...messageIds])];
-          entry.retryRequested = false;
+          if (!entry.failedBatches.some(sameBatch)) entry.failedBatches.push([...messageIds]);
           // 只把**这一批**标成待手动重试；期间新到达的消息保留自己的调度窗口。
           // （B15：旧实现无条件 clearTimer + ready=false，把 p2 已到期的调度一起清掉，
           //  于是「重试 p1 之后 p2 仍不发」。）
-          if (autoIds(entry).length) schedule(conversationId, entry);
+          if (entry.retryRequested) {
+            clearTimer(entry);
+            entry.ready = true;
+          } else if (autoIds(entry).length) schedule(conversationId, entry);
           else {
             clearTimer(entry);
             entry.ready = false;
@@ -141,6 +162,7 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
         }
       }
     }
+    notify();
     void pump();
   };
 
@@ -156,6 +178,10 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
   };
 
   return {
+    subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    getSnapshot: () => revision,
+    // The entry remains owned during dispatch/reveal, and while any failed batch awaits retry.
+    isPending: (conversationId: string) => pending.get(conversationId)?.sessionId === options.getSessionId(),
     /** React StrictMode replays effect cleanup/setup on the same mounted queue. */
     activate(): void {
       disposed = false;
@@ -167,7 +193,7 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
       let entry = pending.get(intent.conversationId);
       if (!entry) {
         entry = {
-          sessionId: intent.sessionId, pendingIds: [], failedIds: [], retryRequested: false, ready: false,
+          sessionId: intent.sessionId, pendingIds: [], failedIds: [], failedBatches: [], retryBatches: [], retryRequested: false, ready: false,
         };
         pending.set(intent.conversationId, entry);
       }
@@ -177,12 +203,17 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
       // 关键改动：不再因为「这个会话上一批失败过」就拒绝调度 —— 新消息必须照常派发，
       // 失败的旧批次由 failedIds 单独记账、只等手动重试。
       if (!entry.failedIds.includes(intent.messageId)) schedule(intent.conversationId, entry);
+      notify();
     },
-    retry(conversationId: string): void {
+    retry(conversationId: string, messageIds?: readonly string[]): void {
       if (disposed) return;
       removeOldSessions();
       const entry = pending.get(conversationId);
       if (!entry?.failedIds.length) return;
+      entry.retryBatches = entry.failedBatches
+        .filter((ids) => !messageIds || (ids.length === messageIds.length && ids.every((id, index) => id === messageIds[index])))
+        .map((ids) => [...ids]);
+      if (!entry.retryBatches.length) return;
       entry.retryRequested = true;
       entry.ready = true;
       void pump();
@@ -191,12 +222,14 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
       clearAll();
       activeToken = null;
       activeSessionId = null;
+      notify();
     },
     dispose(): void {
       disposed = true;
       clearAll();
       activeToken = null;
       activeSessionId = null;
+      notify();
     },
   };
 }

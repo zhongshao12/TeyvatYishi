@@ -48,7 +48,7 @@ function archiveNarrativeSnapshotToAlbum(
     sourcePrompt: params.sourcePrompt,
     finalPrompt: image.prompt,
     finalNegativePrompt: image.negativePrompt,
-    dimensions: params.size,
+    dimensions: image.dimensions || params.size,
     tags: ['故事快照', '正文生图'],
     note: '故事快照',
   });

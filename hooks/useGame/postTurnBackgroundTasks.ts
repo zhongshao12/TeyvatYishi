@@ -1,5 +1,5 @@
 import type { SteambirdNews } from '@/models/teyvat/steambird';
-import { runSteambirdGenerationStep } from './steambirdWorkflow';
+import { executeSteambirdTaskForSession, type SteambirdTaskInput } from './postTurnSteambirdTask';
 import type { WorldMoment } from '@/models/teyvat/worldMoment';
 
 export type PostTurnBackgroundMode = 'sequential' | 'parallel';
@@ -24,19 +24,21 @@ export interface SteambirdPostTurnTaskInput {
   body: string;
   now?: number;
   worldMoment?: WorldMoment;
+  task?: SteambirdTaskInput;
+  owner?: Parameters<typeof executeSteambirdTaskForSession>[1];
 }
 
 export interface SteambirdPostTurnTaskResult {
   news: SteambirdNews;
-  status: 'skipped' | 'success';
+  status: 'skipped' | 'success' | 'failed';
   changed: boolean;
   detail: string;
   pendingDetail?: string;
 }
 
-export function runSteambirdPostTurnTask(
+export async function runSteambirdPostTurnTask(
   input: SteambirdPostTurnTaskInput,
-): SteambirdPostTurnTaskResult {
+): Promise<SteambirdPostTurnTaskResult> {
   if (!input.enabled) {
     return { news: input.current, status: 'skipped', changed: false, detail: '蒸汽鸟报未开启，已跳过。' };
   }
@@ -49,26 +51,21 @@ export function runSteambirdPostTurnTask(
     };
   }
 
-  const generation = runSteambirdGenerationStep({
-    current: input.current,
-    publicFacts: [{ title: `第 ${input.turn} 回公开见闻`, detail: `${input.userInput}\n${input.body}`.trim() }],
-    turnCount: input.turn,
-    now: input.now,
-    worldMoment: input.worldMoment,
-  });
-  const news = generation?.steambird ?? input.current;
+  if (!input.task) return { news: input.current, status: 'skipped', changed: false, detail: '没有已确认公开的事实载荷，未投递正文或玩家输入。' };
+  let news = input.current;
+  const owner = input.owner ?? { read: () => news, update: (updater: (current: SteambirdNews) => SteambirdNews) => { news = updater(news); }, isCurrent: () => true };
+  const generation = await executeSteambirdTaskForSession(input.task, owner);
+  news = owner.read();
   return {
     news,
-    status: 'success',
-    changed: generation?.changed === true,
+    status: generation.status,
+    changed: generation.articles.length > 0,
     pendingDetail: input.openingTurn
       ? '开局首回合正在先处理一次蒸汽鸟报。'
-      : `正在调用蒸汽鸟报独立 API（读取最近 ${input.interval} 回合）。`,
-    detail: generation?.changed
+      : `正在调用蒸汽鸟报独立 API（只读取已确认公开事实）。`,
+    detail: generation.status === 'success'
       ? `蒸汽鸟报已更新，当前共 ${news.articles.length} 篇报道。`
-      : generation
-        ? '蒸汽鸟报本回合没有可写报道变化。'
-        : '蒸汽鸟报未生成有效结果。',
+      : generation.reason ?? '蒸汽鸟报未生成有效结果。',
   };
 }
 

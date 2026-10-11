@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import ts from 'typescript';
 import { pathToFileURL } from 'node:url';
 import { readWorkflowSources } from './lib/workflowSources.mjs';
+import { transpileRegressionModuleGraph } from './lib/regressionModuleLoader.mjs';
 
 const root = process.cwd();
 const tempDir = path.join(root, '.tmp-story-weaving-regression');
@@ -24,35 +24,14 @@ const expectedCanonSeriesIds = [
 ];
 
 function cleanTempDir() {
+  if (!tempDir.startsWith(`${path.resolve(root)}${path.sep}`) || path.basename(tempDir) !== '.tmp-story-weaving-regression') throw new Error('Unsafe regression temp path');
   fs.rmSync(tempDir, { recursive: true, force: true });
   fs.mkdirSync(tempDir, { recursive: true });
 }
 
-function transpileModule(sourcePath) {
-  const source = fs.readFileSync(path.join(root, sourcePath), 'utf8');
-  const sourceDir = path.posix.dirname(sourcePath.replaceAll('\\', '/'));
-  const output = ts.transpileModule(source, {
-    compilerOptions: {
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2022,
-      moduleResolution: ts.ModuleResolutionKind.Bundler,
-      esModuleInterop: true,
-      skipLibCheck: true,
-    },
-  }).outputText
-    .replace(/@\/(compat|data|models|services|prompts|utils|hooks)\//g, (_match, folder) => {
-      let relative = path.posix.relative(sourceDir, folder);
-      if (!relative.startsWith('.')) relative = `./${relative}`;
-      return `${relative}/`;
-    })
-    .replace(/from\s+['"]((?:\.\/|\.\.\/)[^'"]+)['"]/g, (match, specifier) =>
-      specifier.endsWith('.mjs') ? match : `from '${specifier}.mjs'`);
-  const outputPath = path.join(tempDir, sourcePath.replace(/\.ts$/, '.mjs'));
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, output, 'utf8');
-}
-
+const stubPaths = new Set();
 function writeStub(relativePath, content) {
+  stubPaths.add(relativePath);
   const outputPath = path.join(tempDir, relativePath);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, content, 'utf8');
@@ -138,7 +117,7 @@ function npc(overrides) {
 }
 
 cleanTempDir();
-for (const sourcePath of [
+const sourcePaths = [
   'models/storyWeaving.ts',
   'models/teyvat/canon.ts',
   'models/teyvat/steambird.ts',
@@ -164,9 +143,7 @@ for (const sourcePath of [
   'prompts/subsystems/domainCommandPrompt.ts',
   'prompts/subsystems/domainCommandOutputFormat.ts',
   'utils/valueGuards.ts',
-]) {
-  transpileModule(sourcePath);
-}
+];
 writeStub('services/ai/chatCompletionClient.mjs', 'export async function chatCompletionNonStream() { throw new Error("chatCompletionNonStream is not available in regression script"); }\n');
 writeStub('services/ai/retry.mjs', 'export async function withRetries(fn) { return fn(); }\n');
 writeStub('data/storyWeavingWorldbook.mjs', 'export const STORY_WEAVING_WORLD_BOOK_PROMPT = "";\n');
@@ -184,7 +161,8 @@ writeStub('utils/teyvatCommandRegistry.mjs', 'export function buildTeyvatCommand
 writeStub('data/canonicalCharacters.mjs', 'export const CANONICAL_CHARACTERS = [];\nexport function matchCanonical() { return null; }\nexport function matchCanonicalIdentity() { return null; }\n');
 writeStub('data/builtinAvatars.mjs', 'export function getDefaultBuiltinAvatar() { return undefined; }\n');
 writeStub('data/canonicalIdentity.mjs', 'export function hasBuiltinAvatarIdentity() { return false; }\n');
-writeStub('services/npcAppearanceFacts.mjs', 'export function canRevealNpcMeasurements() { return false; }\nexport function canUseNsfwPrivateFields() { return false; }\nexport function normalizeNpcAppearanceFacts() { return undefined; }\n');
+// Compile the actual appearance gate through the recursive graph loader. A stale
+// hand-written stub masked dependency changes and did not exercise this boundary.
 writeStub('services/worldMoment.mjs', 'export function normalizeWorldMoment() { return null; }\nexport function normalizeWorldMomentRange() { return null; }\n');
 writeStub('utils/npcMemorySanitizer.mjs', 'export function 清理NPC同行记忆摘要(value) { return typeof value === "string" ? value.trim() : ""; }\n');
 writeStub('compat/legacy-hsr/readOnly.mjs', [
@@ -192,6 +170,8 @@ writeStub('compat/legacy-hsr/readOnly.mjs', [
   'export function readLegacyNpcMemorySource() { return undefined; }',
   '',
 ].join('\n'));
+
+transpileRegressionModuleGraph(root, tempDir, sourcePaths, stubPaths);
 
 const storyWeaving = await import(pathToFileURL(path.join(tempDir, 'services/storyWeaving.mjs')).href);
 const storyProgress = await import(pathToFileURL(path.join(tempDir, 'services/storyProgressService.mjs')).href);

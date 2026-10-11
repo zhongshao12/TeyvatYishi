@@ -13,7 +13,9 @@ const stripComments = (source) => source
   .replace(/^[ \t]*\/\/.*$/gmu, '');
 const jobsCode = stripComments(jobs);
 const queueCode = stripComments(queue);
-assert(modal.includes('const content = draft.trim()') && modal.includes('appendCourierMessage'), 'Courier replies must reject blank content and use immutable message append.');
+assert(modal.includes('!draft.trim()') && modal.includes('const content = sanitizeCourierMessageText(draft)')
+  && /if\s*\(!content\)\s*\{[\s\S]*?return;/u.test(stripComments(modal)) && modal.includes('appendCourierMessage'),
+  'Courier replies must reject blank or metadata-only content, sanitize before persistence, and use immutable message append.');
 assert(modal.includes("selected.type === 'system'") && modal.includes("selected.type !== 'system'"), 'system delivery conversations must remain read-only.');
 assert(service.includes('readBy: [...message.readBy]'), 'Courier append must preserve read-receipt isolation.');
 // 2026-09-29（用户报的第 8 项）：`@全体成员` 按全群人数逐个调用手机模型，

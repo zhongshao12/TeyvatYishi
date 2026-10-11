@@ -41,6 +41,8 @@ export interface PresetPresentation {
   presetName: string;
   /** 预设要求的正文汉字下限（解析到位才非 null）。 */
   wordCountTarget: number | null;
+  /** Explicit maximum is not a minimum and must not trigger short-body retries. */
+  wordCountMaximum?: number | null;
   /** 原始表述，例如「至少3000」。 */
   wordCountRaw: string;
   /** 解析来源，例如「变量 字数要求」/「条目 📚字数要求(固定字数)」。 */
@@ -235,7 +237,8 @@ function buildPresetPresentation(
   return {
     presetId,
     presetName,
-    wordCountTarget: word?.value ?? null,
+    wordCountTarget: word?.maximum ? null : word?.value ?? null,
+    wordCountMaximum: word?.maximum ? word.value : null,
     wordCountRaw: word?.raw ?? '',
     wordCountSource: word?.source ?? '',
     shell,
@@ -312,19 +315,25 @@ const WORD_PATTERNS: RegExp[] = [
   /(?:正文字数|字数下限|字数要求)[^0-9\n]{0,12}(\d{2,5})/gu,
 ];
 
-interface WordRequirement { value: number; raw: string; source: string }
+interface WordRequirement { value: number; raw: string; source: string; maximum?: boolean }
 
 function extractWordRequirement(vars: Record<string, string>, texts: readonly NamedText[]): WordRequirement | null {
   const candidates: WordRequirement[] = [];
   const consider = (value: number, raw: string, source: string) => {
     if (!Number.isFinite(value) || value < MIN_WORD_TARGET || value > MAX_WORD_TARGET) return;
-    candidates.push({ value: Math.trunc(value), raw: raw.trim(), source });
+    candidates.push({ value: Math.trunc(value), raw: raw.trim(), source, maximum: /最多|不超过|不多于|至多|上限/u.test(raw) });
   };
 
   for (const [key, value] of Object.entries(vars)) {
     if (!/(?:字数|篇幅|长度)/u.test(key)) continue;
     const match = /(\d{2,5})/u.exec(value ?? '');
-    if (match) consider(Number(match[1]), value.trim() || key, `变量 ${key}`);
+    if (match) {
+      consider(Number(match[1]), value.trim() || key, `变量 ${key}`);
+      // A selected variable-based upper bound takes precedence over examples
+      // elsewhere in the preset; never reinterpret it as a lower bound.
+      const selected = candidates.at(-1);
+      if (selected?.maximum) return selected;
+    }
   }
 
   for (const item of texts) {
@@ -475,6 +484,7 @@ export function buildPresetPresentationCard(presentation: PresetPresentation): s
       '  - 上文《NarrativeTurn JSON 回复格式》里的字数是**无预设时的默认值**，本回合以预设要求为准。',
     );
   }
+  if (presentation.wordCountMaximum) lines.push(`【字数】本回合可见正文合计不超过 ${presentation.wordCountMaximum} 字（${presentation.wordCountRaw}）；这是上限，不是下限，不要为了达到该数字凑字数。`);
 
   if (presentation.styleText) {
     lines.push('【文风】以下文本是预设自己写的文风/基调要求原文，逐条照做（它优先于应用内置《文风参考·日记体见闻录》）：');
@@ -525,6 +535,7 @@ export function buildPresetPresentationCard(presentation: PresetPresentation): s
 /** system prompt 顶部的优先级声明（替换 mainPromptAssembly 里的通用措辞）。 */
 export function buildPresetPrecedenceHeader(presentation: PresetPresentation): string {
   const facts: string[] = [];
+  if (presentation.wordCountMaximum) facts.push(`- 正文字数上限 = ${presentation.wordCountMaximum} 字；不得改成正文下限。`);
   if (presentation.wordCountTarget) {
     facts.push(`- 正文字数下限 = ${presentation.wordCountTarget} 字（预设要求；应用内置的字数占位符已同步为该值）。`);
   }
@@ -561,7 +572,7 @@ export function formatPresetPresentationSummary(presentation: PresetPresentation
     ? `文风：预设〈${presentation.styleSegmentsFilled.join('〉〈') || '文风'}〉段已启用`
     : `文风：预设〈${presentation.styleSegmentsEmpty.join('〉〈') || '文风'}〉段是空的`;
   const parts = [
-    presentation.wordCountTarget ? `字数下限 ${presentation.wordCountTarget} 字` : '字数：预设未声明',
+    presentation.wordCountMaximum ? `字数上限 ${presentation.wordCountMaximum} 字` : presentation.wordCountTarget ? `字数下限 ${presentation.wordCountTarget} 字` : '字数：预设未声明',
     stylePart,
     presentation.shell.length ? `外壳 ${presentation.shell.map((s) => `<${s.tag}>`).join('')}` : '外壳：无',
   ];
@@ -593,7 +604,10 @@ export function rewordBuiltinFormatModule(
   presentation: PresetPresentation | null,
   wordTarget: number,
 ): string {
-  let next = content.replace(/\{wordCountTarget\}/gu, String(wordTarget));
+  let next = presentation?.wordCountMaximum
+    ? content.replace(/正文字数\s*(?:不少于|不低于|至少)\s*\{wordCountTarget\}\s*字/gu, `正文字数不超过 ${presentation.wordCountMaximum} 字`)
+    : content;
+  next = next.replace(/\{wordCountTarget\}/gu, String(presentation?.wordCountMaximum ? Math.min(wordTarget, presentation.wordCountMaximum) : wordTarget));
   if (presentation && presentation.cotRequested && next.includes(BUILTIN_FORMAT_COT_BAN)) {
     next = next.replace(BUILTIN_FORMAT_COT_BAN, PRESET_FORMAT_COT_ALLOWANCE);
   }

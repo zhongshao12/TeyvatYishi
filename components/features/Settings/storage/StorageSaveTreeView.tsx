@@ -2,6 +2,7 @@ import { CLIP_MEDIUM, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 import type { SaveListItemSummary } from '@/services/dbService';
 import type { SaveTreeDisplayGroup } from '@/utils/saveTreeView';
 import { formatByteSize } from '@/utils/formatByteSize';
+import { getSaveJourneyLabel } from '@/utils/saveJourneyLabel';
 
 export function StorageLegacyBackupSection({
   backups,
@@ -99,7 +100,7 @@ export function StorageSaveTreeGroup({
               存档树
             </span>
             <span className="truncate text-[14px] font-bold tracking-wider" style={{ color: 'rgb(var(--tj-accent-secondary))' }}>
-              {group.latestSave.travelerName || group.rootSave.travelerName || '未命名旅人'}
+              {getSaveJourneyLabel(group.latestSave)}
             </span>
             <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-primary),0.42)' }}>
               最新 #{group.latestSave.id}
@@ -212,7 +213,7 @@ export function StorageTreeSelector({
       <div className="grid gap-2">
         {groups.map((group) => {
           const active = group.rootId === selectedRootId;
-          const title = group.latestSave.travelerName || group.rootSave.travelerName || '未命名旅人';
+          const title = getSaveJourneyLabel(group.latestSave);
           return (
             <button
               key={group.rootId}
@@ -325,7 +326,7 @@ function SaveCard({
             {typeLabel(save.type)}
           </span>
           <span className={`font-serif font-bold tracking-wider ${isLatest ? 'text-[17px]' : 'text-[15px]'}`} style={{ color: 'rgb(var(--tj-accent-secondary))' }}>
-            {save.travelerName || '未命名旅人'}
+            {getSaveJourneyLabel(save)}
           </span>
           <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-primary),0.42)' }}>#{save.id}</span>
           {treeLabel && (

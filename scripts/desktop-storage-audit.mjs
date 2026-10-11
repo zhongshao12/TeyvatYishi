@@ -5,6 +5,7 @@ const root = process.cwd();
 const checks = [];
 
 const dbService = read('services/dbService.ts');
+const nodeMaterializer = read('utils/saveNodeMaterializer.ts');
 const saveMirror = read('services/desktop/desktopSaveMirror.ts');
 const saveDeltaMirror = read('services/desktop/desktopSaveDeltaMirror.ts');
 const settingsMirror = read('services/desktop/desktopSettingsMirror.ts');
@@ -26,7 +27,7 @@ addCheck({
   status: 'desktop-first',
   label: 'save list reads',
   detail: 'getSaveList reads desktop save mirror summaries before IndexedDB summaries.',
-  ok: ordered(saveCatalogSection, 'const desktopList = await loadDesktopSaveMirrorListFirstSafely()', 'const db = await openDB()'),
+  ok: ordered(saveCatalogSection, 'listDesktopSaveMirror({ includeHidden: true })', 'const db = await openDB()'),
 });
 
 addCheck({
@@ -48,10 +49,9 @@ addCheck({
 addCheck({
   status: 'file-primary',
   label: 'indexeddb cache rebuild',
-  detail: 'desktop mirrored save files can rebuild the IndexedDB compatibility cache after restoring local asset payloads and backing up current data.',
-  ok: all(dbService, ['rebuildIndexedSaveCacheFromDesktopMirror', 'loadDesktopSaveMirrorSaves', 'restoreDesktopAssetPayloadForSavesSafely'])
-    && ordered(dbService, 'await backupCurrentSavesToDesktop(\'before-restore\')', 'const restoredSaves = await restoreDesktopAssetPayloadForSavesSafely(mirroredSaves)')
-    && ordered(dbService, 'const restoredSaves = await restoreDesktopAssetPayloadForSavesSafely(mirroredSaves)', 'await replaceAllSaves(restoredSaves, { skipDesktopBackup: true })')
+  detail: 'desktop mirrored save files can rebuild the IndexedDB compatibility cache after fully materializing strict node inventory and portable images, then backing up current data before replacement; runtime regression covers missing-dependency fail-closed behavior.',
+  ok: all(dbService, ['rebuildIndexedSaveCacheFromDesktopMirror', 'loadDesktopSaveMirrorSaves({ strict: true, includeHidden: true })', 'materializeDesktopSave(save)', 'preparePortableSave(complete)'])
+    && ordered(dbService.slice(dbService.indexOf('export async function rebuildIndexedSaveCacheFromDesktopMirror')), 'restoredSaves.push(await preparePortableSave(complete))', 'await backupCurrentSavesToDesktop(\'before-restore\')')
     && dbService.includes('return rebuildIndexedSaveCacheFromDesktopMirror();'),
 });
 
@@ -180,8 +180,9 @@ addCheck({
 addCheck({
   status: 'desktop-first',
   label: 'delta base restore',
-  detail: 'delta-only save restore loads base saves through the desktop fallback helper before merging delta payloads.',
-  ok: ordered(dbService, 'const rawBase = await loadDeltaBaseCandidateSave(db, baseSaveId)', 'return restoreSaveFromDelta(base, save, delta)'),
+  detail: 'one materializer validates and resolves complete base dependencies before merging desktop/IndexedDB delta payloads.',
+  ok: dbService.includes('materializeSaveNode(save, {')
+    && ordered(nodeMaterializer, 'const rawBase = await reader.loadSave(baseId!)', 'const restored = restoreSaveFromDelta(base, save, delta)'),
 });
 
 addCheck({

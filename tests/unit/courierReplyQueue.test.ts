@@ -3,6 +3,43 @@ import { createCourierReplyQueue, type CourierReplyDispatchResult } from '@/hook
 
 afterEach(() => vi.useRealTimers());
 
+it('observes queued, in-flight reveal and failed exchanges until a successful retry', async () => {
+  vi.useFakeTimers();
+  let finish!: (result: CourierReplyDispatchResult) => void;
+  const queue = createCourierReplyQueue({ getSessionId: () => 7, dispatch: () => new Promise(resolve => { finish = resolve; }) });
+  const observer = vi.fn();
+  const unsubscribe = queue.subscribe(observer);
+  queue.enqueue({ conversationId: 'chat', messageId: 'ask', sessionId: 7 });
+  expect(queue.isPending('chat')).toBe(true);
+  expect(observer).toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(500);
+  expect(queue.isPending('chat')).toBe(true);
+  finish('retry'); await vi.advanceTimersByTimeAsync(0);
+  expect(queue.isPending('chat')).toBe(true);
+  queue.retry('chat'); await vi.advanceTimersByTimeAsync(0);
+  expect(queue.isPending('chat')).toBe(true);
+  finish('sent'); await vi.advanceTimersByTimeAsync(0);
+  expect(queue.isPending('chat')).toBe(false);
+  unsubscribe(); queue.dispose();
+});
+
+it('preserves separate failed batch identities when retrying multiple group messages', async () => {
+  vi.useFakeTimers();
+  const dispatched: string[][] = [];
+  const queue = createCourierReplyQueue({
+    getSessionId: () => 7,
+    dispatch: async (batch) => { dispatched.push(batch.messageIds); return dispatched.length <= 2 ? 'retry' : 'sent'; },
+  });
+  queue.enqueue({ conversationId: 'group', messageId: 'p1', sessionId: 7 });
+  await vi.advanceTimersByTimeAsync(500);
+  queue.enqueue({ conversationId: 'group', messageId: 'p2', sessionId: 7 });
+  await vi.advanceTimersByTimeAsync(500);
+  queue.retry('group');
+  await vi.advanceTimersByTimeAsync(0);
+  expect(dispatched).toEqual([['p1'], ['p2'], ['p1'], ['p2']]);
+  queue.dispose();
+});
+
 it('coalesces consecutive sends in one conversation after 500 milliseconds of silence', async () => {
   vi.useFakeTimers();
   const dispatched: string[][] = [];

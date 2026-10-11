@@ -15,12 +15,19 @@ import { buildIrminsulArchiveEntry } from '@/services/irminsulArchive';
 import { deriveCommittedQuestArchiveFacts } from '@/services/questService';
 import type { WorkflowRecoveryJournal } from '@/services/workflowRecovery';
 import { archiveCommittedQuestSettlement } from './questWorkflow';
-import { buildFallbackCourierSeed } from './courierBackgroundJobs';
-import { processScheduledCourierSeeds } from './courierWorkflow';
 import { mergeIrminsulMemories } from './postTurnIrminsulTask';
 import { buildSavePayload, commitActiveSaveTreeMeta } from './saveLoadWorkflow';
 import { runTrackedSave, saveStatusStore } from '@/utils/saveStatus';
-import { runSteambirdGenerationStep } from './steambirdWorkflow';
+import { recoverSteambirdTask } from './steambirdRetryTask';
+import { collectSteambirdPublicFacts } from '@/services/steambirdPublicFacts';
+import { hasSettlementTailTask, markSettlementTailTask } from './postSettlementTaskState';
+import { settlePostTurnElements } from './postTurnElementalStage';
+import { recoverSettlementDomainTasks, recoverSettlementCourierTasks } from './recoveredSettlementTasks';
+import { mergeSteambirdTaskResult } from './postTurnSteambirdTask';
+import { mergeCourierSystemUpdates } from '@/services/ai/courierService';
+import { mergeNpcWriteBack, mergeSettlementSliceWriteBack } from '@/utils/npcWriteBack';
+import { rebasePostNarrativeMemorySettlement } from './postNarrativeMemoryStage';
+import { pushWorkflowQueueTask } from './workflowQueue';
 import { addImmediateMemory, buildImmediateMemory } from './memoryUtils';
 import { commitTurnContext, planPostSettlementStoryAlignment } from './postSettlementCommitStage';
 
@@ -95,13 +102,14 @@ export function commitPostSettlementBackgroundState(
   next: TeyvatGameState,
   ancestor: TeyvatGameState,
   expectedSessionId?: number,
+  finalize: (game: TeyvatGameState, live: TeyvatGameState) => TeyvatGameState = game => game,
 ): TeyvatGameState | null {
   let committed: TeyvatGameState | null = null;
   flushSync(() => {
     state.updateGameState((current) => {
       if (expectedSessionId !== undefined && state.getGameSessionId() !== expectedSessionId) return current;
       if (!isSamePostSettlementSave(capturePostSettlementSaveToken(current), token)) return current;
-      committed = rebaseSettlementState({ ancestor, next, current }).state;
+      committed = finalize(rebaseSettlementState({ ancestor, next, current }).state, current);
       return committed;
     });
   });
@@ -118,13 +126,14 @@ export async function runPostSettlementRecoveryWorkflow(
   committedOverride?: TeyvatGameState,
 ): Promise<{ committed: boolean }> {
   if (journal.phase !== 'settlement_committed') return { committed: false };
-  // 本流程唯一的长耗时 await（正文生图，可能数十秒）之前先钉住存档身份与**活体根**；
+  // 记忆、简报、手机与正文生图的异步等待之前先钉住存档身份与**活体根**；
   // 期间的读档 / 开新局会在提交时被下文的 CAS 守卫拦下，
   // 期间的其它改动（玩家在背包 / NPC / 任务面板上的操作）会在提交时按切片合并保留。
   const liveBase = readLiveGameState(state);
   const sessionId = state.getGameSessionId();
   const saveToken = capturePostSettlementSaveToken(liveBase);
-  const committed = normalizeTeyvatGameState(committedOverride ?? journal.committedState ?? state.game);
+  const committed = normalizeTeyvatGameState(liveBase.叙事.lastCommittedMoment?.settlementId === journal.workflowId
+    ? liveBase : committedOverride ?? journal.committedState ?? state.game);
   const committedHistory = committed.对话.entries;
   const assistant = journal.assistantMessageId
     ? committedHistory.find((message) => message.id === journal.assistantMessageId && message.role === 'assistant')
@@ -188,27 +197,27 @@ export async function runPostSettlementRecoveryWorkflow(
     }
   }
 
-  let steambird = committed.蒸汽鸟报;
+  committedForBackground = await recoverSettlementDomainTasks({ game: applyLegacyGameStateOverrides(committedForBackground, { 记忆: recoveredMemory }),
+    state, settlementId: journal.workflowId, moment: worldMoment, userInput, body,
+    summary: assistant?.structuredResponse?.continuation.summary ?? '', sessionId });
+  recoveredMemory = toLegacyMemory(committedForBackground);
+  let steambird = worldMoment && assistant?.structuredResponse
+    ? collectSteambirdPublicFacts(committed.蒸汽鸟报, assistant.structuredResponse, worldMoment) : committed.蒸汽鸟报;
   const steambirdSettings = state.gameSettings.蒸汽鸟报系统;
   const interval = Math.max(5, Math.min(10, Math.trunc(steambirdSettings?.generateIntervalTurns ?? 5) || 5));
-  const sourceBody = `${userInput}\n${body}`.trim();
   const shouldRunSteambird = Boolean(
     body && steambirdSettings?.enabled && steambirdSettings.autoGenerate && (turn === 1 || turn % interval === 0),
   );
-  const steambirdAlreadyApplied = steambird.articles.some((article) =>
-    article.turn === turn && article.body.trim() === sourceBody);
-  if (shouldRunSteambird && !steambirdAlreadyApplied) {
-    const result = runSteambirdGenerationStep({
-      current: steambird,
-      publicFacts: [{ title: `第 ${turn} 回公开见闻`, detail: sourceBody }],
-      turnCount: turn,
-      now: stableNow,
-      worldMoment,
+  if (shouldRunSteambird) {
+    const result = await recoverSteambirdTask({ state, current: steambird, moment: worldMoment, turn, sessionId });
+    steambird = result.news;
+    if (state.getGameSessionId() === sessionId) pushWorkflowQueueTask(state, 'steambird', result.status, {
+      detail: result.reason ?? '恢复时已通过独立 API 更新公开简报。', turn, targetMessageId: assistant?.id,
+      targetBatchId: steambird.generationTasks?.find(task => task.settlementId === journal.workflowId)?.id,
     });
-    if (result?.changed) steambird = result.steambird;
   }
 
-  let irminsul = committed.世界树;
+  let irminsul = committedForBackground.世界树;
   const archiveExists = irminsul.entries.some((entry) => entry.turn === turn && entry.sourceText.trim() === body.trim());
   if (body && !archiveExists) {
     irminsul = mergeIrminsulMemories(irminsul, { entries: [buildIrminsulArchiveEntry({
@@ -243,42 +252,21 @@ export async function runPostSettlementRecoveryWorkflow(
   const legacy = toLegacyTurnCheckpoint({
     turnCount: committed.turnCount,
     pendingOpeningTrigger: null,
-    traveler: committed.旅行者,
-    npc: committed.NPC,
-    album: committed.相册,
+    traveler: committedForBackground.旅行者,
+    npc: committedForBackground.NPC,
+    album: committedForBackground.相册,
   });
   const traveler = legacy.旅人 as UseGameStateReturn['旅人'];
   const npcs = legacy.NPC as UseGameStateReturn['NPC'];
   const committedAlbum = legacy.相册 as UseGameStateReturn['相册'];
-  let courier = processScheduledCourierSeeds(committed.手机, turn, stableNow, {
-    worldMoment,
-    allowStoryCreatedGroups: state.gameSettings.手机系统.allowStoryCreatedGroups === true,
-  }).next;
-  if (state.gameSettings.手机系统.enabled && state.gameSettings.手机系统.autoGenerateSeeds) {
-    const fallbackSeed = buildFallbackCourierSeed({
-      courier,
-      npcs,
-      turn,
-      userInput,
-      body,
-      maxSeedsPerTurn: state.gameSettings.手机系统.maxSeedsPerTurn,
-      contactCooldownTurns: state.gameSettings.手机系统.contactCooldownTurns,
-    });
-    if (fallbackSeed) {
-      courier = {
-        ...courier,
-        deliverySeeds: [...courier.deliverySeeds, fallbackSeed],
-        unreadTotal: courier.unreadTotal + 1,
-      };
-    }
-  }
-
   let backgroundState = normalizeTeyvatGameState({
     ...applyLegacyGameStateOverrides(committedForBackground, { 记忆: recoveredMemory }),
     蒸汽鸟报: steambird,
     世界树: irminsul,
-    手机: courier,
   });
+  const courierTask = await recoverSettlementCourierTasks({ game: backgroundState, state, settlementId: journal.workflowId,
+    moment: worldMoment, userInput, body, sessionId, now: stableNow });
+  backgroundState = courierTask.game;
   let conversation = committedHistory;
   let album = committedAlbum;
   const narrativeSettings = state.gameSettings.文生图系统?.正文生图;
@@ -318,7 +306,37 @@ export async function runPostSettlementRecoveryWorkflow(
   }, { 相册: album });
   // 守卫：正文生图等待期间若玩家读档 / 开新局，活体存档已经不是这份 journal 的存档，
   // 旧快照绝不能写回去（也绝不落盘），直接放弃本次恢复尾流程。
-  const savedRoot = commitPostSettlementBackgroundState(state, saveToken, backgroundState, liveBase, sessionId);
+  const savedRoot = commitPostSettlementBackgroundState(state, saveToken, backgroundState, liveBase, sessionId, (current, live) => {
+    // These task outputs are deltas, not replacement snapshots: concurrent phone messages,
+    // corrected companion profiles and public evidence must coexist with the recovered result.
+    const npcSnapshot = (game: TeyvatGameState) => toLegacyTurnCheckpoint({ npc: game.NPC, turnCount: turn, pendingOpeningTrigger: null }).NPC as UseGameStateReturn['NPC'];
+    const taskLive = liveBase.叙事.lastCommittedMoment?.settlementId === journal.workflowId ? live : current;
+    const coreNpcs = mergeSettlementSliceWriteBack({
+      base: npcSnapshot(committed), next: courierTask.npcStart, current: npcSnapshot(taskLive),
+    }).records;
+    // Apply phone additions after the domain merge. The same memory ID gates the
+    // affinity delta, so replay cannot award it twice and concurrent edits survive.
+    current = applyLegacyGameStateOverrides(current, { NPC: mergeNpcWriteBack({
+      start: courierTask.npcStart, next: courierTask.npcResult, current: coreNpcs,
+    }).records });
+    current = { ...current, 手机: mergeCourierSystemUpdates(taskLive.手机, committed.手机, backgroundState.手机),
+      蒸汽鸟报: mergeSteambirdTaskResult(taskLive.蒸汽鸟报, committed.蒸汽鸟报, backgroundState.蒸汽鸟报) };
+    if (worldMoment) {
+      const memory = rebasePostNarrativeMemorySettlement({ baseMemory: toLegacyMemory(committed), liveMemory: toLegacyMemory(taskLive),
+        compressedMemory: toLegacyMemory(backgroundState), baseIrminsul: committed.世界树,
+        liveIrminsul: taskLive.世界树, compressedIrminsul: backgroundState.世界树,
+        userInput, narrativeSummary: assistant?.structuredResponse?.continuation.summary ?? '', body, moment: worldMoment });
+      current = { ...applyLegacyGameStateOverrides(current, { 记忆: memory.memory }), 世界树: memory.irminsul };
+      if (memory.compressionDeferred) current = { ...current, 世界树: mergeIrminsulMemories(current.世界树,
+        { entries: backgroundState.世界树.entries.filter(entry => entry.id === `irminsul_recovery_${journal.workflowId}`) }) };
+    }
+    if (hasSettlementTailTask(current, journal.workflowId, 'elements')) return current;
+    const elements = settlePostTurnElements({ body, traveler: current.旅行者,
+      travelerNames: [current.旅行者.姓名, current.旅行者.别名, committed.旅行者.姓名],
+      field: current.叙事.元素场面, events: current.叙事.元素事件, turn });
+    return markSettlementTailTask({ ...current, 旅行者: elements.traveler,
+      叙事: { ...current.叙事, 元素场面: elements.field, 元素事件: elements.events } }, journal.workflowId, 'elements');
+  });
   if (!savedRoot) return { committed: false };
 
   const saveData = buildSavePayload(state, 'auto', undefined, savedRoot);

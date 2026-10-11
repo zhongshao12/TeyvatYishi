@@ -309,6 +309,7 @@ export interface NarrativeRuntime {
   storyWeaving: StoryWeavingDto | null;
   variableBatches: VariableBatchDto[];
   lastCommittedMoment?: WorldMoment;
+  postSettlementTasks?: { settlementId: string; completed: string[] };
   /** G1 场面元素附着（极简：无量槽无衰减）。 */
   元素场面: ElementalFieldState;
   /** G1 元素反应事件记录（最近 30 条）。 */
@@ -669,6 +670,8 @@ export function normalizeNarrativeRuntime(value: unknown): NarrativeRuntime {
     storyWeaving: normalizeStoryWeaving(raw.storyWeaving),
     variableBatches: Array.isArray(raw.variableBatches) ? raw.variableBatches.flatMap((entry) => normalizeVariableBatch(entry) ?? []) : [],
     ...(lastCommittedMoment ? { lastCommittedMoment } : {}),
+    ...(isRecord(raw.postSettlementTasks) && text(raw.postSettlementTasks.settlementId)
+      ? { postSettlementTasks: { settlementId: text(raw.postSettlementTasks.settlementId), completed: textList(raw.postSettlementTasks.completed).filter(task => ['memory', 'npcStory', 'phone', 'elements'].includes(task)) } } : {}),
     元素场面: normalizeElementalField(raw.元素场面),
     元素事件: normalizeElementalEvents(raw.元素事件),
   };

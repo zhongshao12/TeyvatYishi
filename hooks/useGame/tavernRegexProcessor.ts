@@ -1,4 +1,4 @@
-import type { STRegexScript } from '@/models/stTypes';
+import type { STPreset, STRegexScript } from '@/models/stTypes';
 
 export type TavernRegexScriptKind = 'prompt_preprocess' | 'output_postprocess' | 'display_replace' | 'blocked';
 
@@ -24,6 +24,7 @@ export interface TavernRegexApplyResult {
   text: string;
   applied: string[];
   skipped: string[];
+  matches?: number;
 }
 
 const PROJECT_PROTOCOL_TAG_NAMES = [
@@ -94,6 +95,7 @@ function readReplaceString(script: STRegexScript): string {
 }
 
 export function normalizeTavernRegexScripts(raw: unknown): STRegexScript[] {
+  if (isRegexScriptLike(raw)) return [raw];
   if (Array.isArray(raw)) {
     return raw.filter((item): item is STRegexScript => isRegexScriptLike(item));
   }
@@ -107,6 +109,114 @@ export function normalizeTavernRegexScripts(raw: unknown): STRegexScript[] {
       .filter((item): item is STRegexScript => item !== null && isRegexScriptLike(item));
   }
   return [];
+}
+
+/** Standalone exports are bound to one preset; existing edits/disabled states win. */
+export function mergeTavernRegexImport(preset: STPreset, jsonText: string): { preset: STPreset; added: number; duplicates: number } {
+  const raw: unknown = JSON.parse(jsonText);
+  const imported = Array.isArray(raw) || isRegexScriptLike(raw)
+    ? normalizeTavernRegexScripts(raw) : extractTavernRegexScripts(raw);
+  if (!imported.length) throw new Error('没有找到有效正则规则，请选择正则 JSON（数组、单条规则或 regex_scripts）。');
+  const existing = extractTavernRegexScripts(preset);
+  const merged = dedupeRegexScripts([...existing, ...imported]);
+  return { preset: { ...preset, regex_scripts: merged }, added: merged.length - existing.length, duplicates: imported.length - (merged.length - existing.length) };
+}
+
+export interface TavernRegexScope {
+  destination: 'prompt' | 'display';
+  /** ST text sources: 1=user, 2=assistant, 5=world info. */
+  placement: number;
+  /** Last conversational message is depth 0; system/utility prompts have no depth. */
+  depth?: number;
+  edited?: boolean;
+  resolveMacros?: (text: string) => string;
+}
+
+/** Conservative parser: propagate risky children through wrapper groups. Not a regex sandbox. */
+function hasComplexGroupRepetition(source: string): boolean {
+  const groups: boolean[] = [false];
+  let inClass = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const char = source[i];
+    if (char === '\\') { i += 1; continue; }
+    if (char === '[') { inClass = true; continue; }
+    if (char === ']' && inClass) { inClass = false; continue; }
+    if (inClass) continue;
+    if (char === '(') { groups.push(false); continue; }
+    if (char === ')' && groups.length > 1) {
+      const risky = groups.pop()!;
+      const next = source[i + 1];
+      if (risky && (next === '+' || next === '*' || next === '{')) return true;
+      groups[groups.length - 1] ||= risky;
+      continue;
+    }
+    if (char === '+' || char === '*' || char === '{' || char === '|' || (char === '?' && source[i - 1] !== '(')) groups[groups.length - 1] = true;
+  }
+  return false;
+}
+
+function scopedRegexProblem(script: STRegexScript): string | null {
+  const source = readFindRegex(script);
+  const replacement = readReplaceString(script);
+  if (/<\/?[a-z][^>]*>/i.test(replacement) || UNSAFE_REPLACEMENT_RE.test(replacement)) return 'HTML/CSS/脚本美化不执行；请使用游戏原生显示';
+  if (source.length > 10000 || hasComplexGroupRepetition(source)) return '复杂重复正则已阻止，避免阻塞页面';
+  return null;
+}
+
+/** Plain-text scoped copies only. Never run these on a raw response JSON/protocol. */
+export function applyTavernScopedRegexScripts(rawText: string, rawPreset: unknown, scope: TavernRegexScope): TavernRegexApplyResult {
+  let text = rawText;
+  const applied: string[] = [];
+  const skipped: string[] = [];
+  let matches = 0;
+  for (const script of extractTavernRegexScripts(rawPreset)) {
+    const name = readScriptName(script) || 'regex_script';
+    if (isScriptDisabled(script)) continue;
+    if (!Array.isArray(script.placement) || !script.placement.includes(scope.placement)) continue;
+    const display = script.markdownOnly === true;
+    const prompt = script.promptOnly === true;
+    if ((scope.destination === 'prompt' && display && !prompt) || (scope.destination === 'display' && prompt && !display)) continue;
+    if (scope.edited && script.runOnEdit !== true) continue;
+    if (scope.depth !== undefined) {
+      if (typeof script.minDepth === 'number' && script.minDepth >= 0 && scope.depth < script.minDepth) continue;
+      if (typeof script.maxDepth === 'number' && script.maxDepth >= 0 && scope.depth > script.maxDepth) continue;
+    }
+    const problem = scopedRegexProblem(script);
+    if (problem || text.length > 200000) { skipped.push(`${name}: ${problem ?? '文本过长，已跳过正则'}`); continue; }
+    try {
+      let source = readFindRegex(script);
+      if (script.substituteRegex && scope.resolveMacros) {
+        source = source.replace(/\{\{[^{}]+\}\}/g, macro => {
+          const resolved = scope.resolveMacros!(macro);
+          return script.substituteRegex === 2 ? resolved.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : resolved;
+        });
+      }
+      if (source.length > 10000 || hasComplexGroupRepetition(source)) { skipped.push(`${name}: 复杂重复正则已阻止，避免阻塞页面`); continue; }
+      const { pattern, flags } = parseRegexSourceAndFlags(source, String(script.flags ?? ''));
+      const regex = new RegExp(pattern, flags);
+      const replacement = readReplaceString(script);
+      if (/\{\{(?!match\}\})/.test(replacement) && !scope.resolveMacros) { skipped.push(`${name}: 缺少宏上下文`); continue; }
+      // Expand only the authored template. Captured message text is data, not macro code.
+      const template = scope.resolveMacros ? replacement.replace(/\{\{[^{}]+\}\}/g, macro => macro === '{{match}}' ? macro : scope.resolveMacros!(macro)) : replacement;
+      const after = text.replace(regex, (...args: unknown[]) => {
+        matches += 1;
+        const named = typeof args.at(-1) === 'object' ? args.at(-1) as Record<string, string> : undefined;
+        const offsetAt = args.length - (named ? 3 : 2);
+        const trim = (value: unknown) => (script.trim_strings ?? script.trimStrings ?? []).reduce((s, token) => token ? s.split(token).join('') : s, String(value ?? ''));
+        return template.replace(/\{\{match\}\}|\$(\$|&|\d{1,2}|<[^>]+>)/g, (literal, key: string | undefined) => {
+          if (literal === '{{match}}') return trim(args[0]);
+          if (key === undefined) return literal;
+          if (key === '$') return '$';
+          if (key === '&') return trim(args[0]);
+          if (key.startsWith('<')) return trim(named?.[key.slice(1, -1)]);
+          const index = Number(key);
+          return index > 0 && index < offsetAt ? trim(args[index]) : literal;
+        });
+      });
+      if (after !== text) { applied.push(name); text = after; }
+    } catch (error) { skipped.push(`${name}: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  return { text, applied, skipped, matches };
 }
 
 export function extractTavernRegexScripts(rawPreset: unknown): STRegexScript[] {
@@ -150,9 +260,10 @@ function readNestedValue(source: Record<string, unknown>, path: string[]): unkno
 }
 
 function isRegexScriptLike(raw: unknown): raw is STRegexScript {
-  if (!raw || typeof raw !== 'object') return false;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
   const script = raw as STRegexScript;
-  return readFindRegex(script).trim().length > 0;
+  const find = script.find_regex ?? script.findRegex ?? script.find;
+  return typeof find === 'string' && find.trim().length > 0;
 }
 
 function dedupeRegexScripts(scripts: STRegexScript[]): STRegexScript[] {
@@ -160,10 +271,14 @@ function dedupeRegexScripts(scripts: STRegexScript[]): STRegexScript[] {
   const result: STRegexScript[] = [];
   scripts.forEach((script, index) => {
     const key = [
-      script.id ?? '',
-      readScriptName(script),
       readFindRegex(script),
       readReplaceString(script),
+      JSON.stringify([...new Set(Array.isArray(script.placement) ? script.placement.filter((value): value is number => typeof value === 'number') : [])].sort((a, b) => a - b)),
+      JSON.stringify(script.trim_strings ?? script.trimStrings ?? []),
+      String(script.markdownOnly ?? false), String(script.promptOnly ?? false),
+      String(script.minDepth ?? -1), String(script.maxDepth ?? -1),
+      String(script.substituteRegex ?? 0), String(script.runOnEdit ?? false),
+      String(script.flags ?? ''),
     ].join('\u0000') || `index_${index}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -186,6 +301,12 @@ export function analyzeTavernRegexScript(script: STRegexScript): TavernRegexScri
   const outputLike = /output|response|reply|assistant|post/i.test(combined);
   const promptLike = /prompt|input|request|system|user/i.test(combined);
   const safeCleanupLike = isSafeOutputCleanupCandidate(script);
+
+  if (Array.isArray(script.placement) && script.placement.length > 0) {
+    const problem = scopedRegexProblem(script);
+    return { kind: problem ? 'display_replace' : script.promptOnly ? 'prompt_preprocess' : 'display_replace', disabled, risky: Boolean(problem), blocksProtocolTags,
+      reason: problem ?? '纯文本规则：按输入/回复/世界书来源、发送/显示范围和消息深度处理副本；不改存档或回复 JSON' };
+  }
 
   if (safeCleanupLike) {
     return {
@@ -252,6 +373,11 @@ export function applyTavernOutputRegexScripts(rawText: string, rawPreset: unknow
   const applied: string[] = [];
   const skipped: string[] = [];
 
+  // Legacy tag-text cleanup is diagnostic-only. Structured responses must stay byte-identical.
+  if (/^\s*(?:[\[{]|```(?:json)?\s*[\[{])/i.test(text)) {
+    return { text, applied, skipped: scripts.map(script => `${readScriptName(script) || 'regex_script'}: 不处理原始回复 JSON`) };
+  }
+
   for (const script of scripts) {
     const name = readScriptName(script) || String(script.id ?? 'regex_script');
     const safety = analyzeTavernRegexScript(script);
@@ -259,7 +385,7 @@ export function applyTavernOutputRegexScripts(rawText: string, rawPreset: unknow
       skipped.push(`${name}: disabled`);
       continue;
     }
-    if (!isSafeOutputCleanupCandidate(script) || safety.kind !== 'output_postprocess' || safety.risky) {
+    if (scopedRegexProblem(script) || !isSafeOutputCleanupCandidate(script) || safety.kind !== 'output_postprocess' || safety.risky) {
       skipped.push(`${name}: ${safety.reason}`);
       continue;
     }
@@ -304,8 +430,14 @@ function isSafeOutputCleanupCandidate(script: STRegexScript): boolean {
   return SAFE_OUTPUT_CLEANUP_FIND_RE.test(find);
 }
 
-export function dryRunTavernRegexScript(script: STRegexScript, sampleText: string): TavernRegexDryRunResult {
+export function dryRunTavernRegexScript(script: STRegexScript, sampleText: string, scope?: TavernRegexScope): TavernRegexDryRunResult {
   const safety = analyzeTavernRegexScript(script);
+  const problem = scopedRegexProblem(script);
+  if (problem) return { ok: false, safety: { ...safety, risky: true, reason: problem }, matches: 0, before: sampleText, after: sampleText, warnings: [problem] };
+  if (Array.isArray(script.placement) && script.placement.length) {
+    const result = applyTavernScopedRegexScripts(sampleText, { regex_scripts: [script] }, scope ?? { destination: script.promptOnly ? 'prompt' : 'display', depth: 0, placement: Number(script.placement[0]) });
+    return { ok: !safety.risky && result.skipped.length === 0, safety, matches: result.matches ?? 0, before: sampleText, after: result.text, warnings: result.skipped };
+  }
   const warnings: string[] = [];
   const before = String(sampleText ?? '');
   if (safety.kind === 'blocked' || safety.kind === 'display_replace') {

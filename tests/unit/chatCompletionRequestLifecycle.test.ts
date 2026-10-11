@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getEventListeners } from 'node:events';
 import type { API配置项 } from '@/models/settings';
 
 /**
@@ -24,6 +25,7 @@ vi.mock('../../services/ai/apiErrorReportService', () => ({
 }));
 
 import {
+  chatCompletion,
   chatCompletionNonStream,
   DEFAULT_STREAM_FIRST_BYTE_TIMEOUT_MS,
 } from '../../services/ai/chatCompletionClient';
@@ -156,6 +158,40 @@ beforeEach(() => {
 });
 
 describe('non-stream request lifecycle', () => {
+  it('times out a streaming HTTP error body and removes its upstream listener', async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const body = stalledResponse(500);
+    stalled.push(body);
+    vi.stubGlobal('fetch', async () => body.response);
+    const tracked = track(chatCompletion(config(), { ...baseRequest(), signal: controller.signal }, {
+      onDelta: () => {}, onDone: () => {}, onError: () => {},
+    }));
+    let completed = false;
+    void tracked.outcome.then(() => { completed = true; });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(DEFAULT_STREAM_FIRST_BYTE_TIMEOUT_MS + 1000);
+    expect(completed).toBe(true);
+    expect(thrownBy(await tracked.outcome)?.name).toBe('StreamTimeoutError');
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+  });
+
+  it('removes abort forwarding after successful requests sharing one turn signal', async () => {
+    const controller = new AbortController();
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ choices: [{ message: { content: '收到' } }] })));
+    for (let index = 0; index < 6; index += 1) {
+      expect(await chatCompletionNonStream(config(), { ...baseRequest(), signal: controller.signal })).toBe('收到');
+    }
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+  });
+
+  it('removes abort forwarding when fetch fails before response headers', async () => {
+    const controller = new AbortController();
+    vi.stubGlobal('fetch', async () => { throw new Error('NETWORK_DOWN'); });
+    await expect(chatCompletionNonStream(config(), { ...baseRequest(), signal: controller.signal })).rejects.toThrow('NETWORK_DOWN');
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+  });
+
   it('rejects immediately without calling fetch when the signal is already aborted', async () => {
     const fetchMock = vi.fn(async () => stalledResponse(200).response);
     vi.stubGlobal('fetch', fetchMock);

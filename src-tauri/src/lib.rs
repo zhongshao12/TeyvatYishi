@@ -592,10 +592,11 @@ fn write_text_atomically(file_path: &Path, content: &str) -> Result<(), String> 
     let _guard = lock_desktop_atomic_write();
 
     let temp_path = unique_temp_path(file_path)?;
+    let mut owns_temp_file = false;
 
     let write_result = (|| -> Result<(), String> {
-        let mut temp_file = fs::File::create(&temp_path)
-            .map_err(|err| format!("create temp file failed: {err}"))?;
+        let mut temp_file = create_atomic_temp_file(&temp_path)?;
+        owns_temp_file = true;
         temp_file
             .write_all(content.as_bytes())
             .map_err(|err| format!("write temp file failed: {err}"))?;
@@ -607,20 +608,30 @@ fn write_text_atomically(file_path: &Path, content: &str) -> Result<(), String> 
         atomic_replace_path(file_path, &temp_path)
     })();
 
-    if write_result.is_err() {
+    if write_result.is_err() && owns_temp_file {
         let _ = fs::remove_file(&temp_path);
     }
     write_result
+}
+
+fn create_atomic_temp_file(temp_path: &Path) -> Result<fs::File, String> {
+    fs::OpenOptions::new().write(true).create_new(true).open(temp_path)
+        .map_err(|err| format!("create temp file failed: {err}"))
 }
 
 /// 原子替换：临时文件已在同一目录且已 fsync，这里只需一次 rename 覆盖目标。
 ///
 /// 有意**不**先 `remove_file` 目标——旧实现先删再 rename，rename 一旦失败
 /// （Windows 上目标被占用、杀毒扫描、权限变化）旧磁盘副本就永久消失。
-/// 唯一的例外是目标本身是目录（`fs::rename` 不能把文件改名到目录上，保持旧实现的目录替换语义）。
+/// 目录、符号链接或其他非普通文件不是可替换的数据文件，必须拒绝而不是删除。
 fn atomic_replace_path(file_path: &Path, temp_path: &Path) -> Result<(), String> {
-    if file_path.is_dir() {
-        fs::remove_dir_all(file_path).map_err(|err| format!("remove old directory failed: {err}"))?;
+    match fs::symlink_metadata(file_path) {
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err("desktop data target is not a regular file".to_string());
+        }
+        Ok(_) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(format!("inspect data target failed: {err}")),
     }
     fs::rename(temp_path, file_path).map_err(|err| format!("rename temp file failed: {err}"))
 }
@@ -641,7 +652,7 @@ fn lock_desktop_atomic_write() -> std::sync::MutexGuard<'static, ()> {
     }
 }
 
-/// 唯一且排他的临时名：进程 id + 纳秒时间 + 单调计数器。
+/// 临时名：进程 id + 纳秒时间 + 单调计数器；排他性由文件创建负责。
 /// 旧实现只用毫秒时间戳，同一毫秒内的并发写会抢同一个临时文件。
 fn unique_temp_path(file_path: &Path) -> Result<PathBuf, String> {
     static TEMP_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -894,6 +905,15 @@ mod tests {
     }
 
     #[test]
+    fn atomic_temp_creation_rejects_existing_files_without_truncating_them() {
+        let root = TestDir::new("atomic-temp-exclusive");
+        let temp = root.join("occupied.tmp");
+        fs::write(&temp, "another writer owns this").expect("write existing temp");
+        assert!(create_atomic_temp_file(&temp).is_err(), "an occupied temp path must not be opened");
+        assert_eq!(fs::read_to_string(&temp).expect("read existing temp"), "another writer owns this");
+    }
+
+    #[test]
     fn atomic_write_temp_paths_are_unique_within_the_same_millisecond() {
         // 旧实现用「文件名 + 毫秒时间戳」当临时名：并发或快速连续写入会拿到同一个名字。
         let root = TestDir::new("temp-name-uniqueness");
@@ -962,16 +982,34 @@ mod tests {
     }
 
     #[test]
-    fn atomic_write_replaces_a_directory_target_keeps_the_old_semantics() {
-        // 旧实现用 remove_file 处理已存在的目标；这里保证目录目标仍然能被替换成文件。
+    fn atomic_write_rejects_directory_targets_without_removing_their_contents() {
         let root = TestDir::new("atomic-replace-directory");
         let target = root.join("legacy-dir");
         fs::create_dir_all(target.join("child")).expect("create directory target");
+        fs::write(target.join("child/keep.json"), "must survive").expect("write nested data");
 
-        write_text_atomically(&target, "file-now").expect("replacing a directory target must succeed");
+        let error = write_text_atomically(&target, "file-now").expect_err("directories are not data files");
 
-        assert!(target.is_file(), "target must become a regular file");
-        assert_eq!(fs::read_to_string(&target).expect("read replaced target"), "file-now");
+        assert!(error.contains("not a regular file"), "unexpected error: {error}");
+        assert!(target.is_dir(), "the target directory must remain intact");
+        assert_eq!(fs::read_to_string(target.join("child/keep.json")).expect("read nested data"), "must survive");
+        assert_eq!(fs::read_dir(root.0.clone()).expect("list directory").count(), 1, "failed writes must clean their own temp file");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn atomic_write_keeps_old_content_when_windows_denies_target_replacement() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = TestDir::new("atomic-target-in-use");
+        let target = root.join("settings.json");
+        fs::write(&target, "old settings").expect("write previous settings");
+        let occupied = fs::OpenOptions::new().read(true).share_mode(0).open(&target)
+            .expect("exclusively open target");
+        let error = write_text_atomically(&target, "new settings").expect_err("locked target must reject replacement");
+        assert!(error.contains("rename temp file failed"), "unexpected error: {error}");
+        drop(occupied);
+        assert_eq!(fs::read_to_string(&target).expect("read original settings"), "old settings");
+        assert_eq!(fs::read_dir(root.0.clone()).expect("list directory").count(), 1, "only the original file remains");
     }
 
     #[test]

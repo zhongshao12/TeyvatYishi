@@ -61,6 +61,7 @@ import { 分析提示词构成, type 提示词构成 } from '@/utils/contextComp
 import { isSTImportedModule } from '@/utils/stPresetParser';
 import { canInviteElementalEcho, ELEMENTAL_ECHO_INVITE_MASTERY } from '@/services/elementalAttunementService';
 import { ELEMENT_NAMES } from '@/styles/elementTokens';
+import { sanitizeCourierFactText } from '@/utils/courierTextSanitizer';
 
 const ELEMENT_ECHO_QUESTIONS: Record<ElementId, readonly string[]> = {
   anemo: ['自由是否也意味着承担离去的代价？', '当羁绊成为束缚，你愿意留下还是远行？', '你如何让他人也能自由呼吸？'],
@@ -1284,7 +1285,7 @@ function buildSteambirdSection(steambird?: SteambirdNews): string {
 function getRecentCourierMemoryTexts(npc: NPC记录): string[] {
   return (npc.同行记忆 ?? [])
     .filter((item): item is NPC同行记忆条目 => typeof item !== 'string' && item?.来源 === '手机')
-    .map((item) => item.摘要?.trim())
+    .map((item) => sanitizeCourierFactText(item.摘要 ?? ''))
     .filter((text): text is string => Boolean(text));
 }
 
@@ -1317,7 +1318,7 @@ function buildCourierSection(courier?: CourierSystem): string {
       (conversation.localArchive?.compressedSummaries ?? []).map((summary) => ({
         title: conversation.title,
         type: conversation.type,
-        summary,
+        summary: sanitizeCourierFactText(summary),
       })),
     )
     .filter((item) => item.summary.trim())

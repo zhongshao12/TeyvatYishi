@@ -36,6 +36,7 @@ export interface SendPreparationInput {
   onJournalUpdated: (journal: WorkflowRecoveryJournal) => void;
   /** 在原始位置回写外层 `rollbackHistoryOnAbort`。 */
   onPurgedHistoryReady: (history: 聊天消息[]) => void;
+  assertActive?: () => void;
 }
 
 export interface SendPreparationResult {
@@ -47,6 +48,12 @@ export interface SendPreparationResult {
 
 export async function prepareSendTurn(input: SendPreparationInput): Promise<SendPreparationResult> {
   const { state, userInput, effectiveWorld } = input;
+  const session = state.getGameSessionId();
+  const assertActive = () => {
+    input.assertActive?.();
+    if (state.getGameSessionId() !== session) throw new DOMException('Workflow aborted', 'AbortError');
+  };
+  assertActive();
   let recoveryJournal = input.recoveryJournal;
 
   // 0. 本回合 user 发送之前的全状态快照，留给 reroll 回滚用。
@@ -85,6 +92,7 @@ export async function prepareSendTurn(input: SendPreparationInput): Promise<Send
   recoveryJournal = updateWorkflowRecoveryJournal(recoveryJournal, { userMessageId: userMsg.id });
   input.onJournalUpdated(recoveryJournal);
   await persistWorkflowRecoveryJournal(recoveryJournal);
+  assertActive();
   const purgedHistory = compactChatHistoryForLongSession(state.chatHistory.map((m) =>
     m.role === 'assistant' && m.preTurnSnapshot
       ? { ...m, preTurnSnapshot: undefined }

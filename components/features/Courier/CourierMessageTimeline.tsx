@@ -2,6 +2,7 @@ import { memo, type RefObject } from 'react';
 import type { CourierConversation, CourierMessage } from '@/models/teyvat/courier';
 import { CLIP_ITEM } from '@/styles/clipPaths';
 import { formatWorldMomentBrief } from '@/services/worldMoment';
+import { displayCourierMessageText } from '@/utils/courierTextSanitizer';
 
 interface CourierMessageTimelineProps {
   selected: CourierConversation | null;
@@ -15,6 +16,7 @@ interface CourierMessageTimelineProps {
   onScroll?: () => void;
   resolveSenderAvatar: (message: CourierMessage) => string | undefined;
   onShowEarlier: () => void;
+  resolvePhoto?: (message: CourierMessage) => string | undefined;
 }
 
 const gold = 'rgb(var(--tj-accent-primary))';
@@ -30,10 +32,12 @@ const CourierMessageRow = memo(function CourierMessageRow({
   message,
   startsNewTurn,
   resolveSenderAvatar,
+  photoUrl,
 }: {
   message: CourierMessage;
   startsNewTurn: boolean;
   resolveSenderAvatar: (message: CourierMessage) => string | undefined;
+  photoUrl?: string;
 }) {
   const isPlayer = message.senderId === 'player';
   const avatarUrl = resolveSenderAvatar(message);
@@ -53,6 +57,9 @@ const CourierMessageRow = memo(function CourierMessageRow({
             {message.senderName} · 回合 {message.turn}
             {isPlayer && message.readBy.length > 1 ? ' · 已读' : ''}
           </p>
+          {message.photo && (photoUrl ? <a href={photoUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block" aria-label={`查看 ${message.senderName} 的照片`}>
+            <img src={photoUrl} alt={`${message.senderName} 的手机照片`} loading="lazy" className="max-h-64 max-w-full rounded object-contain" />
+          </a> : <p className="mt-2 text-xs" style={{ color: muted(0.8) }}>照片资源已移除</p>)}
           <p className="text-[10px]" style={{ color: muted(0.72) }}>{formatWorldMomentBrief(message.worldMoment)}</p>
           <p
             className="mt-1 inline-block whitespace-pre-wrap px-3 py-2 text-left text-sm leading-relaxed"
@@ -64,7 +71,7 @@ const CourierMessageRow = memo(function CourierMessageRow({
               clipPath: CLIP_ITEM,
             }}
           >
-            {message.content}
+            {displayCourierMessageText(message.content)}
           </p>
         </div>
       </article>
@@ -83,6 +90,7 @@ export const CourierMessageTimeline = memo(function CourierMessageTimeline({
   onScroll,
   resolveSenderAvatar,
   onShowEarlier,
+  resolvePhoto,
 }: CourierMessageTimelineProps) {
   return (
     <div
@@ -121,6 +129,7 @@ export const CourierMessageTimeline = memo(function CourierMessageTimeline({
               message={message}
               startsNewTurn={index > 0 && visibleMessages[index - 1]?.turn !== message.turn}
               resolveSenderAvatar={resolveSenderAvatar}
+              photoUrl={message.photo ? resolvePhoto?.(message) : undefined}
             />
           ))}
         </>

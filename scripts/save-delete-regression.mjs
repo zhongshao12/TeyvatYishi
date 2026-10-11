@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { runFocusedBehaviorRegression } from './lib/runFocusedBehaviorRegression.mjs';
 
 function normalizeSource(source) {
   return source.replace(/\r\n?/g, '\n');
@@ -30,7 +31,10 @@ assert(normalizeSource('LF\nCRLF\r\nCR\r') === 'LF\nCRLF\nCR\n', 'source normali
 assert(dbService.includes('export async function deleteSaveTree(rootId: string)'), 'dbService must expose deleteSaveTree(rootId).');
 assert(!dbService.includes('await ensureSaveSummaries(db, Infinity);'), 'deleteSaveTree must never rebuild the complete index before deletion.');
 assert(dbService.includes('catalogComplete'), 'deleteSaveTree must refuse whole-tree deletion while the lightweight catalog is incomplete.');
-assert(dbService.includes('collectSaveTreeSummaries(trimmedRootId)'), 'deleteSaveTree must collect tree nodes through summaries.');
+assert(dbService.includes('collectSaveTreeSummaries(rootId)'), 'deleteSaveTree must collect tree nodes through summaries using the exact root identity.');
+// Whitespace is only a blank-input check, never an identity rewrite. Exercise
+// actual IndexedDB deletion and verify the other journey's body and label survive.
+runFocusedBehaviorRegression(['tests/unit/saveJourneyLabel.test.ts'], 'deletes exactly the selected root');
 assert(dbService.includes('await deleteManagedSaveItems(db, candidates);'), 'deleteSaveTree must reuse managed save deletion cleanup.');
 assert(dbService.includes('item.saveTree?.rootId === rootId'), 'tree deletion must match explicit saveTree.rootId only.');
 

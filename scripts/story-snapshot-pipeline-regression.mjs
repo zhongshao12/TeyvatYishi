@@ -131,6 +131,8 @@ amber.图像档案 = {
     负面提示词: 'black hair',
   },
 };
+amber.性别 = '女';
+amber.外貌档案 = { 身高: { value: '168 cm', source: 'manual' } };
 kaeya.图像档案 = {
   角色锚点: {
     正面提示词: 'boy, black hair, green coat',
@@ -156,8 +158,14 @@ assert.equal(localResolution.renderContext.characters.some((character) => charac
 assert.match(localResolution.renderContext.characters[0].visualPrompt, /silver hair/);
 assert.match(localResolution.renderContext.characters[0].visualPrompt, /golden eyes/);
 assert.match(localResolution.renderContext.characters[0].visualPrompt, /black long coat/);
-assert.doesNotMatch(localResolution.renderContext.characters[0].visualPrompt, /[\u3040-\u30ff\u3400-\u9fff]/);
+assert.match(localResolution.renderContext.characters[0].visualPrompt, /character name: 旅行者/);
+assert.match(localResolution.renderContext.characters[0].visualPrompt, /gender: 女/);
+assert.match(localResolution.renderContext.characters[0].visualPrompt, /appearance: 银色长发，金色眼睛，黑色长外套，简洁旅行装/);
+assert.doesNotMatch(localResolution.renderContext.characters[0].visualPrompt, /NovelAI|SD WebUI|ComfyUI|OpenAI|workflow|JSON|API/i);
 assert.match(localResolution.renderContext.characters[1].visualPrompt, /waving gesture/);
+assert.match(localResolution.renderContext.characters[1].visualPrompt, /character name: 安柏/);
+assert.match(localResolution.renderContext.characters[1].visualPrompt, /gender: 女/);
+assert.match(localResolution.renderContext.characters[1].visualPrompt, /身高: 168 cm \(source: manual/);
 assert.match(localResolution.renderContext.scenePrompt, /Mondstadt|European fantasy city|fantasy guild hall/i);
 assert.match(localResolution.renderContext.scenePrompt, /spacious fantasy guild hall|cinematic composition/i);
 assert.doesNotMatch(localResolution.renderContext.scenePrompt, /[\u3040-\u30ff\u3400-\u9fff]|NovelAI|SD WebUI|ComfyUI|OpenAI|workflow|JSON|API/i);

@@ -65,7 +65,7 @@ import {
   removeRetiredCodexEntries,
   升级自制图鉴系统,
 } from '@/data/codexPreset';
-import { buildPersistedStoryWeavingSystem, hydratePersistedStoryWeavingSystem, isSelfContainedStoryWeavingSystem, loadAllBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
+import { buildPersistedStoryWeavingSystem, hydratePersistedStoryWeavingSystem, getBundledStoryWeavingBaseline, isSelfContainedStoryWeavingSystem, loadAllBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
 import type { 世界书 } from '@/models/worldbook';
 import { loadWorkflowRecoveryJournal, type WorkflowRecoveryJournal } from '@/services/workflowRecovery';
 import { applyTheme, normalizeThemeId } from '@/styles/themes';
@@ -343,7 +343,11 @@ export function fromLegacyTurnCheckpoint(snapshot: NonNullable<聊天消息['pre
     NPC: snapshot.NPC as NPC记录[],
     相册: snapshot.相册 as 相册系统 | undefined,
     剧情: snapshot.剧情 as 剧情节点[],
-    剧情编织: snapshot.剧情编织 as 剧情编织系统 | undefined,
+    // Checkpoints carry sparse persistence data, not the complete projection DTO.
+    // Hydrate before conversion so resource content and per-field player edits survive.
+    剧情编织: snapshot.剧情编织 === undefined ? undefined : hydratePersistedStoryWeavingSystem(
+      snapshot.剧情编织, getBundledStoryWeavingBaseline(归一化剧情编织系统(snapshot.剧情编织)),
+    ),
     variableBatches: snapshot.variableBatches as 变量命令批次[],
     queueTasks: snapshot.queueTasks as 队列任务记录[] | undefined,
     任务: snapshot.任务 as 任务系统 | undefined,

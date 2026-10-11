@@ -9,8 +9,10 @@ import type { API配置项, VisualTextSettings } from '@/models/settings';
 import type { 相册系统 } from '@/models/imageGeneration';
 import { useStreamingMessage } from '@/utils/streamingMessageStore';
 import { TurnItem } from './TurnItem';
+import type { STPreset } from '@/models/stTypes';
 
 interface ChatListProps {
+  tavernPreset?: STPreset;
   messages: 聊天消息[];
   variableBatches?: readonly 变量命令批次[];
   loading: boolean;
@@ -59,6 +61,7 @@ function findHistoryWindowStart(messages: 聊天消息[], turnLimit: number): nu
 }
 
 interface ChatHistoryListProps {
+  tavernPreset?: STPreset;
   messages: 聊天消息[];
   settlementReceipts: ReadonlyMap<string, TurnSettlementReceiptModel>;
   neighborMeta: NeighborMeta[];
@@ -89,6 +92,7 @@ const ChatHistoryList = memo(function ChatHistoryList({
   showInnerVoice = true,
   visualTextSettings,
   rewriteConfig,
+  tavernPreset,
 }: ChatHistoryListProps) {
   return (
     <>
@@ -98,6 +102,8 @@ const ChatHistoryList = memo(function ChatHistoryList({
           <div key={msg.id} id={`chat-msg-${msg.id}`}>
           <TurnItem
             message={msg}
+            tavernPreset={tavernPreset}
+            regexDepth={messages.length - 1 - idx}
             settlementReceipt={settlementReceipts.get(msg.id)}
             deferOffscreen
             onEditBody={onEditBody}
@@ -143,7 +149,7 @@ function buildNeighborMeta(messages: 聊天消息[]): NeighborMeta[] {
   return meta;
 }
 
-export function ChatList({ messages, variableBatches, loading, scrollRef, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, visualTextSettings, rewriteConfig }: ChatListProps) {
+export function ChatList({ messages, variableBatches, loading, scrollRef, onEditBody, onToggleBookmark, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, visualTextSettings, rewriteConfig, tavernPreset }: ChatListProps) {
   const streamingMessage = useStreamingMessage();
   const showStreamingPreview = Boolean(loading && streamingMessage && messages.at(-1)?.role !== 'assistant');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -318,6 +324,7 @@ export function ChatList({ messages, variableBatches, loading, scrollRef, onEdit
       {/* Historical messages — isolated from nearBottom / FAB re-renders */}
       <ChatHistoryList
         messages={renderedMessages}
+        tavernPreset={tavernPreset}
         settlementReceipts={settlementReceipts}
         neighborMeta={neighborMeta}
         onEditBody={onEditBody}

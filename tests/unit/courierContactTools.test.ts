@@ -3,7 +3,8 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CourierContactTools } from '@/components/features/Courier/CourierContactTools';
-import { createEmptyCourierSystem, type CourierSystem } from '@/models/teyvat/courier';
+import { createEmptyCourierSystem, reconcileCourierContactsWithNpcs, type CourierSystem } from '@/models/teyvat/courier';
+import { normalizeTeyvatNpcRecords } from '@/models/teyvat/character';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -80,6 +81,28 @@ describe('courier contact tools', () => {
       await render();
       expect(courier.contacts[0]?.remark).toBeUndefined();
       expect(host.textContent).toContain('安柏');
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it('keeps a canon contact deleted after the next save-state reconciliation', async () => {
+    const host = document.createElement('div');
+    hosts.push(host);
+    document.body.append(host);
+    const root = createRoot(host);
+    let courier: CourierSystem = { ...createEmptyCourierSystem(), contacts: [{ id: 'contact_npc_amber', npcId: 'npc_amber', name: '安柏', available: true }] };
+    const npcs = normalizeTeyvatNpcRecords([{ id: 'npc_amber', 姓名: '安柏', roleTier: 'companion', canonical: true, firstSeenTurn: 1, lastSeenTurn: 1 }]);
+    try {
+      await act(async () => root.render(createElement(CourierContactTools, {
+        courier, eligibleNpcContacts: [],
+        onCourierChange: (update) => { courier = typeof update === 'function' ? update(courier) : update; },
+        onOpenConversation: () => undefined,
+      })));
+      await act(async () => host.querySelector<HTMLButtonElement>('button')!.click());
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="删除联系人 安柏"]')!.click());
+      expect(courier.contacts).toEqual([]);
+      expect(reconcileCourierContactsWithNpcs(JSON.parse(JSON.stringify(courier)), npcs).contacts).toEqual([]);
     } finally {
       await act(async () => root.unmount());
     }

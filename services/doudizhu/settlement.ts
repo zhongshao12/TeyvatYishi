@@ -4,6 +4,7 @@ import { isValidDoudizhuGame, type DoudizhuGame, type DoudizhuUiAction } from '.
 import type { TeyvatGameState } from '../../models/teyvat/state';
 import { applyDoudizhuMove, isReachableDoudizhuGame, startDoudizhuGame } from './game';
 import { chooseDoudizhuNpcMove, createDoudizhuNpcView } from './strategy';
+import { captureWorldMoment } from '../worldMoment';
 
 const withError = (state: TeyvatGameState, message: string): TeyvatGameState => ({
   ...state,
@@ -52,6 +53,7 @@ function settle(state: TeyvatGameState, game: DoudizhuGame, roster: [TeyvatNpcRe
         turn: state.turnCount,
         summary,
         source: 'other' as const,
+        worldMoment: captureWorldMoment(state.世界, state.turnCount, `doudizhu:${game.id}`),
         relatedNpcIds: roster.map((participant) => participant.id).filter((id) => id !== npc.id),
       }],
       relationshipLedger: {

@@ -1,5 +1,7 @@
 import type { NPC记录 } from '@/models/npc';
 import { 获取NPC兼容关系, 获取NPC关系阶段, 限制NPC好感度 } from '@/models/npc';
+import { canRevealNpcRecordMeasurements, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
+import { reconcileNpcAppearanceRecord } from '@/utils/npcAppearanceReconciliation';
 
 /**
  * 手机回信作业的 NPC 写回：按 id 与**活体根**合并，而不是整片替换。
@@ -11,7 +13,7 @@ import { 获取NPC兼容关系, 获取NPC关系阶段, 限制NPC好感度 } from
  * （长耗时任务的返回值基于陈旧快照，整片覆盖会静默回退并发写入）。
  *
  * 规则（按 id，全部用引用比较，本仓库所有写入都是整切片/整记录替换）：
- * - 活体里没有 → 用作业结果（作业新建的联系人记录）；
+ * - 活体里没有 → 只追加作业新建的记录，基线已有的表示等待期间被删除，不复活；
  * - 作业没产出这条（或产出就是输入那条）→ 保留活体；
  * - 只有作业改过 → 用作业结果；
  * - 两边都改过 → 保留活体，只补回作业**新追加**的同行记忆及其好感增量，
@@ -47,12 +49,12 @@ export function mergeNpcWriteBack(input: NpcWriteBackInput): NpcWriteBackResult 
     if (!produced) return live;
     const base = startById.get(live.id);
     if (produced === base) return live;
-    if (live === base) return produced;
+    if (live === base) return reconcileChangedAppearance(produced, base);
     concurrentNpcIds.push(live.id);
-    return withAppendedMemories(live, produced, base);
+    return reconcileChangedAppearance(withAppendedMemories(live, produced, base), base);
   });
   for (const produced of input.next) {
-    if (!currentById.has(produced.id)) records.push(produced);
+    if (!currentById.has(produced.id) && !startById.has(produced.id)) records.push(reconcileChangedAppearance(produced));
   }
   return { records, concurrentNpcIds };
 }
@@ -92,11 +94,11 @@ function withAppendedMemories(live: NPC记录, produced: NPC记录, base?: NPC�
  * **活体为底 + 逐字段 delta**，因为本回合的整理结果（压缩后的同行记忆、剧情进度记忆）
  * 本身是追加式写入，必须叠加到活体上而不是被丢掉。
  *
- * 规则（按 id，全部引用比较；本仓库所有写入都是整记录替换）：
+ * 规则（按 id 比较字段内容；Legacy 映射会重建对象，不能用引用认定并发）：
  * - 活体没有、整理新增 → 追加整理结果；
  * - 整理删掉了基准里有的、而活体还是基准那份 → 同样删除；
  * - 活体还是基准那份 → 用整理结果；
- * - 两边都改过 → 保留活体，只补回整理**新增**的数组项（按 id 去重），并如实上报并发。
+ * - 两边都改过 → 逐字段合并，记忆按 id 合并；压缩来源被编辑则推迟压缩。
  */
 interface SettlementRecordBase {
   id: string;
@@ -107,6 +109,7 @@ type MemoryRecordLike = { id?: string } | unknown;
 
 export interface SettlementRecordLike extends SettlementRecordBase {
   同行记忆?: readonly MemoryRecordLike[];
+  总结记忆?: readonly MemoryRecordLike[];
 }
 
 function memoryRecordId(memory: MemoryRecordLike): string | null {
@@ -138,33 +141,93 @@ export function mergeSettlementSliceWriteBack<T extends SettlementRecordLike>(in
     if (!produced) {
       // 整理删掉了基准里存在的记录；活体仍是未被动过的基准那份 → 同意删除。
       const base = baseById.get(live.id);
-      return base && live === base ? undefined : live;
+      return base && sameSettlementValue(live, base) ? undefined : live;
     }
     const base = baseById.get(live.id);
-    if (produced === base) return live;
-    if (live === base) return produced;
+    if (sameSettlementValue(produced, base)) return live;
+    if (sameSettlementValue(live, base)) return reconcileChangedAppearance(produced, base);
     concurrentRecordIds.push(live.id);
-    return mergeAppendedMemories(live, produced, base);
+    return reconcileChangedAppearance(mergeAppendedMemories(live, produced, base), base);
   }).filter((record): record is T => record !== undefined);
 
   for (const produced of input.next) {
-    if (!currentById.has(produced.id) && !baseById.has(produced.id)) records.push(produced);
+    if (!currentById.has(produced.id) && !baseById.has(produced.id)) records.push(reconcileChangedAppearance(produced));
   }
   return { records, concurrentRecordIds };
 }
 
-/** 活体为底，只补回整理新增的同行记忆（按 id 去重）。 */
-function mergeAppendedMemories<T extends SettlementRecordLike>(live: T, produced: T, base?: T): T {
-  const liveMemories = live.同行记忆 ?? [];
-  const producedMemories = produced.同行记忆 ?? [];
-  const baseIds = new Set((base?.同行记忆 ?? []).map(memoryRecordId).filter((id): id is string => Boolean(id)));
-  const liveIds = new Set(liveMemories.map(memoryRecordId).filter((id): id is string => Boolean(id)));
-  const appended = producedMemories.filter((memory) => {
-    const id = memoryRecordId(memory);
-    return !id || (!baseIds.has(id) && !liveIds.has(id));
+/** Reconcile only changed visual fields after the existing live/delta merge; never normalize other profile fields. */
+function reconcileChangedAppearance<T extends SettlementRecordBase>(record: T, base?: T): T {
+  const npc = record as T & Partial<NPC记录>;
+  const before = base as (T & Partial<NPC记录>) | undefined;
+  if (!npc.姓名 || !npc.外貌档案 || sameSettlementValue(npc.外貌, before?.外貌) && sameSettlementValue(npc.外貌档案, before?.外貌档案)) return record;
+  return reconcileNpcAppearanceRecord(npc, normalizeNpcAppearanceFacts(npc.外貌档案, canRevealNpcRecordMeasurements(npc as NPC记录)));
+}
+
+/** 内容相等不依赖属性顺序或 Legacy 映射分配的新引用。 */
+function sameSettlementValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length
+      && left.every((value, index) => sameSettlementValue(value, right[index]));
+  }
+  const a = left as Record<string, unknown>;
+  const b = right as Record<string, unknown>;
+  const keys = Object.keys(a).filter((key) => a[key] !== undefined);
+  return keys.length === Object.keys(b).filter((key) => b[key] !== undefined).length
+    && keys.every((key) => sameSettlementValue(a[key], b[key]));
+}
+
+function mergeSettlementMemoryRows(
+  base: readonly MemoryRecordLike[],
+  produced: readonly MemoryRecordLike[],
+  live: readonly MemoryRecordLike[],
+  preserveRemoved: boolean,
+): MemoryRecordLike[] {
+  const baseById = new Map(base.map((row) => [memoryRecordId(row), row]));
+  const nextById = new Map(produced.map((row) => [memoryRecordId(row), row]));
+  const rows = live.flatMap((row) => {
+    const id = memoryRecordId(row);
+    if (!id || !baseById.has(id)) return [row];
+    const original = baseById.get(id);
+    if (!sameSettlementValue(row, original)) return [row];
+    if (!nextById.has(id)) return preserveRemoved ? [row] : [];
+    return [nextById.get(id)];
   });
-  if (!appended.length) return live;
-  return { ...live, 同行记忆: [...liveMemories, ...appended] };
+  const known = new Set(rows.map(memoryRecordId).filter(Boolean));
+  for (const row of produced) {
+    const id = memoryRecordId(row);
+    if (id ? known.has(id) || baseById.has(id) : base.some((item) => sameSettlementValue(item, row))
+      || rows.some((item) => sameSettlementValue(item, row))) continue;
+    rows.push(row);
+    if (id) known.add(id);
+  }
+  return rows;
+}
+
+/** 以 live 为底应用未冲突字段和按 id 的记忆增删；不覆盖被编辑的压缩来源。 */
+function mergeAppendedMemories<T extends SettlementRecordLike>(live: T, produced: T, base?: T): T {
+  const original = (base ?? {}) as Record<string, unknown>;
+  const output = { ...live } as Record<string, unknown>;
+  const current = live as Record<string, unknown>;
+  const next = produced as Record<string, unknown>;
+  for (const key of Object.keys({ ...original, ...next })) {
+    if (key === '同行记忆' || key === '总结记忆') continue;
+    if (sameSettlementValue(current[key], original[key])) output[key] = next[key];
+  }
+  const baseRows = base?.同行记忆 ?? [];
+  const nextIds = new Set((produced.同行记忆 ?? []).map(memoryRecordId));
+  const liveById = new Map((live.同行记忆 ?? []).map((row) => [memoryRecordId(row), row]));
+  const compressionDeferred = baseRows.some((row) => {
+    const id = memoryRecordId(row);
+    return id && !nextIds.has(id) && !sameSettlementValue(row, liveById.get(id));
+  });
+  output.同行记忆 = mergeSettlementMemoryRows(baseRows, produced.同行记忆 ?? [], live.同行记忆 ?? [], compressionDeferred);
+  if (!compressionDeferred) {
+    output.总结记忆 = mergeSettlementMemoryRows(base?.总结记忆 ?? [], produced.总结记忆 ?? [], live.总结记忆 ?? [], false);
+  }
+  return output as T;
 }
 
 /**

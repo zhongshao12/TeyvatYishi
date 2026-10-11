@@ -43,11 +43,36 @@ describe('世界树归档安全晋升', () => {
     const old = Array.from({ length: 600 }, (_, index) => entry(`old-${index}`, index));
     const pending = entry('pending', 600, 'medium', { status: 'pending', coveredEntryIds: ['old-0'] });
     const normalized = normalizeIrminsulMemory({ entries: [...old, pending] });
-    expect(normalized.entries).toHaveLength(600);
+    expect(normalized.entries).toHaveLength(601);
     expect(normalized.entries.some((item) => item.id === 'pending')).toBe(true);
     expect(normalized.entries.some((item) => item.id === 'old-0')).toBe(true);
     expect(normalized.entries.find((item) => item.id === 'old-1')?.coveredEntryIds).toBeUndefined();
     expect(getActiveIrminsulEntries(normalized).some((item) => item.id === 'old-0')).toBe(true);
+  });
+
+  it('retains 650 uncovered originals through JSON storage and repeated normalization', () => {
+    const originals = Array.from({ length: 650 }, (_, index) => entry(`source-${index}`, index, 'short', {
+      summary: `摘录${index}`, sourceText: `承诺_${index}；获得信物_${index}；完成节点_${index}。`,
+    }));
+    const restored = normalizeIrminsulMemory(JSON.parse(JSON.stringify({ entries: originals })));
+    expect(restored.entries).toHaveLength(650);
+    expect(normalizeIrminsulMemory(restored)).toEqual(restored);
+    for (let index = 0; index < 650; index++) expect(restored.entries[index]?.sourceText).toContain(`信物_${index}`);
+  });
+
+  it('only trims proven fully covered sources and preserves pending archives and their anchors', () => {
+    const originals = Array.from({ length: 650 }, (_, index) => entry(`source-${index}`, index, 'short', {
+      summary: `事件_${index}`, sourceText: `事件_${index}`,
+    }));
+    const upper = entry('complete', 650, 'medium', { summary: originals.map((source) => source.sourceText).join('\n'),
+      sourceTurns: originals.map((source) => source.turn), coveredEntryIds: originals.map((source) => source.id) });
+    const pending = entry('pending', 650, 'medium', { status: 'pending', coveredEntryIds: ['source-0'] });
+    const normalized = normalizeIrminsulMemory(JSON.parse(JSON.stringify({ entries: [...originals, upper, pending] })));
+    expect(normalized.entries).toHaveLength(600);
+    expect(normalized.entries.some((item) => item.id === 'source-0')).toBe(true);
+    expect(normalized.entries.some((item) => item.id === 'source-1')).toBe(false);
+    expect(normalized.entries.some((item) => item.id === 'complete')).toBe(true);
+    expect(normalized.entries.some((item) => item.id === 'pending')).toBe(true);
   });
 
   it('does not delete another same-turn refined note without an exact covered ID', () => {

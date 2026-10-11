@@ -1,6 +1,7 @@
 import type { SaveAssetRecord } from '@/utils/saveAssetStorage';
 import { createAppStorageAdapter } from '@/services/storage/appStorageAdapter';
 import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
+import { withSaveMutationLock } from '@/services/storage/saveMutationLock';
 
 interface DesktopAssetMirrorIndex {
   version: 1;
@@ -123,8 +124,11 @@ export async function listDesktopAssetMirror(): Promise<DesktopAssetMirrorSummar
 
 export async function repairDesktopAssetMirrorIndex(): Promise<DesktopAssetMirrorSummary[]> {
   if (!isDesktopRuntime()) return [];
-  const index = await rebuildAssetIndexFromMetadata();
-  return index.assets;
+  return withSaveMutationLock(async () => {
+    const index = await rebuildAssetIndexFromMetadata();
+    await writeAssetIndex(index.assets);
+    return index.assets;
+  });
 }
 
 export async function loadDesktopAssetRecords(assetIds: Iterable<string>): Promise<SaveAssetRecord[]> {
@@ -357,9 +361,6 @@ async function rebuildAssetIndexFromMetadata(
     updatedAt: Date.now(),
     assets: assets.sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)),
   };
-  if (index.assets.length > 0) {
-    await writeAssetIndex(index.assets);
-  }
   return index;
 }
 

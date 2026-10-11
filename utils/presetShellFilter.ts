@@ -230,8 +230,7 @@ export function stripNonDisplayableShell(input: string): string {
   // 未闭合且位于块首的思维链/元信息：按「到块尾」处理（它们总是写在开头）
   const headRe = new RegExp(`^\\s*<\\s*(?:${THINKING_GROUP}|${META_GROUP})\\b[^>]*>[\\s\\S]*$`, 'iu');
   if (headRe.test(text)) {
-    text = text.replace(new RegExp(`^\\s*<\\s*(?:${THINKING_GROUP}|${META_GROUP})\\b[^>]*>`, 'iu'), '');
-    text = text.replace(new RegExp(`<\\s*\\/\\s*(?:${THINKING_GROUP}|${META_GROUP})\\s*>`, 'giu'), '');
+    return '';
   }
   text = text.replace(new RegExp(`<\\s*\\/?\\s*(?:${THINKING_GROUP}|${META_GROUP})\\b[^>]*>`, 'giu'), '\n');
   return text.replace(/\n{3,}/gu, '\n\n').trim();

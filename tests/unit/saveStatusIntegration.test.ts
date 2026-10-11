@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { createEmptyTeyvatGameState } from '@/models/teyvat';
 import type { UseGameStateReturn } from '@/hooks/useGameState';
-import { applySaveToState, handleManualSave } from '@/hooks/useGame/saveLoadWorkflow';
+import { applySaveToState, handleManualSave, clearActiveSaveTreeMetaIfMatches } from '@/hooks/useGame/saveLoadWorkflow';
 import { runAutoSaveStage, type RunAutoSaveStageDeps } from '@/hooks/useGame/autoSaveStage';
 import { persistMemorySnapshot } from '@/hooks/useGame/memorySaveTask';
 import { saveStatusStore } from '@/utils/saveStatus';
@@ -23,6 +23,7 @@ vi.mock('@/services/dbService', () => ({
 
 let sessionId = 100;
 beforeEach(() => {
+  clearActiveSaveTreeMetaIfMatches();
   sessionId += 1;
   db.saveGame.mockReset();
 });

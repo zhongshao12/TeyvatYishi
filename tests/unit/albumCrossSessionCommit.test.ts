@@ -9,6 +9,7 @@ import { 创建空相册系统 } from '@/models/imageGeneration';
 import { 创建空角色 } from '@/models/character';
 import { 创建默认游戏设置 } from '@/models/settings';
 import { clearAlbumAssetObjectUrlCache } from '@/utils/albumObjectUrl';
+import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
 
 /**
  * P1-B02：相册手动生图完成后**不得**把结果写进另一个存档。
@@ -27,6 +28,8 @@ import { clearAlbumAssetObjectUrlCache } from '@/utils/albumObjectUrl';
 
 const generateImageMock = vi.fn();
 const extractAnchorMock = vi.fn();
+let usePromptModel = false;
+let useQualityPreset = false;
 
 vi.mock('@/services/ai/imageGeneration', () => ({
   generateImage: (...args: unknown[]) => generateImageMock(...args),
@@ -34,6 +37,10 @@ vi.mock('@/services/ai/imageGeneration', () => ({
 }));
 vi.mock('@/services/ai/characterAnchorExtract', () => ({
   extractCharacterAnchorWithAI: (...args: unknown[]) => extractAnchorMock(...args),
+}));
+vi.mock('@/services/ai/chatCompletionClient', async importOriginal => ({
+  ...await importOriginal<typeof import('@/services/ai/chatCompletionClient')>(),
+  chatCompletionNonStream: vi.fn(async () => { throw new Error('offline prompt test'); }),
 }));
 
 const { AlbumPanel } = await import('@/components/features/GameSystems/AlbumPanel');
@@ -48,6 +55,11 @@ const amber = (): NPC记录 => ({
 const imageGameSettings = () => {
   const settings = 创建默认游戏设置();
   settings.文生图系统.enabled = true;
+  settings.文生图系统.enablePromptTokenizer = usePromptModel;
+  if (useQualityPreset) {
+    settings.文生图系统.rules.质量增强预设列表 = [{ id: 'test-quality', 名称: '测试画风', 正面提示词: 'fine watercolor paper grain', 负面提示词: 'weak lighting', createdAt: 1, updatedAt: 1 }];
+    settings.文生图系统.rules.当前质量增强预设ID = 'test-quality';
+  }
   settings.文生图系统.普通接口 = {
     ...settings.文生图系统.普通接口,
     enabled: true,
@@ -217,6 +229,9 @@ describe('B02 生图完成不得写进另一个存档', () => {
     });
     generateImageMock.mockReset();
     extractAnchorMock.mockReset();
+    usePromptModel = false;
+    useQualityPreset = false;
+    vi.mocked(chatCompletionNonStream).mockReset().mockRejectedValue(new Error('offline prompt test'));
     sessionId = 1;
     sessions = { 1: newSlot(), 2: newSlot() };
   });
@@ -243,7 +258,7 @@ describe('B02 生图完成不得写进另一个存档', () => {
 
   /** A 档里点「生成」：phase-1 立刻登记任务，然后等待可控的网络 deferred。 */
   async function startGeneration() {
-    const pending = deferred<{ src: string }>();
+    const pending = deferred<{ src: string; finalPrompt?: string; finalNegativePrompt?: string; promptCompacted?: boolean }>();
     outstanding = pending;
     generateImageMock.mockImplementation(() => pending.promise);
     const companion = selectByLabel('选择伙伴');
@@ -269,6 +284,116 @@ describe('B02 生图完成不得写进另一个存档', () => {
     await startGeneration();
     expect(sessions[1]!.album.current.tasks).toHaveLength(1);
     expect(sessions[1]!.album.current.tasks[0]?.targetId).toBe('npc_amber');
+  });
+
+  it('相册与成功任务保存供应商实际发送的精简提示词，仍保留原始来源', async () => {
+    await mountPanel();
+    const pending = await startGeneration();
+    await act(async () => { pending.resolve({ src: 'data:image/png;base64,QU1CRVI=', finalPrompt: 'Amber, red ribbon', finalNegativePrompt: 'blurry', promptCompacted: true }); });
+    await settle(() => sessions[1]!.album.current.tasks[0]?.status === 'success');
+    const album = sessions[1]!.album.current;
+    expect(album.assets.find(asset => asset.id === album.entries[0]?.assetId)).toMatchObject({ prompt: 'Amber, red ribbon', finalPrompt: 'Amber, red ribbon', finalNegativePrompt: 'blurry', sourcePrompt: '安柏的骑士团头像' });
+    expect(album.tasks[0]).toMatchObject({ finalPrompt: 'Amber, red ribbon', finalNegativePrompt: 'blurry', status: 'success' });
+    expect(document.body.textContent).toContain('实际提示词已保存在图片详情');
+  });
+
+  it('伙伴头像的生成提示词按钮在未启用转化器时也展示精简草稿', async () => {
+    sessions[1]!.npcs.current[0]!.外貌 = 'brown hair, amber eyes';
+    sessions[1]!.npcs.current[0]!.穿着 = 'red rabbit ribbon';
+    await mountPanel();
+    await act(async () => {
+      const companion = selectByLabel('选择伙伴');
+      companion.value = 'npc_amber';
+      companion.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => { exactButton('生成提示词').click(); });
+    const prompt = Array.from(document.querySelectorAll('textarea')).find(candidate => candidate.rows === 7 && !candidate.placeholder)!;
+    expect(prompt.value.length).toBeLessThanOrEqual(1800);
+    for (const tag of ['安柏', 'brown hair', 'amber eyes', 'red rabbit ribbon']) expect(prompt.value).toContain(tag);
+    expect(document.body.textContent).toContain('自动精简');
+  });
+
+  it('精简伙伴头像不重新启用已关闭的角色锚点', async () => {
+    const npc = sessions[1]!.npcs.current[0]!;
+    npc.外貌 = 'brown hair';
+    npc.图像档案 = { 角色锚点: { 是否启用: false, 正面提示词: 'silver hair' } };
+    await mountPanel();
+    await act(async () => {
+      const companion = selectByLabel('选择伙伴');
+      companion.value = 'npc_amber';
+      companion.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => { exactButton('生成提示词').click(); });
+    const prompt = Array.from(document.querySelectorAll('textarea')).find(candidate => candidate.rows === 7 && !candidate.placeholder)!;
+    expect(prompt.value).toContain('brown hair');
+    expect(prompt.value).not.toContain('silver hair');
+  });
+
+  it.each([
+    ['璃月港无人街道', false],
+    ['安柏站在蒙德城喷泉旁', true],
+  ])('场景精简遵守出场人物和场景锚点开关：%s', async (source, visible) => {
+    const npc = sessions[1]!.npcs.current[0]!;
+    npc.同行 = true;
+    npc.外貌 = 'brown hair';
+    if (!visible) sessions[1]!.traveler.current.图像档案 = { 角色锚点: { 是否启用: true, 正面提示词: 'purple player hair' } };
+    if (visible) npc.图像档案 = { 角色锚点: { 是否启用: true, 场景生图自动注入: false, 正面提示词: 'silver hair' } };
+    await mountPanel();
+    const tab = Array.from(document.querySelectorAll('button')).find(candidate => candidate.textContent?.includes('场景图'))!;
+    await act(async () => { tab.click(); });
+    const input = Array.from(document.querySelectorAll('textarea')).find(candidate => candidate.placeholder.includes('写清地点、天气'))!;
+    await act(async () => { setTextareaValue(input, source); });
+    await act(async () => { exactButton('解析场景提示词').click(); });
+    const prompt = Array.from(document.querySelectorAll('textarea')).find(candidate => candidate.rows === 7 && !candidate.placeholder)!;
+    expect(prompt.value).not.toContain('silver hair');
+    if (!visible) expect(prompt.value).not.toContain('purple player hair');
+    if (visible) expect(prompt.value).toContain('brown hair');
+    else expect(prompt.value).not.toContain('character 安柏');
+  });
+
+  it.each([
+    ['场景图', '解析场景提示词', '写清地点、天气'],
+    ['故事快照', '生成快照提示词', '粘贴或选择'],
+  ])('%s 模型不可用时，生成按钮仍展示精简草稿', async (tab, buttonLabel, placeholder) => {
+    await mountPanel();
+    const tabButton = Array.from(document.querySelectorAll('button')).find(candidate => candidate.textContent?.includes(tab));
+    if (!tabButton) throw new Error(`找不到 ${tab}`);
+    await act(async () => { tabButton.click(); });
+    const input = Array.from(document.querySelectorAll('textarea')).find(candidate => candidate.placeholder.includes(placeholder));
+    if (!input) throw new Error('找不到场景输入框');
+    await act(async () => { setTextareaValue(input, '安柏站在蒙德城喷泉旁，夕阳照亮红色兔耳发带。'); });
+    await act(async () => { exactButton(buttonLabel).click(); });
+    if (!Array.from(document.querySelectorAll('textarea')).some(candidate => candidate.rows === 7 && !candidate.placeholder)) {
+      await act(async () => { exactButton('高级提示词编辑').click(); });
+    }
+    const prompt = Array.from(document.querySelectorAll('textarea')).find(candidate => candidate.rows === 7 && !candidate.placeholder)!;
+    expect(prompt.value.length).toBeLessThanOrEqual(1800);
+    expect(prompt.value).toContain('蒙德');
+    expect(document.body.textContent).toContain('自动精简');
+  });
+
+  it('场景图模型成功后，精简草稿同时保留模型结果、启用锚点和质量增强', async () => {
+    usePromptModel = true;
+    useQualityPreset = true;
+    sessions[1]!.npcs.current[0]!.图像档案 = { 角色锚点: { 是否启用: true, 正面提示词: 'silver hair, green ribbon', 负面提示词: 'red ribbon' } };
+    vi.mocked(chatCompletionNonStream).mockResolvedValue(JSON.stringify({
+      scene: { title: '喷泉灯火', location: '蒙德喷泉', atmosphere: '灯火', subject: '安柏在喷泉旁挥手', camera: '中景', avoid: '' },
+      prompt: 'Mondstadt fountain, evening lanterns, waving, cinematic framing', negativePrompt: 'fog',
+    }));
+    await mountPanel();
+    const tab = Array.from(document.querySelectorAll('button')).find(candidate => candidate.textContent?.includes('场景图'))!;
+    await act(async () => { tab.click(); });
+    const input = Array.from(document.querySelectorAll('textarea')).find(candidate => candidate.placeholder.includes('写清地点、天气'))!;
+    await act(async () => { setTextareaValue(input, '安柏站在喷泉旁。'); });
+    await act(async () => { exactButton('解析场景提示词').click(); });
+    await act(async () => { exactButton('高级提示词编辑').click(); });
+    const prompt = Array.from(document.querySelectorAll('textarea')).find(candidate => candidate.rows === 7 && !candidate.placeholder)!;
+    const negative = Array.from(document.querySelectorAll('textarea')).find(candidate => candidate.rows === 3 && !candidate.placeholder)!;
+    for (const fact of ['evening lanterns', 'silver hair', 'green ribbon', 'fine watercolor paper grain']) expect(prompt.value).toContain(fact);
+    for (const fact of ['fog', 'red ribbon', 'weak lighting']) expect(negative.value).toContain(fact);
+    expect(prompt.value).not.toMatch(/APPEARANCE LOCK|higher priority|unless the user/i);
+    expect(prompt.value.length).toBeLessThanOrEqual(1800);
+    expect(chatCompletionNonStream).toHaveBeenCalledTimes(1);
   });
 
   it('A 档启动生图后切到 B 档：完成结果不进入 B 档', async () => {
@@ -297,6 +422,17 @@ describe('B02 生图完成不得写进另一个存档', () => {
     expect(albumA.tasks[0]?.status).toBe('success');
     expect(albumA.entries).toHaveLength(1);
     expect(albumA.assets).toHaveLength(1);
+  });
+
+  it('面板保持打开切换存档后，新档仍可正常登记和完成生图', async () => {
+    await mountPanel();
+    await switchToSession(2);
+    const pending = await startGeneration();
+    expect(sessions[2]!.album.current.tasks).toHaveLength(1);
+    await act(async () => { pending.resolve({ src: 'data:image/png;base64,Ql9JTUFHRQ==' }); });
+    await settle(() => sessions[2]!.album.current.tasks[0]?.status === 'success');
+    expect(sessions[2]!.album.current.entries).toHaveLength(1);
+    expect(sessions[1]!.album.current.entries).toHaveLength(0);
   });
 
   it('切档后旧结果既不写新档，也不回到原档（不产生悬挂任务）', async () => {

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { readWorkflowSources } from './lib/workflowSources.mjs';
+import { runFocusedBehaviorRegression } from './lib/runFocusedBehaviorRegression.mjs';
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
 
@@ -39,7 +40,7 @@ const resumeStart = postSettlementRecovery.indexOf('export async function runPos
 const resumeEnd = postSettlementRecovery.length;
 const resumeBody = postSettlementRecovery.slice(resumeStart, resumeEnd);
 assert(resumeStart >= 0 && resumeEnd > resumeStart, 'post-settlement recovery implementation must exist.');
-assert(resumeBody.includes('runSteambirdGenerationStep') && resumeBody.includes('processScheduledCourierSeeds') && resumeBody.includes('buildIrminsulArchiveEntry'), 'recovery tail must continue Steambird, Courier, and Irminsul work.');
+runFocusedBehaviorRegression(['tests/unit/recoveryTailParity.test.ts', 'tests/unit/postSettlementRecovery.test.ts']);
 assert(resumeBody.includes('generateNarrativeImagesForMessage') && resumeBody.includes("buildSavePayload(state, 'auto'"), 'recovery tail must continue image work and autosave.');
 assert(resumeBody.includes('journal.committedState') && resumeBody.includes('committed.对话.entries'), 'recovery tail must consume the durable committed root and its formal history.');
 assert(!resumeBody.includes('state.chatHistory') && !resumeBody.includes('state.NPC'), 'recovery tail must not read stale React history or NPC domain state.');

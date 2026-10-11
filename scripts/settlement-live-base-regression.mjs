@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { runFocusedBehaviorRegression } from './lib/runFocusedBehaviorRegression.mjs';
 
 /**
  * 「结算提交必须落到活体根」的接线门禁。
@@ -52,7 +53,10 @@ const entryStart = sendWorkflow.indexOf('export async function runVariableCalibr
 assert(entryStart !== -1, '找不到变量结算入口 runVariableCalibrationStep。');
 const entry = sendWorkflow.slice(entryStart);
 assertIncludes(entry, 'readLiveGameState(state)', '结算入口必须同步读取活体根作为基准。');
-assertIncludes(entry, 'const saveToken = capturePostSettlementSaveToken(liveBase);', '存档身份令牌必须取自活体根。');
+assertIncludes(entry, 'const settlementSessionId = state.getGameSessionId();', '结算身份必须取运行时 session：聊天裁剪不是切档，相同聊天也不代表同一份存档。');
+assert(entry.indexOf('const settlementSessionId') < entry.indexOf('await import('), '必须在异步模块加载前捕获 session 身份。');
+assertIncludes(entry, 'state.getGameSessionId() !== settlementSessionId', '提交必须拒绝等待期间切换的 session。');
+assertIncludes(entry, 'liveNow.turnCount !== liveBase.turnCount', '提交必须拒绝已推进或回退的回合。');
 assertIncludes(entry, 'const liveNow = readLiveGameState(state);', '提交前必须再同步读一次活体根做 CAS，而不是在 updater 里被动等待。');
 assertIncludes(entry, 'rebaseSettlementState({ ancestor: liveBase,', '并发合并的祖先必须是结算开始时的活体根。');
 assert(
@@ -153,17 +157,14 @@ assert(
 );
 
 // ── G) 恢复尾流程不得整根替换（对抗审查 2026-09-20 第 2 条：A3 类） ──
-const postRecovery = read('hooks/useGame/postSettlementRecoveryWorkflow.ts');
-assertIncludes(
-  postRecovery,
-  'committed = rebaseSettlementState({ ancestor, next, current }).state;',
-  '恢复尾流程提交不得整根替换：长耗时生图等待期间的玩家改动必须按切片合并保留。',
-);
-assertIncludes(
-  postRecovery,
-  'commitPostSettlementBackgroundState(state, saveToken, backgroundState, liveBase, sessionId)',
-  '恢复尾流程必须拿到开始恢复时的活体根作合并祖先。',
-);
+// The recovery finalizer now applies task deltas after the slice rebase. Verify
+// the original safety contract through real concurrent writes and React CAS,
+// instead of requiring an exact assignment/call spelling from the old version.
+runFocusedBehaviorRegression([
+  'tests/unit/postSettlementRecoveryCommitCas.test.ts',
+  'tests/unit/postSettlementRecovery.test.ts',
+  'tests/unit/recoveryTailParity.test.ts',
+]);
 
 // ── H) 手机回信的 NPC 写回（对抗审查 2026-09-20 第 4 条） ──
 const appSource = read('App.tsx');

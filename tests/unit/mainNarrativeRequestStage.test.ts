@@ -18,6 +18,36 @@ function resultWithBody(text: string): ChatResult {
 }
 
 describe('main narrative request stage', () => {
+  it('does not use system panels to satisfy a preset narrative length requirement', async () => {
+    const result = resultWithBody('文'.repeat(800));
+    result.parsed.body.push({ kind: 'system', text: '面'.repeat(2300) });
+    const details: string[] = [];
+    let attempts = 0;
+    const output = await runValidatedMainNarrativeRequest({
+      maxAttempts: 3, wordCountTarget: 3000,
+      request: async () => { attempts++; return result; },
+      getMissingPartyMembers: () => [],
+      onValidationIssue: issue => { details.push(issue.detail); },
+    });
+    expect(attempts).toBe(2);
+    expect(output.wordCountRetried).toBe(true);
+    expect(details).toEqual(['正文只有 800 字，未达已激活酒馆预设要求的 3000 字']);
+  });
+
+  it('counts dialogue content but not speaker labels toward the preset requirement', async () => {
+    const result = resultWithBody('文'.repeat(800));
+    result.parsed.body.push({ kind: 'dialogue', speaker: '名字'.repeat(1200), text: '话'.repeat(100) });
+    const details: string[] = [];
+    let attempts = 0;
+    await runValidatedMainNarrativeRequest({
+      maxAttempts: 2, wordCountTarget: 3000,
+      request: async () => { attempts++; return result; },
+      getMissingPartyMembers: () => [],
+      onValidationIssue: issue => { details.push(issue.detail); },
+    });
+    expect(attempts).toBe(2);
+    expect(details).toEqual(['正文只有 900 字，未达已激活酒馆预设要求的 3000 字']);
+  });
   it('forwards sampling options and reparses transformed provider output', async () => {
     let capturedTopP: number | undefined;
     const output = await requestMainNarrativeAttempt({

@@ -2,7 +2,7 @@ import { CLIP_CARD, CLIP_MEDIUM, CLIP_SMALL, CLIP_XS, gradientAccent, insetRing 
 import { ConfirmDialogHost, Modal, useConfirmDialog, type ConfirmDialogRequest } from '@/components/ui/Modal';
 import { pushToast } from '@/utils/toastStore';
 import { toUserFacingError } from '@/utils/userFacingError';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import type { 游戏设置, API设置, API配置项 } from '@/models/settings';
 import type { PromptDeliveryTarget, 提示词模块, 提示词模块类目, 提示词模块作用域 } from '@/models/prompts';
 import {
@@ -25,7 +25,7 @@ import {
 import type { STPresetEntry, STPresetEntryV2, STSamplingParams, STWorldInfoEntry } from '@/models/stTypes';
 import { extractSTPresetSamplingParams } from '@/utils/stSettingsNormalizer';
 import type { 世界书 } from '@/models/worldbook';
-import { analyzeTavernRegexScript, dryRunTavernRegexScript, extractTavernRegexScripts } from '@/hooks/useGame/tavernRegexProcessor';
+import { analyzeTavernRegexScript, dryRunTavernRegexScript, extractTavernRegexScripts, mergeTavernRegexImport } from '@/hooks/useGame/tavernRegexProcessor';
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -140,7 +140,7 @@ interface Props {
 
 // ── Phase 8：采样参数同步辅助函数 ──────────────────────────────────
 /** 从 API 配置项提取采样参数快照（用于切走带参数预设时备份原始值）。 */
-function extractSamplingParams(config: API配置项): STSamplingParams {
+function extractSamplingParams(config: STSamplingParams): STSamplingParams {
   return {
     temperature: config.temperature,
     topP: config.topP,
@@ -204,7 +204,9 @@ function computePresetSwitchApiChange(
   }
   // 切到无参数预设/null：有备份则恢复，无备份则不动
   if (currentBackup) {
-    const nextConfig = applySamplingParams(activeConfig, currentBackup);
+    // Restore the entire snapshot, including unset keys omitted by JSON storage.
+    // Partial application uses ??; restoration must explicitly clear preset-only fields.
+    const nextConfig = { ...activeConfig, ...extractSamplingParams(currentBackup) };
     return {
       nextConfigs: configs.map((c, i) => (i === activeIndex ? nextConfig : c)),
       nextBackup: null,
@@ -1197,6 +1199,9 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
                 <div>
                   原生 NarrativeTurn 协议、回复格式、变量协议、行动选项、天气和独立系统提示词不在这里编辑。
                 </div>
+                <div>
+                  正文的文风、字数与段落偏好以预设中已启用的项目为准；仅导入不会开启禁用项。预设的正文标签映射到游戏正文，外层仍使用 NarrativeTurn JSON；不输出思维链、隐藏分析或 HTML 状态栏。
+                </div>
               </div>
             </div>
           </div>
@@ -1398,6 +1403,12 @@ function V2PresetSwitcher({
   const current = dirty && persistedCurrent && draft
     ? { ...persistedCurrent, preset: draft.preset }
     : persistedCurrent;
+  const regexImportTarget = useRef({ current, saving, mounted: true });
+  regexImportTarget.current = { current, saving, mounted: regexImportTarget.current.mounted };
+  useEffect(() => {
+    regexImportTarget.current.mounted = true;
+    return () => { regexImportTarget.current.mounted = false; };
+  }, []);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const characterIds = current?.preset.prompt_order.map((item) => item.character_id) ?? [];
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
@@ -1407,6 +1418,8 @@ function V2PresetSwitcher({
   const [aiReviewText, setAiReviewText] = useState('');
   const [selectedRegexIndex, setSelectedRegexIndex] = useState(0);
   const [regexDryRunSample, setRegexDryRunSample] = useState(DEFAULT_TAVERN_REGEX_DRY_RUN_SAMPLE);
+  const [regexPreviewDepth, setRegexPreviewDepth] = useState(0);
+  const [regexPreviewTarget, setRegexPreviewTarget] = useState<'prompt' | 'display'>('prompt');
   const selectedCharacterId = currentCharacterId ?? current?.characterId ?? current?.preset.prompt_order[0]?.character_id ?? null;
   const selectedOrder = current
     ? current.preset.prompt_order.find((item) => item.character_id === selectedCharacterId) ??
@@ -1455,7 +1468,7 @@ function V2PresetSwitcher({
   const effectiveRegexIndex = regexScripts.length > 0 ? Math.min(selectedRegexIndex, regexScripts.length - 1) : 0;
   const selectedRegexScript = regexScripts[effectiveRegexIndex];
   const selectedRegexSafety = selectedRegexScript ? regexScriptSafety[effectiveRegexIndex] : null;
-  const selectedRegexDryRun = selectedRegexScript ? dryRunTavernRegexScript(selectedRegexScript, regexDryRunSample) : null;
+  const selectedRegexDryRun = selectedRegexScript ? dryRunTavernRegexScript(selectedRegexScript, regexDryRunSample, { destination: regexPreviewTarget, depth: regexPreviewDepth, placement: Array.isArray(selectedRegexScript.placement) ? Number(selectedRegexScript.placement[0]) : 2 }) : null;
   const scanIssues = [
     unmatchedSlotCount > 0 ? `${unmatchedSlotCount} 个顺序项没有匹配内容` : '',
     disabledRuntimeCount > 0 ? `${disabledRuntimeCount} 个运行时槽位被关闭` : '',
@@ -1463,7 +1476,7 @@ function V2PresetSwitcher({
     advancedMacroSlotCount > 0 ? `${advancedMacroSlotCount} 个条目含高级宏` : '',
     enabledWorldInfoCount > 80 ? `${enabledWorldInfoCount} 个 world_info 已启用，可能挤占上下文` : '',
     constantWorldInfoCount > 20 ? `${constantWorldInfoCount} 个 world_info 常驻条目，建议确认是否必要` : '',
-    regexScripts.length > 0 ? `${regexScripts.length} 个 regex_scripts 已保留；安全输出清理类会在主剧情后处理执行` : '',
+    regexScripts.length > 0 ? `${regexScripts.length} 个 regex_scripts 已保留；纯文本规则按发送/显示范围和消息深度执行，HTML 美化不执行` : '',
     enabledRiskyRegexScriptCount > 0 ? `${enabledRiskyRegexScriptCount} 个高风险 regex_scripts 处于启用状态（仍不会执行）` : '',
   ].filter(Boolean);
 
@@ -1474,6 +1487,32 @@ function V2PresetSwitcher({
       return;
     }
     onPresetChange(current.id, nextPreset);
+  };
+
+  const importRegexPackage = () => {
+    if (!current || current.isBuiltin || saving) return;
+    const target = current;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const live = regexImportTarget.current;
+        if (!live.mounted || live.current?.id !== target.id || live.saving) {
+          if (live.mounted) pushToast({ kind: 'error', title: '正则包未导入', detail: '读取文件期间预设已切换或正在保存，请在目标预设中重新导入。' });
+          return;
+        }
+        const result = mergeTavernRegexImport(live.current.preset, text);
+        setDraft({ presetId: target.id, preset: result.preset });
+        pushToast({ kind: 'success', title: '正则包已加入预设草稿', detail: `新增 ${result.added} 条，重复 ${result.duplicates} 条；点击「保存修改」后生效。HTML/CSS/脚本美化不执行。` });
+      } catch (error) {
+        pushToast({ kind: 'error', title: '正则包导入失败', detail: toUserFacingError(error) });
+      }
+    };
+    input.click();
   };
 
   const saveDraft = async () => {
@@ -1582,7 +1621,7 @@ function V2PresetSwitcher({
       unmatchedSlotCount > 0 ? '- 未匹配项不会注入正文，建议确认是否为预设占位符。' : '- prompt_order 引用基本完整。',
       advancedMacroSlotCount > 0 ? '- 高级宏集中条目不要轻易关闭，建议逐条查看右侧宏检测。' : '- 未发现高级宏集中风险。',
       enabledWorldInfoCount > 0 ? '- world_info 会按关键词命中后进入主剧情酒馆消息链，不影响独立系统。' : '- 未检测到附带 world_info。',
-      regexScripts.length > 0 ? '- regex_scripts 仅放开安全输出清理类；HTML 注释、抗截断/抗空回占位等会在主剧情后处理清理，高风险脚本仍只展示和干跑。' : '- 未检测到附带 regex_scripts。',
+      regexScripts.length > 0 ? '- regex_scripts 按发送/显示范围与消息深度处理文本副本；HTML/CSS/脚本美化不执行，原始聊天与存档不改写。' : '- 未检测到附带 regex_scripts。',
       '- 我们会在消息链末尾保留格式保护和行动选项兜底，降低正文格式被预设破坏的风险。',
     ];
     return lines.join('\n');
@@ -2034,10 +2073,11 @@ function V2PresetSwitcher({
                   boxShadow: 'inset 0 0 0 1px rgba(var(--tj-ui-nsfw), 0.18)',
                   clipPath: CLIP_SMALL,
                 }}>
-                  仅审查 / 干跑
+                  文本兼容 / 美化受限
                 </span>
               </div>
               <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.6)' }}>
+                <button type="button" disabled={!current || current.isBuiltin || saving} onClick={importRegexPackage} className="px-2 py-1" style={{ boxShadow: insetRing(0.18) }}>导入正则包</button>
                 <span>总数 {regexScripts.length}</span>
                 <span>未禁用 {enabledRegexScriptCount}</span>
                 <span style={{ color: riskyRegexScriptCount > 0 ? 'rgba(var(--tj-ui-nsfw), 0.86)' : 'rgba(var(--tj-text-secondary), 0.6)' }}>
@@ -2062,7 +2102,7 @@ function V2PresetSwitcher({
                   当前预设没有附带 regex_scripts
                 </div>
                 <div>
-                  如果导入的 ST 预设包含正则脚本，这里会显示脚本列表、风险类型、协议标签检查和干跑预览。主剧情只会执行安全输出清理类正则。
+                  如果导入的 ST 预设包含正则脚本，这里会显示脚本列表、风险类型、协议标签检查和干跑预览。纯文本规则按来源、发送/显示范围和消息深度处理副本，不改原始回复或存档。
                 </div>
               </div>
             ) : (
@@ -2071,7 +2111,7 @@ function V2PresetSwitcher({
             >
                 <div className="flex min-h-0 flex-col gap-2 overflow-hidden">
                   <div className="text-xs leading-5" style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>
-                    regex_scripts 会被保留并分析风险；安全输出清理类会在主剧情后处理执行，高风险脚本仍不会改写正文输出。
+                    纯文本规则按发送/显示范围及消息深度处理副本，不改原始聊天、变量和存档。HTML/CSS/脚本美化与自动发送不执行，使用游戏原生界面。
                   </div>
                   <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
                     {regexScripts.map((script, index) => {
@@ -2189,6 +2229,10 @@ function V2PresetSwitcher({
                         <div className="flex min-h-0 flex-col gap-2 overflow-hidden">
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>干跑预览</span>
+                            <select aria-label="正则预览目标" value={regexPreviewTarget} onChange={e => setRegexPreviewTarget(e.target.value as 'prompt' | 'display')} className="bg-transparent text-xs">
+                              <option value="prompt">发送副本</option><option value="display">显示副本</option>
+                            </select>
+                            <label className="text-xs">深度 <input aria-label="正则预览深度" type="number" min={0} value={regexPreviewDepth} onChange={e => setRegexPreviewDepth(Math.max(0, Math.trunc(Number(e.target.value) || 0)))} className="w-12 bg-transparent" /></label>
                             <button
                               type="button"
                               onClick={() => setRegexDryRunSample(DEFAULT_TAVERN_REGEX_DRY_RUN_SAMPLE)}
@@ -2225,7 +2269,7 @@ function V2PresetSwitcher({
                         </div>
                       </div>
                       <div className="text-xs leading-5" style={{ color: 'rgba(var(--tj-text-secondary), 0.56)' }}>
-                    当前仅展示替换结果和风险判断，不会写入预设；真实运行只放开安全输出清理类正则。
+                    干跑不保存修改；保存后纯文本规则仅作用于发送/显示副本，HTML/CSS/脚本不执行。
                       </div>
                     </>
                   ) : (

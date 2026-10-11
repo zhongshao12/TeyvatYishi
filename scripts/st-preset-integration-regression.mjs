@@ -124,7 +124,7 @@ assert(!tavernBuildCall.includes('chatHistory: updatedHistory') && !tavernBuildC
 assert(contextSnapshot.includes('酒馆预设消息链') && contextSnapshot.includes('只使用原生近期历史窗口') && contextSnapshot.includes('排除当前用户输入'), 'Tavern V2 snapshot must separate preset messages and document the filtered limited history window');
 
 const regexProcessor = read('hooks/useGame/tavernRegexProcessor.ts');
-assert(regexProcessor.includes('applyTavernOutputRegexScripts') && regexProcessor.includes('isSafeOutputCleanupCandidate'), 'regex_scripts runtime must only allow the safe output-cleanup layer');
+assert(regexProcessor.includes('applyTavernScopedRegexScripts') && read('hooks/useGame/mainNarrativeStreamingStage.ts').indexOf('applyTavernOutputRegexScripts') < 0, 'regex_scripts must run on scoped copies, never transform the raw model response');
 assert(regexProcessor.includes('blocked') && regexProcessor.includes('dryRunTavernRegexScript'), 'high-risk regex_scripts must stay behind the safety/dry-run layer');
 
 const independentSystemFiles = [

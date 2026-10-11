@@ -143,18 +143,22 @@ function sanitizeFailureMessage(error: unknown, secrets: string[]): string {
 
 function buildFallbackSummary(items: string[], turn: number, kind: MemoryCompressionKind): string {
   const title = kind === 'short' ? '即时转短期' : kind === 'middle' ? '短期转中期' : '中期转长期';
-  const maxLines = kind === 'short' ? 6 : 8;
   const lines = dedupeLines(
     items
-      .map((item) => normalizeLine(item, kind === 'short' ? 96 : 120))
+      .map((item) => {
+        // Player input can be much longer than the actual settled result. Keep a
+        // result excerpt for every source; the archive, not this excerpt, owns raw facts.
+        const response = kind === 'short' ? item.split('剧情回应：').slice(1).join('剧情回应：').trim() : '';
+        return normalizeLine(response || item, kind === 'short' ? 96 : 120);
+      })
       .filter(Boolean),
-  ).slice(0, maxLines);
+  );
 
   if (!lines.length) {
     return `【${title}·回合${turn}】\n- 空白`;
   }
 
-  return [`【${title}·回合${turn}】`, ...lines.map((line) => (line.startsWith('- ') ? line : `- ${line}`))].join('\n');
+  return [`【${title}·回合${turn}·本地摘录，完整事实见来源归档】`, ...lines.map((line) => (line.startsWith('- ') ? line : `- ${line}`))].join('\n');
 }
 
 function getCompressionLabel(kind: MemoryCompressionKind): string {

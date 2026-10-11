@@ -4,6 +4,7 @@ import type { CourierConversation, CourierSystem } from '@/models/teyvat/courier
 import {
   addNpcToCourierContacts,
   calculateCourierUnread,
+  removeCourierContact,
 } from '@/services/ai/courierService';
 import { CLIP_ITEM } from '@/styles/clipPaths';
 import { displayCourierContactName, setCourierContactRemark } from '@/services/courierContactRemark';
@@ -175,7 +176,7 @@ export const CourierContactTools = memo(function CourierContactTools({
                 className="min-h-11 shrink-0 px-2 text-xs"
                 style={{ color: 'rgba(69,56,42,0.88)' }}
               >备注</button>
-              <button type="button" onClick={() => commit((previous) => ({ ...previous, contacts: previous.contacts.filter((item) => item.id !== contact.id) }))} aria-label={`删除联系人 ${contact.name}`} className="min-h-11 shrink-0 px-3 text-xs" style={{ color: 'rgba(var(--tj-danger),0.9)' }}>
+              <button type="button" onClick={() => commit((previous) => removeCourierContact(previous, contact.id))} aria-label={`删除联系人 ${contact.name}`} className="min-h-11 shrink-0 px-3 text-xs" style={{ color: 'rgba(var(--tj-danger),0.9)' }}>
                 删除
               </button>
               {editingContactId === contact.id && (

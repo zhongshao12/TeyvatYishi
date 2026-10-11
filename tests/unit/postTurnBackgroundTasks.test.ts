@@ -5,8 +5,8 @@ import {
 } from '@/hooks/useGame/postTurnBackgroundTasks';
 
 describe('post-turn background task orchestration', () => {
-  it('builds one concise Steambird article only when the turn is eligible', () => {
-    const output = runSteambirdPostTurnTask({
+  it('does not turn raw narration into public news without a confirmed fact task', async () => {
+    const output = await runSteambirdPostTurnTask({
       enabled: true,
       shouldRun: true,
       openingTurn: false,
@@ -18,10 +18,10 @@ describe('post-turn background task orchestration', () => {
       now: 1000,
     });
 
-    expect(output.status).toBe('success');
-    expect(output.changed).toBe(true);
-    expect(output.news.articles).toHaveLength(1);
-    expect(output.news.articles[0]?.body).toContain('骑士团确认城门恢复通行');
+    expect(output.status).toBe('skipped');
+    expect(output.changed).toBe(false);
+    expect(output.news.articles).toHaveLength(0);
+    expect(output.detail).toContain('没有已确认公开的事实载荷');
   });
 
   it('runs every task in deterministic order in sequential mode', async () => {

@@ -35,7 +35,7 @@ assert(tab.includes('regex_scripts') && tab.includes('正则脚本：') && tab.i
 assert(tab.includes('预设正则脚本') && tab.includes('dryRunTavernRegexScript') && tab.includes('DEFAULT_TAVERN_REGEX_DRY_RUN_SAMPLE'), '酒馆预设 UI 必须提供 ST regex_scripts 查看和干跑预览。');
 assert(tab.includes('data-tavern-regex-panel="true"') && tab.includes('当前预设没有附带 regex_scripts'), '酒馆预设 UI 必须常驻显示正则面板入口，即使当前预设没有 regex_scripts。');
 assert(tab.includes('scriptName') && tab.includes('findRegex') && tab.includes('replaceString'), '酒馆预设正则 UI 必须兼容 ST 原版驼峰字段。');
-assert(tab.includes('主剧情只会执行安全输出清理类正则') && tab.includes('真实运行只放开安全输出清理类正则'), '正则脚本 UI 必须明确只放开安全输出清理类正则。');
+assert(tab.includes('纯文本规则仅作用于发送/显示副本') && tab.includes('HTML/CSS/脚本不执行'), '正则脚本 UI 必须明确副本作用域与不执行美化脚本的边界。');
 assert(!tab.includes('chatCompletionNonStream') && !tab.includes('fallbackPrompt'), '酒馆预设本地审查不能再调用外部 AI 或保留空回重试提示词。');
 assert(!tab.includes('aiReviewApiConfigId') && !tab.includes('审查 API：跟随主 API'), '酒馆预设页不能再保留旧的审查 API 下拉选择。');
 assert(!tab.includes('buildEffectivePresetReviewApiConfig') && !tab.includes('settings.stAiReviewApi'), '酒馆预设页不能再依赖预设审查子 API 配置。');

@@ -13,6 +13,7 @@ const canonical = fs.readFileSync('data/canonicalCharacters.ts', 'utf8');
 const registry = fs.readFileSync('data/teyvatAvatarRegistry.generated.ts', 'utf8');
 const overrides = JSON.parse(fs.readFileSync('data/teyvatAvatarNameOverrides.json', 'utf8'));
 const enrichment = fs.readFileSync('utils/npcArchiveEnrichment.ts', 'utf8');
+const baseline = fs.readFileSync('utils/npcArchiveBaseline.ts', 'utf8');
 
 assert.match(canonical, /name: '影',/, '原著角色表必须有独立的「影」。');
 assert.match(canonical, /aliases: \['雷电影', 'Raiden Ei', 'Ei'\]/, '影必须带自己的别名，且不再依赖雷电将军的别名表。');
@@ -30,6 +31,13 @@ assert.match(registry, /characters\/%E5%BD%B1\.webp/, '影的默认头像路径�
 assert.equal(overrides['raiden-shogun'], '雷电将军', 'roster 覆盖表必须保留 raiden-shogun → 雷电将军。');
 
 // 档案基线：影有自己的一条，年龄确认按原著成年。
-assert.match(enrichment, /^\s{2}影: \{/m, '档案基线必须覆盖影。');
+assert.match(baseline, /^\s{2}影: \{/m, '档案基线必须覆盖影。');
+const eiBaseline = baseline.match(/^\s{2}影: \{([\s\S]*?)^\s{2}\},/m)?.[1] ?? '';
+assert.match(eiBaseline, /性别: '女'/, '影的档案基线必须保留性别。');
+assert.match(eiBaseline, /nsfw年龄确认: 'adult'/, '影的既有成年确认基线不能在拆分时丢失。');
+assert.match(eiBaseline, /雷电将军是她以自身为原型制作的人偶/, '影与人偶的独立身份介绍必须保留。');
+assert.match(enrichment, /import \{ CANONICAL_ARCHIVE_BASELINES,[^\n]+from '@\/utils\/npcArchiveBaseline'/, '档案补全必须使用拆出的同一份基线。');
+assert.match(enrichment, /export \{ getCanonicalArchiveBaselineAge \} from '@\/utils\/npcArchiveBaseline'/, '既有基线查询出口必须保留。');
+assert.doesNotMatch(baseline, /from ['"]@\/utils\/npcArchiveEnrichment['"]/, '纯基线不能反向依赖档案补全，避免循环。');
 
 console.log('teyvat ei character regression ok');

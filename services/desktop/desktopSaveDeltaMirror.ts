@@ -1,6 +1,7 @@
 import type { SaveNodeDeltaRecord } from '@/utils/saveDeltaStorage';
 import { createAppStorageAdapter } from '@/services/storage/appStorageAdapter';
 import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
+import { withDesktopStorageLock } from './desktopStorageLock';
 
 interface DesktopSaveDeltaMirrorIndex {
   version: 1;
@@ -40,6 +41,9 @@ const DELTA_RECORD_RE = /^delta-(.+)\.json$/;
 
 export async function mirrorSaveNodeDeltaToDesktop(delta: SaveNodeDeltaRecord | null | undefined): Promise<void> {
   if (!isDesktopRuntime() || !delta?.nodeId) return;
+  return withDesktopStorageLock('delta-index', () => mirrorSaveNodeDeltaToDesktopLocked(delta));
+}
+async function mirrorSaveNodeDeltaToDesktopLocked(delta: SaveNodeDeltaRecord): Promise<void> {
   const index = await readDeltaIndex();
   const nextItem = buildIndexItem(delta);
   const nextDeltas = [
@@ -59,6 +63,9 @@ export async function mirrorSaveNodeDeltaToDesktop(delta: SaveNodeDeltaRecord | 
 
 export async function removeSaveNodeDeltaFromDesktopMirror(nodeId: string): Promise<void> {
   if (!isDesktopRuntime() || !nodeId) return;
+  return withDesktopStorageLock('delta-index', () => removeSaveNodeDeltaFromDesktopMirrorLocked(nodeId));
+}
+async function removeSaveNodeDeltaFromDesktopMirrorLocked(nodeId: string): Promise<void> {
   const adapter = createAppStorageAdapter();
   const index = await readDeltaIndex();
   await adapter.remove(deltaPath(nodeId));
@@ -67,6 +74,9 @@ export async function removeSaveNodeDeltaFromDesktopMirror(nodeId: string): Prom
 
 export async function removeSaveNodeDeltasBySaveIdFromDesktopMirror(saveId: number): Promise<void> {
   if (!isDesktopRuntime()) return;
+  return withDesktopStorageLock('delta-index', () => removeSaveNodeDeltasBySaveIdFromDesktopMirrorLocked(saveId));
+}
+async function removeSaveNodeDeltasBySaveIdFromDesktopMirrorLocked(saveId: number): Promise<void> {
   const adapter = createAppStorageAdapter();
   const index = await readDeltaIndex();
   const removeItems = index.deltas.filter((item) => item.saveId === saveId);
@@ -78,6 +88,9 @@ export async function removeSaveNodeDeltasBySaveIdFromDesktopMirror(saveId: numb
 
 export async function replaceDesktopSaveDeltaMirror(deltas: SaveNodeDeltaRecord[]): Promise<void> {
   if (!isDesktopRuntime()) return;
+  return withDesktopStorageLock('delta-index', () => replaceDesktopSaveDeltaMirrorLocked(deltas));
+}
+async function replaceDesktopSaveDeltaMirrorLocked(deltas: SaveNodeDeltaRecord[]): Promise<void> {
   const adapter = createAppStorageAdapter();
   const index = await readDeltaIndex();
   for (const item of index.deltas) {
@@ -102,8 +115,11 @@ export async function replaceDesktopSaveDeltaMirror(deltas: SaveNodeDeltaRecord[
 
 export async function repairDesktopSaveDeltaMirrorIndex(): Promise<SaveNodeDeltaRecord[]> {
   if (!isDesktopRuntime()) return [];
+  return withDesktopStorageLock('delta-index', async () => {
   const index = await rebuildDeltaIndexFromFiles();
+  await writeDeltaIndex(index.deltas);
   return loadDesktopSaveNodeDeltasFromIndex(index);
+  });
 }
 
 export async function loadDesktopSaveNodeDelta(nodeId: string): Promise<SaveNodeDeltaRecord | null> {
@@ -125,6 +141,37 @@ export async function loadDesktopSaveNodeDeltas(): Promise<SaveNodeDeltaRecord[]
   if (!isDesktopRuntime()) return [];
   const index = await readDeltaIndex();
   return loadDesktopSaveNodeDeltasFromIndex(index);
+}
+
+/** Overwriting a checkpoint requires a complete dependency inventory, not the
+ * best-effort list used by browsing/repair. Never silently skip a locked file. */
+export async function loadDesktopSaveNodeDeltasForOverwrite(): Promise<SaveNodeDeltaRecord[]> {
+  if (!isDesktopRuntime()) return [];
+  const adapter = createAppStorageAdapter();
+  const index = await adapter.readJson<DesktopSaveDeltaMirrorIndex>(INDEX_PATH);
+  if (index && (index.version !== 1 || !Array.isArray(index.deltas))) throw new Error('历史增量索引损坏，暂不能覆盖手动档。');
+  const nodeIds = new Set((index?.deltas ?? []).map(item => item.nodeId));
+  // Also include orphan files: the index may have missed a completed file write.
+  for (const file of await adapter.list('saves/deltas')) {
+    const match = file.match(DELTA_RECORD_RE);
+    if (!match) continue;
+    const nodeId = decodeDeltaFileName(match[1] ?? '');
+    if (!nodeId) throw new Error('历史增量文件名损坏，暂不能覆盖手动档。');
+    nodeIds.add(nodeId);
+  }
+  const deltas: SaveNodeDeltaRecord[] = [];
+  for (const nodeId of nodeIds) {
+    const record = await adapter.readJson<DesktopSaveDeltaMirrorRecord>(deltaPath(nodeId));
+    const delta = record?.delta;
+    if (record?.kind !== 'kaituoyishi-desktop-save-delta' || record.version !== 1
+      || !delta || delta.nodeId !== nodeId || !delta.rootId || !Number.isSafeInteger(delta.saveId) || delta.saveId <= 0
+      || !['checkpoint', 'delta'].includes(delta.baseMode)
+      || (delta.baseMode === 'delta' && (!Number.isSafeInteger(delta.deltaPayload?.baseSaveId) || (delta.deltaPayload?.baseSaveId ?? 0) <= 0))) {
+      throw new Error('历史增量文件缺失或损坏，暂不能覆盖手动档。');
+    }
+    deltas.push(delta);
+  }
+  return deltas;
 }
 
 async function loadDesktopSaveNodeDeltasFromIndex(index: DesktopSaveDeltaMirrorIndex): Promise<SaveNodeDeltaRecord[]> {
@@ -234,9 +281,6 @@ async function rebuildDeltaIndexFromFiles(
     updatedAt: Date.now(),
     deltas: deltas.sort((left, right) => right.timestamp - left.timestamp || left.saveId - right.saveId),
   };
-  if (index.deltas.length > 0) {
-    await writeDeltaIndex(index.deltas);
-  }
   return index;
 }
 

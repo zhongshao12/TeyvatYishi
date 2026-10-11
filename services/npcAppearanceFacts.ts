@@ -1,6 +1,6 @@
 import type { NPC外貌档案, NPC外貌字段, NPC记录 } from '@/models/npc';
 import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
-import { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveEnrichment';
+import { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveBaseline';
 
 export const NPC_APPEARANCE_KEYS = ['发色', '瞳色', '身高', '体重', '三围'] as const;
 export type NpcAppearanceKey = typeof NPC_APPEARANCE_KEYS[number];

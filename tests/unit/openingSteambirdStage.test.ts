@@ -3,7 +3,7 @@ import { createEmptySteambirdNews } from '@/models/teyvat';
 import { buildOpeningSteambirdPreprocess } from '@/hooks/useGame/openingSteambirdStage';
 
 describe('opening Steambird preprocessing stage', () => {
-  it('turns the opening archive into one concise public background article', () => {
+  it('does not publish private opening configuration as public news', () => {
     const result = buildOpeningSteambirdPreprocess({
       current: createEmptySteambirdNews(),
       turnCount: 1,
@@ -22,14 +22,6 @@ describe('opening Steambird preprocessing stage', () => {
       } as never,
     });
 
-    expect(result?.changed).toBe(true);
-    expect(result?.steambird.articles).toHaveLength(1);
-    expect(result?.steambird.articles[0]).toMatchObject({
-      id: 'steambird_2_123',
-      title: '蒙德开局见闻',
-      turn: 2,
-    });
-    expect(result?.steambird.articles[0]?.body).toContain('捕风的异乡人');
-    expect(result?.steambird.articles[0]?.body).toContain('保持开局信息边界');
+    expect(result).toBeNull();
   });
 });

@@ -55,9 +55,9 @@ interface WorkingNode {
 
 export function buildSaveTreeGroups(saves: SaveListItemSummary[]): SaveTreeDisplayGroup[] {
   const buckets = new Map<string, SaveListItemSummary[]>();
-  const legacyRootIds = buildLegacyRootIdMap(saves.filter((save) => !save.saveTree?.rootId));
+  const legacyRootIds = buildLegacyRootIdMap(saves);
   for (const save of saves) {
-    const rootId = save.saveTree?.rootId || legacyRootIds.get(save.id) || `legacy-root-${save.id}`;
+    const rootId = getExplicitRootId(save) || legacyRootIds.get(save.id) || `legacy-root-${save.id}`;
     const bucket = buckets.get(rootId) ?? [];
     bucket.push(save);
     buckets.set(rootId, bucket);
@@ -140,26 +140,20 @@ function buildSaveTreeGroup(
 }
 
 function buildLegacyRootIdMap(saves: SaveListItemSummary[]): Map<number, string> {
+  // A shared player name and increasing turns cannot prove shared root identity.
+  const occupiedRootIds = new Set(saves.map(getExplicitRootId).filter(Boolean));
   const result = new Map<number, string>();
-  const byTraveler = new Map<string, SaveListItemSummary[]>();
   for (const save of saves) {
-    const key = normalizeLegacyKey(save.travelerName || '未命名旅人');
-    const bucket = byTraveler.get(key) ?? [];
-    bucket.push(save);
-    byTraveler.set(key, bucket);
-  }
-
-  for (const [key, bucket] of byTraveler.entries()) {
-    const sorted = [...bucket].sort((a, b) => a.timestamp - b.timestamp || a.id - b.id);
-    let segment = 0;
-    let previous: SaveListItemSummary | undefined;
-    for (const save of sorted) {
-      if (previous && save.turnCount <= previous.turnCount) segment += 1;
-      result.set(save.id, `legacy-root-${key}-${segment}`);
-      previous = save;
-    }
+    if (getExplicitRootId(save)) continue;
+    let rootId = `legacy-root-${save.id}`;
+    while (occupiedRootIds.has(rootId)) rootId += '-isolated';
+    occupiedRootIds.add(rootId); result.set(save.id, rootId);
   }
   return result;
+}
+
+function getExplicitRootId(save: SaveListItemSummary): string | undefined {
+  return save.saveTree?.rootId?.trim() ? save.saveTree.rootId : undefined;
 }
 
 function buildLegacyNodeIdMap(
@@ -169,7 +163,7 @@ function buildLegacyNodeIdMap(
 ): Map<number, { nodeId: string; parentNodeId?: string }> {
   const result = new Map<number, { nodeId: string; parentNodeId?: string }>();
   const sorted = saves
-    .filter((save) => (save.saveTree?.rootId || rootIds.get(save.id) || `legacy-root-${save.id}`) === currentRootId)
+    .filter((save) => (getExplicitRootId(save) || rootIds.get(save.id) || `legacy-root-${save.id}`) === currentRootId)
     .sort((a, b) => a.timestamp - b.timestamp || a.id - b.id);
   let previousNodeId: string | undefined;
   let previousTurn = -Infinity;
@@ -185,14 +179,6 @@ function buildLegacyNodeIdMap(
   }
   return result;
 }
-
-function normalizeLegacyKey(value: string): string {
-  return Array.from(value.trim() || 'unknown')
-    .map((char) => /[a-zA-Z0-9]/.test(char) ? char.toLowerCase() : char.charCodeAt(0).toString(36))
-    .join('-')
-    .slice(0, 80) || 'unknown';
-}
-
 
 export interface SaveTreeTimelineNode {
   saveId: number;

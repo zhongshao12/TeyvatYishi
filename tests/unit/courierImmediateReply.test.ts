@@ -1,4 +1,5 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import { createCourierReplyQueue, classifyCourierReplyResult } from '@/hooks/useGame/courierReplyQueue';
 import { createEmptyCourierSystem, type CourierConversation, type CourierSystem } from '@/models/teyvat/courier';
 import type { API配置项 } from '@/models/settings';
 import { runCourierReplyPass } from '@/hooks/useGame/courierBackgroundJobs';
@@ -23,6 +24,18 @@ const courier: CourierSystem = {
   conversations: [conversation],
 };
 
+it('does not inherit a different batch manifest when player IDs share a prefix', async () => {
+  const olderPlayer = { ...conversation.messages[0]!, id: 'p1_extra' };
+  const seen: string[] = [];
+  const result = await runCourierReplyPass({ courier: { ...courier, conversations: [{ ...conversation, messages: [olderPlayer,
+    { ...olderPlayer, id: 'courier_group_reply_p1_extra_amber', senderId: 'amber', role: 'contact', replyToMessageIds: ['p1_extra'], expectedReplyIds: ['courier_group_reply_p1_extra_amber'] },
+    conversation.messages[0]!,
+  ] }] }, npcs: [], letterApiConfig: config, turn: 2, replyBatch: { conversationId: 'group', messageIds: ['p1'] }, fallbackPolicy: 'error',
+    groupReplyGenerator: async (_config, context) => { seen.push(context.sender?.name ?? ''); return '收到。'; } });
+  expect(seen).toEqual(['安柏']);
+  expect(result.courier.conversations[0]?.messages.at(-1)?.expectedReplyIds).toEqual(['courier_group_reply_p1_amber']);
+});
+
 it('passes consecutive player messages to one group reply in their original order', async () => {
   const seen: string[] = [];
   const result = await runCourierReplyPass({
@@ -37,6 +50,7 @@ it('passes consecutive player messages to one group reply in their original orde
   expect(seen).toEqual(['1. 第一句\n2. 第二句']);
   expect(result.replied).toBe(1);
   expect(result.courier.conversations[0]?.messages).toHaveLength(3);
+  expect(result.courier.conversations[0]?.messages[2]?.replyToMessageIds).toEqual(['p1', 'p2']);
   expect(courier.conversations[0]?.messages).toHaveLength(2);
 });
 
@@ -96,6 +110,48 @@ const multiMemberCourier: CourierSystem = {
   ],
   conversations: [multiMemberConversation],
 };
+
+it('manually retries only failed group members without duplicating delivered replies', async () => {
+  vi.useFakeTimers();
+  let live = multiMemberCourier;
+  let attempts = 0;
+  let failedName = '';
+  const retryNames: string[] = [];
+  const queue = createCourierReplyQueue({
+    getSessionId: () => 1,
+    dispatch: async (batch) => {
+      attempts += 1;
+      const result = await runCourierReplyPass({
+        courier: live, npcs: [], letterApiConfig: config, turn: 2, replyBatch: batch,
+        fallbackPolicy: 'error',
+        groupReplyGenerator: async (_config, context) => {
+          const name = context.sender?.name ?? '';
+          if (attempts === 1 && name === '丽莎') { failedName = name; throw new Error('MODEL_DOWN'); }
+          if (attempts > 1) retryNames.push(name);
+          return '收到。';
+        },
+      });
+      live = result.courier;
+      return classifyCourierReplyResult(result);
+    },
+  });
+  try {
+    queue.enqueue({ conversationId: 'group-of-three', messageId: 'q1', sessionId: 1 });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(failedName).toBe('丽莎');
+    expect(live.conversations[0]?.messages.filter((message) => message.role === 'contact')).toHaveLength(2);
+    queue.retry('group-of-three');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(attempts).toBe(2);
+    expect(retryNames).toEqual(['丽莎']);
+    const replies = live.conversations[0]?.messages.filter((message) => message.role === 'contact') ?? [];
+    expect(replies).toHaveLength(3);
+    expect(new Set(replies.map((message) => message.id)).size).toBe(3);
+  } finally {
+    queue.dispose();
+    vi.useRealTimers();
+  }
+});
 
 /**
  * 2026-09-29 回归：`@全体成员` 会把一次请求放大成「全群人数次」串行模型调用，

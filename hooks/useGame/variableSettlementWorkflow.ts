@@ -67,6 +67,8 @@ export interface VariableSettlementParams {
 }
 
 export interface VariableSettlementResult {
+  /** Failure metadata is not a committed snapshot; callers must stop the settlement tail. */
+  failure?: { code: string; detail: string };
   旅人?: import('@/models/character').角色数据结构;
   世界?: import('@/models/world').世界状态;
   记忆?: import('@/models/memory').记忆系统;
@@ -371,6 +373,7 @@ export async function runVariableSettlementWorkflow(
     if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
 
     let committedGame: TeyvatGameState | undefined;
+    let commitFailureDetail: string | undefined;
     /** 提交是否真的落到活体根上。CAS 拒绝（等待期间换存档）时为 false，此时绝不能把结算结果当已生效。 */
     let committedApplied = false;
     // 正式提交使用**同一个**证据上下文，只加上任务自证证据（预览阶段还不可能有它）。
@@ -408,7 +411,12 @@ export async function runVariableSettlementWorkflow(
           ])),
         },
       };
-      committedApplied = params.commitGame(committedGame) !== false;
+      try {
+        committedApplied = params.commitGame(committedGame) !== false;
+      } catch (error) {
+        commitFailureDetail = error instanceof Error ? error.message : String(error);
+        throw error;
+      }
       if (committedApplied) batch = candidateBatch;
     };
     const transaction = dry.status === 'accepted'
@@ -445,7 +453,13 @@ export async function runVariableSettlementWorkflow(
     // 这里必须把 `committedGame` 一起丢掉 —— 否则上游会拿一份**没有落到活体根**的结算
     // 去跑元素结算 / 后台任务 / 自动存档，把旧档的结算写进玩家刚读入的新档。
     if (transaction.status !== 'committed' || !committedGame || !committedApplied) {
-      return { batch: finalBatch, npcLedgerUpdate };
+      const failure = transaction.status === 'commit_failed'
+        ? { code: 'VARIABLE_COMMIT_FAILED', detail: commitFailureDetail || '变量结算写入失败（COMMIT_FAILED）。' }
+        : transaction.status === 'rejected'
+          ? { code: 'VARIABLE_TRANSACTION_REJECTED', detail: `变量结算校验未通过：${transaction.errors.map(item => item.code).join('、')}` }
+          : { code: 'VARIABLE_COMMIT_REJECTED', detail: '变量结算提交被拒绝，未写入当前存档。请查看变量任务中的身份校验信息。' };
+      params.onFailure?.(failure.detail);
+      return { batch: finalBatch, npcLedgerUpdate, failure };
     }
     return {
       背包: committedGame.背包,
@@ -466,6 +480,7 @@ export async function runVariableSettlementWorkflow(
     console.warn('[variable-model] 校准失败：', error);
     params.onFailure?.(detail);
     return {
+      failure: { code: 'VARIABLE_MODEL_FAILED', detail },
       batch: {
         id: `vbatch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         turn: params.turnAfter - 1,

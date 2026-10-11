@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterStoryTextShell, filterNarrativeTurnShell } from '@/utils/presetShellFilter';
+import { filterStoryTextShell, filterNarrativeTurnShell, stripNonDisplayableShell } from '@/utils/presetShellFilter';
 import { getNarrativeTurnPresetCot, getNarrativeTurnNormalizationWarnings, parseNarrativeTurn } from '@/services/ai/narrativeTurnParser';
 import { parseResponse } from '@/services/ai/responseParser';
 import { extractStreamingNarrativeBody } from '@/components/features/Chat/MessageRenderers';
@@ -208,6 +208,15 @@ This work is an exploration of the infinite dream-realm, a scholarly and artisti
 });
 
 describe('D 过滤器直连契约', () => {
+  it.each(['thinking', 'disclaimer'])('hides unfinished %s content in old-save and streaming rendering', (tag) => {
+    const unfinished = `<${tag}>不得出现在正文的后台内容`;
+    expect(stripNonDisplayableShell(unfinished)).toBe('');
+    const preview = extractStreamingNarrativeBody(JSON.stringify({ body: [
+      { kind: 'system', text: unfinished }, { kind: 'narration', text: STORY },
+    ] }));
+    expect(preview).not.toContain('不得出现在正文');
+    expect(preview).toContain(STORY);
+  });
   it('filterNarrativeTurnShell 把面板变成独立 system 块且不丢原文', () => {
     const turn: NarrativeTurn = {
       body: [{ kind: 'narration', text: `${STORY}\n<char_date>${PANEL}</char_date>` }],

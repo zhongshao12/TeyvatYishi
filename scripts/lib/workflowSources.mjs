@@ -70,6 +70,9 @@ export const WORKFLOW_FILES = [
   // 结算与落库
   'hooks/useGame/postSettlementCommitStage.ts',
   'hooks/useGame/postSettlementRecoveryWorkflow.ts',
+  'hooks/useGame/postSettlementTaskState.ts',
+  'hooks/useGame/recoveredSettlementTasks.ts',
+  'hooks/useGame/steambirdRetryTask.ts',
   'hooks/useGame/variableSettlementWorkflow.ts',
   'hooks/useGame/turnDebugContext.ts',
   'hooks/useGame/turnDiagnostics.ts',
@@ -78,6 +81,7 @@ export const WORKFLOW_FILES = [
   'hooks/useGame/recoveryResume.ts',
   // 后台任务
   'hooks/useGame/postTurnBackgroundTasks.ts',
+  'hooks/useGame/postTurnSteambirdTask.ts',
   'hooks/useGame/postTurnIrminsulTask.ts',
   'hooks/useGame/postTurnNarrativeImageTask.ts',
   'hooks/useGame/postTurnAutosaveTask.ts',

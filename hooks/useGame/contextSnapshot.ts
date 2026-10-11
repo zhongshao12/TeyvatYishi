@@ -18,6 +18,7 @@ import { buildImmediateStoryReview, buildLeanAssistantHistoryContent, getMainHis
 import { buildOpeningSystemPrompt, buildSystemPrompt } from './systemPromptBuilder';
 import { getCodexNpcNamesForTurn } from './npcPresence';
 import type { ContextSection, ContextSnapshot, ContextSnapshotKind } from './contextSnapshotTypes';
+import { sanitizeCourierFactText } from '@/utils/courierTextSanitizer';
 
 export type { ContextSection, ContextSnapshot, ContextSnapshotKind } from './contextSnapshotTypes';
 
@@ -254,7 +255,7 @@ function buildVariableContextSnapshot(state: UseGameStateReturn): ContextSnapsho
 function buildCourierContextSnapshot(state: UseGameStateReturn): ContextSnapshot {
   const sourceInput = latestUserInput(state.chatHistory);
   const archiveFacts = state.手机.conversations.flatMap((conversation) =>
-    (conversation.localArchive?.compressedSummaries ?? []).map((summary) => ({ conversation: conversation.title, type: conversation.type, summary })),
+    (conversation.localArchive?.compressedSummaries ?? []).map((summary) => ({ conversation: conversation.title, type: conversation.type, summary: sanitizeCourierFactText(summary) })).filter((item) => item.summary),
   );
   const sections: ContextSection[] = [];
   addSection(sections, {

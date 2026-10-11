@@ -32,6 +32,7 @@ import { createEmptyTeyvatWorld, type TeyvatWorld } from './world';
 import { normalizeTeyvatWorld } from './world';
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
 import { migrateTeyvatFirstPartner } from '@/utils/npcFirstPartner';
+import { reconcileNabuMalikataSaveIdentity } from '@/utils/nabuMalikataIdentity';
 
 export const TEYVAT_SCHEMA_VERSION = 2 as const;
 
@@ -139,7 +140,8 @@ function pruneUnselectedCanonicalTraveler(
 }
 
 export function normalizeTeyvatGameState(input: unknown): TeyvatGameState {
-  const raw = isRecord(input) ? input : {};
+  const repairedIdentity = reconcileNabuMalikataSaveIdentity(input);
+  const raw = isRecord(repairedIdentity) ? repairedIdentity : {};
   if (raw.universe !== undefined && raw.universe !== 'teyvat') throw new Error('UNSUPPORTED_RUNTIME_UNIVERSE');
 
   const base = createEmptyTeyvatGameState();
@@ -148,7 +150,10 @@ export function normalizeTeyvatGameState(input: unknown): TeyvatGameState {
   const normalizedNpcs = normalizeTeyvatNpcRecords(raw.NPC)
     .map((npc) => migrateTeyvatFirstPartner(npc, traveler.姓名));
   const reconciledCourier = reconcileCourierContactsWithNpcs(raw.手机, normalizedNpcs);
-  const roster = pruneUnselectedCanonicalTraveler(reconciledCourier, normalizedNpcs, world.原著旅行者);
+  // Only discard accidental opening seeds. Later encounters with the sibling are story facts.
+  const roster = Number(raw.turnCount ?? 0) <= 1
+    ? pruneUnselectedCanonicalTraveler(reconciledCourier, normalizedNpcs, world.原著旅行者)
+    : { courier: reconciledCourier, npcs: normalizedNpcs };
   return {
     ...base,
     universe: 'teyvat',

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { runFocusedBehaviorRegression } from './lib/runFocusedBehaviorRegression.mjs';
 
 function assert(condition, message) {
   if (!condition) {
@@ -65,10 +66,10 @@ assert(app.includes('<LeftPanel') && app.includes('album={state.相册}'), 'App 
 assert(app.includes('<TravelerProfileModal') && app.includes('album={state.相册}'), 'App 必须把相册传给旅人档案弹窗。');
 assert(app.includes('<CompanionPanel') && app.includes('album={ctx.album}'), 'App 必须把相册传给伙伴面板。');
 
-assert(turnItem.includes('<UserTurnBubble content={message.content} traveler={traveler} album={album}'), '玩家回合必须接收相册。');
+// Assert the rendered asset URL, not a particular spelling of the content prop.
+runFocusedBehaviorRegression(['tests/unit/tavernV4CompatibilityUi.test.tsx'], 'preserves album avatar references');
 // 旅人手记条目不再渲染头像；玩家形象改由 JRPG 对话框的主角立绘槽位承担。
 assert(messageRenderers.includes('resolveTravelerAvatar') && messageRenderers.includes('traveler?.图像档案?.正文头像?.trim() || traveler?.图像档案?.头像?.trim() || traveler?.头像?.trim()'), '主角对话立绘槽位必须解析 asset 引用（共用头像解析链）。');
-assert(turnItem.includes('<BodyBlock content={bodyText} npcRecords={npcRecords} traveler={traveler} album={album}'), '主剧情正文必须把归一化正文与相册传给 BodyBlock。');
 assert(turnItem.includes('<BodyBlock content={content} npcRecords={npcRecords} traveler={traveler} album={album}'), '元素回响正文必须把相册传给 BodyBlock。');
 assert(turnItem.includes('<StreamingPreview') && turnItem.includes('album={album}'), '流式预览必须传递相册。');
 

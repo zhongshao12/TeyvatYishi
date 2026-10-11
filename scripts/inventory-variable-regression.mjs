@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { readWorkflowFile, readWorkflowSources } from './lib/workflowSources.mjs';
+import { runFocusedBehaviorRegression } from './lib/runFocusedBehaviorRegression.mjs';
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
 
@@ -62,16 +63,10 @@ assert(calibration.includes('commitTeyvatTurn(stateSnapshot, pendingCommands, co
 //   不得用 `state.game` / `trueBase`（渲染快照，比活体根少本回合 user 消息 → 每次结算都被判成
 //   「等待期间换了存档」而整体丢弃，症状是 turnCount 不再增长、手机回合分割线消失）；
 //   提交结果必须如实回传（`committedApplied`），否则上游会拿没落地的结算去自动存档。
-const commitGameCalls = [...calibration.matchAll(/params\.commitGame\(/g)];
-assert(
-  /commitGame:\s*\(next\)\s*=>\s*\{/.test(calibration)
-  && calibration.includes('readLiveGameState(state)')
-  && calibration.includes('rebaseSettlementState({ ancestor: liveBase,')
-  && calibration.includes('isSamePostSettlementSave(')
-  && calibration.includes('committedApplied = params.commitGame(committedGame) !== false;')
-  && commitGameCalls.length === 1,
-  'accepted live settlement must perform one guarded root commit.',
-);
+// The real calibration entry now proves one accepted write, preserved mid-wait
+// inventory edits and zero writes after a save/session switch. API is stubbed,
+// while the root owner/CAS commit code remains real.
+runFocusedBehaviorRegression(['tests/unit/settlementCommitIdentity.test.ts']);
 assert(
   !calibration.includes('commitGame: (next) => state.updateGameState(() => next),'),
   '结算提交不得退回「忽略 current 的整根替换」：会静默丢弃玩家等待期间的改动（第二轮审计 A3）。',

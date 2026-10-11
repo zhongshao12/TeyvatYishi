@@ -127,7 +127,7 @@ function mergeConversation(current: unknown, next: unknown): unknown {
  * `lastCommittedMoment.settlementId` 直接抛错，本回合后续记忆写入被停止。
  * 因此这几个键一律取结算结果，其余叙事子字段保留活体编辑，并且整体以活体为底。
  */
-export const SETTLEMENT_OWNED_NARRATIVE_FIELDS = ['lastCommittedMoment', 'variableBatches'] as const;
+export const SETTLEMENT_OWNED_NARRATIVE_FIELDS = ['lastCommittedMoment', 'variableBatches', 'postSettlementTasks'] as const;
 
 /** 叙事切片在结算专属子字段之外，是否真的有玩家可编辑的改动（决定要不要如实上报冲突）。 */
 function narrativeHasPlayerEdit(ancestor: unknown, current: unknown): boolean {
@@ -151,6 +151,12 @@ function mergeNarrative(current: unknown, next: unknown): unknown {
   for (const field of SETTLEMENT_OWNED_NARRATIVE_FIELDS) {
     if (field === 'variableBatches') {
       settlementOwned[field] = mergeVariableBatches(live, produced);
+      continue;
+    }
+    if (field === 'postSettlementTasks' && produced[field]) {
+      const before = live[field] as { settlementId: string; completed: string[] } | undefined;
+      const after = produced[field] as { settlementId: string; completed: string[] };
+      settlementOwned[field] = { ...after, completed: [...new Set([...(before?.settlementId === after.settlementId ? before.completed : []), ...after.completed])] };
       continue;
     }
     if (produced[field] !== undefined) settlementOwned[field] = produced[field];

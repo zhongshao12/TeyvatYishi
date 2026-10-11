@@ -28,6 +28,7 @@ export interface DeepSeekRecoverySummary {
 
 export interface DeepSeekRecoveryOptions {
   disabled?: boolean;
+  signal?: AbortSignal;
   maxTokens?: number;
   onSummary?: (summary: DeepSeekRecoverySummary) => void;
   execute: (
@@ -99,6 +100,7 @@ export async function executeWithDeepSeekRecovery(
   let sawReasoning = false;
 
   const run = async (attemptConfig: API配置项, attemptOptions: DeepSeekAttemptOptions) => {
+    options.signal?.throwIfAborted();
     attempts += 1;
     const result = await options.execute(attemptConfig, attemptOptions);
     sawReasoning ||= result.diagnostics.sawReasoning;
@@ -154,10 +156,11 @@ export async function executeWithDeepSeekRecovery(
   let catalogAvailable = false;
   let fallbackModel: string | undefined;
   try {
-    const models = await fetchOpenAICompatibleModelsCached(config.baseUrl, config.apiKey);
+    const models = await fetchOpenAICompatibleModelsCached(config.baseUrl, config.apiKey, options.signal);
     catalogAvailable = true;
     fallbackModel = selectDeepSeekFallbackModel(models, initialModel);
-  } catch {
+  } catch (error) {
+    if (options.signal?.aborted) throw options.signal.reason ?? error;
     if (profile.isOfficialEndpoint && initialModel.toLowerCase() !== 'deepseek-chat') {
       fallbackModel = 'deepseek-chat';
     }

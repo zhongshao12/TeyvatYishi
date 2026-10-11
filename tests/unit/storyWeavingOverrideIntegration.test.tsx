@@ -5,7 +5,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { bindStoryResourceBaseline, buildPersistedStoryWeavingSystem, hydratePersistedStoryWeavingSystem, loadAllBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
 import { 归一化剧情编织系统, 归一化剧情编织系列, type 剧情编织系统 } from '@/models/storyWeaving';
-import { fromLegacyStoryWeaving, toLegacyStoryWeaving } from '@/hooks/useGameState';
+import { fromLegacyStoryWeaving, toLegacyStoryWeaving, fromLegacyTurnCheckpoint, applyLegacyGameStateOverrides } from '@/hooks/useGameState';
+import { createEmptyTeyvatGameState } from '@/models/teyvat';
+import type { 回合快照 } from '@/models/chat';
 import { normalizeNarrativeRuntime } from '@/models/teyvat/runtimeSlices';
 import { 创建默认游戏设置, 创建空API设置 } from '@/models/settings';
 import { PlotPanel } from '@/components/features/GameSystems/PlotPanel';
@@ -32,6 +34,20 @@ async function mount(initial = edited()) {
   return container;
 }
 describe('story provenance boundary integration', () => {
+  it('hydrates a sparse v4 opening checkpoint before converting chat history', async () => {
+    await loadAllBundledStoryWeavingPresets();
+    const story = edited();
+    const persisted = buildPersistedStoryWeavingSystem(story);
+    const snapshot = { 剧情编织: JSON.parse(JSON.stringify(persisted)), turnCount: 0 } as 回合快照;
+    expect(persisted.系列列表[0]!.分段列表[0]).not.toHaveProperty('章节标题');
+    const checkpoint = fromLegacyTurnCheckpoint(snapshot);
+    const restored = toLegacyStoryWeaving(checkpoint.narrative?.storyWeaving ?? null);
+    expect(restored.系列列表[0]!.分段列表[0]!.章节标题).toEqual(story.系列列表[0]!.分段列表[0]!.章节标题);
+    expect(restored.系列列表[0]!.分段列表[0]!.原文内容).toBe(story.系列列表[0]!.分段列表[0]!.原文内容);
+    expect(restored.系列列表[0]!.分段列表[0]!.本段概括).toBe('玩家自定概括');
+    const root = applyLegacyGameStateOverrides(createEmptyTeyvatGameState(), { chatHistory: [{ id: 'opening', role: 'assistant', content: '醒来', timestamp: 1, preTurnSnapshot: snapshot }] });
+    expect(root.对话.entries[0]!.preTurnState?.narrative?.storyWeaving?.series[0]!.segments[0]!.chapterTitles).toEqual(story.系列列表[0]!.分段列表[0]!.章节标题);
+  });
   it('merges actual custom-only export JSON without replacing existing custom or canon edits', () => {
     const current = edited();
     current.系列列表.push(归一化剧情编织系列({ id: 'custom-A', 来源类型: 'custom', 标题: 'A' }));

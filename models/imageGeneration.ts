@@ -1,4 +1,4 @@
-export type 图片后端类型 = 'openai_compatible' | 'novelai' | 'sd_webui' | 'comfyui';
+export type 图片后端类型 = 'openai_compatible' | 'novelai' | 'latent' | 'sd_webui' | 'comfyui';
 
 export type NovelAIContentMode = 'official' | 'append' | 'replace' | 'off';
 
@@ -34,7 +34,7 @@ export interface StorySnapshotRenderContext {
   styleNegativePrompt?: string;
 }
 
-const STORY_SNAPSHOT_CONTEXT_LIMITS = {
+export const STORY_SNAPSHOT_CONTEXT_LIMITS = {
   scenePrompt: 1200,
   sceneNegativePrompt: 600,
   stylePrompt: 600,

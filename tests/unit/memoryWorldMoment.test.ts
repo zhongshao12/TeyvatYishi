@@ -57,7 +57,8 @@ describe('memory world-moment provenance', () => {
   });
 
   it('retains the original event moment through short, medium and long promotion', async () => {
-    model.summarize.mockResolvedValue({ summary: '旅程摘要', usedFallback: false, usedModel: true, usedLocal: false });
+    model.summarize.mockResolvedValue({ summary: '玩家输入：见安柏\n剧情回应：本回合小结：抵达蒙德\n\n安柏在城门迎接。',
+      usedFallback: false, usedModel: true, usedLocal: false });
     const sourceMoment = moment(1, '10:00');
     const input = {
       memory: 创建空记忆系统(), irminsul: createEmptyIrminsulMemory(),

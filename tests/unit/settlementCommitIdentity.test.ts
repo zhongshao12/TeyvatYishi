@@ -47,10 +47,12 @@ function buildRoot(input: { turnCount: number; conversationId: string; location:
 /** 复刻 `UseGameStateReturn` 的真实语义：`game` 是渲染快照，`updateGameState` 拿到活体根。 */
 function buildStateHarness(staleSnapshot: TeyvatGameState, initialLive: TeyvatGameState) {
   const live = { current: initialLive };
+  const session = { current: 1 };
   const writes: TeyvatGameState[] = [];
   let queueTasks: 队列任务记录[] = [];
   const state = {
     game: staleSnapshot,
+    getGameSessionId: () => session.current,
     turnCount: staleSnapshot.turnCount,
     chatHistory: [...staleSnapshot.对话.entries],
     variableBatches: [],
@@ -68,7 +70,7 @@ function buildStateHarness(staleSnapshot: TeyvatGameState, initialLive: TeyvatGa
       }
     },
   } as unknown as UseGameStateReturn;
-  return { state, live, writes, readQueueTasks: () => queueTasks };
+  return { state, live, session, writes, readQueueTasks: () => queueTasks };
 }
 
 const calibrationParams = (state: UseGameStateReturn) => ({
@@ -238,6 +240,7 @@ describe('settlement commit must land on the live root', () => {
       commitGame: (next: TeyvatGameState) => boolean;
     }) => {
       // 等待期间玩家读入另一份存档
+      harness.session.current += 1;
       harness.live.current = otherSave;
       const next = normalizeTeyvatGameState({ ...params.currentGame, turnCount: 2, 世界: { ...params.currentGame.世界, 当前地点: '蒙德城' } });
       const applied = params.commitGame(next) !== false;
@@ -250,6 +253,32 @@ describe('settlement commit must land on the live root', () => {
     expect(harness.live.current).toBe(otherSave);
     expect(harness.live.current.turnCount).toBe(6);
     expect(harness.writes).toHaveLength(0);
-    expect(harness.readQueueTasks().some((task) => task.status === 'failed')).toBe(true);
+    expect(harness.readQueueTasks()).toEqual([]);
+  });
+
+  it('accepts same-session history retention without confusing it with loading another save', async () => {
+    const game = buildRoot({ turnCount: 1, conversationId: 'turn-1', location: '清泉镇', playerId: '旅行者' });
+    const harness = buildStateHarness(game, game);
+    spies.runVariableSettlementWorkflow.mockImplementation(async (params: Parameters<ReturnType<typeof settlementThatProduces>>[0]) => {
+      harness.live.current = { ...game, 对话: { ...game.对话, entries: game.对话.entries.slice(1) } };
+      return settlementThatProduces(2, '蒙德城')(params);
+    });
+    const result = await runVariableCalibrationStep(calibrationParams(harness.state));
+    expect(result?.committedGame).toBeDefined();
+    expect(harness.live.current.turnCount).toBe(2);
+  });
+
+  it('refuses a newly loaded session even when its entire conversation fingerprint matches', async () => {
+    const game = buildRoot({ turnCount: 1, conversationId: 'turn-1', location: '清泉镇', playerId: '旅行者' });
+    const harness = buildStateHarness(game, game);
+    spies.runVariableSettlementWorkflow.mockImplementation(async (params: Parameters<ReturnType<typeof settlementThatProduces>>[0]) => {
+      harness.session.current += 1;
+      harness.live.current = normalizeTeyvatGameState(structuredClone(game));
+      return settlementThatProduces(2, '蒙德城')(params);
+    });
+    const result = await runVariableCalibrationStep(calibrationParams(harness.state));
+    expect(result?.committedGame).toBeUndefined();
+    expect(harness.live.current.turnCount).toBe(1);
+    expect(harness.writes).toHaveLength(0);
   });
 });

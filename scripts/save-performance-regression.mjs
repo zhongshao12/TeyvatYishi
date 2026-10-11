@@ -47,7 +47,13 @@ const getSaveListBody = dbService.slice(
 );
 assert(!getSaveListBody.includes('SAVES_STORE'), 'getSaveList 不得读取完整存档 store。');
 assert(saveRetention.includes('MAX_MANUAL_SAVE_NODES_PER_TREE = 5'), '每棵存档树必须最多保留 5 个手动节点。');
-assert(saveRetention.includes('MAX_AUTO_SAVE_NODES_PER_TREE = 6'), '每棵存档树必须最多保留 6 个自动节点。');
+assert(saveRetention.includes('MAX_AUTO_SAVE_ROUNDS_PER_TREE = 10'), '每棵存档树必须保留最新 10 个不同有效自动回合。');
+assert(saveRetention.includes("item.turnCountSource !== 'explicit'") && saveRetention.includes('Number.isSafeInteger(item.turnCount)'), '自动轮换必须只接受有来源证明的有效回合数。');
+const journeyRegistry = fs.readFileSync('services/storage/saveJourneyRegistry.ts', 'utf8');
+assert(journeyRegistry.includes("db.transaction(SETTINGS_STORE, 'readwrite')") && journeyRegistry.includes('store.get(SAVE_JOURNEY_REGISTRY_KEY)') && journeyRegistry.includes('store.put'), '旅程编号必须使用同一个 IndexedDB readwrite 事务原子读改写。');
+assert(journeyRegistry.includes("withDesktopStorageLock('save-journey-registry'") && journeyRegistry.includes('if (result.changed)'), '桌面编号必须使用现有跨实例锁，且没有新编号时不得反复写盘。');
+assert(!journeyRegistry.includes('runWithSaveMutationPriority'), '编号分配不得嵌套存档优先队列造成死锁。');
+assert(dbService.includes('return attachSaveJourneyLabels(await getUnlabeledSaveCatalogSnapshot())'), '所有目录后端必须在共享完整快照边界统一编号。');
 assert(saveRetention.includes('selectSaveNodeRotationCandidates'), '必须提供按存档树和节点类型计算轮转候选的纯函数。');
 assert(saveRetention.includes('legacy-isolated-${item.type}-${item.id}'), '缺少 rootId 的旧节点必须各自隔离，避免猜测归属后误删。');
 assert(!dbService.includes('MAX_AUTO_SAVE_TREES'), '存档树数量必须无限，不得保留自动树总数上限。');

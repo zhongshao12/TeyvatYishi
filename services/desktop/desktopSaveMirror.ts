@@ -4,6 +4,7 @@ import { createAppStorageAdapter } from '@/services/storage/appStorageAdapter';
 import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
 import { stripSaveAssetPayloadForStorage } from '@/utils/saveAssetStorage';
 import { buildDeltaOnlyStoredSave } from '@/utils/saveDeltaStorage';
+import { withDesktopStorageLock } from './desktopStorageLock';
 
 type DesktopSaveMirrorSummary = SaveListItemSummary & {
   visibility?: 'visible' | 'hidden-delta-base';
@@ -148,6 +149,10 @@ export async function mirrorSaveToDesktop(
   options: MirrorSaveToDesktopOptions = {},
 ): Promise<void> {
   if (!isDesktopRuntime()) return;
+  return withDesktopStorageLock('save-index', () => mirrorSaveToDesktopLocked(save, summary, options));
+}
+
+async function mirrorSaveToDesktopLocked(save: 存档数据, summary: SaveListItemSummary, options: MirrorSaveToDesktopOptions): Promise<void> {
   const adapter = createAppStorageAdapter();
   const index = await readMirrorIndex();
   const id = Number(save.id) || summary.id;
@@ -225,6 +230,9 @@ export async function reserveDesktopSaveId(minimumNextId = 1): Promise<number | 
 
 export async function removeSaveFromDesktopMirror(id: number): Promise<void> {
   if (!isDesktopRuntime()) return;
+  return withDesktopStorageLock('save-index', () => removeSaveFromDesktopMirrorLocked(id));
+}
+async function removeSaveFromDesktopMirrorLocked(id: number): Promise<void> {
   const adapter = createAppStorageAdapter();
   const index = await readMirrorIndex();
   await adapter.remove(savePath(id));
@@ -233,6 +241,9 @@ export async function removeSaveFromDesktopMirror(id: number): Promise<void> {
 
 export async function hideSaveInDesktopMirror(id: number): Promise<void> {
   if (!isDesktopRuntime()) return;
+  return withDesktopStorageLock('save-index', () => hideSaveInDesktopMirrorLocked(id));
+}
+async function hideSaveInDesktopMirrorLocked(id: number): Promise<void> {
   const adapter = createAppStorageAdapter();
   const index = await readMirrorIndex();
   const record = await adapter.readJson<DesktopSaveMirrorRecord>(savePath(id));
@@ -273,16 +284,21 @@ export async function replaceDesktopSaveMirror(
   saves: Array<{ save: 存档数据; summary: SaveListItemSummary }>,
 ): Promise<void> {
   if (!isDesktopRuntime()) return;
+  return withDesktopStorageLock('save-index', () => replaceDesktopSaveMirrorLocked(saves));
+}
+async function replaceDesktopSaveMirrorLocked(saves: Array<{ save: 存档数据; summary: SaveListItemSummary }>): Promise<void> {
   const adapter = createAppStorageAdapter();
   const index = await readMirrorIndex();
   for (const item of index.saves) {
     await adapter.remove(savePath(item.id));
   }
   const summaries = saves
-    .map(({ save, summary }) => ({ ...summary, id: Number(save.id) || summary.id }))
+    .map(({ save, summary }) => ({ ...summary, id: Number(save.id) || summary.id,
+      ...((save as 存档数据 & { saveRuntime?: { hiddenDeltaBase?: boolean } }).saveRuntime?.hiddenDeltaBase ? { visibility: 'hidden-delta-base' as const } : {}),
+    }))
     .sort((left, right) => right.timestamp - left.timestamp || right.id - left.id);
   for (const { save, summary } of saves) {
-    const normalizedSummary = { ...summary, id: Number(save.id) || summary.id };
+    const normalizedSummary = summaries.find(item => item.id === (Number(save.id) || summary.id))!;
     const record: DesktopSaveMirrorRecord = {
       kind: 'kaituoyishi-desktop-save',
       version: 1,
@@ -296,24 +312,30 @@ export async function replaceDesktopSaveMirror(
   await writeSaveSequence(getMaxSaveId(summaries), adapter);
 }
 
-export async function listDesktopSaveMirror(): Promise<SaveListItemSummary[]> {
+export async function listDesktopSaveMirror(options: { includeHidden?: boolean } = {}): Promise<DesktopSaveMirrorSummary[]> {
   if (!isDesktopRuntime()) return [];
-  return (await readMirrorIndex()).saves.filter(isVisibleDesktopSaveSummary);
+  return (await readMirrorIndex()).saves.filter(item => options.includeHidden || isVisibleDesktopSaveSummary(item));
 }
 
 export async function repairDesktopSaveMirrorIndex(): Promise<SaveListItemSummary[]> {
   if (!isDesktopRuntime()) return [];
+  return withDesktopStorageLock('save-index', async () => {
   const index = await rebuildMirrorIndexFromSaveFiles();
+  await writeMirrorIndex(index.saves);
   await writeSaveSequence(getMaxSaveId(index.saves));
   return index.saves.filter(isVisibleDesktopSaveSummary);
+  });
 }
 
 export async function repairUnresolvedDesktopSaveTransactions(): Promise<DesktopSaveTransactionRepairSummary> {
   if (!isDesktopRuntime()) return createEmptyTransactionRepairSummary();
+  return withDesktopStorageLock('save-index', async () => {
   const adapter = createAppStorageAdapter();
   const index = await rebuildMirrorIndexFromSaveFiles(adapter);
+  await writeMirrorIndex(index.saves);
   await writeSaveSequence(getMaxSaveId(index.saves), adapter);
   return cleanupCompletedDesktopSaveTransactions(adapter);
+  });
 }
 
 export async function cleanupCompletedDesktopSaveTransactions(
@@ -412,25 +434,37 @@ function createEmptyTransactionRepairSummary(): DesktopSaveTransactionRepairSumm
   return summary;
 }
 
-export async function loadDesktopSaveMirrorSave(id: number): Promise<存档数据 | null> {
+export async function loadDesktopSaveMirrorSave(id: number, options: { strict?: boolean } = {}): Promise<存档数据 | null> {
   if (!isDesktopRuntime()) return null;
   const adapter = createAppStorageAdapter();
   try {
     const record = await adapter.readJson<DesktopSaveMirrorRecord>(savePath(id));
-    if (record?.kind !== 'kaituoyishi-desktop-save' || !record.save) return null;
+    if (record?.kind !== 'kaituoyishi-desktop-save' || !record.save) {
+      if (record && options.strict) throw new Error('历史存档主文件损坏，暂不能覆盖手动档。');
+      return null;
+    }
     return { ...record.save, id: Number(record.save.id) || id };
   } catch (error) {
+    if (options.strict) throw error;
     console.warn(`[desktop-save-mirror] skip unreadable mirrored save ${id}`, error);
     return null;
   }
 }
 
-export async function loadDesktopSaveMirrorSaves(): Promise<存档数据[]> {
+export async function loadDesktopSaveMirrorSaves(options: { strict?: boolean; includeHidden?: boolean } = {}): Promise<存档数据[]> {
   if (!isDesktopRuntime()) return [];
-  const index = await readMirrorIndex();
+  const adapter = createAppStorageAdapter();
+  const index = options.strict ? await adapter.readJson<DesktopSaveMirrorIndex>(INDEX_PATH) : await readMirrorIndex();
+  if (options.strict && index && (index.version !== 1 || !Array.isArray(index.saves))) throw new Error('桌面存档索引损坏，已停止维护。');
+  const ids = new Set((index?.saves ?? []).filter(item => options.includeHidden || isVisibleDesktopSaveSummary(item)).map(item => item.id));
+  if (options.strict) for (const file of await adapter.list('saves')) {
+    const match = file.match(SAVE_RECORD_RE);
+    if (match) ids.add(Number(match[1]));
+  }
   const saves: 存档数据[] = [];
-  for (const summary of index.saves.filter(isVisibleDesktopSaveSummary)) {
-    const save = await loadDesktopSaveMirrorSave(summary.id);
+  for (const id of ids) {
+    const save = await loadDesktopSaveMirrorSave(id, options);
+    if (options.strict && !save) throw new Error('桌面存档主文件缺失，已停止维护。');
     if (save) saves.push(save);
   }
   return saves.sort((left, right) => (left.timestamp || 0) - (right.timestamp || 0));
@@ -636,9 +670,6 @@ async function rebuildMirrorIndexFromSaveFiles(
     updatedAt: Date.now(),
     saves: saves.sort((left, right) => right.timestamp - left.timestamp || right.id - left.id),
   };
-  if (index.saves.length > 0) {
-    await writeMirrorIndex(index.saves);
-  }
   return index;
 }
 

@@ -1,7 +1,6 @@
 import type { 存档数据 } from '@/models/settings';
 import { createAppStorageAdapter } from '@/services/storage/appStorageAdapter';
 import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
-import { stripSaveAssetPayloadForStorage } from '@/utils/saveAssetStorage';
 
 export type DesktopSaveBackupReason = 'manual' | 'before-restore' | 'before-replace' | 'before-repair';
 
@@ -46,7 +45,9 @@ export async function writeDesktopSaveBackup(
   const createdAt = Date.now();
   const fileName = `${BACKUP_PREFIX}${formatBackupTimestamp(createdAt)}.json`;
   const backupPath = `${BACKUP_DIR}/${fileName}`;
-  const strippedSaves = saves.map((save) => stripSaveAssetPayloadForStorage(save));
+  // Callers supply fully materialized, embedded-image saves. JSON must not depend
+  // on the live asset store which the protected operation may replace/delete.
+  const strippedSaves = saves;
   const integrity = await buildDesktopSaveBackupIntegrity(strippedSaves);
   const record: DesktopSaveBackupRecord = {
     kind: 'kaituoyishi-desktop-save-backup',

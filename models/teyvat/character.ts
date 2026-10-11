@@ -3,6 +3,7 @@ import { isReservedNpcIdentityName, type NPC外貌档案 } from '../npc';
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
 import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
 import { getAvatarCharacterProfile } from '@/data/avatarCharacterProfiles';
+import { reconcileNpcAppearance } from '@/utils/npcAppearanceReconciliation';
 import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 import type { WorldMoment, WorldMomentRange } from './worldMoment';
 import { normalizeWorldMoment, normalizeWorldMomentRange } from '@/services/worldMoment';
@@ -386,7 +387,7 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
       ...(archived ? { archived: true, tierBeforeArchive } : {}), affinity: finiteNumber(entry.affinity),
       relationship: text(entry.relationship), intimate: entry.intimate === true, travelingTogether: !archived && entry.travelingTogether === true,
       firstSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.firstSeenTurn))), lastSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.lastSeenTurn))),
-      gender: resolvedGender, playerAddress: text(entry.playerAddress), appearance: text(entry.appearance) || canonical?.appearance || '',
+      gender: resolvedGender, playerAddress: text(entry.playerAddress), appearance: reconcileNpcAppearance(text(entry.appearance) || canonical?.appearance || '', finalAppearanceFacts) ?? '',
       ...(finalAppearanceFacts ? { appearanceFacts: finalAppearanceFacts } : {}), clothing: resolvedClothing,
       speechStyle: text(entry.speechStyle), personality: canonical?.personality || text(entry.personality), equipmentSummary: text(entry.equipmentSummary),
       sharedMemories: Array.isArray(entry.sharedMemories) ? entry.sharedMemories.flatMap((item) => normalizeTeyvatNpcSharedMemory(item) ?? []) : [],

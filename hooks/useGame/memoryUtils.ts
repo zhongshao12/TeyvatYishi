@@ -11,7 +11,7 @@ import type { API配置项, 记忆系统设置 } from '@/models/settings';
 import type { NPC同行记忆来源, NPC同行记忆条目, NPC总结记忆条目 } from '@/models/npc';
 import { summarizeMemoryBatch } from '@/services/memoryCompression';
 import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
-import { getActiveIrminsulEntries, promoteIrminsulEntry } from '@/services/irminsulPromotion';
+import { getActiveIrminsulEntries, hasCompleteIrminsulSourceCoverage, promoteIrminsulEntry } from '@/services/irminsulPromotion';
 import type { WorldMoment, WorldMomentRange } from '@/models/teyvat/worldMoment';
 import { combineWorldMomentRanges } from '@/services/worldMoment';
 
@@ -379,7 +379,8 @@ function archiveWithProvenance(
   sourceRanges: readonly (WorldMomentRange | null | undefined)[] = [],
 ): IrminsulEntry {
   const sources = sourceArchiveType ? exactArchiveSources(memory, raw, sourceIds, sourceArchiveType) : null;
-  const coveredEntryIds = sources?.map((source) => source.id);
+  const sourceEntryIds = sources?.map((source) => source.id);
+  const coveredEntryIds = sources && (pending || hasCompleteIrminsulSourceCoverage(sources, base.summary)) ? sourceEntryIds : undefined;
   const sourceTurns = sources?.length
     ? [...new Set(sources.flatMap((source) => source.sourceTurns))].sort((a, b) => a - b)
     : [turn];
@@ -389,7 +390,7 @@ function archiveWithProvenance(
     : null;
   return {
     ...base,
-    id: archiveIdentity(base.archiveType as 'short' | 'medium' | 'long', turn, raw, coveredEntryIds ?? [], index),
+    id: archiveIdentity(base.archiveType as 'short' | 'medium' | 'long', turn, raw, sourceEntryIds ?? [], index),
     sourceTurns,
     ...(coveredEntryIds?.length ? { coveredEntryIds } : {}),
     ...(sourceMomentRange ? { sourceMomentRange } : {}),
@@ -491,6 +492,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
     const duplicate = (next.失败草稿 ?? []).find(
       (draft) => (draft.status === 'pending' || draft.status === 'retrying')
         && draft.kind === source.kind
+        && draft.archiveEntryId === archiveEntryId
         && draft.sourceSnapshot.checksum === sourceSnapshot.checksum,
     );
     if (duplicate) {
@@ -776,8 +778,12 @@ export async function retryMemoryFailureDraft(
     sourceSnapshot: { ...draft.sourceSnapshot, payload: '' },
     updatedAt: now,
   };
+  const claimedSources = pendingArchive?.coveredEntryIds?.flatMap((id) => irminsul?.entries.filter((entry) => entry.id === id) ?? []) ?? [];
+  const completeCoverage = claimedSources.length === pendingArchive?.coveredEntryIds?.length
+    && hasCompleteIrminsulSourceCoverage(claimedSources, result.summary);
   const nextIrminsul = pendingArchive && irminsul
-    ? promoteIrminsulEntry(irminsul, { ...pendingArchive, summary: result.summary, status: 'active' })
+    ? promoteIrminsulEntry(irminsul, { ...pendingArchive, summary: result.summary, status: 'active',
+      coveredEntryIds: completeCoverage ? pendingArchive.coveredEntryIds : undefined })
     : irminsul;
   return {
     memory: {

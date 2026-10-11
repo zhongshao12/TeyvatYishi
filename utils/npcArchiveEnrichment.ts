@@ -1,23 +1,15 @@
 import { matchCanonical } from '@/data/canonicalCharacters';
 import { getAvatarCharacterProfile } from '@/data/avatarCharacterProfiles';
-import type { NPC记录, NPC性别, NPC_NSFW档案, NPC外貌档案 } from '@/models/npc';
+import type { NPC记录, NPC_NSFW档案, NPC外貌档案 } from '@/models/npc';
 import type { ArchiveCodex, CodexEntry } from '@/models/teyvat/codex';
 import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
+import { canRevealNpcRecordMeasurements, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
+import { reconcileNpcAppearanceRecord } from '@/utils/npcAppearanceReconciliation';
+import { matchesNpcCodexIdentity } from '@/utils/npcCodexIdentity';
 
-export type CanonicalArchiveBaseline = {
-  性别?: NPC性别;
-  外貌?: string;
-  性格?: string;
-  穿着?: string;
-  说话方式?: string;
-  介绍?: string;
-  nsfw年龄确认?: NonNullable<NPC_NSFW档案['年龄确认']>;
-  外貌档案?: NPC外貌档案;
-  发色?: string;
-  瞳色?: string;
-  身高?: string;
-  体重?: string;
-};
+export { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveBaseline';
+export type { CanonicalArchiveBaseline } from '@/utils/npcArchiveBaseline';
+import { CANONICAL_ARCHIVE_BASELINES, type CanonicalArchiveBaseline } from '@/utils/npcArchiveBaseline';
 
 interface NpcArchiveEnrichmentCacheEntry {
   codexEntries?: ArchiveCodex['entries'];
@@ -28,83 +20,6 @@ interface NpcArchiveEnrichmentCacheEntry {
 
 const npcArchiveEnrichmentCache = new WeakMap<NPC记录, NpcArchiveEnrichmentCacheEntry>();
 
-const CANONICAL_ARCHIVE_BASELINES: Record<string, CanonicalArchiveBaseline> = {
-  空: {
-    性别: '男',
-    穿着: '白金异域短装配轻甲与披风，腰佩单手剑，衣饰上的元素光泽会随共鸣变化。',
-    说话方式: '温和而坚定，话语简洁，重视承诺与同行者的选择。',
-    介绍: '来自世界之外的旅行者，为寻找血亲踏遍提瓦特。',
-    nsfw年龄确认: 'unknown',
-  },
-  荧: {
-    性别: '女',
-    穿着: '白金异域裙装配轻甲与飘带，腰佩单手剑，衣饰上的元素光泽会随共鸣变化。',
-    说话方式: '冷静而坚定，语气轻快但不轻率，行动中始终牵挂血亲。',
-    介绍: '来自世界之外的旅行者，为寻找血亲踏遍提瓦特。',
-    nsfw年龄确认: 'unknown',
-  },
-  派蒙: {
-    性别: '其他',
-    穿着: '白金色漂浮衣装与星冠，体型小巧。',
-    说话方式: '直率活泼，爱吐槽也爱给同伴起绰号，遇到美食尤其兴奋。',
-    介绍: '旅行者最亲近的向导与伙伴，熟悉提瓦特常识。',
-    nsfw年龄确认: 'unknown',
-  },
-  安柏: {
-    性别: '女',
-    穿着: '西风骑士团侦察骑士制服，红色兔耳发带醒目，随身携带弓箭。',
-    说话方式: '热情明快，主动帮助陌生人，执行职责时认真果断。',
-    介绍: '蒙德城的侦察骑士，也是旅行者最早结识的伙伴之一。',
-    nsfw年龄确认: 'adult',
-  },
-  凯亚: {
-    性别: '男',
-    穿着: '华丽而便于行动的骑兵队长装束，肩披毛领，佩单手剑。',
-    说话方式: '从容机敏，习惯用玩笑与试探隐藏真实判断。',
-    介绍: '西风骑士团骑兵队长，擅长情报、交涉与临场布局。',
-    nsfw年龄确认: 'adult',
-  },
-  琴: {
-    性别: '女',
-    穿着: '西风骑士团代理团长礼装，兼具骑士的端正与行动便利。',
-    说话方式: '克制礼貌，安排事务清晰，面对危机时坚定可靠。',
-    介绍: '西风骑士团代理团长，将蒙德的安宁视为首要责任。',
-    nsfw年龄确认: 'adult',
-  },
-  丽莎: {
-    性别: '女',
-    穿着: '紫色蔷薇魔女装束与宽檐帽，随身携带法器。',
-    说话方式: '慵懒亲切，善用含笑的提醒推动对方正视问题。',
-    介绍: '西风骑士团图书管理员，学识渊博且精通雷元素。',
-    nsfw年龄确认: 'adult',
-  },
-  温迪: {
-    性别: '男',
-    穿着: '绿白吟游诗人装束，帽檐别着塞西莉亚花，随身携弓。',
-    说话方式: '轻快自由，常以诗歌与玩笑说出重要线索。',
-    介绍: '蒙德的吟游诗人，也是尘世七执政中的风神巴巴托斯。',
-    nsfw年龄确认: 'adult',
-  },
-  影: {
-    性别: '女',
-    穿着: '稻妻和服与铠甲，随行薙刀，雷光与紫色衣摆是她的标志。',
-    说话方式: '语气庄重而克制，谈起永恒与失去时会流露自我审视。',
-    介绍: '稻妻的雷神巴尔泽布本尊，雷电将军是她以自身为原型制作的人偶。',
-    nsfw年龄确认: 'adult',
-  },
-  坎蒂丝: {
-    性别: '女',
-    穿着: '阿如村守护者古埃及风深蓝与纯金交领长裙，缀有黄金臂钏、羽毛耳饰，持金盾长枪。',
-    说话方式: '温和有礼却不容置疑，对待村民与朋友柔和，面对敌人时果断沉稳。',
-    介绍: '须弥沙漠阿如村的守护者，性格沉稳可靠，深受村民信赖。',
-    nsfw年龄确认: 'adult',
-  },
-};
-
-export function getCanonicalArchiveBaselineAge(name: string): CanonicalArchiveBaseline['nsfw年龄确认'] {
-  const canonicalName = matchCanonical(name)?.name;
-  return canonicalName ? CANONICAL_ARCHIVE_BASELINES[canonicalName]?.nsfw年龄确认 : undefined;
-}
 
 function hasText(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
@@ -129,22 +44,12 @@ function shouldPatchArchiveField(current: unknown, incoming: unknown): incoming 
   return isWeakArchiveText(currentText) && incomingText.length >= currentText.length + 6;
 }
 
-function namesLikelySame(a: string | undefined, b: string | undefined): boolean {
-  const left = a?.replace(/\s+/g, '').trim();
-  const right = b?.replace(/\s+/g, '').trim();
-  if (!left || !right) return false;
-  return left === right || left.includes(right) || right.includes(left);
-}
-
 function buildCodexArchiveBaseline(npc: NPC记录, codex?: ArchiveCodex): CanonicalArchiveBaseline | undefined {
   const entries = codex?.entries ?? [];
   if (!entries.length) return undefined;
   const matched = entries
     .filter((entry) => entry.category === 'character' && entry.linkable !== false)
-    .filter((entry) => {
-      const names = [entry.name, ...entry.tags];
-      return names.some((name) => namesLikelySame(name, npc.姓名) || namesLikelySame(name, npc.别名));
-    })
+    .filter((entry) => matchesNpcCodexIdentity(npc, entry))
     .sort((left, right) => right.importance - left.importance || left.name.localeCompare(right.name))
     .slice(0, 4);
   if (!matched.length) return undefined;
@@ -467,6 +372,7 @@ export function enrichNpcArchives(
       }
     }
 
+    updated = reconcileNpcAppearanceRecord(updated, normalizeNpcAppearanceFacts(updated.外貌档案, canRevealNpcRecordMeasurements(updated)));
     const cacheEntry: NpcArchiveEnrichmentCacheEntry = {
       codexEntries: options.codex?.entries,
       nsfwEnabled: options.nsfwEnabled,

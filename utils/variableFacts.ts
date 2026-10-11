@@ -626,7 +626,8 @@ function 读取正文钟点候选(body: string): NarrativeClockCandidate[] {
 function 读取正文耗时候选(body: string): Array<{ index: number; end: number; minutes: number }> {
   const candidates: Array<{ index: number; end: number; minutes: number }> = [];
   const pattern = /(半|几|数|\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:个)?\s*(小时|钟头|分钟)\s*(?:以后|之后|后|过去)/gu;
-  for (const match of body.matchAll(pattern)) {
+  const spentPattern = /(?:花了|用了|耗时|历时)\s*(半|几|数|\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:个)?\s*(小时|钟头|分钟)(?!\s*(?:以后|之后|后|过去))/gu;
+  for (const match of [...body.matchAll(pattern), ...body.matchAll(spentPattern)]) {
     const amount = 解析中文整数(match[1] ?? '');
     if (amount === null || amount <= 0) continue;
     const minutes = Math.round(amount * (match[2] === '分钟' ? 1 : 60));
@@ -876,10 +877,21 @@ function 读取正文跨日天数(body: string): { days: number; index: number; 
 }
 
 /** 从正文里提取明确钟点，作为模型漏报时间事实时的确定性兜底。 */
+/** Quoted plans, conditions and recollections are not elapsed world time. Preserve offsets. */
+function actualTimeNarration(body: string): string {
+  const blank = (text: string) => text.replace(/[^\n]/gu, ' ');
+  return body.replace(/“[^”]*”|「[^」]*」|『[^』]*』|"[^"\n]*"/gu, blank)
+    .replace(/回忆(?:起)?[^，。！？\n]*/gu, blank)
+    .replace(/[^。！？\n]+[。！？]?/gu, (sentence) =>
+      /(?:如果|假如|要是|打算|计划(?:着|要|在|于)|约定(?:在|于|了)|将会|才会|准备(?:要|在|于|去)|(?:说|问|回答|提醒)[:：]|说道|问道|告诉你|告诉我|(?:等|等到).{0,18}(?:小时|分钟|天).{0,6}后.{0,18}(?:就|才|可以))/u.test(sentence)
+        ? blank(sentence) : sentence);
+}
+
 export function deriveNarrativeClockFact(
   body: string,
   currentTime: string,
 ): Extract<变量事实, { type: 'time' }> | null {
+  body = actualTimeNarration(body);
   const events = 归一化时间事件(body, 收集时间事件(body));
   if (!events.length) return null;
 
@@ -1145,6 +1157,11 @@ export function resolveTurnTimeFact(
   modelFact?: Extract<变量事实, { type: 'time' }>,
   policyInput?: { minStepMinutes?: number },
 ): { fact: Extract<变量事实, { type: 'time' }> | null; warning: string | null } {
+  body = actualTimeNarration(body);
+  if (modelFact?.evidence) {
+    const actualEvidence = actualTimeNarration(modelFact.evidence);
+    if (actualEvidence !== modelFact.evidence && !deriveNarrativeClockFact(actualEvidence, currentTime)) modelFact = undefined;
+  }
   const policy = resolveTimeAdvancePolicy(policyInput);
   const explicit = deriveNarrativeClockFact(body, currentTime);
   const current = 分钟序数(currentTime);
@@ -1597,6 +1614,7 @@ function parseNarrativeQuantity(text: string, itemName: string): number {
  */
 function parseRemainingQuantity(text: string, itemName: string): number | null {
   const escapedName = itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`${escapedName}\\s*(?:的)?\\s*(?:全部|所有|剩余|剩下的?)`, 'u').test(text)) return Number.POSITIVE_INFINITY;
   const match = text.match(new RegExp(`(?:全部|所有|剩余|剩下的?)\\s*(?:的)?\\s*(?:[零〇一二两三四五六七八九十百千]+|\\d+)?\\s*(?:个|枚|份|瓶|块|件|颗|串|袋|盒)?\\s*${escapedName}\\s*(?:的)?\\s*(?:全部|所有|剩余|剩下的?)?`, 'u'));
   if (!match) return null;
   if (!/(?:全部|所有|剩余|剩下的?)/u.test(match[0])) return null;
@@ -1656,13 +1674,14 @@ export function mergeNarrativeInventoryFacts(
 ): 变量事实[] {
   const key = (fact: Extract<变量事实, { type: 'item' }>) => `${fact.action}:${fact.name.trim().toLocaleLowerCase('zh-CN')}`;
   const seen = new Set(modelFacts.filter((fact): fact is Extract<变量事实, { type: 'item' }> => fact.type === 'item').map(key));
-  const added = derived.filter((fact) => {
+  const added = new Map<string, Extract<变量事实, { type: 'item' }>>();
+  for (const fact of derived) {
     const identity = key(fact);
-    if (seen.has(identity)) return false;
-    seen.add(identity);
-    return true;
-  });
-  return [...modelFacts, ...added];
+    if (seen.has(identity)) continue;
+    const previous = added.get(identity);
+    added.set(identity, previous ? { ...previous, quantity: (previous.quantity ?? 1) + (fact.quantity ?? 1), evidence: `${previous.evidence}\n${fact.evidence}` } : fact);
+  }
+  return [...modelFacts, ...added.values()];
 }
 
 /** 变量模型漏报时，只对正文中“物品名 + 明确扣除动词”做保守兜底。 */
@@ -1673,26 +1692,54 @@ export function deriveNarrativeInventoryRemovalFacts(
   const sentences = body.split(/(?<=[。！？!?\n])/u).map((item) => item.trim()).filter(Boolean);
   // Prefer a single clause, but retain a whole-sentence fallback for omitted subjects/objects:
   // “旅行者取出日落果，交给安柏” states the item only before the comma.
-  const evidenceCandidates = [...inventoryClauses(body), ...sentences];
   const facts: Array<Extract<变量事实, { type: 'item' }>> = [];
   for (const item of items) {
-    const matched = evidenceCandidates.flatMap((evidence) => {
+    const matchActions = (evidenceCandidates: string[]) => evidenceCandidates.flatMap((evidence) => {
       if (!evidence.includes(item.name) || !INVENTORY_REMOVAL_VERBS.test(evidence)) return [];
       const action = classifyPlayerInventoryRemoval(evidence, item.name);
       return action ? [{ evidence, action }] : [];
-    })[0];
-    if (!matched) continue;
+    });
+    const matches = sentences.flatMap(sentence => {
+      const segments = inventoryClauses(sentence).flatMap(clause => clause.split(/(?=(?:又|再)(?:使用|服用|喝下|吃下|吃掉|交给|递给))/u));
+      let playerContext = false;
+      let objectContext = item.name;
+      const clauses = segments.map(clause => {
+        const explicitPlayer = /(?:我|你|旅行者|玩家)/u.test(clause);
+        const continuingAction = /^(?:(?:随后|然后|接着|又|再|并)\s*)?(?:把|将|使用|服用|喝下|吃下|吃掉|交给|递给|赠给|送给|交付|上交|归还)/u.test(clause);
+        if (explicitPlayer) playerContext = !inventoryActionIsUnrealized(clause)
+          && !/(?:看着|看见|目睹|望着)/u.test(clause);
+        else if (!continuingAction) playerContext = false;
+        if (playerContext && clause.includes(item.name)) {
+          const escapedName = item.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          objectContext = clause.match(new RegExp(`(?:[零〇一二两三四五六七八九十百千]+|\\d+)?\\s*(?:个|枚|份|瓶|块|件|颗|串|袋|盒)?\\s*${escapedName}`, 'u'))?.[0]?.trim() ?? item.name;
+        }
+        // Inherit an explicit actor only for an immediately continued action, never another character.
+        return !explicitPlayer && continuingAction && playerContext
+          ? `旅行者${clause}${clause.includes(item.name) ? '' : `（${objectContext}）`}` : clause;
+      });
+      const clauseMatches = matchActions(clauses);
+      return clauseMatches.length ? clauseMatches : matchActions([sentence]);
+    });
+    let remaining = item.quantity;
+    const totals = new Map<string, Extract<变量事实, { type: 'item' }>>();
+    for (const matched of matches) {
     // 「剩余的苹果」= 扣除活体背包里的全部（仍然由这里的 Math.min 封顶在真实数量上）。
     const quantity = parseRemainingQuantity(matched.evidence, item.name)
       ?? parseNarrativeQuantity(matched.evidence, item.name);
-    facts.push({
+    const removed = Math.min(remaining, quantity);
+    if (removed <= 0) continue;
+    remaining -= removed;
+    const previous = totals.get(matched.action);
+    totals.set(matched.action, {
       type: 'item',
       action: matched.action,
       category: item.category,
       name: item.name,
-      quantity: Math.min(item.quantity, quantity),
-      evidence: matched.evidence,
+      quantity: (previous?.quantity ?? 0) + removed,
+      evidence: previous ? `${previous.evidence}\n${matched.evidence}` : matched.evidence,
     });
+    }
+    facts.push(...totals.values());
   }
   return facts;
 }

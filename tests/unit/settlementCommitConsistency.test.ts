@@ -171,6 +171,37 @@ describe('B06 结算专属叙事子字段的合并规则', () => {
 // B07：结算后档案整理仍可能覆盖刚做的同伴/记忆修改
 // ─────────────────────────────────────────────────────────────────────────────
 describe('B07 提交点读取 live 的档案/记忆整理', () => {
+  it('真实 NPC 映射重建对象时不能误报并发或丢失补全与压缩总结', () => {
+    const root = withPartyNpc();
+    const base = mapTeyvatNpcsToLegacy(root);
+    const live = mapTeyvatNpcsToLegacy(root);
+    const next = base.map((npc) => ({ ...npc, 介绍: '补全的简介', 总结记忆: [{ id: 'summary_1', 摘要: '本回合压缩总结' }] }));
+    expect(live[0]).not.toBe(base[0]);
+    const merged = mergeSettlementSliceWriteBack({ base, next, current: live });
+    expect(merged.records[0]?.介绍).toBe('补全的简介');
+    expect(merged.records[0]?.总结记忆?.map((item) => item.id)).toEqual(['summary_1']);
+    expect(merged.concurrentRecordIds).toEqual([]);
+  });
+
+  it('编辑简介时仍提交未冲突的压缩结果，不保留已压缩来源', () => {
+    const base = [{ ...record('amber'), 同行记忆: [{ id: 'old' }], 总结记忆: [] as Array<{ id: string }> }];
+    const next = [{ ...base[0]!, 同行记忆: [], 总结记忆: [{ id: 'summary_1' }] }];
+    const live = [{ ...base[0]!, 介绍: '玩家修改', 同行记忆: [{ id: 'old' }, { id: 'player_added' }] }];
+    const merged = mergeSettlementSliceWriteBack({ base, next, current: live });
+    expect(merged.records[0]?.介绍).toBe('玩家修改');
+    expect(merged.records[0]?.同行记忆?.map((item) => item.id)).toEqual(['player_added']);
+    expect(merged.records[0]?.总结记忆?.map((item) => item.id)).toEqual(['summary_1']);
+  });
+
+  it('压缩来源被编辑时推迟压缩，保留修改且不提交陈旧总结', () => {
+    const base = [{ ...record('amber'), 同行记忆: [{ id: 'old', 摘要: '原文' }], 总结记忆: [] as Array<{ id: string }> }];
+    const next = [{ ...base[0]!, 同行记忆: [], 总结记忆: [{ id: 'summary_1' }] }];
+    const live = [{ ...base[0]!, 同行记忆: [{ id: 'old', 摘要: '玩家修改' }] }];
+    const merged = mergeSettlementSliceWriteBack({ base, next, current: live });
+    expect(merged.records[0]?.同行记忆).toEqual([{ id: 'old', 摘要: '玩家修改' }]);
+    expect(merged.records[0]?.总结记忆).toEqual([]);
+  });
+
   it('延迟压缩期间玩家改了同伴资料：玩家的改动与本回合压缩同时保留', () => {
     const base = [record('npc_amber', { 好感度: 100, 最近互动: '结算前' })];
     // 本回合整理（压缩）产出的记录

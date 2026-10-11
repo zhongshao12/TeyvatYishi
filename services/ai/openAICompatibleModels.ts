@@ -42,55 +42,96 @@ export function buildOpenAICompatibleModelUrls(baseRaw: string): string[] {
   ]));
 }
 
-export async function fetchOpenAICompatibleModels(baseRaw: string, apiKey: string, signal?: AbortSignal): Promise<string[]> {
+function withCatalogAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener('abort', abort);
+    const abort = () => { cleanup(); reject(signal.reason); };
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then((value) => { cleanup(); resolve(value); }, (error: unknown) => { cleanup(); reject(error); });
+  });
+}
+
+async function readCatalogBody(response: Response, signal: AbortSignal): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const decoder = new TextDecoder();
+  let text = '';
+  try {
+    while (true) {
+      const { value, done } = await withCatalogAbort(reader.read(), signal);
+      if (done) return text + decoder.decode();
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    void reader.cancel(signal.aborted ? signal.reason : undefined).catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
+export async function fetchOpenAICompatibleModels(baseRaw: string, apiKey: string, signal?: AbortSignal, timeoutMs = 45_000): Promise<string[]> {
+  signal?.throwIfAborted();
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(signal?.reason);
+  signal?.addEventListener('abort', forwardAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(new DOMException(`获取模型目录超过 ${Math.round(timeoutMs / 1000)} 秒。`, 'TimeoutError')), timeoutMs);
   const errors: string[] = [];
-  for (const url of buildOpenAICompatibleModelUrls(baseRaw)) {
-    try {
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal,
-      });
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
+  try {
+    for (const url of buildOpenAICompatibleModelUrls(baseRaw)) {
+      try {
+        controller.signal.throwIfAborted();
+        const response = await withCatalogAbort(fetch(url, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: controller.signal,
+        }), controller.signal);
+        const text = await readCatalogBody(response, controller.signal);
+        if (!response.ok) {
+          void appendApiErrorReport({
+            source: '模型列表',
+            config: { provider: 'openai_compatible', baseUrl: baseRaw, apiKey },
+            status: response.status,
+            requestUrl: url,
+            requestMode: 'models',
+            responseText: text,
+          });
+          errors.push(`${url} -> ${response.status}${text ? `：${text.slice(0, 120)}` : ''}`);
+          continue;
+        }
+        const data = JSON.parse(text);
+        if (data && Array.isArray(data.data)) {
+          const ids = data.data
+            .map((model: { id?: string }) => model?.id)
+            .filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0);
+          if (ids.length) return ids;
+        }
+        errors.push(`${url} -> 返回格式异常（缺 data 数组）`);
+      } catch (error) {
+        if (controller.signal.aborted) throw controller.signal.reason;
         void appendApiErrorReport({
           source: '模型列表',
           config: { provider: 'openai_compatible', baseUrl: baseRaw, apiKey },
-          status: response.status,
           requestUrl: url,
           requestMode: 'models',
-          responseText: text,
+          error,
         });
-        errors.push(`${url} -> ${response.status}${text ? `：${text.slice(0, 120)}` : ''}`);
-        continue;
+        errors.push(`${url} -> ${error instanceof Error ? error.message : String(error)}`);
       }
-      const data = await response.json();
-      if (data && Array.isArray(data.data)) {
-        const ids = data.data
-          .map((model: { id?: string }) => model?.id)
-          .filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0);
-        if (ids.length) return ids;
-      }
-      errors.push(`${url} -> 返回格式异常（缺 data 数组）`);
-    } catch (error) {
-      void appendApiErrorReport({
-        source: '模型列表',
-        config: { provider: 'openai_compatible', baseUrl: baseRaw, apiKey },
-        requestUrl: url,
-        requestMode: 'models',
-        error,
-      });
-      errors.push(`${url} -> ${error instanceof Error ? error.message : String(error)}`);
     }
+    throw new Error(`获取模型列表失败：\n${errors.join('\n')}`);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', forwardAbort);
   }
-  throw new Error(`获取模型列表失败：\n${errors.join('\n')}`);
 }
 
-export async function fetchOpenAICompatibleModelsCached(baseRaw: string, apiKey: string): Promise<string[]> {
+export async function fetchOpenAICompatibleModelsCached(baseRaw: string, apiKey: string, signal?: AbortSignal, timeoutMs?: number): Promise<string[]> {
+  signal?.throwIfAborted();
   const cacheKey = await buildOpenAICompatibleModelCacheKey(baseRaw, apiKey);
+  signal?.throwIfAborted();
   const cached = modelCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return [...cached.models];
 
-  const models = await fetchOpenAICompatibleModels(baseRaw, apiKey);
+  const models = await fetchOpenAICompatibleModels(baseRaw, apiKey, signal, timeoutMs);
   modelCache.set(cacheKey, {
     expiresAt: Date.now() + MODEL_CACHE_TTL_MS,
     models: [...models],

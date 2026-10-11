@@ -1,18 +1,18 @@
 import type { API配置项 } from '@/models/settings';
 import { chatCompletion } from './chatCompletionClient';
-import { composeCourierLetterLocally, extractCourierSpeechEvent, sanitizeCourierSeedFact, type CourierGroupReplyContext, type CourierLetterContext, type CourierReplyContext, type CourierSenderProfile } from './courierService';
+import { composeCourierLetterLocally, sanitizeCourierSeedFact, type CourierGroupReplyContext, type CourierLetterContext, type CourierReplyContext, type CourierSenderProfile } from './courierService';
 import type { 手机API覆盖 } from '@/models/settings';
+import { isCourierLedgerFieldText, sanitizeCourierMessageText } from '@/utils/courierTextSanitizer';
 
 /** 手机消息独立模型：按上下文、人设、关系与同行记忆生成即时聊天。 */
 
 const META_PATTERN = /deliverySeed|triggerType|seed\.context|系统提示|以下是?消息[:：]|如下是?消息[:：]|(?:API|提示词|记忆库)(?:参数|内容|字段|数据)?|<\/?time_format\b|(?:^|[\s，：])(?:time|scene)\s*[:：]/i;
-const META_NARRATIVE_PATTERN = /关于.{0,30}对.*(?:印象|好感)|可能会有后续联络|可低频投递|已发生事实|玩家一行人/u;
 
 function speechSafeSender(sender: CourierSenderProfile | undefined): CourierSenderProfile | undefined {
   if (!sender) return undefined;
   const line = (value: string | undefined) => {
     const cleaned = sanitizeCourierSeedFact(value ?? '');
-    return cleaned && !META_NARRATIVE_PATTERN.test(cleaned) ? cleaned : undefined;
+    return cleaned && !isCourierLedgerFieldText(cleaned) ? cleaned : undefined;
   };
   const lines = (value: string[] | undefined) => value?.map(line).filter((item): item is string => Boolean(item));
   return {
@@ -30,11 +30,11 @@ function speechSafeSender(sender: CourierSenderProfile | undefined): CourierSend
 }
 
 function cleanLetterText(raw: string): string {
-  return raw
+  return sanitizeCourierMessageText(raw
     .replace(/```[a-z]*\s*[\s\S]*?```/gi, (match) => (match.includes('{') ? '' : match.slice(3, -3)))
     .replace(/^```[a-z]*|```$/gim, '')
     .replace(/^【?.*来信】?[:：]?\s*/g, '')
-    .trim();
+    .trim());
 }
 
 /**
@@ -78,7 +78,7 @@ export function buildCourierLetterPrompt(context: CourierLetterContext): string 
   const { seed, environment } = context;
   const sender = speechSafeSender(context.sender);
   const senderName = sender?.name || seed.senderId;
-  const event = extractCourierSpeechEvent(seed.context);
+  const event = sanitizeCourierSeedFact(seed.context);
   return [
     '你正在为《原神》文字冒险生成角色主动发来的手机消息。请完全进入该角色，以第一人称自然联系旅行者。',
     '要求：',
@@ -116,9 +116,11 @@ export function buildCourierLetterPrompt(context: CourierLetterContext): string 
 
 export async function generateCourierLetter(config: API配置项, context: CourierLetterContext): Promise<string> {
   const prompt = buildCourierLetterPrompt(context);
-  const letter = cleanLetterText(await requestCourierText(config, prompt));
+  const raw = await requestCourierText(config, prompt);
+  const letter = cleanLetterText(raw);
+  if (!letter && raw.trim()) throw new Error('LETTER_CONTAINS_META_TEXT');
   if (!letter || letter.length < 6) throw new Error('EMPTY_LETTER');
-  if (META_PATTERN.test(letter) || META_NARRATIVE_PATTERN.test(letter)) throw new Error('LETTER_CONTAINS_META_TEXT');
+  if (META_PATTERN.test(letter) || isCourierLedgerFieldText(letter)) throw new Error('LETTER_CONTAINS_META_TEXT');
   return letter.slice(0, 600);
 }
 
@@ -166,8 +168,9 @@ export function composeCourierLetter(context: CourierLetterContext): string {
  */
 export function buildCourierReplyPrompt(context: CourierReplyContext): string {
   const { playerMessage, environment } = context;
+  const playerContent = sanitizeCourierMessageText(playerMessage.content);
   const sender = speechSafeSender(context.sender);
-  const isConsecutiveBatch = /^1\. [\s\S]*\n2\. /u.test(playerMessage.content);
+  const isConsecutiveBatch = /^1\. [\s\S]*\n2\. /u.test(playerContent);
   return [
     '你正在为《原神》文字冒险生成角色的手机回复。旅行者刚发来消息，请完全进入该角色，用第一人称接话。',
     '要求：',
@@ -200,16 +203,18 @@ export function buildCourierReplyPrompt(context: CourierReplyContext): string {
     environment?.location ? `当前地点：${environment.location}` : '',
     environment?.timeText ? `当前时间：${environment.timeText}` : '',
     environment?.weather ? `当前天气：${environment.weather}` : '',
-    `旅行者刚发的消息：${playerMessage.content}`,
+    `旅行者刚发的消息：${playerContent}`,
     `旅行者名字：${context.travelerName || '旅行者'}`,
   ].filter(Boolean).join('\n');
 }
 
 export async function generateCourierReply(config: API配置项, context: CourierReplyContext): Promise<string> {
   const prompt = buildCourierReplyPrompt(context);
-  const letter = cleanLetterText(await requestCourierText(config, prompt));
+  const raw = await requestCourierText(config, prompt);
+  const letter = cleanLetterText(raw);
+  if (!letter && raw.trim()) throw new Error('REPLY_CONTAINS_META_TEXT');
   if (!letter || letter.length < 4) throw new Error('EMPTY_REPLY');
-  if (META_PATTERN.test(letter) || META_NARRATIVE_PATTERN.test(letter)) throw new Error('REPLY_CONTAINS_META_TEXT');
+  if (META_PATTERN.test(letter) || isCourierLedgerFieldText(letter)) throw new Error('REPLY_CONTAINS_META_TEXT');
   return letter.slice(0, 600);
 }
 
@@ -219,8 +224,9 @@ export async function generateCourierReply(config: API配置项, context: Courie
  */
 export function buildCourierGroupReplyPrompt(context: CourierGroupReplyContext): string {
   const { playerMessage } = context;
+  const playerContent = sanitizeCourierMessageText(playerMessage.content);
   const sender = speechSafeSender(context.sender);
-  const isConsecutiveBatch = /^1\. [\s\S]*\n2\. /u.test(playerMessage.content);
+  const isConsecutiveBatch = /^1\. [\s\S]*\n2\. /u.test(playerContent);
   return [
     '你是《原神》文字冒险手机群聊中的一位成员。旅行者刚在群里说了一句话，请以这位成员的身份跟帖回应。',
     '要求：',
@@ -249,15 +255,17 @@ export function buildCourierGroupReplyPrompt(context: CourierGroupReplyContext):
     sender?.summaryMemories?.length ? `长期同行记忆：${sender.summaryMemories.slice(-3).join('；')}` : '',
     sender?.recentMemories?.length ? `近期同行记忆：${sender.recentMemories.slice(-5).join('；')}` : '',
     sender?.recentMessages?.length ? `本群近期对话：\n${sender.recentMessages.slice(-8).join('\n')}` : '',
-    `旅行者刚说的：${playerMessage.content}`,
+    `旅行者刚说的：${playerContent}`,
     `旅行者名字：${context.travelerName || '旅行者'}`,
   ].filter(Boolean).join('\n');
 }
 
 export async function generateCourierGroupReply(config: API配置项, context: CourierGroupReplyContext): Promise<string> {
   const prompt = buildCourierGroupReplyPrompt(context);
-  const reply = cleanLetterText(await requestCourierText(config, prompt)).replace(/^——.*$/gm, '').trim();
+  const raw = await requestCourierText(config, prompt);
+  const reply = cleanLetterText(raw).replace(/^——.*$/gm, '').trim();
+  if (!reply && raw.trim()) throw new Error('GROUP_REPLY_CONTAINS_META_TEXT');
   if (!reply || reply.length < 4) throw new Error('EMPTY_GROUP_REPLY');
-  if (META_PATTERN.test(reply) || META_NARRATIVE_PATTERN.test(reply)) throw new Error('GROUP_REPLY_CONTAINS_META_TEXT');
+  if (META_PATTERN.test(reply) || isCourierLedgerFieldText(reply)) throw new Error('GROUP_REPLY_CONTAINS_META_TEXT');
   return reply.slice(0, 160);
 }

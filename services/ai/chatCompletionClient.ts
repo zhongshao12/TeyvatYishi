@@ -72,6 +72,12 @@ export interface ChatCompletionRequest {
 }
 
 const requestMetadataByAttempt = new WeakMap<ChatCompletionRequest, RequestMetadata>();
+const responseLifecycleCleanup = new WeakMap<Response, () => void>();
+
+function finishResponseLifecycle(response: Response): void {
+  responseLifecycleCleanup.get(response)?.();
+  responseLifecycleCleanup.delete(response);
+}
 
 function recordRequestAttempt(config: API配置项, request: ChatCompletionRequest): void {
   const record = createRequestMetadata({
@@ -124,6 +130,13 @@ export async function cancelReadableStreamReader<T>(
   }
 }
 
+class StreamProtocolError extends Error {
+  constructor(readonly payload: string) {
+    super(`模型流返回失败事件：${payload}`);
+    this.name = 'StreamProtocolError';
+  }
+}
+
 /** Shared SSE framing, JSON parsing, abort ownership and response-body teardown. */
 export async function readSseStream(
   response: Response,
@@ -132,7 +145,10 @@ export async function readSseStream(
   watchdog: StreamWatchdogOptions = {},
 ): Promise<void> {
   const reader = response.body?.getReader();
-  if (!reader) throw new Error('No response body');
+  if (!reader) {
+    finishResponseLifecycle(response);
+    throw new Error('No response body');
+  }
   const decoder = new TextDecoder();
   let buffer = '';
   const abort = () => {
@@ -149,6 +165,12 @@ export async function readSseStream(
     } catch {
       // A malformed provider frame must not discard later valid frames.
       return;
+    }
+    if (parsed && typeof parsed === 'object') {
+      const frame = parsed as { error?: unknown; type?: string; response?: { error?: unknown } };
+      if (frame.error || frame.type === 'error' || frame.type === 'response.failed' || frame.response?.error) {
+        throw new StreamProtocolError(data);
+      }
     }
     onData(parsed);
   };
@@ -203,6 +225,7 @@ export async function readSseStream(
     }
   } finally {
     signal?.removeEventListener('abort', abort);
+    finishResponseLifecycle(response);
     await cancelReadableStreamReader(reader, signal?.aborted ? signal.reason : 'sse-consumer-finished');
   }
 }
@@ -500,6 +523,21 @@ function validTopP(request: ChatCompletionRequest, config: API配置项): number
     : undefined;
 }
 
+/** Verified gateway extensions only; protocol compatibility is not a capability declaration.
+ * OpenRouter: https://openrouter.ai/docs/api_reference/parameters
+ * No supported endpoint currently documents max_context_tokens.
+ */
+function supportedSamplingExtensions(config: API配置项): readonly string[] {
+  if (config.provider !== 'openai_compatible') return [];
+  try {
+    const endpoint = new URL(config.baseUrl);
+    return endpoint.protocol === 'https:' && endpoint.hostname === 'openrouter.ai'
+      && /^\/api\/v1(?:\/|$)/.test(endpoint.pathname) ? ['repetition_penalty'] : [];
+  } catch {
+    return [];
+  }
+}
+
 function buildOpenAICompatibleRequestBody(
   config: API配置项,
   messages: ChatMessagePayload[],
@@ -522,8 +560,8 @@ function buildOpenAICompatibleRequestBody(
   } else {
     body.max_tokens = request.maxTokens ?? config.maxTokens ?? 2048;
     body.temperature = request.temperature ?? config.temperature ?? 0.8;
-    // Phase 3：采样参数贯通（OpenAI 兼容 / DeepSeek / Ark / Pioneer 等）
-    // top_p / frequency_penalty / presence_penalty / repetition_penalty 大多数 OpenAI 兼容端点支持
+    // Standard OpenAI fields; gateway extensions require explicit endpoint capabilities.
+    const extensions = supportedSamplingExtensions(config);
     const topP = validTopP(request, config);
     if (topP !== undefined) body.top_p = topP;
     const freqPenalty = request.frequencyPenalty ?? config.frequencyPenalty;
@@ -531,10 +569,9 @@ function buildOpenAICompatibleRequestBody(
     const presPenalty = request.presencePenalty ?? config.presencePenalty;
     if (typeof presPenalty === 'number') body.presence_penalty = presPenalty;
     const repPenalty = request.repetitionPenalty ?? config.repetitionPenalty;
-    if (typeof repPenalty === 'number') body.repetition_penalty = repPenalty;
-    // max_context：OpenAI 兼容端点通常不支持显式字段，但 OpenRouter 等支持 max_context_tokens
+    if (typeof repPenalty === 'number' && extensions.includes('repetition_penalty')) body.repetition_penalty = repPenalty;
     const maxCtx = request.maxContext ?? config.maxContext;
-    if (typeof maxCtx === 'number') body.max_context_tokens = maxCtx;
+    if (typeof maxCtx === 'number' && extensions.includes('max_context_tokens')) body.max_context_tokens = maxCtx;
   }
   if (stream && includeUsage && request.onUsage) {
     body.stream_options = { include_usage: true };
@@ -620,6 +657,7 @@ interface FetchLifecycle {
   headerTimeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
   /** 清除响应头计时器（幂等）。 */
   clearHeaderTimeout: () => void;
+  dispose: () => void;
 }
 
 function createFetchLifecycle(upstreamSignal: AbortSignal | undefined): FetchLifecycle {
@@ -632,6 +670,10 @@ function createFetchLifecycle(upstreamSignal: AbortSignal | undefined): FetchLif
         globalThis.clearTimeout(lifecycle.headerTimeoutId);
         lifecycle.headerTimeoutId = undefined;
       }
+    },
+    dispose: () => {
+      lifecycle.clearHeaderTimeout();
+      upstreamSignal?.removeEventListener('abort', forwardAbort);
     },
   };
   // 上层取消：用原样原因中止网络请求，调用方拿到的仍是自己的取消原因。
@@ -656,13 +698,21 @@ export async function readResponseBody(
   signal: AbortSignal | undefined,
   bodyTimeoutMs: number = DEFAULT_STREAM_FIRST_BYTE_TIMEOUT_MS,
 ): Promise<string> {
-  if (signal?.aborted) throw signal.reason ?? new DOMException('请求已取消。', 'AbortError');
+  if (signal?.aborted) {
+    finishResponseLifecycle(response);
+    void response.body?.cancel(signal.reason).catch(() => undefined);
+    throw signal.reason ?? new DOMException('请求已取消。', 'AbortError');
+  }
   const reader = response.body?.getReader();
   if (!reader) {
     // 没有可读流（例如测试替身或空响应体）时退化为原始读取，但先确认没被取消。
-    const text = await response.text();
-    if (signal?.aborted) throw signal.reason ?? new DOMException('请求已取消。', 'AbortError');
-    return text;
+    try {
+      const text = await response.text();
+      if (signal?.aborted) throw signal.reason ?? new DOMException('请求已取消。', 'AbortError');
+      return text;
+    } finally {
+      finishResponseLifecycle(response);
+    }
   }
 
   const decoder = new TextDecoder();
@@ -712,6 +762,7 @@ export async function readResponseBody(
     settled = true;
     if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId);
     signal?.removeEventListener('abort', abortBody);
+    finishResponseLifecycle(response);
     await cancelReadableStreamReader(reader, signal?.aborted ? signal.reason : 'response-consumer-finished');
   }
 }
@@ -753,8 +804,10 @@ async function fetchWithApiErrorReport(
     phase('receiving');
     // 响应头已到：结束响应头超时，但保留上层取消转发直到正文读完。
     lifecycle.clearHeaderTimeout();
+    responseLifecycleCleanup.set(response, lifecycle.dispose);
     return response;
   } catch (error) {
+    lifecycle.dispose();
     const reportedError = lifecycle.controller.signal.reason instanceof StreamTimeoutError
       ? lifecycle.controller.signal.reason
       : error;
@@ -1041,6 +1094,7 @@ export async function chatCompletion(
   let streamAttemptCount = 0;
   const recovered = await executeWithDeepSeekRecovery(config, {
     disabled: request.deepSeekRecovery === 'disabled',
+    signal: request.signal,
     maxTokens: request.maxTokens ?? config.maxTokens,
     onSummary: request.onDeepSeekRecovery,
     execute: async (attemptConfig, attemptOptions) => {
@@ -1085,6 +1139,12 @@ export async function chatCompletion(
       }
       return { text, diagnostics };
     },
+  }).catch((error: unknown) => {
+    if (error instanceof StreamProtocolError) {
+      void appendApiErrorReport({ source: '流式协议错误', config, requestMode: 'stream', responseText: error.payload, error });
+      callbacks.onError(error);
+    }
+    throw error;
   });
 
   if (isolateRecoveryAttempts && !callbacks.onReset && recovered.text) {
@@ -1182,7 +1242,7 @@ async function streamOpenAICompatible(
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    const text = await readResponseBody(response, request.signal);
     if (includeUsage && isStreamUsageOptionUnsupported(response.status, text)) {
       console.warn('[token-usage] 当前流式接口不支持 stream_options.include_usage，已自动降级为不请求 usage 的流式请求。');
       return streamOpenAICompatible(config, messages, request, callbacks, false);
@@ -1248,7 +1308,7 @@ async function streamClaude(
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    const text = await readResponseBody(response, request.signal);
     void appendApiErrorReport({
       source: 'Claude 聊天补全',
       config,
@@ -1384,7 +1444,7 @@ function buildOpenCodeGeminiBody(
   messages: Array<{ role: string; content: string }>,
   request: ChatCompletionRequest,
 ): Record<string, unknown> {
-  const systemMsg = messages.find((m) => m.role === 'system');
+  const system = collectSystemInstructions(messages);
   const contents = messages
     .filter((m) => m.role !== 'system' && m.content.trim())
     .map((m) => ({
@@ -1404,8 +1464,6 @@ function buildOpenCodeGeminiBody(
   if (topP !== undefined) generationConfig.topP = topP;
   const topK = request.topK ?? config.topK;
   if (typeof topK === 'number') generationConfig.topK = topK;
-  const repPenalty = request.repetitionPenalty ?? config.repetitionPenalty;
-  if (typeof repPenalty === 'number') generationConfig.repetitionPenalty = repPenalty;
   const freqPenalty = request.frequencyPenalty ?? config.frequencyPenalty;
   if (typeof freqPenalty === 'number') generationConfig.frequencyPenalty = freqPenalty;
   const presPenalty = request.presencePenalty ?? config.presencePenalty;
@@ -1415,9 +1473,9 @@ function buildOpenCodeGeminiBody(
     contents,
     generationConfig,
   };
-  if (systemMsg?.content.trim()) {
+  if (system) {
     bodyObj.systemInstruction = {
-      parts: [{ text: systemMsg.content }],
+      parts: [{ text: system }],
     };
   }
   return bodyObj;
@@ -1507,7 +1565,7 @@ async function streamOpenCodeChat(
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    const text = await readResponseBody(response, request.signal);
     if (includeUsage && isStreamUsageOptionUnsupported(response.status, text)) {
       console.warn('[token-usage] OpenCode Chat 流式接口不支持 stream_options.include_usage，已自动降级为不请求 usage 的流式请求。');
       return streamOpenCodeChat(config, messages, request, callbacks, false);
@@ -1568,7 +1626,7 @@ async function streamOpenCodeMessages(
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    const text = await readResponseBody(response, request.signal);
     void appendApiErrorReport({
       source: 'OpenCode Zen Messages 补全',
       config,
@@ -1642,7 +1700,7 @@ async function streamOpenCodeResponses(
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    const text = await readResponseBody(response, request.signal);
     void appendApiErrorReport({
       source: 'OpenCode Zen Responses 补全',
       config,
@@ -1700,7 +1758,7 @@ async function streamOpenCodeGemini(
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    const text = await readResponseBody(response, request.signal);
     void appendApiErrorReport({
       source: 'OpenCode Zen Gemini 补全',
       config,
@@ -1854,6 +1912,14 @@ async function completionOpenCodeNonStream(
 
 // ── Gemini streaming ──
 
+/** Gemini has one systemInstruction; retain every system slot in request order. */
+function collectSystemInstructions(messages: Array<{ role: string; content: string }>): string {
+  return messages
+    .filter((message) => message.role === 'system' && message.content.trim())
+    .map((message) => message.content)
+    .join('\n\n');
+}
+
 async function streamGemini(
   config: API配置项,
   messages: Array<{ role: string; content: string }>,
@@ -1861,7 +1927,7 @@ async function streamGemini(
   callbacks: StreamCallbacks,
 ): Promise<string> {
   const url = `${normalizeGeminiBaseUrl(config.baseUrl)}/models/${config.model}:streamGenerateContent?alt=sse`;
-  const systemMsg = messages.find((m) => m.role === 'system');
+  const system = collectSystemInstructions(messages);
 
   const contents = messages
     .filter((m) => m.role !== 'system')
@@ -1874,13 +1940,11 @@ async function streamGemini(
     maxOutputTokens: request.maxTokens ?? config.maxTokens ?? 2048,
     temperature: request.temperature ?? config.temperature ?? 0.8,
   };
-  // Phase 3：Gemini 原生支持 top_p / top_k / repetition_penalty / frequency_penalty / presence_penalty
+  // Only documented Gemini GenerationConfig fields are sent.
   const topP = validTopP(request, config);
   if (topP !== undefined) geminiGenConfig.topP = topP;
   const topK = request.topK ?? config.topK;
   if (typeof topK === 'number') geminiGenConfig.topK = topK;
-  const repPenalty = request.repetitionPenalty ?? config.repetitionPenalty;
-  if (typeof repPenalty === 'number') geminiGenConfig.repetitionPenalty = repPenalty;
   const freqPenalty = request.frequencyPenalty ?? config.frequencyPenalty;
   if (typeof freqPenalty === 'number') geminiGenConfig.frequencyPenalty = freqPenalty;
   const presPenalty = request.presencePenalty ?? config.presencePenalty;
@@ -1890,9 +1954,9 @@ async function streamGemini(
     contents,
     generationConfig: geminiGenConfig,
   };
-  if (systemMsg) {
+  if (system) {
     bodyObj.systemInstruction = {
-      parts: [{ text: systemMsg.content }],
+      parts: [{ text: system }],
     };
   }
 
@@ -1908,7 +1972,7 @@ async function streamGemini(
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    const text = await readResponseBody(response, request.signal);
     void appendApiErrorReport({
       source: 'Gemini 聊天补全',
       config,
@@ -1963,6 +2027,7 @@ export async function chatCompletionNonStream(
 ): Promise<string> {
   const recovered = await executeWithDeepSeekRecovery(config, {
     disabled: request.deepSeekRecovery === 'disabled',
+    signal: request.signal,
     maxTokens: request.maxTokens ?? config.maxTokens,
     onSummary: request.onDeepSeekRecovery,
     execute: async (attemptConfig, attemptOptions) => {

@@ -49,7 +49,7 @@ export async function runImageGenerationWithRetry<T>(
       return await runner(options?.signal);
     } catch (error) {
       lastError = error;
-      if (options?.signal?.aborted || index >= maxRetries) throw error;
+      if (options?.signal?.aborted || (error as { retryable?: boolean } | null)?.retryable === false || index >= maxRetries) throw error;
       const errorMessage = readImageError(error);
       options?.onRetry?.(attempt, totalAttempts, errorMessage);
       await wait(Math.min(5000, RETRY_DELAY_MS * attempt), options?.signal);

@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import type { CourierConversation } from '@/models/teyvat/courier';
 import { CLIP_ITEM } from '@/styles/clipPaths';
+import { displayCourierMessageText } from '@/utils/courierTextSanitizer';
 
 interface CourierConversationListProps {
   conversations: CourierConversation[];
@@ -57,7 +58,7 @@ const CourierConversationListItem = memo(function CourierConversationListItem({
       </div>
       <div className="mt-0.5 flex items-center justify-between gap-2">
         <span className="min-w-0 break-words text-[12px]" style={{ color: muted(0.8) }}>
-          {last ? `${last.senderName}：${last.content.slice(0, 24)}` : TYPE_LABELS[conversation.type]}
+          {last ? `${last.senderName}：${displayCourierMessageText(last.content).slice(0, 24)}` : TYPE_LABELS[conversation.type]}
         </span>
         <span className="shrink-0 text-[10px]" style={{ color: muted(0.6) }}>
           {conversation.type === 'group' ? `${conversation.participantIds.filter((id) => id !== 'player').length}位成员` : TYPE_LABELS[conversation.type]}

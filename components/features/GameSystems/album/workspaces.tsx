@@ -39,7 +39,8 @@ import {
   trimStorySnapshotSource,
 } from '@/services/ai/storySnapshotPipeline';
 import { extractCharacterAnchorWithAI } from '@/services/ai/characterAnchorExtract';
-import { buildNpcImagePrompt, buildSceneImagePrompt, buildTravelerImagePrompt, 应用场景角色锚点锁, 应用质量增强提示词 } from '@/utils/imagePromptRules';
+import { buildNpcImagePrompt, buildSceneImagePrompt, buildTravelerImagePrompt, readImagePromptCharacter, 应用场景角色锚点锁, 应用质量增强提示词 } from '@/utils/imagePromptRules';
+import { formatImageCharacterFacts } from '@/utils/imageCharacterFacts';
 import { readImageError, runImageGenerationWithRetry } from '@/utils/imageGenerationRetry';
 import { buildImagePromptTokenizerConfig, buildImagePromptTokenizerSystemPrompt, tokenizeImagePrompt } from '@/services/ai/imagePromptTokenizer';
 import { getBuiltinAvatarSet } from '@/data/builtinAvatars';
@@ -1419,6 +1420,7 @@ export function imageBackendLabel(backend?: string): string {
   return {
     openai_compatible: 'OpenAI 兼容',
     novelai: 'NovelAI',
+    latent: 'Latent',
     sd_webui: 'SD WebUI',
     comfyui: 'ComfyUI',
   }[backend || ''] ?? (backend || '未记录');
@@ -2558,21 +2560,16 @@ export function characterAnchorHasPersistentContent(anchor?: NPC角色锚点档�
 }
 
 export function buildSceneSourceText(text: string, traveler: 角色数据结构, presentNpcs: NPC记录[]): string {
-  const travelerAnchor = traveler.图像档案?.角色锚点;
+  const travelerFacts = readImagePromptCharacter(traveler, true);
   return [
     `场景说明：${text || '未填写'}`,
     `主控角色：${traveler.姓名 || '旅人'}`,
-    traveler.外貌 ? `主控外貌：${traveler.外貌}` : '',
-    travelerAnchor?.正面提示词 ? `主控锚点：${travelerAnchor.正面提示词}` : '',
-    travelerAnchor?.负面提示词 ? `主控负面锚点：${travelerAnchor.负面提示词}` : '',
+    formatImageCharacterFacts(travelerFacts.facts!),
+    travelerFacts.anchorPrompt ? `主控锚点（稳定外观优先于档案）：${travelerFacts.anchorPrompt}` : '',
+    travelerFacts.negativePrompt ? `主控负面锚点：${travelerFacts.negativePrompt}` : '',
     presentNpcs.length ? `在场角色：${presentNpcs.map((npc) => npc.姓名).join('、')}` : '',
     ...presentNpcs.map((npc) => {
-      const anchor = npc.图像档案?.角色锚点;
-      return [
-        `${npc.姓名}：${[npc.外貌, npc.穿着].filter(Boolean).join('，')}`,
-        anchor?.正面提示词 ? `${npc.姓名}锚点：${anchor.正面提示词}` : '',
-        anchor?.负面提示词 ? `${npc.姓名}负面锚点：${anchor.负面提示词}` : '',
-      ].filter(Boolean).join('\n');
+      return buildNpcSourceText(npc, { scene: true });
     }),
   ].filter(Boolean).join('\n');
 }
@@ -2635,24 +2632,22 @@ export function buildTravelerSourceText(traveler: 角色数据结构): string {
   ].filter(Boolean).join('\n');
 }
 
-export function buildNpcSourceText(npc: NPC记录): string {
+export function buildNpcSourceText(npc: NPC记录, options: { nsfw?: boolean; scene?: boolean } = {}): string {
+  const character = readImagePromptCharacter(npc, options.scene);
   return [
     `姓名：${npc.姓名}`,
     npc.别名 ? `别名：${npc.别名}` : '',
-    npc.性别 ? `性别：${npc.性别}` : '',
+    formatImageCharacterFacts(character.facts!),
     npc.原著角色 ? '原著角色：是' : '',
-    npc.外貌 ? `外貌：${npc.外貌}` : '',
-    npc.穿着 ? `穿着：${npc.穿着}` : '',
     npc.性格 ? `性格：${npc.性格}` : '',
     npc.说话方式 ? `说话方式：${npc.说话方式}` : '',
     npc.介绍 ? `介绍：${npc.介绍}` : '',
     npc.装备摘要 ? `装备：${npc.装备摘要}` : '',
     npc.图像档案?.头像提示词 ? `头像提示词：${npc.图像档案.头像提示词}` : '',
     npc.图像档案?.立绘提示词 ? `立绘提示词：${npc.图像档案.立绘提示词}` : '',
-    npc.图像档案?.角色锚点?.名称 ? `角色锚点名称：${npc.图像档案.角色锚点.名称}` : '',
-    npc.图像档案?.角色锚点?.正面提示词 ? `角色锚点：${npc.图像档案.角色锚点.正面提示词}` : '',
-    npc.图像档案?.角色锚点?.负面提示词 ? `角色负面锚点：${npc.图像档案.角色锚点.负面提示词}` : '',
-    npc.NSFW档案?.enabled ? `NSFW档案：${JSON.stringify(npc.NSFW档案)}` : '',
+    character.anchorPrompt ? `角色锚点（稳定外观优先于档案）：${character.anchorPrompt}` : '',
+    character.negativePrompt ? `角色负面锚点：${character.negativePrompt}` : '',
+    options.nsfw && npc.NSFW档案?.enabled ? `NSFW档案：${JSON.stringify(npc.NSFW档案)}` : '',
   ].filter(Boolean).join('\n');
 }
 

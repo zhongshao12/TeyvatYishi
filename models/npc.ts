@@ -7,7 +7,9 @@ import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
 import { getAvatarCharacterProfile } from '@/data/avatarCharacterProfiles';
 import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
-import { canRevealNpcMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
+import { sanitizeCourierFactText } from '@/utils/courierTextSanitizer';
+import { reconcileNpcAppearance, reconcileNpcAppearanceRecord } from '@/utils/npcAppearanceReconciliation';
+import { canRevealNpcMeasurements, canRevealNpcRecordMeasurements, canUseNsfwPrivateFields, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 import type { WorldMoment, WorldMomentRange } from './teyvat/worldMoment';
 import { normalizeWorldMoment, normalizeWorldMomentRange } from '@/services/worldMoment';
 export type NPC阶位 = 'companion' | 'extra';
@@ -511,7 +513,7 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
       : (Number.isFinite(firstTurn) ? firstTurn : 1),
     性别: resolvedGender,
     对玩家称呼: typeof rawPlayerName === 'string' ? rawPlayerName : undefined,
-    外貌: typeof rawAppearance === 'string' ? rawAppearance : undefined,
+    外貌: reconcileNpcAppearance(typeof rawAppearance === 'string' ? rawAppearance : undefined, finalAppearanceFacts),
     ...(finalAppearanceFacts ? { 外貌档案: finalAppearanceFacts } : {}),
     穿着: resolvedClothing,
     说话方式: typeof rawSpeech === 'string' ? rawSpeech : undefined,
@@ -564,7 +566,7 @@ function 合并NPC记录(base: NPC记录, incoming: NPC记录): NPC记录 {
   const archived = base.已归档 === true || incoming.已归档 === true;
   const isCandace = base.姓名 === '坎蒂丝' || incoming.姓名 === '坎蒂丝' || preferred.姓名 === '坎蒂丝';
   const mergedGender = isCandace ? '女' : (preferred.性别 ?? base.性别 ?? incoming.性别);
-  return {
+  const merged: NPC记录 = {
     ...preferred,
     姓名: 选择NPC显示姓名(base, incoming, preferred),
     别名: 选择NPC别名(base, incoming, preferred),
@@ -617,6 +619,7 @@ function 合并NPC记录(base: NPC记录, incoming: NPC记录): NPC记录 {
     })(),
     图像档案: preferred.图像档案 ?? base.图像档案 ?? incoming.图像档案,
   };
+  return reconcileNpcAppearanceRecord(merged, normalizeNpcAppearanceFacts(merged.外貌档案, canRevealNpcRecordMeasurements(merged)));
 }
 
 function 选择NPC显示姓名(base: NPC记录, incoming: NPC记录, preferred: NPC记录): string {
@@ -1247,9 +1250,17 @@ function normalizeImageSource(raw: unknown): NonNullable<NonNullable<NPC记录['
 export function 提取NPC同行记忆文本列表(record: Pick<NPC记录, '同行记忆'> | undefined): string[] {
   const memories = (record?.同行记忆 ?? []) as Array<NPC同行记忆条目 | string>;
   return memories
-    .map((item) => (typeof item === 'string' ? item : item?.摘要 ?? ''))
+    .map((item) => typeof item === 'string' ? item : item?.来源 === '手机'
+      ? sanitizeCourierFactText(item.摘要 ?? '') : item?.摘要 ?? '')
     .map((text) => 清理NPC同行记忆摘要(text))
     .filter((text) => Boolean(text));
+}
+
+/** Only projected text proven to originate in a phone entry uses phone sanitation. */
+function readNpcSourceAwareMemoryText(record: Pick<NPC记录, '同行记忆'>, text: string): string {
+  const matchesPhoneSource = (record.同行记忆 ?? []).some((memory) =>
+    memory.来源 === '手机' && [memory.摘要, memory.原文].some((value) => value?.trim() === text.trim()));
+  return matchesPhoneSource ? sanitizeCourierFactText(text) : text;
 }
 
 export function buildNpcMemoryLedgerView(record: NPC记录, recentMemoryLimit = 4): NPC记忆账本视图 {
@@ -1287,7 +1298,7 @@ export function buildNpcMemoryLedgerView(record: NPC记录, recentMemoryLimit = 
     初见回合: Math.max(1, Number(record.初见回合 || 1)),
     最近回合: Math.max(1, Number(record.最近回合 || record.初见回合 || 1)),
     对玩家称呼: record.对玩家称呼,
-    最近互动: record.最近互动 || rawMemories.slice(-1)[0],
+    最近互动: record.最近互动 ? readNpcSourceAwareMemoryText(record, record.最近互动) : rawMemories.slice(-1)[0],
     对玩家长期印象: record.对玩家长期印象,
     共同经历: record.共同经历 ?? [],
     未完成事项: record.未完成事项 ?? [],
@@ -1301,7 +1312,14 @@ export function buildNpcMemoryLedgerView(record: NPC记录, recentMemoryLimit = 
 }
 
 export function formatNpcLedgerForPrompt(item: NPC账本选择条目): string {
-  const { ledger, reasons } = item;
+  const { reasons } = item;
+  const readMemory = (text: string) => readNpcSourceAwareMemoryText(item.npc, text);
+  const ledger = {
+    ...item.ledger,
+    最近互动: item.ledger.最近互动 ? readMemory(item.ledger.最近互动) : undefined,
+    最近原始记忆: item.ledger.最近原始记忆.map(readMemory).filter(Boolean),
+    总结记忆: item.ledger.总结记忆.map((summary) => ({ ...summary, 摘要: readMemory(summary.摘要) })).filter((summary) => summary.摘要),
+  };
   const lines = [
     `${ledger.姓名}${ledger.别名 ? `（${ledger.别名}）` : ''}：`,
     `- 信息归属：以下私有互动、关系、记忆与约定仅${ledger.姓名}本人知道；禁止其他 NPC 读取、引用或据此表现出知情，除非其自己的账本或公开事实明确给出来源。`,

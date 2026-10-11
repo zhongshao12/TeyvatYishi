@@ -16,7 +16,8 @@ import { narrativeTurnBodyText} from '@/models/teyvat/narrativeTurn';
 
 import { appendApiErrorReport } from '@/services/ai/apiErrorReportService';
 
-import { runSteambirdGenerationStep } from './steambirdWorkflow';
+import { recoverSteambirdTask } from './steambirdRetryTask';
+import { mergeSteambirdTaskResult } from './postTurnSteambirdTask';
 import { applyAbortedWorkflowPolicy, runCommittedSettlementRecovery, runPendingSettlementRecovery, type WorkflowResumeResult } from './recoveryResume';
 
 import { saveSetting} from '@/services/dbService';
@@ -456,7 +457,6 @@ async function retrySteambirdQueueTask(
     });
     return;
   }
-  const userInput = findPreviousUserInput(state.chatHistory, assistant.id);
   const body = assistant.parsedResponse ? narrativeTurnBodyText(assistant.parsedResponse) : assistant.content.trim();
   if (!body) {
     pushQueueTask(state, 'steambird', 'failed', {
@@ -465,10 +465,9 @@ async function retrySteambirdQueueTask(
     });
     return;
   }
-  const steambirdSettings = state.gameSettings.蒸汽鸟报系统;
-  const interval = Math.max(5, Math.min(10, Math.trunc(steambirdSettings?.generateIntervalTurns ?? 5) || 5));
   const retryContext = resolveSteambirdRetryContext(state.game, task);
-  const abortController = new AbortController();
+  const sessionId = state.getGameSessionId();
+  const base = readLiveGameState(state).蒸汽鸟报;
   pushQueueTask(state, 'steambird', 'pending', {
     detail: mode === 'reroll' ? '正在重生成蒸汽鸟报，本次不受回合间隔限制。' : '正在重试蒸汽鸟报，本次不受回合间隔限制。',
     turn: retryContext.turn,
@@ -477,21 +476,17 @@ async function retrySteambirdQueueTask(
     targetMessageId: assistant.id,
   });
   try {
-    const result = runSteambirdGenerationStep({
-      current: state.蒸汽鸟报,
-      publicFacts: [{ title: `第 ${retryContext.turn} 回公开见闻`, detail: `${userInput}\n${body}`.trim() }],
-      turnCount: retryContext.turn,
-      worldMoment: retryContext.worldMoment,
+    const result = await recoverSteambirdTask({ state, current: base, moment: retryContext.worldMoment,
+      turn: retryContext.turn, sessionId, taskId: task.targetBatchId });
+    if (state.getGameSessionId() !== sessionId) return;
+    state.set蒸汽鸟报(current => {
+      if (state.getGameSessionId() !== sessionId) return current;
+      return mergeSteambirdTaskResult(current, base, result.news);
     });
-    if (result?.changed) state.set蒸汽鸟报(result.steambird);
-    pushQueueTask(state, 'steambird', result ? 'success' : 'failed', {
-      detail: result
-        ? result.changed
-          ? `蒸汽鸟报已${mode === 'reroll' ? '重生成' : '重试更新'}，当前共 ${result.steambird.articles.length} 篇报道。`
-          : '蒸汽鸟报已重试，但模型没有返回可写入的新变化。'
-        : '蒸汽鸟报重试失败，请检查蒸汽鸟报 API 配置或模型返回。',
+    pushQueueTask(state, 'steambird', result.status, {
+      detail: result.reason ?? `蒸汽鸟报已${mode === 'reroll' ? '重生成' : '重试更新'}。`,
       turn: retryContext.turn,
-      failCount: result ? task.failCount : (task.failCount ?? 0) + 1,
+      failCount: result.status === 'failed' ? (task.failCount ?? 0) + 1 : task.failCount,
       targetMessageId: assistant.id,
     });
   } catch (err) {
@@ -696,17 +691,21 @@ export async function executeSendWorkflow(
   try {
     await persistWorkflowRecoveryJournal(recoveryJournal);
 
+    assertWorkflowActive();
+
     // 0-1. 本回合前置快照 + 用户消息入历史（已抽到 sendPreparationStage，M6 阶段 1）。
     //      懒加载（await import）以免该阶段被并进 app-core 首屏分包；
     //      新模块必须同时登记到 build/manualChunkStrategy.ts 的 allowlist。
     //      三个外层可变量由回调在**原始位置**回写（而非返回后统一赋值），
     //      以保证 recovery journal 落库失败等异常路径的行为与拆分前逐点一致。
     const { prepareSendTurn } = await import('./sendPreparationStage');
+    assertWorkflowActive();
     const preparation = await prepareSendTurn({
       userInput,
       state,
       effectiveWorld,
       recoveryJournal,
+      assertActive: assertWorkflowActive,
       onSnapshotReady: (preTurnSnapshot) => {
         rollbackSnapshotOnAbort = preTurnSnapshot;
       },
@@ -961,6 +960,7 @@ export async function executeSendWorkflow(
     void committedTurnContext;
     // 9.5 元素附着与反应结算（G1 极简版）（已抽到 elementalSettlementStage）。懒加载 + 登记 allowlist。
     const { runElementalSettlementStage } = await import('./elementalSettlementStage');
+    assertWorkflowActive();
     const elementalSettlementStage = await runElementalSettlementStage({
       state,
       displayText,
@@ -970,6 +970,10 @@ export async function executeSendWorkflow(
     const {
       travelerAfterMastery,
     } = elementalSettlementStage;
+    assertWorkflowActive();
+    recoveryJournal = { ...recoveryJournal, committedState: readLiveGameState(state), updatedAt: Date.now() };
+    await persistWorkflowRecoveryJournal(recoveryJournal);
+    assertWorkflowActive();
 
     // 10. Auto-save（已抽到 autoSaveStage）。懒加载 + 登记 allowlist。
     const { runAutoSaveStage } = await import('./autoSaveStage');
@@ -1102,15 +1106,17 @@ export async function runVariableCalibrationStep(
   params: VariableCalibrationParams,
 ): Promise<VariableSettlementResult | null> {
   const { state, liveBaseGame, ...settlement } = params;
+  // Capture before lazy imports: loading a save during module loading also invalidates this job.
+  const settlementSessionId = state.getGameSessionId();
   const { runVariableSettlementWorkflow } = await import('./variableSettlementWorkflow');
   const { rebaseSettlementState, isSettlementBaseCompatibleWithLiveRoot } = await import('@/utils/settlementRebase');
-  const { capturePostSettlementSaveToken, isSamePostSettlementSave } = await import('./postSettlementRecoveryWorkflow');
   // 结算基线必须是**活体根**，不能用 `state.game`：
   // `UseGameStateReturn` 是每次渲染一份的快照，`state.game` 还是「本回合 user 消息入栈之前」的旧根，
   // 拿它做 CAS 基准会与提交那一刻的活体根必然不等（对话少 1 条）→ 每一次结算都被误判成
   // 「等待期间换了存档」而整体丢弃，症状是 turnCount 不再增长（聊天/存档回合数卡住、
   // 手机回合分割线全部消失）。详见 `readLiveGameState` 与 `utils/settlementRebase.ts` 的注释。
   const liveBase = liveBaseGame ?? readLiveGameState(state);
+  if (state.getGameSessionId() !== settlementSessionId) return null;
   // 结算基线必须属于**当前活体存档**：恢复路径会把 journal 里那一回合的冻结快照当基线传进来，
   // 而它属于「当时那份存档」。玩家若已读入别的存档，CAS（活体 vs 活体）拦不住 ——
   // 于是旧档整根被写进新档。这里在调用模型**之前**就拒绝，既省一次付费调用也守住数据。
@@ -1120,7 +1126,7 @@ export async function runVariableCalibrationStep(
     });
     return null;
   }
-  const saveToken = capturePostSettlementSaveToken(liveBase);
+  const settlementAnchorId = liveBase.对话.entries.at(-1)?.id;
   return runVariableSettlementWorkflow({
     ...settlement,
     currentGame: liveBase,
@@ -1132,10 +1138,17 @@ export async function runVariableCalibrationStep(
     // 2) 再按顶层切片与 `liveBase` 比对，玩家在等待期间改过的切片以玩家为准（不再静默丢弃）。
     commitGame: (next) => {
       const liveNow = readLiveGameState(state);
-      if (!isSamePostSettlementSave(capturePostSettlementSaveToken(liveNow), saveToken)) {
-        pushQueueTask(state, 'variable', 'failed', {
-          detail: '结算期间存档已切换，本次变量结算未写入（已放弃，避免污染新存档）。',
-        });
+      // Conversation retention/editing is not save identity. Session changes always reject,
+      // even if the newly loaded save happens to have the same turn and message IDs.
+      if (settlement.signal?.aborted || settlement.shouldCommit?.() === false) return false;
+      if (state.getGameSessionId() !== settlementSessionId
+        || liveNow.turnCount !== liveBase.turnCount
+        || (settlementAnchorId && !liveNow.对话.entries.some(entry => entry.id === settlementAnchorId))) {
+        if (state.getGameSessionId() === settlementSessionId) {
+          pushQueueTask(state, 'variable', 'failed', {
+            detail: '结算期间回合或对话锚点已变化，本次变量结算未写入（已放弃，避免污染当前进度）。',
+          });
+        }
         return false;
       }
       const { state: merged, preservedSlices } = rebaseSettlementState({ ancestor: liveBase, next, current: liveNow });
@@ -1148,6 +1161,9 @@ export async function runVariableCalibrationStep(
       }
       return true;
     },
-    onFailure: (detail) => pushQueueTask(state, 'variable', 'failed', { detail }),
+    onFailure: (detail) => {
+      // A late failure from the old session must not add a task to the newly loaded save.
+      if (state.getGameSessionId() === settlementSessionId) pushQueueTask(state, 'variable', 'failed', { detail });
+    },
   });
 }

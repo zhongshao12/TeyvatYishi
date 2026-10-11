@@ -1,4 +1,5 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCourierPhotoCommit } from '@/hooks/useCourierPhotoCommit';
 import { useGame } from '@/hooks/useGame';
 import { mapTeyvatNpcsToLegacy, readLiveGameState } from '@/hooks/useGameState';
 import { prepareNewGameState } from '@/hooks/useGame/newGameOpening';
@@ -23,9 +24,11 @@ import { RightMenu } from '@/components/layout/RightMenu';
 import { SystemDrawer } from '@/components/layout/SystemDrawer';
 import { MobileQuickMenu } from '@/components/layout/MobileQuickMenu';
 import { ChatList } from '@/components/features/Chat/ChatList';
+import { getCurrentSTPresetV2 } from '@/utils/stSettingsNormalizer';
 import { InputArea } from '@/components/features/Chat/InputArea';
 import { VariableDrawer } from '@/components/features/Variable/VariableDrawer';
 import type { SettingsTab } from '@/components/features/Settings/SettingsModal';
+import { RecoverableSettingsModal as SettingsModal } from '@/components/features/Settings/RecoverableSettingsModal';
 import { PathAwakeningInvitation } from '@/components/features/Path/PathAwakeningInvitation';
 import { closeTopModal } from '@/components/ui/Modal';
 import { MAP_REGION_MAIN_LOCATIONS, markTeleport, unlockStatue } from '@/models/teyvat';
@@ -43,7 +46,7 @@ import { runPostTurnAutosaveTask } from '@/hooks/useGame/postTurnAutosaveTask';
 import { useDebouncedCourierAutosave } from '@/hooks/useGame/useDebouncedCourierAutosave';
 import { pushToast } from '@/utils/toastStore';
 import { failureItemId } from '@/models/failureCenter';
-import { registerFailureRetry, reportFailure } from '@/utils/failureCenterStore';
+import { registerFailureRetry, reportFailure, resolveFailure } from '@/utils/failureCenterStore';
 import { runTrackedSave, saveStatusStore } from '@/utils/saveStatus';
 import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
 import type { 角色数据结构 } from '@/models/character';
@@ -70,7 +73,6 @@ import {
 } from '@/components/layout/AppTransitionOverlays';
 
 const NewGameWizard = lazyWithRetry(() => import('@/components/features/NewGame/NewGameWizard').then((module) => ({ default: module.NewGameWizard })), 'new-game-wizard');
-const SettingsModal = lazyWithRetry(() => import('@/components/features/Settings/SettingsModal').then((module) => ({ default: module.SettingsModal })), 'settings-modal');
 const SaveLoadModal = lazyWithRetry(() => import('@/components/features/SaveLoad/SaveLoadModal').then((module) => ({ default: module.SaveLoadModal })), 'save-load-modal');
 const CourierModal = lazyWithRetry(() => import('@/components/features/Courier/CourierModal').then((module) => ({ default: module.CourierModal })), 'courier-modal');
 const WorldbookManagerModal = lazyWithRetry(() => import('@/components/features/Worldbook/WorldbookManagerModal').then((module) => ({ default: module.WorldbookManagerModal })), 'worldbook-manager-modal');
@@ -100,7 +102,8 @@ import { buildPersistedStoryWeavingSystem, loadAllBundledStoryWeavingPresets } f
 import { getCurrentStoryChapterLabel } from '@/services/storyProgressService';
 import { generateTravelerTemplate, type TravelerTemplateContext, type TravelerTemplateDraft } from '@/services/ai/travelerTemplate';
 import { revealCourierMessages, runCourierReplyPass, type CourierReplyPassResult } from '@/hooks/useGame/courierBackgroundJobs';
-import { createCourierReplyQueue, type CourierReplyBatchIntent, type CourierReplyDispatchResult } from '@/hooks/useGame/courierReplyQueue';
+import { classifyCourierReplyResult, createCourierReplyQueue, type CourierReplyBatchIntent, type CourierReplyDispatchResult } from '@/hooks/useGame/courierReplyQueue';
+import { courierReplyFailureKey, publishCourierReplyFeedback } from '@/hooks/useGame/courierReplyFeedback';
 import { resolveCourierApiConfig } from '@/services/ai/courierLetterModel';
 import { beginCourierReply, endCourierReply, selectGroupReplyMembers } from '@/services/ai/courierService';
 import { buildCourierPlayerBatch } from '@/utils/courierReplyBatch';
@@ -376,6 +379,7 @@ export default function App() {
 
     const typingIds = conversation.type === 'group'
       ? selectGroupReplyMembers(conversation, playerMessage, 3, root.手机.contacts)
+        .filter((id) => !conversation.messages.some((message) => message.id === `courier_group_reply_${playerMessage.id}_${id}`))
       : [([...conversation.messages].reverse().find((message) => message.senderId !== 'player')?.senderId
         ?? conversation.participantIds.find((id) => id !== 'player'))].filter((id): id is string => Boolean(id));
     if (!typingIds.length) {
@@ -423,31 +427,17 @@ export default function App() {
       await commitAndRevealCourierReply(result, batch, root.手机, npcWriteBackBase);
       if (latestStateRef.current.getGameSessionId() !== batch.sessionId) return 'sent';
       setCourierReplyErrors((previous) => {
+        if (classifyCourierReplyResult(result) === 'retry') return { ...previous, [batch.conversationId]: 'reply_failed' };
         if (!previous[batch.conversationId]) return previous;
         const next = { ...previous };
         delete next[batch.conversationId];
         return next;
       });
-      // U04（PROJECT_AUDIT_2026-10-03）：部分成功时明确告诉玩家「谁没回」，避免误以为角色故意不理人。
-      if (result.failedMemberNames?.length) {
-        const failureId = failureItemId('courier_reply', `${batch.conversationId}:members`);
-        reportFailure({
-          source: 'courier_reply',
-          reasonCode: 'phone_reply_partial_members',
-          humanReason: `群聊回信部分完成：${result.failedMemberNames!.join('、')}没有回复。`,
-          dedupeKey: `${batch.conversationId}:members`,
-          retryable: 'manual',
-          retryLabel: '重试未回复成员',
-          turn: currentLive.turnCount,
-        });
-        registerFailureRetry(failureId, () => courierReplyQueue.retry(batch.conversationId));
-        pushToast({
-          kind: 'info',
-          title: '群聊回信部分完成',
-          detail: `${result.failedMemberNames!.join('、')}没有回复；其余成员已回信，可在失败结算里重试。`,
-        });
-      }
-      return result.replied > 0 ? 'sent' : 'retry';
+      publishCourierReplyFeedback({ batch, replied: result.replied, failedMemberNames: result.failedMemberNames, turn: currentLive.turnCount }, {
+        report: reportFailure, registerRetry: registerFailureRetry, resolve: resolveFailure,
+        retry: (conversationId, messageIds) => courierReplyQueue.retry(conversationId, messageIds), toast: pushToast,
+      });
+      return classifyCourierReplyResult(result);
     } catch (error) {
       const currentLive = latestStateRef.current;
       if (currentLive.getGameSessionId() !== batch.sessionId
@@ -459,14 +449,15 @@ export default function App() {
       }));
       // 失败结算中心（2026-09-29 第 5 项收尾）：手机回信是「不经队列、也只在自己的横幅里」的失败，
       // 会话横幅会被切档/下次成功回信清掉，这里必须另留一条持久记录，并把重试入口一起注册。
-      const failureId = failureItemId('courier_reply', batch.conversationId);
+      const dedupeKey = courierReplyFailureKey(batch, 'messages');
+      const failureId = failureItemId('courier_reply', dedupeKey);
       reportFailure({
         source: 'courier_reply',
         reasonCode: apiUnavailable ? 'phone_reply_api_unavailable' : 'phone_reply_failed',
         humanReason: apiUnavailable
           ? '手机回信失败：手机或主模型 API 未配置。'
           : '手机回信失败：消息已保留，可稍后重试。',
-        dedupeKey: batch.conversationId,
+        dedupeKey,
         retryable: 'manual',
         retryLabel: '重试回信',
         turn: currentLive.turnCount,
@@ -474,7 +465,7 @@ export default function App() {
           ? { diagnostic: { visibleTo: 'developer' as const, text: error.message } }
           : {}),
       });
-      registerFailureRetry(failureId, () => courierReplyQueue.retry(batch.conversationId));
+      registerFailureRetry(failureId, () => courierReplyQueue.retry(batch.conversationId, batch.messageIds));
       return 'retry';
     } finally {
       const currentLive = latestStateRef.current;
@@ -663,6 +654,7 @@ export default function App() {
   const handleOpenProfile = useCallback(() => setShowCharacter(true), []);
   const handleOpenCourier = useCallback(() => setShowCourier(true), []);
   const handleCloseCourier = useCallback(() => setShowCourier(false), []);
+  const handleCourierPhotoCommit = useCourierPhotoCommit(state.updateGameState, state.getGameSessionId);
   const handleOpenMemoryRebuild = useCallback(() => setShowMemoryRebuild(true), []);
   const handleOpenSaveLoad = useCallback(() => setShowSaveLoad(true), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
@@ -912,6 +904,7 @@ export default function App() {
         onCancelTask={actions.handleAbort}
       />
       <ChatList
+        tavernPreset={state.gameSettings.enableStPreset !== false ? getCurrentSTPresetV2(state.gameSettings)?.preset : undefined}
         messages={state.chatHistory}
         variableBatches={state.variableBatches}
         loading={state.loading}
@@ -1098,6 +1091,7 @@ export default function App() {
           <Suspense fallback={<LazySurfaceFallback label="图鉴载入中" />}>
             <CodexManagerModal
               codex={state.图鉴}
+              npcRecords={state.NPC}
               onClose={() => setShowCodexManager(false)}
             />
           </Suspense>
@@ -1401,6 +1395,9 @@ export default function App() {
             courier={state.game.手机}
             album={state.相册}
             npcRecords={state.NPC}
+            imageSettings={state.gameSettings.文生图系统}
+            onAlbumChange={state.set相册}
+            onCommitPhoto={handleCourierPhotoCommit}
             travelerName={state.旅人.姓名}
             travelerAvatar={state.旅人.头像}
             currentTurn={state.game.turnCount}
@@ -1409,6 +1406,7 @@ export default function App() {
             getGameSessionId={state.getGameSessionId}
             onRequestReply={handleCourierReplyRequest}
             replyErrorByConversationId={courierReplyErrors}
+            replyQueue={courierReplyQueue}
             onRetryReply={handleCourierReplyRetry}
             onRequestMomentComments={handleMomentCommentRequest}
             canGenerateMomentComments={canGenerateMomentComments}
@@ -1440,6 +1438,7 @@ export default function App() {
         <Suspense fallback={<LazySurfaceFallback label="图鉴载入中" />}>
           <CodexManagerModal
             codex={state.图鉴}
+            npcRecords={state.NPC}
             onClose={() => setShowCodexManager(false)}
           />
         </Suspense>

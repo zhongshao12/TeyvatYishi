@@ -69,7 +69,7 @@ describe('post-narrative memory stage', () => {
   });
 
   it('commits archive promotion without retaining covered sources or losing unrelated live entries', async () => {
-    compressionModel.summarize.mockResolvedValue({ summary: '安柏完成侦察', usedFallback: false, usedModel: true, usedLocal: false });
+    compressionModel.summarize.mockResolvedValue({ summary: '侦察原文；安柏完成侦察', usedFallback: false, usedModel: true, usedLocal: false });
     const source = { id: 'source-short', title: '侦察', summary: '安柏带队侦察', sourceText: '侦察原文', keywords: ['安柏'],
       sourceTurns: [5], recordedAt: '第5回', archiveType: 'short' as const, turn: 5 };
     const unrelated = { ...source, id: 'player-note', summary: '等待时玩家补充的手记' };
@@ -140,7 +140,8 @@ describe('post-narrative memory stage', () => {
   });
 
   it('compresses_across_layers_without_duplicate_recall', async () => {
-    compressionModel.summarize.mockResolvedValue({ summary: '- 安柏带队抵达蒙德', usedFallback: false, usedModel: true, usedLocal: false });
+    compressionModel.summarize.mockResolvedValue({ summary: '玩家输入：找安柏\n剧情回应：本回合小结：抵达蒙德\n\n安柏挥手。',
+      usedFallback: false, usedModel: true, usedLocal: false });
     const settings = { ...创建默认记忆系统设置(), 即时转短期阈值: 1, 短期转中期阈值: 1, 中期转长期阈值: 1 };
     const result = await settlePostNarrativeMemory({
       memory: 创建空记忆系统(), irminsul: createEmptyIrminsulMemory(),
@@ -211,15 +212,15 @@ describe('post-narrative memory stage', () => {
     const memory = { ...创建空记忆系统(), 中期记忆: [pending.summary, pending.summary],
       中期归档ID: [otherPending.id, pending.id], 失败草稿: [draft] };
     const settings = 创建默认记忆系统设置();
-    compressionModel.summarize.mockResolvedValue({ summary: '安柏带队完成侦察', usedFallback: false, usedModel: true, usedLocal: false });
+    compressionModel.summarize.mockResolvedValue({ summary: '原文；安柏带队完成侦察', usedFallback: false, usedModel: true, usedLocal: false });
 
     const retried = await retryMemoryFailureDraft(memory, draft.id, settings, {} as API配置项, undefined, tree);
-    expect(retried.memory.中期记忆).toEqual([pending.summary, '安柏带队完成侦察']);
+    expect(retried.memory.中期记忆).toEqual([pending.summary, '原文；安柏带队完成侦察']);
     expect(retried.draft.status).toBe('resolved');
     expect(retried.draft.sourceSnapshot.payload).toBe('');
     expect(retried.irminsul?.entries.map((entry) => entry.id)).toEqual(['other-pending', 'pending-middle']);
     expect(retried.irminsul?.entries.find((entry) => entry.id === pending.id)).toMatchObject({
-      summary: '安柏带队完成侦察', status: 'active', coveredEntryIds: ['source-short'],
+      summary: '原文；安柏带队完成侦察', status: 'active', coveredEntryIds: ['source-short'],
     });
     const repeated = await retryMemoryFailureDraft(retried.memory, draft.id, settings, {} as API配置项, undefined, retried.irminsul);
     expect(repeated.irminsul).toBe(retried.irminsul);

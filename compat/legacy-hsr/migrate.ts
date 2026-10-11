@@ -19,6 +19,7 @@ import type {
   SaveMigrationResult,
 } from './types';
 import { parseStoredLegacyResponse } from '@/services/ai/responseParser';
+import { normalizeWorldMoment } from '@/services/worldMoment';
 
 export { classifySaveUniverse } from './classify';
 export type { DbSaveClassificationResult, MigrationIssue, MigrationReport, SaveMigrationResult, SaveUniverseClass } from './types';
@@ -583,6 +584,7 @@ function migratePartial(input: RecordValue, resolutions: MigrationResolutions, r
       content: text(message.content),
       timestamp: Number(message.timestamp) || 0,
       ...(typeof message.gameTime === 'string' ? { gameTime: message.gameTime } : {}),
+      ...(normalizeWorldMoment(message.worldMoment) ? { worldMoment: normalizeWorldMoment(message.worldMoment)! } : {}),
       ...(structuredResponse ? { structuredResponse } : {}),
       ...(preTurnState ? { preTurnState } : {}),
       ...(Number.isFinite(Number(message.inputTokens)) ? { inputTokens: Number(message.inputTokens) } : {}),
@@ -599,9 +601,16 @@ function migratePartial(input: RecordValue, resolutions: MigrationResolutions, r
   state.记忆 = {
     ...state.记忆,
     immediate: textList(memory.即时记忆),
+    ...(Array.isArray(memory.即时记忆ID) ? { immediateIds: memory.即时记忆ID as (string | null)[] } : {}),
+    ...(isRecord(memory.来源时刻) ? { sourceMoments: memory.来源时刻 as NonNullable<TeyvatGameState['记忆']['sourceMoments']> } : {}),
+    ...(isRecord(memory.来源回合) ? { sourceTurnsById: memory.来源回合 as Record<string, number[]> } : {}),
+    ...(isRecord(memory.生成文本指纹) ? { generatedTextFingerprints: memory.生成文本指纹 as Record<string, string> } : {}),
     shortTerm: textList(memory.短期记忆),
+    ...(Array.isArray(memory.短期归档ID) ? { shortArchiveIds: memory.短期归档ID as (string | null)[] } : {}),
     mediumTerm: textList(memory.中期记忆),
+    ...(Array.isArray(memory.中期归档ID) ? { mediumArchiveIds: memory.中期归档ID as (string | null)[] } : {}),
     longTerm: textList(memory.长期记忆),
+    ...(Array.isArray(memory.长期归档ID) ? { longArchiveIds: memory.长期归档ID as (string | null)[] } : {}),
     failedDrafts: Array.isArray(memory.失败草稿) ? memory.失败草稿.flatMap((draft) => {
       if (!isRecord(draft)) return [];
       const turns = isRecord(draft.sourceTurns) ? draft.sourceTurns : {};

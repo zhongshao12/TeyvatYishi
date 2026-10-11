@@ -270,13 +270,18 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         });
         const next = withLegacyMemory(current, memoryCommit.memory);
         memoryWrite.commit = memoryCommit;
-        memoryWrite.root = { ...next, 世界树: memoryCommit.irminsul };
+        memoryWrite.root = { ...next, 世界树: memoryCommit.irminsul,
+          对话: { ...next.对话, entries: next.对话.entries.map((entry) => entry.id === aiMsg.id && entry.role === 'assistant'
+            ? { ...entry, worldMoment: { ...settledMoment } } : entry) },
+        };
         return memoryWrite.root;
       }));
       if (!memoryWrite.commit || !memoryWrite.root) throw new Error('记忆结算被新的存档取代，已停止旧回合写入。');
       mem = memoryWrite.commit.memory;
       irminsulWithCompression = memoryWrite.commit.irminsul;
       committedSettlementGame = memoryWrite.root;
+      finalHistory = finalHistory.map((message) => message.id === aiMsg.id && message.role === 'assistant'
+        ? { ...message, worldMoment: { ...settledMoment } } : message);
       if (memoryWrite.commit.compressionDeferred) {
         pushQueueTask(state, 'memory', 'success', { detail: '压缩期间检测到记忆或世界树来源发生修改，已保留编辑与本回合记忆；压缩推迟到下回合。' });
       }

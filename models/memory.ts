@@ -1,5 +1,6 @@
 import type { WorldMomentRange } from './teyvat/worldMoment';
 import { normalizeWorldMomentRange } from '@/services/worldMoment';
+import { normalizeSourceTurnsMap, normalizeGeneratedFingerprints } from './memorySource';
 
 export const MEMORY_LAYER_COMPRESSION_THRESHOLD = 15;
 
@@ -45,6 +46,9 @@ export interface 记忆系统 {
   即时记忆ID?: (string | null)[];
   /** Original event moment or summary span, keyed by memory/archive ID. */
   来源时刻?: Record<string, WorldMomentRange>;
+  来源回合?: Record<string, number[]>;
+  /** Fingerprint of generated text; player edits must not refresh it. */
+  生成文本指纹?: Record<string, string>;
   短期记忆: string[];
   /** Same-index world-tree IDs; absent/null on legacy text-only memories. */
   短期归档ID?: (string | null)[];
@@ -155,8 +159,12 @@ export function normalizeMemorySystem(raw?: Partial<记忆系统> | null): 记�
   const short = Array.isArray(raw?.短期记忆) ? raw!.短期记忆 : [];
   const middle = Array.isArray(raw?.中期记忆) ? raw!.中期记忆 : [];
   const long = Array.isArray(raw?.长期记忆) ? raw!.长期记忆 : [];
+  const sourceTurns = normalizeSourceTurnsMap(raw?.来源回合);
+  const fingerprints = normalizeGeneratedFingerprints(raw?.生成文本指纹);
   return {
     即时记忆: immediate,
+    ...(sourceTurns ? { 来源回合: sourceTurns } : {}),
+    ...(fingerprints ? { 生成文本指纹: fingerprints } : {}),
     ...(Array.isArray(raw?.即时记忆ID) ? { 即时记忆ID: immediate.map((_, index) => typeof raw.即时记忆ID?.[index] === 'string' ? raw.即时记忆ID[index] : null) } : {}),
     ...(raw?.来源时刻 && typeof raw.来源时刻 === 'object' && !Array.isArray(raw.来源时刻)
       ? { 来源时刻: Object.fromEntries(Object.entries(raw.来源时刻).flatMap(([id, range]) => {

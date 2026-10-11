@@ -397,6 +397,7 @@ export function toLegacyTurnCheckpoint(checkpoint: ConversationTurnCheckpoint): 
 function toLegacyChat(game: TeyvatGameState): 聊天消息[] {
   return game.对话.entries.map((entry) => ({
     id: entry.id, role: entry.role, content: entry.content, timestamp: entry.timestamp, gameTime: entry.gameTime,
+    ...(entry.worldMoment ? { worldMoment: { ...entry.worldMoment } } : {}),
     parsedResponse: entry.structuredResponse ? {
       body: entry.structuredResponse.body.map((block) => ({ ...block })),
       choices: entry.structuredResponse.choices.map((choice) => ({ ...choice })),
@@ -440,6 +441,7 @@ function withLegacyChat(game: TeyvatGameState, messages: 聊天消息[]): Teyvat
     对话: normalizeConversationLog({ entries: messages.map((message) => ({
       id: message.id, role: message.role, content: message.content, timestamp: message.timestamp,
       gameTime: message.gameTime,
+      worldMoment: message.worldMoment,
       structuredResponse: message.parsedResponse ? {
         body: message.parsedResponse.body.map((block) => ({ ...block })),
         choices: message.parsedResponse.choices.map((choice) => ({ ...choice })),
@@ -482,6 +484,8 @@ export function toLegacyMemory(game: TeyvatGameState): 记忆系统 {
   return { 即时记忆: [...game.记忆.immediate], 短期记忆: [...game.记忆.shortTerm],
     ...(game.记忆.immediateIds ? { 即时记忆ID: [...game.记忆.immediateIds] } : {}),
     ...(game.记忆.sourceMoments ? { 来源时刻: { ...game.记忆.sourceMoments } } : {}),
+    ...(game.记忆.sourceTurnsById ? { 来源回合: Object.fromEntries(Object.entries(game.记忆.sourceTurnsById).map(([id, turns]) => [id, [...turns]])) } : {}),
+    ...(game.记忆.generatedTextFingerprints ? { 生成文本指纹: { ...game.记忆.generatedTextFingerprints } } : {}),
     ...(game.记忆.shortArchiveIds ? { 短期归档ID: [...game.记忆.shortArchiveIds] } : {}),
     中期记忆: [...game.记忆.mediumTerm], ...(game.记忆.mediumArchiveIds ? { 中期归档ID: [...game.记忆.mediumArchiveIds] } : {}),
     长期记忆: [...game.记忆.longTerm], ...(game.记忆.longArchiveIds ? { 长期归档ID: [...game.记忆.longArchiveIds] } : {}),
@@ -499,6 +503,8 @@ export function withLegacyMemory(game: TeyvatGameState, memory: 记忆系统): T
     immediate: memory.即时记忆, shortTerm: memory.短期记忆,
     ...(memory.即时记忆ID ? { immediateIds: memory.即时记忆ID } : {}),
     ...(memory.来源时刻 ? { sourceMoments: memory.来源时刻 } : {}),
+    ...(memory.来源回合 ? { sourceTurnsById: memory.来源回合 } : {}),
+    ...(memory.生成文本指纹 ? { generatedTextFingerprints: memory.生成文本指纹 } : {}),
     ...(memory.短期归档ID ? { shortArchiveIds: memory.短期归档ID } : {}),
     mediumTerm: memory.中期记忆, ...(memory.中期归档ID ? { mediumArchiveIds: memory.中期归档ID } : {}),
     longTerm: memory.长期记忆, ...(memory.长期归档ID ? { longArchiveIds: memory.长期归档ID } : {}),

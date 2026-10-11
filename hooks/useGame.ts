@@ -23,13 +23,10 @@ import type { 队列任务记录 } from '@/models/queueTask';
 import { 根据开局档案创建初始NPC记录, 生成开局已成立事实, 归一化开局档案 } from '@/models/world';
 import { saveSetting } from '@/services/dbService';
 import { summarizeMemoryBatch } from '@/services/memoryCompression';
-import {
-  commitMemoryRebuildTask,
-  createMemoryRebuildTask,
-  runMemoryRebuildTask,
-  type MemoryRebuildProgress,
-  type MemoryRebuildRange,
-  type MemoryRebuildTask,
+import type {
+  MemoryRebuildProgress,
+  MemoryRebuildRange,
+  MemoryRebuildTask,
 } from '@/services/memoryRebuild';
 import { clearWorkflowRecoveryJournal } from '@/services/workflowRecovery';
 import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
@@ -331,6 +328,7 @@ export function useGame(): UseGameReturn {
     task?: MemoryRebuildTask;
     onProgress?: (progress: MemoryRebuildProgress) => void;
   }): Promise<MemoryRebuildTask> => {
+    const { commitMemoryRebuildTask, createMemoryRebuildTask, runMemoryRebuildTask } = await import('@/services/memoryRebuild');
     const s = stateRef.current;
     const settings = s.gameSettings.记忆系统;
     const config = getMemoryCompressionConfig(settings);

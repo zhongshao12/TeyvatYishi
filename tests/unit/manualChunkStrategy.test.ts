@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { resolveManualChunk } from '@/build/manualChunkStrategy';
 
 describe('manual chunk strategy', () => {
+  it('does not force on-demand memory rebuilding into the first-screen core', () => {
+    expect(resolveManualChunk('/repo/services/memoryRebuild.ts')).toBeUndefined();
+    expect(resolveManualChunk('C:\\repo\\services\\memoryRebuild.ts')).toBeUndefined();
+  });
   it('keeps mutually dependent first-party runtime layers in one cycle-safe core chunk', () => {
     expect(resolveManualChunk('/repo/services/ai/chatCompletionClient.ts')).toBe('app-core');
     expect(resolveManualChunk('/repo/services/storage/saveCatalog.ts')).toBe('app-core');

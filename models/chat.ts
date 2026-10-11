@@ -1,5 +1,6 @@
 import type { NPC账本选择结果 } from './npc';
 import type { NarrativeTurn } from './teyvat/narrativeTurn';
+import type { WorldMoment } from './teyvat/worldMoment';
 
 export type 消息角色 = 'user' | 'assistant' | 'system';
 
@@ -34,6 +35,7 @@ export interface 聊天消息 {
   content: string;
   timestamp: number;
   gameTime?: string;
+  worldMoment?: WorldMoment;
   parsedResponse?: NarrativeTurn;
   inputTokens?: number;
   outputTokens?: number;

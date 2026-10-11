@@ -14,6 +14,7 @@ import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
 import { getActiveIrminsulEntries, hasCompleteIrminsulSourceCoverage, promoteIrminsulEntry } from '@/services/irminsulPromotion';
 import type { WorldMoment, WorldMomentRange } from '@/models/teyvat/worldMoment';
 import { combineWorldMomentRanges } from '@/services/worldMoment';
+import { fingerprintMemoryText } from '@/models/memorySource';
 
 const MEMORY_SNIPPET_LIMIT = 84;
 const NPC_MEMORY_SUMMARY_LIMIT = 160;
@@ -166,6 +167,10 @@ export function addImmediateMemory(system: 记忆系统, memory: string, turn: n
     ...system,
     即时记忆: trimmed,
     ...(moment || system.即时记忆ID ? { 即时记忆ID: newIds.slice(-50) } : {}),
+    ...(id ? {
+      来源回合: { ...system.来源回合, [id]: [turn] },
+      生成文本指纹: { ...system.生成文本指纹, [id]: fingerprintMemoryText(memory) },
+    } : {}),
     ...(id && moment ? { 来源时刻: {
       ...system.来源时刻,
       [id]: { start: moment, end: moment, sourceIds: [id] },

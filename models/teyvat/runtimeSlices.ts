@@ -3,6 +3,7 @@ import type { CommittedSettlementChange } from '@/models/variableCommand';
 import { 归一化剧情编织分段, type 剧情编织场景节点, type StoryBuiltinBinding, type StoryMigrationWarning } from '@/models/storyWeaving';
 import type { WorldMoment, WorldMomentRange } from './worldMoment';
 import { normalizeWorldMoment, normalizeWorldMomentRange } from '@/services/worldMoment';
+import { normalizeSourceTurnsMap, normalizeGeneratedFingerprints } from '../memorySource';
 import { ELEMENT_IDS, type ElementId } from './elements';
 import { createEmptyElementalField, MAX_ELEMENT_EVENTS, type ElementalFieldState, type ElementalReactionEvent } from './elementalGauge';
 import { readLegacyCodexDebugMetadata } from '@/compat/legacy-hsr/readOnly';
@@ -115,6 +116,7 @@ export interface ConversationEntry {
   content: string;
   timestamp: number;
   gameTime?: string;
+  worldMoment?: WorldMoment;
   bookmarked?: boolean;
   structuredResponse?: NarrativeTurnDto;
   preTurnState?: ConversationTurnCheckpoint;
@@ -169,6 +171,8 @@ export interface MemoryLedger {
   immediate: string[];
   immediateIds?: (string | null)[];
   sourceMoments?: Record<string, WorldMomentRange>;
+  sourceTurnsById?: Record<string, number[]>;
+  generatedTextFingerprints?: Record<string, string>;
   shortTerm: string[];
   shortArchiveIds?: (string | null)[];
   mediumTerm: string[];
@@ -458,6 +462,7 @@ export function normalizeConversationLog(value: unknown): ConversationLog {
     const role: ConversationRole = entry.role === 'user' || entry.role === 'assistant' ? entry.role : 'system';
     const structuredResponse = normalizeStructuredResponse(entry.structuredResponse);
     const tokenUsage = normalizeTokenUsage(entry.tokenUsage);
+    const worldMoment = normalizeWorldMoment(entry.worldMoment);
     const debugMetadata = normalizeDebugMetadata(entry.debugMetadata);
     const checkpoint = entryIndex === lastCheckpointIndex && isRecord(entry.preTurnState) ? {
       turnCount: integer(entry.preTurnState.turnCount), pendingOpeningTrigger: typeof entry.preTurnState.pendingOpeningTrigger === 'string' ? entry.preTurnState.pendingOpeningTrigger : null,
@@ -476,7 +481,7 @@ export function normalizeConversationLog(value: unknown): ConversationLog {
       ...(isRecord(entry.preTurnState.narrative) ? { narrative: normalizeNarrativeRuntime(entry.preTurnState.narrative) } : {}),
     } : undefined;
     const bookmark = isRecord(entry.bookmark) ? { title: text(entry.bookmark.title), ...(optionalText(entry.bookmark.note) ? { note: text(entry.bookmark.note) } : {}), createdAt: number(entry.bookmark.createdAt) } : undefined;
-    return [{ id: text(entry.id), role, content: text(entry.content), timestamp: number(entry.timestamp), ...(optionalText(entry.gameTime) ? { gameTime: text(entry.gameTime) } : {}), ...(typeof entry.bookmarked === 'boolean' ? { bookmarked: entry.bookmarked } : {}), ...(structuredResponse ? { structuredResponse } : {}), ...(checkpoint ? { preTurnState: checkpoint } : {}), ...(Number.isFinite(Number(entry.inputTokens)) ? { inputTokens: number(entry.inputTokens) } : {}), ...(Number.isFinite(Number(entry.outputTokens)) ? { outputTokens: number(entry.outputTokens) } : {}), ...(tokenUsage ? { tokenUsage } : {}), ...(Number.isFinite(Number(entry.responseDurationSec)) ? { responseDurationSec: number(entry.responseDurationSec) } : {}), ...(typeof entry.streaming === 'boolean' ? { streaming: entry.streaming } : {}), ...(bookmark ? { bookmark } : {}), ...(debugMetadata ? { debugMetadata } : {}), ...(Array.isArray(entry.narrativeImages) ? { narrativeImages: entry.narrativeImages.flatMap((item) => normalizeNarrativeImage(item) ?? []) } : {}) }];
+    return [{ id: text(entry.id), role, content: text(entry.content), timestamp: number(entry.timestamp), ...(worldMoment ? { worldMoment } : {}), ...(optionalText(entry.gameTime) ? { gameTime: text(entry.gameTime) } : {}), ...(typeof entry.bookmarked === 'boolean' ? { bookmarked: entry.bookmarked } : {}), ...(structuredResponse ? { structuredResponse } : {}), ...(checkpoint ? { preTurnState: checkpoint } : {}), ...(Number.isFinite(Number(entry.inputTokens)) ? { inputTokens: number(entry.inputTokens) } : {}), ...(Number.isFinite(Number(entry.outputTokens)) ? { outputTokens: number(entry.outputTokens) } : {}), ...(tokenUsage ? { tokenUsage } : {}), ...(Number.isFinite(Number(entry.responseDurationSec)) ? { responseDurationSec: number(entry.responseDurationSec) } : {}), ...(typeof entry.streaming === 'boolean' ? { streaming: entry.streaming } : {}), ...(bookmark ? { bookmark } : {}), ...(debugMetadata ? { debugMetadata } : {}), ...(Array.isArray(entry.narrativeImages) ? { narrativeImages: entry.narrativeImages.flatMap((item) => normalizeNarrativeImage(item) ?? []) } : {}) }];
   }) };
 }
 
@@ -487,18 +492,22 @@ export function normalizeMemoryLedger(value: unknown): MemoryLedger {
   const shortTerm = textList(raw.shortTerm);
   const mediumTerm = textList(raw.mediumTerm);
   const longTerm = textList(raw.longTerm);
+  const sourceTurns = normalizeSourceTurnsMap(raw.sourceTurnsById);
+  const fingerprints = normalizeGeneratedFingerprints(raw.generatedTextFingerprints);
   const archiveIds = (value: unknown, length: number): (string | null)[] =>
     Array.from({ length }, (_, index) => typeof (value as unknown[])?.[index] === 'string' ? (value as string[])[index] ?? null : null);
   const recoveryStatuses = ['pending', 'retrying', 'resolved', 'ignored'] as const;
   const draftKinds = ['short', 'middle', 'long'] as const;
   const failureCodes = ['unconfigured', 'request_failed', 'empty_output', 'source_changed'] as const;
   const sourceMoments = isRecord(raw.sourceMoments)
-    ? Object.fromEntries(Object.entries(raw.sourceMoments).slice(-2000).flatMap(([id, range]) => {
+    ? Object.fromEntries(Object.entries(raw.sourceMoments).flatMap(([id, range]) => {
         const normalized = id.trim() ? normalizeWorldMomentRange(range) : null;
         return normalized ? [[id, normalized]] : [];
       })) as Record<string, WorldMomentRange>
     : undefined;
   return { immediate,
+    ...(sourceTurns ? { sourceTurnsById: sourceTurns } : {}),
+    ...(fingerprints ? { generatedTextFingerprints: fingerprints } : {}),
     ...(Array.isArray(raw.immediateIds) ? { immediateIds: archiveIds(raw.immediateIds, immediate.length) } : {}),
     ...(sourceMoments ? { sourceMoments } : {}),
     shortTerm,

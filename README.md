@@ -11,6 +11,10 @@
 - [玩家体验优化路线图](PLAYER_EXPERIENCE_ROADMAP.md)：基于当前界面和系统架构整理的后续优化优先级。
 - [贡献与仓库权限说明](CONTRIBUTING.md)：公开下载、问题反馈与代码写入权限边界。
 
+功能说明与维护资料保留在 `docs/`：包括 [Latent 图片接口](docs/reviews/2026-10-09-latent-image-generation.md)、[手机与相册提示词库](docs/reviews/2026-10-11-image-prompt-library.md)、[逐回合记忆与世界树整理](docs/reviews/2026-10-11-memory-integrity-repair.md)、[剧情资料更新](docs/reviews/2026-10-03-story-overrides-usage.md)及 `docs/superpowers/specs/` 中的设计规范。
+
+旧实施计划、历史审查草稿、临时摘录及与游戏无关的插件报告不再随当前版本下载。历史引用可在 [清理前的文档快照](https://github.com/zhongshao12/TeyvatYishi/tree/aafc742802031b7f5b4060f88dfb7cf977d15198)中查阅，提交历史仍保留。
+
 > 本项目是非官方同人项目，仅用于学习、研究与非商业创作。
 # 本项目虽为开源项目，初心是与更多对AI扮演聊天的作者交流，创作出更好的作品。对本项目进行二创，更改都需要项目本人同意，并且原项目内容必须开源。严禁进行任何商业用途。
 
@@ -184,6 +188,8 @@ utils/       变量执行、路径解析、背包、相册、世界书等工具�
 - `.claude/`
 - `AGENTS.md`
 - `docs/` 中的本地计划文件
+- `.audit/` 中的本地审查草稿
+- 临时提示词摘录和与游戏无关的插件报告
 - `.env*`
 - `dist/`
 - `node_modules/`

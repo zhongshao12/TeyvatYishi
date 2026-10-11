@@ -64,3 +64,25 @@ THEME_ISSUES.md
 
 # Local Claude notes
 CLAUDE.md
+
+# Local implementation archives and temporary extracts (not published)
+/docs/superpowers/plans/
+/.audit/*.md
+/_extract-jb*.md
+/CODE_AUDIT.md
+/M6_SPLIT_PLAN.md
+/REGRESSION_TRIAGE.md
+/PROJECT_AUDIT_2026-10-03.md
+/好感度异常分析-2026-09-20.md
+/项目全面审查-第二轮-2026-09-20.md
+/项目错误与体验问题分析-2026-09-20.md
+/项目问题与优化整合报告-2026-09-16-五期.md
+/完全破限模式-安装与回滚.md
+/完全破限模式-交付报告.md
+/docs/reviews/2026-10-03-new-game-manual-save-hotfix.md
+/docs/reviews/2026-10-03-remaining-repair-progress.md
+/docs/reviews/2026-10-03-story-canon-source-diff.md
+/docs/reviews/2026-10-09-nabu-malikata-identity-fix.md
+/docs/reviews/2026-10-09-repair-progress.md
+/docs/reviews/2026-10-11-final-regression-alignment.md
+/docs/reviews/2026-10-11-save-task-brief.md

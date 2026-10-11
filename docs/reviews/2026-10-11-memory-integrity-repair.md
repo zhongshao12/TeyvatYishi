@@ -111,6 +111,8 @@ Windows 默认 TEMP 的 esbuild 清理 ACL 曾失败，改用计划目录下的�
 
 ## 集成与清理
 
-保持 `codex/npc-affinity-memory-consistency` 和现有工作区；未合并 main、未推送。四个手机文件及其报告未纳入本批提交。计划专用草稿、测试日志、浏览器夹具及临时构建目录在验收记录提交后清理；产品代码、测试和本报告保留在 Git 中。
+保持 `codex/npc-affinity-memory-consistency` 和现有工作区；未合并 main、未推送。四个手机文件及其报告未纳入本批提交。临时目录清理被环境安全策略阻止，未删除任何文件，也未尝试替代删除方式；计划专用草稿、测试日志、浏览器夹具及临时构建目录仍保留。
+
+- Ruling: Keep owned scratch after policy blocked cleanup — no alternate deletion attempted — cost if wrong: temporary files continue consuming disk space.
 
 

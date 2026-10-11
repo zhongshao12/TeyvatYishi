@@ -26,6 +26,8 @@ export interface MemoryMaintenancePatch {
   added: MemorySourceItem[];
   archiveUpserts: IrminsulEntry[];
   archiveRemoved: IrminsulEntry[];
+  /** Original archives read by the request, including evidence that is retained rather than retired. */
+  archiveSources?: IrminsulEntry[];
   failureUpserts: 记忆失败草稿[];
 }
 

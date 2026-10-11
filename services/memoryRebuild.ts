@@ -2,6 +2,8 @@ import type { 聊天消息 } from '@/models/chat';
 import { MEMORY_LAYER_COMPRESSION_THRESHOLD, 创建空记忆系统, type 记忆系统 } from '@/models/memory';
 import type { MemoryCompressionSource } from '@/services/memoryCompression';
 import { narrativeTurnBodyText } from '@/models/teyvat/narrativeTurn';
+import type { MemoryMaintenanceState } from '@/models/memorySource';
+import { prepareMemoryRebuildScope } from './memoryMaintenanceMerge';
 
 /** A completed story turn used by batch memory rebuilding. */
 export interface MemoryRebuildTurn {
@@ -102,6 +104,7 @@ export interface MemoryRebuildFailedBatch {
 }
 
 export interface MemoryRebuildTask {
+  rebuildScope?: ReturnType<typeof prepareMemoryRebuildScope>;
   id: string;
   status: MemoryRebuildTaskStatus;
   range: { start: number; end: number };
@@ -123,6 +126,7 @@ export interface MemoryRebuildTask {
 }
 
 export interface CreateMemoryRebuildTaskOptions {
+  sourceState?: MemoryMaintenanceState;
   chatHistory: readonly 聊天消息[];
   batchSize: number;
   range?: MemoryRebuildRange;
@@ -384,17 +388,19 @@ export function createMemoryRebuildTask(options: CreateMemoryRebuildTaskOptions)
   const batchSize = Math.max(1, Math.min(100, Math.trunc(Number(options.batchSize) || 15)));
   const batches: MemoryRebuildTurn[][] = [];
   for (let index = 0; index < turns.length; index += batchSize) batches.push(turns.slice(index, index + batchSize));
+  const rebuildScope = options.sourceState ? prepareMemoryRebuildScope(options.sourceState, { start, end }) : undefined;
   return {
     id: options.id ?? makeTaskId(),
     status: 'idle',
     range: { start, end },
+    ...(rebuildScope ? { rebuildScope } : {}),
     batchSize,
     turns,
     batches,
     nextBatchIndex: 0,
     staging: 创建空记忆系统(),
     stagingItems: { short: [], middle: [], long: [] },
-    warnings: extracted.warnings,
+    warnings: [...extracted.warnings, ...(rebuildScope?.warnings ?? [])],
     progress: {
       totalBatches: batches.length,
       completedBatches: 0,

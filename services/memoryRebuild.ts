@@ -1,8 +1,13 @@
 import type { 聊天消息 } from '@/models/chat';
-import { MEMORY_LAYER_COMPRESSION_THRESHOLD, 创建空记忆系统, type 记忆系统 } from '@/models/memory';
+import { MEMORY_LAYER_COMPRESSION_THRESHOLD, 创建空记忆系统, deserializeMemoryFailureSource, type 记忆系统 } from '@/models/memory';
 import type { MemoryCompressionSource } from '@/services/memoryCompression';
 import { narrativeTurnBodyText } from '@/models/teyvat/narrativeTurn';
-import type { MemoryMaintenanceState } from '@/models/memorySource';
+import { fingerprintMemoryText, type MemoryMaintenanceState, type MemorySourceItem, type MemoryLayerThresholds } from '@/models/memorySource';
+import type { IrminsulMemory, IrminsulEntry } from '@/models/teyvat/irminsul';
+import { resolveRebuildTurnMoment, readMemorySourceItems } from './memorySources';
+import type { WorldMomentRange } from '@/models/teyvat/worldMoment';
+import { 创建默认记忆系统设置 } from '@/models/settings';
+import { runMemoryLayerCompression } from './memoryLayerCompression';
 import { prepareMemoryRebuildScope } from './memoryMaintenanceMerge';
 
 /** A completed story turn used by batch memory rebuilding. */
@@ -13,6 +18,7 @@ export interface MemoryRebuildTurn {
   userInput: string;
   body: string;
   sourceMessageIds: string[];
+  momentRange: WorldMomentRange;
 }
 
 export interface MemoryRebuildRange {
@@ -35,6 +41,7 @@ export interface MemoryRebuildSettings {
   apiEnabled?: boolean;
   prompts?: MemoryRebuildPrompts;
   compressionThreshold?: number;
+  thresholds?: MemoryLayerThresholds;
 }
 
 export interface MemoryRebuildSummarySuccess {
@@ -89,6 +96,8 @@ export interface MemoryRebuildProgress {
   currentBatch: number | null;
   processedTurns: number;
   totalTurns: number;
+  phase?: 'turns' | 'short' | 'middle' | 'long' | 'saving';
+  currentTurn?: number | null;
 }
 
 export interface MemoryRebuildFailedBatch {
@@ -112,6 +121,10 @@ export interface MemoryRebuildTask {
   turns: MemoryRebuildTurn[];
   batches: MemoryRebuildTurn[][];
   nextBatchIndex: number;
+  nextTurnIndex: number;
+  turnSummaries: MemorySourceItem[];
+  stagedIrminsul: IrminsulMemory;
+  phase: 'turns' | 'compression' | 'ready';
   staging: 记忆系统;
   /** Internal provenance retained across batches; not persisted as gameplay memory. */
   stagingItems: {
@@ -216,24 +229,23 @@ export function extractMemoryRebuildTurns(
     warnings.push(`发现重复消息 ID：${Array.from(new Set(duplicateIds)).slice(0, 8).join('、')}`);
   }
 
-  const users: Array<{ message: 聊天消息; index: number; turn: number | null }> = [];
+  const duplicated = new Set(duplicateIds);
+  const users: Array<{ message: 聊天消息; index: number; turn: number }> = [];
   const assistants: Array<{ message: 聊天消息; index: number; turn: number | null }> = [];
-  let fallbackTurn = 0;
   for (let index = 0; index < chatHistory.length; index += 1) {
     const message = chatHistory[index];
-    if (!message) continue;
+    if (!message || !message.id?.trim() || duplicated.has(message.id)) continue;
     if (message.role === 'user') {
       const parsedTurn = parseTurn(message.gameTime);
       if (parsedTurn === null) {
-        fallbackTurn += 1;
-        warnings.push(`用户消息 ${message.id} 缺少数字 gameTime，使用顺序回合 ${fallbackTurn}。`);
-      } else {
-        fallbackTurn = Math.max(fallbackTurn, parsedTurn);
+        warnings.push(`用户消息 ${message.id} 缺少可靠回合号，已保留原文但未纳入重建。`);
+        continue;
       }
-      users.push({ message, index, turn: parsedTurn ?? fallbackTurn });
+      users.push({ message, index, turn: parsedTurn });
     } else if (message.role === 'assistant') {
       const parsedTurn = parseTurn(message.gameTime);
-      if (parsedTurn === null) warnings.push(`AI 消息 ${message.id} 缺少数字 gameTime，按相邻用户回合配对。`);
+      if (message.isStreaming) { warnings.push(`AI 消息 ${message.id} 仍在生成，已跳过。`); continue; }
+      if (parsedTurn === null) { warnings.push(`AI 消息 ${message.id} 缺少可靠回合号，已跳过。`); continue; }
       assistants.push({ message, index, turn: parsedTurn });
     }
   }
@@ -269,7 +281,7 @@ export function extractMemoryRebuildTurns(
       warnings.push(`第 ${turn} 回合没有可用 AI 正文，已跳过。`);
       continue;
     }
-    if (!userInput) warnings.push(`第 ${turn} 回合玩家输入为空，仍保留 AI 正文。`);
+    if (!userInput) { warnings.push(`第 ${turn} 回合玩家输入缺失，已跳过。`); continue; }
     if (pairs.has(turn)) warnings.push(`第 ${turn} 回合存在多个 AI 回复，采用最后一条。`);
     pairs.set(turn, {
       turn,
@@ -278,6 +290,7 @@ export function extractMemoryRebuildTurns(
       userInput,
       body: parsed,
       sourceMessageIds: [candidate.message.id, assistant.message.id],
+      momentRange: { start: null, end: null, sourceIds: [candidate.message.id, assistant.message.id] },
     });
   }
 
@@ -289,31 +302,13 @@ export function extractMemoryRebuildTurns(
 }
 
 function cloneMemory(memory: 记忆系统): 记忆系统 {
-  return {
-    ...memory,
-    即时记忆: [...(memory.即时记忆 ?? [])],
-    短期记忆: [...(memory.短期记忆 ?? [])],
-    中期记忆: [...(memory.中期记忆 ?? [])],
-    长期记忆: [...(memory.长期记忆 ?? [])],
-  };
-}
-
-function cloneStagingItem(item: StagingItem): StagingItem {
-  return { ...item };
+  return structuredClone(memory);
 }
 
 interface StagingItem {
   text: string;
   start: number;
   end: number;
-}
-
-function sourceTurns(items: readonly StagingItem[], fallbackTurn: number): { start: number; end: number } {
-  if (!items.length) return { start: fallbackTurn, end: fallbackTurn };
-  return {
-    start: Math.min(...items.map((item) => item.start)),
-    end: Math.max(...items.map((item) => item.end)),
-  };
 }
 
 function formatTurn(turn: MemoryRebuildTurn): string {
@@ -364,13 +359,6 @@ function normalizeSettings(settings?: MemoryRebuildSettings): MemoryRebuildSetti
   return settings ?? {};
 }
 
-function getThreshold(settings: MemoryRebuildSettings): number {
-  const record = settings as Record<string, unknown>;
-  const raw = settings.compressionThreshold ?? record['即时转短期阈值'] ?? MEMORY_LAYER_COMPRESSION_THRESHOLD;
-  const value = typeof raw === 'number' ? raw : Number(raw);
-  return Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : MEMORY_LAYER_COMPRESSION_THRESHOLD;
-}
-
 function makeTaskId(): string {
   return `memory_rebuild_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -384,7 +372,14 @@ export function createMemoryRebuildTask(options: CreateMemoryRebuildTaskOptions)
   const requestedEnd = Number.isFinite(options.range?.end) ? Math.trunc(options.range!.end!) : lastTurn;
   const start = Math.min(requestedStart, requestedEnd);
   const end = Math.max(requestedStart, requestedEnd);
-  const turns = availableTurns.filter((turn) => turn.turn >= start && turn.turn <= end);
+  const turns = availableTurns.filter((turn) => turn.turn >= start && turn.turn <= end).map(turn => {
+    const message = options.chatHistory.find(item => item.id === turn.assistantId)!;
+    const range = resolveRebuildTurnMoment(turn.turn, message, options.sourceState ?? { memory: 创建空记忆系统(), irminsul: { entries: [] } });
+    return { ...turn, momentRange: { start: range?.start ?? null, end: range?.end ?? null, sourceIds: [...turn.sourceMessageIds] } };
+  });
+  const knownTurns = new Set(turns.map(turn => turn.turn));
+  const missing: number[] = [];
+  for (let turn = Math.max(1, start); turn <= end && missing.length < 100; turn++) if (!knownTurns.has(turn)) missing.push(turn);
   const batchSize = Math.max(1, Math.min(100, Math.trunc(Number(options.batchSize) || 15)));
   const batches: MemoryRebuildTurn[][] = [];
   for (let index = 0; index < turns.length; index += batchSize) batches.push(turns.slice(index, index + batchSize));
@@ -398,15 +393,17 @@ export function createMemoryRebuildTask(options: CreateMemoryRebuildTaskOptions)
     turns,
     batches,
     nextBatchIndex: 0,
+    nextTurnIndex: 0, turnSummaries: [], stagedIrminsul: { entries: [] }, phase: 'turns',
     staging: 创建空记忆系统(),
     stagingItems: { short: [], middle: [], long: [] },
-    warnings: [...extracted.warnings, ...(rebuildScope?.warnings ?? [])],
+    warnings: [...extracted.warnings, ...(rebuildScope?.warnings ?? []), ...(missing.length ? [`缺失或不完整回合：${missing.join('、')}${missing.length === 100 ? '（仅列出前 100 项）' : ''}；不会生成虚假摘要。`] : [])],
     progress: {
       totalBatches: batches.length,
       completedBatches: 0,
       currentBatch: null,
       processedTurns: 0,
       totalTurns: turns.length,
+      phase: 'turns', currentTurn: null,
     },
   };
 }
@@ -415,175 +412,128 @@ function emitProgress(task: MemoryRebuildTask, callback?: (progress: MemoryRebui
   callback?.({ ...task.progress });
 }
 
-async function summarize(
-  task: MemoryRebuildTask,
-  items: StagingItem[],
-  kind: MemoryCompressionSource['kind'],
-  batchIndex: number,
-  deps: RunMemoryRebuildTaskOptions,
-): Promise<{ item: StagingItem } | { failed: MemoryRebuildFailedBatch } | { cancelled: true }> {
-  const settings = normalizeSettings(deps.settings);
-  const turn = sourceTurns(items, task.range.end).end;
-  const prompts = getPrompts(settings);
-  const prompt = kind === 'short' ? prompts.short : kind === 'middle' ? prompts.middle : prompts.long;
-  try {
-    const result = readSummaryResult(await deps.summarizer({
-      kind,
-      turn,
-      items: items.map((item) => item.text),
-      prompt,
-      sourceTurns: sourceTurns(items, turn),
-    }, {
-      settings,
-      signal: deps.signal,
+function syncStagingItems(task: MemoryRebuildTask): void {
+  const sourceItems = readMemorySourceItems({ memory: task.staging, irminsul: task.stagedIrminsul });
+  for (const layer of ['short', 'middle', 'long'] as const) {
+    task.stagingItems[layer] = sourceItems.filter(item => item.layer === layer).map(item => ({
+      text: item.text, start: item.sourceTurns[0] ?? 0, end: item.sourceTurns.at(-1) ?? 0,
     }));
-    if (!result.ok) {
-      return {
-        failed: {
-          batchIndex,
-          kind,
-          sourceTurns: sourceTurns(items, turn),
-          items: items.map((item) => item.text),
-          fallbackSummary: result.fallback,
-          code: result.code,
-          message: result.message,
-          attemptCount: 1,
-        },
-      };
-    }
-    return { item: { text: result.summary, ...sourceTurns(items, turn) } };
-  } catch (error) {
-    if (isAbortError(error) || deps.signal?.aborted) return { cancelled: true };
-    return {
-      failed: {
-        batchIndex,
-        kind,
-        sourceTurns: sourceTurns(items, turn),
-        items: items.map((item) => item.text),
-        fallbackSummary: '',
-        code: 'request_failed',
-        message: safeErrorMessage(error),
-        attemptCount: 1,
-      },
-    };
   }
 }
 
-async function processBatch(
-  task: MemoryRebuildTask,
-  batch: MemoryRebuildTurn[],
-  batchIndex: number,
-  deps: RunMemoryRebuildTaskOptions,
-): Promise<{
-  staging: 记忆系统;
-  stagingItems: MemoryRebuildTask['stagingItems'];
-} | { failed: MemoryRebuildFailedBatch } | { cancelled: true }> {
-  const staged = {
-    immediate: [] as StagingItem[],
-    short: task.stagingItems.short.map(cloneStagingItem),
-    middle: task.stagingItems.middle.map(cloneStagingItem),
-    long: task.stagingItems.long.map(cloneStagingItem),
-  };
-  const shortInput = batch.map((turn) => ({ text: formatTurn(turn), start: turn.turn, end: turn.turn }));
-  const shortResult = await summarize(task, shortInput, 'short', batchIndex, deps);
-  if ('cancelled' in shortResult) return shortResult;
-  if ('failed' in shortResult) return shortResult;
-  staged.short.push(shortResult.item);
-
-  const threshold = getThreshold(normalizeSettings(deps.settings));
-  while (staged.short.length >= threshold) {
-    const input = staged.short.splice(0, threshold).map(cloneStagingItem);
-    const middleResult = await summarize(task, input, 'middle', batchIndex, deps);
-    if ('cancelled' in middleResult) return middleResult;
-    if ('failed' in middleResult) return middleResult;
-    staged.middle.push(middleResult.item);
+function stageTurn(task: MemoryRebuildTask, turn: MemoryRebuildTurn, summary: string): void {
+  const raw = formatTurn(turn);
+  const identity = fingerprintMemoryText(JSON.stringify([turn.sourceMessageIds, raw]));
+  const anchorId = `rebuild_raw_${identity}`;
+  const id = `rebuild_short_${identity}`;
+  const item: MemorySourceItem = { id, layer: 'short', text: summary, sourceTurns: [turn.turn],
+    sourceMessageIds: [...turn.sourceMessageIds], sourceEntryIds: [anchorId],
+    momentRange: structuredClone(turn.momentRange), generatedFingerprint: fingerprintMemoryText(summary) };
+  const common = { sourceTurns: [turn.turn], keywords: [], recordedAt: new Date().toISOString(), turn: turn.turn,
+    sourceText: raw, sourceMomentRange: item.momentRange! };
+  const anchor: IrminsulEntry = { ...common, id: anchorId, title: `第 ${turn.turn} 回合原文`, summary: raw, archiveType: 'refined' };
+  const archive: IrminsulEntry = { ...common, id, title: `第 ${turn.turn} 回合摘要`, summary, archiveType: 'short',
+    coveredEntryIds: [anchorId] };
+  if (task.stagedIrminsul.entries.some(entry => (entry.id === id || entry.id === anchorId) && entry.sourceText !== raw)) {
+    throw new Error('回合来源身份冲突，原记忆保持不变。');
   }
-  while (staged.middle.length >= threshold) {
-    const input = staged.middle.splice(0, threshold).map(cloneStagingItem);
-    const longResult = await summarize(task, input, 'long', batchIndex, deps);
-    if ('cancelled' in longResult) return longResult;
-    if ('failed' in longResult) return longResult;
-    staged.long.push(longResult.item);
-  }
-
-  return {
-    staging: {
-      即时记忆: staged.immediate.map((item) => item.text),
-      短期记忆: staged.short.map((item) => item.text),
-      中期记忆: staged.middle.map((item) => item.text),
-      长期记忆: staged.long.map((item) => item.text),
-    },
-    stagingItems: {
-      short: staged.short,
-      middle: staged.middle,
-      long: staged.long,
-    },
-  };
+  task.stagedIrminsul = { entries: [...task.stagedIrminsul.entries, anchor, archive] };
+  task.turnSummaries.push(item);
+  task.staging = { ...task.staging, 短期记忆: [...task.staging.短期记忆, summary],
+    短期归档ID: [...(task.staging.短期归档ID ?? []), id],
+    来源回合: { ...task.staging.来源回合, [id]: [turn.turn] },
+    生成文本指纹: { ...task.staging.生成文本指纹, [id]: item.generatedFingerprint! },
+    来源时刻: { ...task.staging.来源时刻, [id]: item.momentRange! } };
+  syncStagingItems(task);
 }
 
-/** Run or resume a task. Only this function calls the injected summarizer. */
-export async function runMemoryRebuildTask(
-  task: MemoryRebuildTask,
-  options: RunMemoryRebuildTaskOptions,
-): Promise<MemoryRebuildTask> {
+/** Sequential per-turn summaries followed by the shared, resumable promotion pipeline. */
+export async function runMemoryRebuildTask(task: MemoryRebuildTask, options: RunMemoryRebuildTaskOptions): Promise<MemoryRebuildTask> {
+  if (['running', 'committed', 'cancelled', 'ready'].includes(task.status)) return task;
   const settings = normalizeSettings(options.settings);
-  if (!isApiEnabled(settings)) {
+  if (!isApiEnabled(settings) || !task.turns.length) {
     task.status = 'blocked';
-    task.blockedReason = '中短长期 API 总结已关闭，请先开启后再进行批量重建。';
-    task.progress.currentBatch = null;
+    task.blockedReason = !isApiEnabled(settings) ? '中短长期 API 总结已关闭，请先开启后再进行批量重建。' : '所选范围没有完整回合，原记忆保持不变。';
+    task.progress.currentBatch = null; emitProgress(task, options.onProgress); return task;
+  }
+  const previousFailure = task.failedBatch;
+  task.status = 'running'; task.blockedReason = undefined; task.failedBatch = undefined;
+  const cancelled = () => options.signal?.aborted || task.status === 'cancelled';
+  const finishCancelled = () => { task.status = 'cancelled'; task.progress.currentBatch = null; task.progress.currentTurn = null; emitProgress(task, options.onProgress); return task; };
+  const pause = (source: MemoryCompressionSource, failure: { fallback: string; code: string; message: string }) => {
+    task.status = 'paused_failed';
+    task.failedBatch = { batchIndex: task.nextBatchIndex, kind: source.kind, sourceTurns: source.sourceTurns!,
+      items: [...source.items], fallbackSummary: failure.fallback, code: failure.code, message: failure.message,
+      attemptCount: previousFailure?.kind === source.kind && JSON.stringify(previousFailure.items) === JSON.stringify(source.items)
+        ? previousFailure.attemptCount + 1 : 1 };
     emitProgress(task, options.onProgress);
+  };
+  const prompts = getPrompts(settings);
+  emitProgress(task, options.onProgress);
+  while (task.nextTurnIndex < task.turns.length) {
+    if (cancelled()) return finishCancelled();
+    const turn = task.turns[task.nextTurnIndex]!;
+    task.progress.currentBatch = Math.floor(task.nextTurnIndex / task.batchSize) + 1;
+    task.progress.currentTurn = turn.turn; task.progress.phase = 'turns';
+    emitProgress(task, options.onProgress);
+    const source: MemoryCompressionSource = { kind: 'short', turn: turn.turn, items: [formatTurn(turn)], prompt: prompts.short,
+      sourceTurns: { start: turn.turn, end: turn.turn } };
+    let result: ReturnType<typeof readSummaryResult>;
+    try { result = readSummaryResult(await options.summarizer(source, { settings, signal: options.signal })); }
+    catch (error) {
+      if (cancelled() || isAbortError(error)) return finishCancelled();
+      result = { ok: false, fallback: '', code: 'request_failed', message: safeErrorMessage(error) };
+    }
+    if (cancelled()) return finishCancelled();
+    if (!result.ok) { pause(source, result); return task; }
+    stageTurn(task, turn, result.summary);
+    task.nextTurnIndex++;
+    task.progress.processedTurns = task.nextTurnIndex;
+    task.progress.completedBatches = task.nextTurnIndex === task.turns.length ? task.batches.length : Math.floor(task.nextTurnIndex / task.batchSize);
+    task.nextBatchIndex = task.progress.completedBatches;
+    emitProgress(task, options.onProgress);
+  }
+
+  task.phase = 'compression';
+  if (cancelled()) return finishCancelled();
+  // Pending records here belong only to this uncommitted staging task, not live gameplay.
+  const pendingIds = new Set((task.staging.失败草稿 ?? []).filter(draft => draft.status === 'pending').map(draft => draft.archiveEntryId));
+  const retryState = { memory: { ...task.staging, 失败草稿: (task.staging.失败草稿 ?? []).filter(draft => draft.status !== 'pending') },
+    irminsul: { entries: task.stagedIrminsul.entries.filter(entry => !pendingIds.has(entry.id)) } };
+  const defaultThreshold = settings.compressionThreshold ?? MEMORY_LAYER_COMPRESSION_THRESHOLD;
+  const thresholds = settings.thresholds ?? { immediateToShort: defaultThreshold, shortToMiddle: defaultThreshold, middleToLong: defaultThreshold };
+  const layerSettings = { ...创建默认记忆系统设置(), 启用中短长期API总结: true,
+    即时转短期阈值: thresholds.immediateToShort, 短期转中期阈值: thresholds.shortToMiddle, 中期转长期阈值: thresholds.middleToLong,
+    即时转短期提示词: prompts.short, 短期转中期提示词: prompts.middle, 中期转长期提示词: prompts.long };
+  let compressed: Awaited<ReturnType<typeof runMemoryLayerCompression>>;
+  try {
+    compressed = await runMemoryLayerCompression({ state: retryState, turn: task.range.end, settings: layerSettings, mode: 'rebuild',
+      signal: options.signal, stopOnFailure: true,
+      onProgress: progress => {
+        task.progress.phase = progress.phase; task.progress.currentTurn = progress.currentTurn;
+        emitProgress(task, options.onProgress);
+      },
+      summarizer: async (source, context) => {
+        const result = readSummaryResult(await options.summarizer(source, { settings, signal: context.signal }));
+        if (cancelled()) throw new DOMException('记忆重建已取消。', 'AbortError');
+        return result;
+      } });
+  } catch (error) {
+    if (cancelled() || isAbortError(error)) return finishCancelled();
+    throw error;
+  }
+  if (cancelled()) return finishCancelled();
+  task.staging = compressed.state.memory; task.stagedIrminsul = compressed.state.irminsul; syncStagingItems(task);
+  const failed = compressed.failures[0];
+  if (failed) {
+    const items = await deserializeMemoryFailureSource(failed.sourceSnapshot);
+    if (cancelled()) return finishCancelled();
+    pause({ kind: failed.kind, turn: failed.sourceTurns.end, items, prompt: '', sourceTurns: failed.sourceTurns },
+      { fallback: failed.fallbackSummary, code: failed.failureCode, message: failed.failureMessage });
     return task;
   }
-  if (task.status === 'committed' || task.status === 'cancelled' || task.status === 'ready') return task;
-  task.status = 'running';
-  task.blockedReason = undefined;
-  task.failedBatch = undefined;
-  emitProgress(task, options.onProgress);
-
-  for (; task.nextBatchIndex < task.batches.length; task.nextBatchIndex += 1) {
-    if (options.signal?.aborted) {
-      task.status = 'cancelled';
-      task.progress.currentBatch = null;
-      emitProgress(task, options.onProgress);
-      return task;
-    }
-    const batchIndex = task.nextBatchIndex;
-    const batch = task.batches[batchIndex];
-    if (!batch) {
-      task.status = 'blocked';
-      task.blockedReason = `记忆重建批次 ${batchIndex + 1} 不存在，任务数据可能已损坏。`;
-      task.progress.currentBatch = null;
-      emitProgress(task, options.onProgress);
-      return task;
-    }
-    task.progress.currentBatch = batchIndex + 1;
-    emitProgress(task, options.onProgress);
-    const result = await processBatch(task, batch, batchIndex, options);
-    if ('cancelled' in result) {
-      task.status = 'cancelled';
-      task.progress.currentBatch = null;
-      emitProgress(task, options.onProgress);
-      return task;
-    }
-    if ('failed' in result) {
-      task.status = 'paused_failed';
-      task.failedBatch = result.failed;
-      task.progress.currentBatch = batchIndex + 1;
-      emitProgress(task, options.onProgress);
-      return task;
-    }
-    task.staging = result.staging;
-    task.stagingItems = result.stagingItems;
-    task.progress.completedBatches += 1;
-    task.progress.processedTurns += batch.length;
-    task.progress.currentBatch = null;
-    emitProgress(task, options.onProgress);
-  }
-
-  task.status = 'ready';
-  task.progress.currentBatch = null;
-  emitProgress(task, options.onProgress);
-  return task;
+  task.phase = 'ready'; task.status = 'ready'; task.progress.currentBatch = null; task.progress.currentTurn = null;
+  emitProgress(task, options.onProgress); return task;
 }
 
 export function cancelMemoryRebuildTask(task: MemoryRebuildTask): MemoryRebuildTask {

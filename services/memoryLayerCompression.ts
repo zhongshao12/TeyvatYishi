@@ -78,6 +78,7 @@ export async function runMemoryLayerCompression(input: {
   state: MemoryMaintenanceState; turn: number; settings: 记忆系统设置; summarizer: MemoryRebuildSummarizer;
   mode: 'automatic' | 'rebuild' | 'manual' | 'irminsul'; signal?: AbortSignal;
   sourceIds?: readonly string[];
+  stopOnFailure?: boolean;
   onProgress?: (progress: MemoryMaintenanceProgress) => void;
 }): Promise<{ state: MemoryMaintenanceState; patch: MemoryMaintenancePatch; failures: 记忆失败草稿[]; blockedReason?: string; usedModel: boolean; usedLocal: boolean; usedFallback: boolean }> {
   const base = ensureMemorySourceIdentities(input.state);
@@ -92,7 +93,7 @@ export async function runMemoryLayerCompression(input: {
     { layer: 'short', target: 'middle', kind: 'middle', size: thresholds.shortToMiddle, prompt: input.settings.短期转中期提示词 },
     { layer: 'middle', target: 'long', kind: 'long', size: thresholds.middleToLong, prompt: input.settings.中期转长期提示词 || input.settings.短期转长期提示词 },
   ] as const;
-  for (const operation of operations) {
+  promotion: for (const operation of operations) {
     while (true) {
       assertActive();
       const pendingIds = new Set((state.memory.失败草稿 ?? []).filter(draft => draft.status === 'pending' || draft.status === 'retrying').flatMap(draft => draft.sourceIds ?? []));
@@ -177,6 +178,7 @@ export async function runMemoryLayerCompression(input: {
           fallbackSummary: archive.summary, failureCode, failureMessage, attemptCount: 1, createdAt: now, updatedAt: now };
         state = { memory: { ...state.memory, 失败草稿: [...(state.memory.失败草稿 ?? []), draft] }, irminsul: promoteIrminsulEntry(state.irminsul, archive) };
         failures.push(draft);
+        if (input.stopOnFailure) break promotion;
       } else {
         const added: MemorySourceItem = { id: archive.id, layer: operation.target, text: archive.summary, sourceTurns,
           sourceMessageIds: [...momentRange.sourceIds], sourceEntryIds: [...(archive.coveredEntryIds ?? [])], momentRange, generatedFingerprint: fingerprintMemoryText(archive.summary) };

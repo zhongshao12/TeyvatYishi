@@ -82,9 +82,10 @@ const failing = async (source) => {
 };
 await runMemoryRebuildTask(task, { settings: { apiEnabled: true }, summarizer: failing });
 assert.equal(task.status, 'paused_failed', '任意批次失败后必须暂停。');
-assert.equal(task.progress.completedBatches, 1, '失败批次不得计入已完成批次。');
-assert.equal(task.failedBatch.items.length, 3, '失败快照必须保存该批次真正发送的全部材料。');
-assert.match(task.failedBatch.items[0], /第 7 回合/);
+assert.equal(task.progress.completedBatches, 0, '进度分组尚未完整完成时不得提前计入已完成批次。');
+assert.equal(task.progress.processedTurns, 1, '失败前成功的逐回合摘要仍计入回合进度。');
+assert.equal(task.failedBatch.items.length, 1, '失败快照必须保存真正发送的独立回合材料。');
+assert.match(task.failedBatch.items[0], /第 5 回合/);
 assert.equal(task.staging.短期记忆.length, 1, '失败时已完成的 staging 必须保留。');
 
 let retryCalls = 0;
@@ -98,6 +99,7 @@ await runMemoryRebuildTask(task, {
 assert.equal(task.status, 'ready', '失败批次修复后应继续直到 ready。');
 assert.equal(task.progress.completedBatches, task.progress.totalBatches);
 assert.equal(task.failedBatch, undefined);
+assert.equal(retryCalls, 19, '只重试剩余 18 回合与一次中期晋升，不能重发成功的第 4 回合。');
 
 const committed = commitMemoryRebuildTask(task);
 assert.ok(committed, 'ready 任务才能提交 staging。');

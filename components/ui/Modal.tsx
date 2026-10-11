@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ModalProps {
   children: ReactNode;
@@ -7,6 +8,8 @@ interface ModalProps {
   title?: string;
   className?: string;
   ariaLabel?: string;
+  portal?: boolean;
+  layer?: 'default' | 'nested';
 }
 
 const activeModalStack: HTMLElement[] = [];
@@ -156,13 +159,14 @@ function focusableElements(dialog: HTMLElement): HTMLElement[] {
   );
 }
 
-export function Modal({ children, onClose, title, className = 'max-w-2xl', ariaLabel = '应用对话框' }: ModalProps) {
+export function Modal({ children, onClose, title, className = 'max-w-2xl', ariaLabel = '应用对话框', portal = false, layer = 'default' }: ModalProps) {
   const dialogRef = useModalAccessibility<HTMLDivElement>(onClose);
   const titleId = useId();
 
-  return (
+  const content = (
     <div
-      className="teyvat-modal-overlay journal-modal-overlay fixed inset-0 z-50 flex items-stretch justify-center p-0 md:items-center md:p-4"
+      className={`teyvat-modal-overlay journal-modal-overlay fixed inset-0 ${layer === 'nested' ? 'z-[60]' : 'z-50'} flex items-stretch justify-center p-0 md:items-center md:p-4`}
+      style={layer === 'nested' ? { zIndex: 60 } : undefined}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
@@ -207,6 +211,7 @@ export function Modal({ children, onClose, title, className = 'max-w-2xl', ariaL
       </div>
     </div>
   );
+  return (portal || layer === 'nested') && typeof document !== 'undefined' ? createPortal(content, document.body) : content;
 }
 
 export interface ConfirmDialogRequest {

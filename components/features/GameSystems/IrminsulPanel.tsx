@@ -1,8 +1,9 @@
 import { CLIP_ITEM, insetRing } from '@/styles/clipPaths';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { IrminsulMemory, IrminsulEntry } from '@/models/teyvat/irminsul';
 import { getActiveIrminsulEntries } from '@/services/irminsulPromotion';
 import { formatWorldMomentRange } from '@/services/worldMoment';
+import type { MemoryMaintenanceProgress } from '@/models/memorySource';
 
 const ARCHIVE_TYPE_LABELS: Record<IrminsulEntry['archiveType'], string> = {
   short: '短期归档',
@@ -11,7 +12,21 @@ const ARCHIVE_TYPE_LABELS: Record<IrminsulEntry['archiveType'], string> = {
   refined: '精炼归档',
 };
 
-export function IrminsulPanel({ memory }: { memory: IrminsulMemory }) {
+export function IrminsulPanel({ memory, onCompress, onCancelCompression, maintenanceProgress, maintenanceStatus, maintenanceBusy = false }: {
+  memory: IrminsulMemory; onCompress?: () => Promise<void>; onCancelCompression?: () => void;
+  maintenanceProgress?: MemoryMaintenanceProgress | null; maintenanceStatus?: string; maintenanceBusy?: boolean;
+}) {
+  const [running, setRunning] = useState(false); const [error, setError] = useState('');
+  const busyRef = useRef(false); const sequence = useRef(0);
+  useEffect(() => () => { sequence.current++; }, []);
+  const compress = async () => {
+    if (!onCompress || busyRef.current || maintenanceBusy) return;
+    busyRef.current = true; setRunning(true); setError(''); const own = ++sequence.current;
+    try { await onCompress(); }
+    catch (cause) { if (own === sequence.current) setError(cause instanceof Error ? cause.message : '整理未完成，原始来源保留。'); }
+    finally { if (own === sequence.current) { busyRef.current = false; setRunning(false); } }
+  };
+  const cancel = () => { if (!onCancelCompression) return; sequence.current++; busyRef.current = false; setRunning(false); onCancelCompression(); };
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | IrminsulEntry['archiveType']>('all');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -68,6 +83,16 @@ export function IrminsulPanel({ memory }: { memory: IrminsulMemory }) {
           可召回 {activeCount} · 待重试 {pendingCount}
         </p>
       </header>
+      <div className="space-y-2 px-4 pt-3 text-xs">
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={!onCompress || running || maintenanceBusy} onClick={() => void compress()} className="teyvat-close-btn px-3 py-2 disabled:opacity-45">一键压缩</button>
+          {(running || maintenanceBusy) && onCancelCompression && <button type="button" onClick={cancel} className="teyvat-close-btn px-3 py-2">取消整理</button>}
+        </div>
+        <p>遵循各层独立阈值；不足一批保留，无法验证完整覆盖的原文保留。</p>
+        {maintenanceProgress && <p>阶段：{maintenanceProgress.phase} · 当前回合：{maintenanceProgress.currentTurn ?? '—'} · 本批来源回合 {maintenanceProgress.processedTurns}</p>}
+        {(error || maintenanceStatus) && <p role="status" className="break-words">{error || maintenanceStatus}</p>}
+        <p>失败材料可在「记忆系统 → 失败草稿」重试；待重试档案不参与召回。</p>
+      </div>
 
       <div className="space-y-2 px-4 py-3">
         <input

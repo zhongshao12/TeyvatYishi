@@ -1,6 +1,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useCourierPhotoCommit } from '@/hooks/useCourierPhotoCommit';
 import { useGame } from '@/hooks/useGame';
+import type { SystemPanelContext } from '@/components/layout/systemPanelContext';
 import { mapTeyvatNpcsToLegacy, readLiveGameState } from '@/hooks/useGameState';
 import { prepareNewGameState } from '@/hooks/useGame/newGameOpening';
 import { useKeyboardShortcuts } from '@/hooks/useGame/useKeyboardShortcuts';
@@ -59,8 +60,6 @@ import { CommandPalette } from '@/components/features/Chat/CommandPalette';
 import { clearCommands, registerCommand, type CommandItem } from '@/utils/commandRegistry';
 import type { 世界状态 } from '@/models/world';
 import type { NPC记录 } from '@/models/npc';
-import type { QuestJournal, TeyvatInventory } from '@/models/teyvat';
-import type { 记忆失败草稿 } from '@/models/memory';
 import type { 世界书 } from '@/models/worldbook';
 import { lazyWithRetry, preloadAll } from '@/utils/lazyWithRetry';
 import { buildManuallyEditedNarrativeTurn } from '@/services/ai/narrativeTurnParser';
@@ -93,9 +92,6 @@ const PathPanel = lazyWithRetry(() => import('@/components/features/GameSystems/
 const QuestPanel = lazyWithRetry(() => import('@/components/features/GameSystems/QuestPanel').then((module) => ({ default: module.QuestPanel })), 'quest-panel');
 
 
-import type { 相册系统 } from '@/models/imageGeneration';
-import type { 剧情节点 } from '@/models/plot';
-import type { 记忆系统 } from '@/models/memory';
 import type { ElementId } from '@/models/teyvat/elements';
 import { 创建默认记忆系统设置 } from '@/models/settings';
 import { buildPersistedStoryWeavingSystem, loadAllBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
@@ -138,7 +134,7 @@ const getBookOpenDelay = () => prefersReducedMotion() ? BOOK_OPEN_REDUCED_MOTION
 const getBookOpenViewSwitchDelay = () => prefersReducedMotion() ? BOOK_OPEN_REDUCED_VIEW_SWITCH_MS : BOOK_OPEN_VIEW_SWITCH_MS;
 
 export default function App() {
-  const { state, actions } = useGame();
+  const { state, actions, maintenance } = useGame();
   const setWorldbooks = state.setWorldbooks;
   const persistWorldbooks = useCallback(async (books: 世界书[]) => {
     await saveSetting('worldbooks', books);
@@ -993,6 +989,9 @@ export default function App() {
             onIgnoreFailedDraft: (draft) => void actions.handleIgnoreMemoryFailureDraft(draft.id),
             onOpenMemoryRebuild: handleOpenMemoryRebuild,
             onCompressMemory: actions.handleCompressMemory,
+            onCompressIrminsul: actions.handleCompressIrminsul,
+            onCancelMemoryMaintenance: actions.handleCancelMemoryMaintenance,
+            memoryMaintenance: maintenance,
             irminsulMemory: state.世界树,
             codex: state.图鉴,
             memorySettings: state.gameSettings.记忆系统 ?? 创建默认记忆系统设置(),
@@ -1417,9 +1416,11 @@ export default function App() {
 
       {showMemoryRebuild && (
         <MemoryRebuildModal
+          key={state.getGameSessionId()}
+          chatHistory={state.chatHistory}
           defaultEnd={Math.max(1, state.turnCount - 1)}
           onClose={() => setShowMemoryRebuild(false)}
-          onAbort={actions.handleAbort}
+          onAbort={actions.handleCancelMemoryMaintenance}
           onRun={actions.handleBatchMemoryRebuild}
         />
       )}
@@ -1480,57 +1481,7 @@ export default function App() {
 
 function renderSystemPanel(
   id: GameSystemId | null,
-  ctx: {
-    traveler: 角色数据结构;
-    inventory: TeyvatInventory;
-    world: 世界状态;
-    onTravelerChange: React.Dispatch<React.SetStateAction<角色数据结构>>;
-    onInventoryChange: React.Dispatch<React.SetStateAction<TeyvatInventory>>;
-    getGameSessionId: () => number;
-    onUnlockedElement: (id: ElementId) => void;
-    npcRecords: NPC记录[];
-    doudizhuState: import('@/models/teyvat').DoudizhuState;
-    doudizhuNpcs: import('@/models/teyvat').TeyvatNpcRecord[];
-    onDoudizhuAction: (action: import('@/models/teyvat').DoudizhuUiAction) => void;
-    onNpcRecordsChange: React.Dispatch<React.SetStateAction<NPC记录[]>>;
-    onCompanionProfileSaved: () => void;
-    courier: import('@/models/teyvat').CourierSystem;
-    onCourierChange: (update: import('@/models/teyvat').CourierSystem | ((previous: import('@/models/teyvat').CourierSystem) => import('@/models/teyvat').CourierSystem)) => void;
-    quest: QuestJournal;
-    onQuestChange: (updater: (previous: QuestJournal) => QuestJournal) => void;
-    variableBatches: import('@/models/variableCommand').变量命令批次[];
-    focusedCompanionNpcId?: string;
-    focusedCompanionRequest?: number;
-    album: 相册系统;
-    onAlbumChange: React.Dispatch<React.SetStateAction<相册系统>>;
-    memorySystem: 记忆系统;
-    failedDrafts?: 记忆失败草稿[];
-    onRetryFailedDraft?: (draft: 记忆失败草稿) => void;
-    onIgnoreFailedDraft?: (draft: 记忆失败草稿) => void;
-    onOpenMemoryRebuild?: () => void;
-    onCompressMemory?: (layer: import('@/models/memorySource').MemorySourceLayer) => Promise<void>;
-    irminsulMemory: import('@/models/teyvat').IrminsulMemory;
-    codex: import('@/models/teyvat').ArchiveCodex;
-    memorySettings: import('@/models/settings').记忆系统设置;
-    steambirdNews: import('@/models/teyvat').SteambirdNews;
-    plotNodes: 剧情节点[];
-    onPlotNodesChange: React.Dispatch<React.SetStateAction<剧情节点[]>>;
-    storyWeaving: import('@/models/storyWeaving').剧情编织系统;
-    onStoryWeavingChange: React.Dispatch<React.SetStateAction<import('@/models/storyWeaving').剧情编织系统>>;
-    gameSettings: import('@/models/settings').游戏设置;
-    onGameSettingsChange: React.Dispatch<React.SetStateAction<import('@/models/settings').游戏设置>>;
-    apiSettings: import('@/models/settings').API设置;
-    turnCount: number;
-    mainChatHistory: import('@/models/chat').聊天消息[];
-    variableFacts?: string[];
-    canonTrack: import('@/models/teyvat').CanonTrack;
-    elementalField: import('@/models/teyvat').ElementalFieldState;
-    elementalEvents: import('@/models/teyvat').ElementalReactionEvent[];
-    mapState: import('@/models/teyvat').TeyvatMapState;
-    currentRegion: import('@/models/teyvat').RegionId | '';
-    onUnlockStatue: (regionId: import('@/models/teyvat').RegionId) => void;
-    onTeleport: (regionId: import('@/models/teyvat').RegionId) => void;
-  },
+  ctx: SystemPanelContext,
 ) {
   switch (id) {
     case 'path':
@@ -1623,7 +1574,7 @@ function renderSystemPanel(
     case 'map':
       return <MapPanel map={ctx.mapState} currentRegion={ctx.currentRegion} turnCount={ctx.turnCount} onUnlockStatue={ctx.onUnlockStatue} onTeleport={ctx.onTeleport} />;
     case 'irminsul':
-      return <IrminsulPanel memory={ctx.irminsulMemory} />;
+      return <IrminsulPanel memory={ctx.irminsulMemory} onCompress={ctx.onCompressIrminsul} onCancelCompression={ctx.onCancelMemoryMaintenance} maintenanceProgress={ctx.memoryMaintenance?.progress} maintenanceStatus={ctx.memoryMaintenance?.status} maintenanceBusy={ctx.memoryMaintenance?.busy} />;
     case 'memory':
       return (
         <MemoryPanel
@@ -1634,6 +1585,8 @@ function renderSystemPanel(
           onIgnoreFailedDraft={ctx.onIgnoreFailedDraft}
           onOpenBatchRebuild={ctx.onOpenMemoryRebuild}
           onCompress={ctx.onCompressMemory}
+          maintenance={ctx.memoryMaintenance}
+          onCancelCompression={ctx.onCancelMemoryMaintenance}
         />
       );
     default:

@@ -112,6 +112,14 @@ it('cancels only maintenance and ignores a late successful result', async () => 
   expect(originalMainController.signal.aborted).toBe(false); expect(external.save).not.toHaveBeenCalled();
 });
 
+it('publishes live task progress and cancellation to the UI without using the main controller', async () => {
+  const { release, pending } = await startDelayed();
+  expect(gameApi.maintenance?.busy).toBe(true); expect(gameApi.maintenance?.progress?.phase).toBe('turns');
+  await act(async () => gameApi.actions.handleCancelMemoryMaintenance());
+  expect(gameApi.maintenance?.busy).toBe(false); expect(gameApi.maintenance?.status).toContain('取消');
+  await act(async () => { release(); await pending; });
+});
+
 it('rejects a switch performed after the final model result but before commit', async () => {
   external.summarize.mockResolvedValue({ summary: '- 成功摘要', usedModel: true });
   let switched = false; let task!: MemoryRebuildTask;

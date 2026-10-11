@@ -30,7 +30,7 @@ export function createMemoryMaintenanceCoordinator(deps: { getState: () => UseGa
     if (binding.rootId === null && root !== null) binding.rootId = root; // same session's first save
     return binding.rootId === root;
   };
-  const feedback = (binding: Binding, text: string, lease?: MemoryMaintenanceLease) => { if (current(binding, lease)) deps.getState().setWorkflowHint(text); };
+  const feedback = (binding: Binding, text: string, lease?: MemoryMaintenanceLease) => { if (current(binding, lease)) { deps.getState().setWorkflowHint(text); lease?.report(null, text); } };
   const acquire = (binding: Binding) => {
     const lease = tryAcquireMemoryMaintenanceLease(binding.sessionId, binding.rootId);
     if (lease) activeLease = lease;
@@ -77,6 +77,7 @@ export function createMemoryMaintenanceCoordinator(deps: { getState: () => UseGa
     if (!current(binding, lease)) return false;
     const live = readLiveGameState(deps.getState()); if (!current(binding, lease)) return false;
     if (task) { task.persistence = 'pending'; task.progress.phase = 'saving'; }
+    lease.report({ phase: 'saving', processedTurns: task?.progress.processedTurns ?? 0, totalTurns: task?.progress.totalTurns ?? 0, currentTurn: null }, '正在保存整理结果…');
     try {
       await persistMemorySnapshot(deps.getState(), toLegacyMemory(live), live.世界树,
         { expectedSessionId: binding.sessionId, expectedRootId: binding.rootId, signal: lease.signal });
@@ -146,6 +147,7 @@ export function createMemoryMaintenanceCoordinator(deps: { getState: () => UseGa
         prompts: { short: settings.即时转短期提示词, middle: settings.短期转中期提示词, long: settings.中期转长期提示词 || settings.短期转长期提示词 } },
         signal: lease.signal, onProgress: progress => {
           if (!current(binding, lease)) { lease.cancel(); return; }
+          lease.report({ phase: progress.phase ?? 'turns', processedTurns: progress.processedTurns, totalTurns: progress.totalTurns, currentTurn: progress.currentTurn ?? null });
           options.onProgress?.(progress); if (!current(binding, lease)) lease.cancel();
         }, summarizer: (source, context) => summarizeMemoryBatch(source, settings, config, context.signal, settings.记忆总结API.retryCount ?? 2) });
       if (!current(binding, lease)) { cancelMemoryRebuildTask(task); return task; }
@@ -180,6 +182,7 @@ export function createMemoryMaintenanceCoordinator(deps: { getState: () => UseGa
       bindIdentities(binding); const settings = structuredClone(deps.getState().gameSettings.记忆系统); const config = deps.getConfig();
       if (settings.启用中短长期API总结 !== false && !config) { feedback(binding, '请先配置记忆总结 API。', lease); return; }
       const result = await runMemoryLayerCompression({ state: binding.base, turn: readLiveGameState(deps.getState()).turnCount, settings, mode,
+        onProgress: progress => { if (current(binding, lease)) lease.report(progress); else lease.cancel(); },
         signal: lease.signal, ...(layer ? { sourceIds: readMemorySourceItems(binding.base).filter(item => item.layer === layer && item.id).map(item => item.id!) } : {}),
         summarizer: (source, context) => summarizeMemoryBatch(source, settings, config!, context.signal, settings.记忆总结API.retryCount ?? 2) });
       if (!current(binding, lease)) return;

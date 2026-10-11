@@ -17,6 +17,8 @@ interface MemoryPanelProps {
   settings: 记忆系统设置;
   getGameSessionId?: () => number;
   onCompress?: (layer: MemorySourceLayer) => Promise<void>;
+  maintenance?: import('@/services/memoryMaintenanceRegistry').MemoryMaintenanceSnapshot;
+  onCancelCompression?: () => void;
 }
 
 type MemoryLayer = 'immediate' | 'short' | 'middle' | 'long' | 'failed';
@@ -45,6 +47,8 @@ export function MemoryPanel({
   memorySystem,
   settings,
   onCompress,
+  maintenance,
+  onCancelCompression,
   failedDrafts: failedDraftsProp,
   onRetryFailedDraft,
   onIgnoreFailedDraft,
@@ -60,7 +64,7 @@ export function MemoryPanel({
   const [compressing, setCompressing] = useState(false);
   const busyRef = useRef(false);
   const handleCompress = async (layer: MemorySourceLayer) => {
-    if (busyRef.current || !onCompress) return;
+    if (busyRef.current || maintenance?.busy || !onCompress) return;
     busyRef.current = true; setCompressing(true);
     try { await onCompress(layer); }
     catch (error) { pushToast({ kind: 'error', title: '整理未完成', detail: toUserFacingError(error) }); }
@@ -188,22 +192,24 @@ export function MemoryPanel({
                 </ActionButton>
               )}
               {activeLayer === 'immediate' && (
-                <ActionButton onClick={() => void handleCompress('immediate')} disabled={compressing || !onCompress} tone="gold">
+                <ActionButton onClick={() => void handleCompress('immediate')} disabled={compressing || maintenance?.busy || !onCompress} tone="gold">
                   压缩到短期
                 </ActionButton>
               )}
               {activeLayer === 'short' && (
-                <ActionButton onClick={() => void handleCompress('short')} disabled={compressing || !onCompress} tone="gold">
+                <ActionButton onClick={() => void handleCompress('short')} disabled={compressing || maintenance?.busy || !onCompress} tone="gold">
                   压缩到中期
                 </ActionButton>
               )}
               {activeLayer === 'middle' && (
-                <ActionButton onClick={() => void handleCompress('middle')} disabled={compressing || !onCompress} tone="gold">
+                <ActionButton onClick={() => void handleCompress('middle')} disabled={compressing || maintenance?.busy || !onCompress} tone="gold">
                   压缩到长期
                 </ActionButton>
               )}
             </div>
           </div>
+          {maintenance?.status && <p role="status" className="mt-3 text-xs break-words">{maintenance.status}</p>}
+          {maintenance?.busy && onCancelCompression && <ActionButton onClick={onCancelCompression} tone="gold">取消记忆整理</ActionButton>}
 
           <div className="mt-3 grid gap-2">
             {activeLayer === 'failed' ? (

@@ -15,6 +15,20 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
+it('starts one compression, disables repeat clicks, exposes cancel and reports no eligible batch', async () => {
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host); roots.push(root);
+  let finish!: () => void; let calls = 0; let cancelled = 0;
+  const onCompress = () => { calls++; return new Promise<void>(resolve => { finish = resolve; }); };
+  await act(async () => root.render(<IrminsulPanel memory={{ entries: [] }} onCompress={onCompress} onCancelCompression={() => { cancelled++; }} />));
+  const button = Array.from(host.querySelectorAll('button')).find(b => b.textContent?.trim() === '一键压缩');
+  expect(button).toBeDefined();
+  await act(async () => { button!.click(); button!.click(); }); expect(calls).toBe(1); expect(button!.disabled).toBe(true);
+  await act(async () => Array.from(host.querySelectorAll('button')).find(b => b.textContent?.trim() === '取消整理')!.click());
+  expect(cancelled).toBe(1); await act(async () => finish());
+  await act(async () => root.render(<IrminsulPanel memory={{ entries: [] }} onCompress={onCompress} maintenanceStatus="没有达到对应阈值的可处理完整批次。" />));
+  expect(host.textContent).toContain('没有达到对应阈值');
+});
+
 it('shows_active_archive_and_pending_retry_status', () => {
   const source: IrminsulEntry = {
     id: 'short-1', title: '初遇安柏', summary: '安柏迎接玩家', sourceText: '城门原文', keywords: ['安柏'],

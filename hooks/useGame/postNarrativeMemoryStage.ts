@@ -141,6 +141,7 @@ export async function settlePostNarrativeMemory(
     : compression.usedModel
       ? '即时/短期/中期/长期记忆已调用记忆总结 API 完成整理。'
       : '记忆总结 API 已关闭，已按阈值使用本地摘要整理；原始证据保留。';
+  lease?.report(null, detail);
 
   return {
     memory: compression.memory,

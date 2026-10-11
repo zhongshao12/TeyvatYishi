@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { applyLegacyGameStateOverrides, useGameState, type UseGameStateReturn } from '@/hooks/useGameState';
 import { executeSendWorkflow, regenerateNarrativeImagesForMessage, retryQueueTask } from '@/hooks/useGame/sendWorkflow';
 import type { ContextSnapshot, ContextSnapshotKind } from '@/hooks/useGame/contextSnapshotTypes';
@@ -26,8 +26,10 @@ import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem } f
 import { setStreamingMessage } from '@/utils/streamingMessageStore';
 import type { createMemoryMaintenanceCoordinator } from '@/hooks/useGame/memoryMaintenanceStage';
 import type { MemorySourceLayer } from '@/models/memorySource';
+import { getMemoryMaintenanceSnapshot, subscribeMemoryMaintenance, type MemoryMaintenanceSnapshot } from '@/services/memoryMaintenanceRegistry';
 
 export interface UseGameReturn {
+  maintenance: MemoryMaintenanceSnapshot;
   state: UseGameStateReturn;
   actions: {
     handleSend: (text: string) => Promise<void>;
@@ -57,6 +59,9 @@ export interface UseGameReturn {
 
 export function useGame(): UseGameReturn {
   const state = useGameState();
+  const maintenance = useSyncExternalStore(subscribeMemoryMaintenance,
+    () => getMemoryMaintenanceSnapshot(state.getGameSessionId()),
+    () => getMemoryMaintenanceSnapshot(state.getGameSessionId()));
   // Keep a live ref so action callbacks stay identity-stable across state ticks.
   const stateRef = useRef(state);
   const maintenanceRef = useRef<Promise<ReturnType<typeof createMemoryMaintenanceCoordinator>> | null>(null);
@@ -375,6 +380,7 @@ export function useGame(): UseGameReturn {
   ]);
 
   return {
+    maintenance,
     state,
     actions,
   };

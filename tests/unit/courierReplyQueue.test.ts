@@ -40,6 +40,62 @@ it('preserves separate failed batch identities when retrying multiple group mess
   queue.dispose();
 });
 
+it('scopes pending checks to the requested exchange without discarding an older failed batch', async () => {
+  vi.useFakeTimers();
+  const dispatched: string[][] = [];
+  let finishNew!: (result: CourierReplyDispatchResult) => void;
+  const queue = createCourierReplyQueue({
+    getSessionId: () => 7,
+    dispatch: async (batch) => {
+      dispatched.push(batch.messageIds);
+      if (dispatched.length === 1) return 'retry';
+      if (batch.messageIds.includes('new')) return new Promise(resolve => { finishNew = resolve; });
+      return 'sent';
+    },
+  });
+  try {
+    queue.enqueue({ conversationId: 'chat', messageId: 'old', sessionId: 7 });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(queue.isPending('chat', ['old'])).toBe(true);
+    expect(queue.isPending('chat', ['new'])).toBe(false);
+    queue.enqueue({ conversationId: 'chat', messageId: 'new', sessionId: 7 });
+    expect(queue.isPending('chat', ['new'])).toBe(true);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(queue.isPending('chat', ['new'])).toBe(true);
+    finishNew('sent');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queue.isPending('chat')).toBe(true);
+    expect(queue.isPending('chat', ['old'])).toBe(true);
+    expect(queue.isPending('chat', ['new'])).toBe(false);
+    queue.retry('chat', ['old']);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(dispatched).toEqual([['old'], ['new'], ['old']]);
+    expect(queue.isPending('chat')).toBe(false);
+  } finally { queue.dispose(); }
+});
+
+it('keeps all coalesced request identities pending during delivery and ignores them after a save switch', async () => {
+  vi.useFakeTimers();
+  let sessionId = 7;
+  let finish!: (result: CourierReplyDispatchResult) => void;
+  const queue = createCourierReplyQueue({ getSessionId: () => sessionId, dispatch: () => new Promise(resolve => { finish = resolve; }) });
+  try {
+    queue.enqueue({ conversationId: 'chat', messageId: 'one', sessionId: 7 });
+    queue.enqueue({ conversationId: 'chat', messageId: 'two', sessionId: 7 });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(queue.isPending('chat', ['one'])).toBe(true);
+    expect(queue.isPending('chat', ['two'])).toBe(true);
+    expect(queue.isPending('chat', ['unrelated'])).toBe(false);
+    expect(queue.isPending('another', ['one'])).toBe(false);
+    sessionId = 8;
+    expect(queue.isPending('chat', ['one'])).toBe(false);
+    queue.invalidateSession();
+    finish('sent');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queue.isPending('chat', ['two'])).toBe(false);
+  } finally { queue.dispose(); }
+});
+
 it('coalesces consecutive sends in one conversation after 500 milliseconds of silence', async () => {
   vi.useFakeTimers();
   const dispatched: string[][] = [];

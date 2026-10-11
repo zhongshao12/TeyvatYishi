@@ -22,6 +22,73 @@ const fixture = () => {
   return { courier, npcs };
 };
 describe('unified phone photo action', () => {
+  it('unlocks a completed new exchange despite an older failed reply and preserves retry of the old message', async () => {
+    vi.useFakeTimers();
+    const { courier, npcs } = fixture();
+    const chat = courier.conversations[0]!;
+    chat.type = 'private'; chat.participantIds = ['player', 'amber'];
+    const player = chat.messages[0]!;
+    chat.messages = [{ ...player, id: 'old', content: '你好' }];
+    const dispatched: string[][] = [];
+    let finishNew!: (result: CourierReplyDispatchResult) => void;
+    let finishOldRetry!: (result: CourierReplyDispatchResult) => void;
+    const queue = createCourierReplyQueue({ getSessionId: () => 7, dispatch: async batch => {
+      dispatched.push(batch.messageIds);
+      if (dispatched.length === 1) return 'retry';
+      if (batch.messageIds.includes('new')) return new Promise(resolve => { finishNew = resolve; });
+      return new Promise(resolve => { finishOldRetry = resolve; });
+    } });
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    const onRequest = vi.fn();
+    // The conversation-level banner may still describe an earlier failed batch.
+    const render = () => act(async () => root.render(createElement(CourierPhotoAction, { courier, npcRecords: npcs, conversationId: 'group', replyQueue: queue, failed: true, onRequest })));
+    try {
+      await render();
+      await act(async () => { queue.enqueue({ conversationId: 'group', messageId: 'old', sessionId: 7 }); await vi.advanceTimersByTimeAsync(500); });
+      chat.messages.push({ ...player, id: 'new', turn: 2, timestamp: 3 });
+      await render();
+      await act(async () => { queue.enqueue({ conversationId: 'group', messageId: 'new', sessionId: 7 }); await vi.advanceTimersByTimeAsync(500); });
+      expect(host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+      chat.messages.push({ ...player, id: 'courier_reply_new_0', senderId: 'amber', senderName: 'amber', role: 'contact', content: '可以', turn: 2, timestamp: 4,
+        replyToMessageIds: ['new'], expectedReplyIds: ['courier_reply_new_0'] });
+      await render();
+      // Even with the final bubble present, delivery still owns this request.
+      expect(host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+      await act(async () => { finishNew('sent'); await vi.advanceTimersByTimeAsync(0); });
+      expect(host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
+      await act(async () => host.querySelector<HTMLButtonElement>('button')!.click());
+      expect(onRequest).toHaveBeenCalledWith('courier_reply_new_0');
+      await act(async () => { queue.retry('group', ['old']); await vi.advanceTimersByTimeAsync(0); });
+      expect(dispatched).toEqual([['old'], ['new'], ['old']]);
+      expect(host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
+      await act(async () => { finishOldRetry('sent'); await vi.advanceTimersByTimeAsync(0); });
+    } finally { await act(async () => root.unmount()); queue.dispose(); host.remove(); vi.useRealTimers(); }
+  });
+  it.each(['unavailable-contact', 'missing-npc', 'already-attached', 'still-typing'] as const)('keeps %s disabled and exposes a visible explanation', async kind => {
+    const { courier, npcs } = fixture();
+    if (kind === 'unavailable-contact') courier.contacts.forEach(contact => { contact.available = false; });
+    if (kind === 'missing-npc') npcs.length = 0;
+    if (kind === 'already-attached') courier.conversations[0]!.messages.slice(1).forEach(message => { message.photo = { assetId: 'asset', entryId: 'entry', npcId: message.senderId }; });
+    if (kind === 'still-typing') courier.conversations[0]!.typingMemberIds = ['amber'];
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    const onRequest = vi.fn();
+    try {
+      await act(async () => root.render(createElement(CourierPhotoAction, { courier, npcRecords: npcs, conversationId: 'group', failed: false, onRequest })));
+      expect(host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+      expect(host.querySelector('[role="status"]')?.textContent?.trim()).toBeTruthy();
+      await act(async () => host.querySelector<HTMLButtonElement>('button')!.click());
+      expect(onRequest).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+  it('retains the conservative failure guard when no exchange-aware queue is supplied', async () => {
+    const { courier, npcs } = fixture();
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(CourierPhotoAction, { courier, npcRecords: npcs, conversationId: 'group', failed: true, onRequest: vi.fn() })));
+      expect(host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+      expect(host.querySelector('[role="status"]')?.textContent).toContain('当前这轮回信尚未完成');
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
   it('keeps real partial group replies blocked after reload with an empty queue, then unlocks only after missing members retry', async () => {
     const { courier, npcs } = fixture();
     courier.conversations[0]!.participantIds = ['player', 'amber', 'lisa'];

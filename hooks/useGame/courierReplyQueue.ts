@@ -27,6 +27,8 @@ interface PendingConversation {
   sessionId: number;
   /** 尚未拿到回信的玩家消息 id（含等待手动重试的那一批）。 */
   pendingIds: string[];
+  /** Request identities remain owned while their bubbles are being revealed. */
+  inFlightIds: string[];
   /** 模型失败、需要玩家手动重试的 id；自动派发**不会**重发它们。 */
   failedIds: string[];
   /** Keep original request identities so retry never combines distinct group exchanges. */
@@ -100,6 +102,7 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
     const sendIds = retrying ? [...entry.retryBatches[0]!] : autoIds(entry);
     const messageIds = sendIds;
     entry.pendingIds = entry.pendingIds.filter((id) => !messageIds.includes(id));
+    entry.inFlightIds = messageIds;
     const token = ++nextToken;
     activeToken = token;
     activeSessionId = entry.sessionId;
@@ -111,6 +114,7 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
       result = 'retry';
     }
     if (activeToken !== token) return;
+    entry.inFlightIds = [];
     activeToken = null;
     activeSessionId = null;
     if (disposed) return;
@@ -181,7 +185,12 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
     subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener); }; },
     getSnapshot: () => revision,
     // The entry remains owned during dispatch/reveal, and while any failed batch awaits retry.
-    isPending: (conversationId: string) => pending.get(conversationId)?.sessionId === options.getSessionId(),
+    isPending: (conversationId: string, messageIds?: readonly string[]) => {
+      const entry = pending.get(conversationId);
+      if (!entry || entry.sessionId !== options.getSessionId()) return false;
+      if (!messageIds) return true;
+      return messageIds.some(id => entry.pendingIds.includes(id) || entry.failedIds.includes(id) || entry.inFlightIds.includes(id));
+    },
     /** React StrictMode replays effect cleanup/setup on the same mounted queue. */
     activate(): void {
       disposed = false;
@@ -193,7 +202,7 @@ export function createCourierReplyQueue(options: CourierReplyQueueOptions) {
       let entry = pending.get(intent.conversationId);
       if (!entry) {
         entry = {
-          sessionId: intent.sessionId, pendingIds: [], failedIds: [], failedBatches: [], retryBatches: [], retryRequested: false, ready: false,
+          sessionId: intent.sessionId, pendingIds: [], inFlightIds: [], failedIds: [], failedBatches: [], retryBatches: [], retryRequested: false, ready: false,
         };
         pending.set(intent.conversationId, entry);
       }

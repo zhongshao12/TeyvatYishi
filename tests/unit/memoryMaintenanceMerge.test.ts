@@ -30,6 +30,19 @@ function mustMerge(base: MemoryMaintenanceState, live: MemoryMaintenanceState, p
 }
 
 describe('memory maintenance source-scoped merge', () => {
+  it('permits a verified same-ID replacement without allowing collisions with other sources', () => {
+    const base = fixture(); const patch = patchFor(base);
+    patch.added[0]!.id = 'inside';
+    const merged = mustMerge(base, base, patch);
+    expect(merged.memory.短期记忆).toContain('new');
+    expect(mustMerge(base, merged, patch)).toBe(merged);
+  });
+
+  it('rejects changed read-only array inputs even when only a failure record will be committed', () => {
+    const base = fixture(); const live = structuredClone(base); live.memory.短期记忆[1] = 'player edit';
+    const patch = { ...patchFor(base), removed: [], added: [], sourceReads: [source(base, 'inside')] };
+    expect(mergeMemoryMaintenancePatch(base, live, patch).ok).toBe(false);
+  });
   it('prepares the protected source scope when creating a rebuild task', () => {
     const task = createMemoryRebuildTask({ sourceState: fixture(), range: { start: 10, end: 20 }, batchSize: 15,
       chatHistory: [{ id: 'u10', role: 'user', content: '输入', timestamp: 1, gameTime: '10' },

@@ -22,6 +22,7 @@ export interface MemoryMaintenanceProgress {
   currentTurn: number | null;
 }
 export interface MemoryMaintenancePatch {
+  sourceReads?: MemorySourceItem[];
   removed: MemorySourceItem[];
   added: MemorySourceItem[];
   archiveUpserts: IrminsulEntry[];

@@ -175,4 +175,11 @@ describe('shared memory promotion and failure protection', () => {
     expect(merged.ok).toBe(true);
     if (merged.ok) { expect(merged.state.memory.长期记忆).toHaveLength(1); expect(merged.state.irminsul.entries.some(e => e.sourceText.includes('fact_11'))).toBe(true); }
   });
+
+  it('rejects a failure delta if a retained original input changed while the model was running', async () => {
+    const initial = state(2);
+    const result = await runMemoryLayerCompression({ state: initial, turn: 2, settings, mode: 'manual', summarizer: async () => ({ ok: false as const, message: '503' }) });
+    const live = structuredClone(initial); live.memory.即时记忆[0] = 'player edit';
+    expect(mergeMemoryMaintenancePatch(initial, live, result.patch).ok).toBe(false);
+  });
 });

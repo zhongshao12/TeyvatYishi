@@ -51,13 +51,14 @@ export function mergeMemoryMaintenancePatch(base: MemoryMaintenanceState, live: 
   const removed = uniqueById(patch.removed); const added = uniqueById(patch.added);
   const removedArchives = uniqueById(patch.archiveRemoved); const upserts = uniqueById(patch.archiveUpserts);
   const archiveSources = uniqueById(patch.archiveSources ?? []);
+  const sourceReads = uniqueById(patch.sourceReads ?? []);
   const failures = uniqueById(patch.failureUpserts);
-  if (!removed || !added || !removedArchives || !upserts || !failures || !archiveSources) return reject();
+  if (!removed || !added || !removedArchives || !upserts || !failures || !archiveSources || !sourceReads) return reject();
   const findSource = (items: MemorySourceItem[], id: string) => items.filter(item => item.id === id);
   const findArchive = (state: MemoryMaintenanceState, id: string) => state.irminsul.entries.filter(entry => entry.id === id);
   // Full replay only: a missing old source alone is not evidence of a committed patch.
   const replay = (patch.added.length + patch.archiveUpserts.length + patch.failureUpserts.length) > 0
-    && patch.removed.every(item => !findSource(liveItems, item.id!).length)
+    && patch.removed.every(item => !findSource(liveItems, item.id!).length || (added.has(item.id!) && same(findSource(liveItems, item.id!)[0], added.get(item.id!))))
     && patch.added.every(item => { const found = findSource(liveItems, item.id!); return found.length === 1 && same(found[0], item); })
     && patch.archiveRemoved.every(entry => !findArchive(live, entry.id).length)
     && patch.archiveUpserts.every(entry => { const found = findArchive(live, entry.id); return found.length === 1 && same(found[0], entry); })
@@ -67,7 +68,7 @@ export function mergeMemoryMaintenancePatch(base: MemoryMaintenanceState, live: 
     const fromBase = findArchive(base, entry.id); const fromLive = findArchive(live, entry.id);
     if (fromBase.length !== 1 || fromLive.length !== 1 || !same(fromBase[0], entry) || !same(fromLive[0], entry)) return reject();
   }
-  for (const item of patch.removed) {
+  for (const item of [...patch.removed, ...(patch.sourceReads ?? [])]) {
     const fromBase = findSource(baseItems, item.id!); const fromLive = findSource(liveItems, item.id!);
     if (fromBase.length !== 1 || fromLive.length !== 1 || !same(fromBase[0], item) || !same(fromLive[0], item)) return reject();
     for (const id of [item.id!, ...item.sourceEntryIds]) {
@@ -75,7 +76,7 @@ export function mergeMemoryMaintenancePatch(base: MemoryMaintenanceState, live: 
       if (baseArchives.length > 1 || liveArchives.length > 1 || !same(baseArchives, liveArchives)) return reject();
     }
   }
-  for (const item of patch.added) if (rawIds(live).includes(item.id) || rawIds(base).includes(item.id)) return reject();
+  for (const item of patch.added) if (!removed.has(item.id!) && (rawIds(live).includes(item.id) || rawIds(base).includes(item.id))) return reject();
   for (const entry of [...patch.archiveRemoved, ...patch.archiveUpserts]) {
     const fromBase = findArchive(base, entry.id); const fromLive = findArchive(live, entry.id);
     if (fromBase.length > 1 || fromLive.length > 1 || !same(fromBase, fromLive)) return reject();

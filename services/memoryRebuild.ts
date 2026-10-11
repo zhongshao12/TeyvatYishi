@@ -113,6 +113,7 @@ export interface MemoryRebuildFailedBatch {
 }
 
 export interface MemoryRebuildTask {
+  persistence?: 'pending' | 'saved' | 'failed';
   rebuildScope?: ReturnType<typeof prepareMemoryRebuildScope>;
   id: string;
   status: MemoryRebuildTaskStatus;

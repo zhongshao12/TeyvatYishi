@@ -47,6 +47,10 @@ export function getActiveSaveTreeNodeId(): string | null {
   return activeSaveTreeMeta?.nodeId ?? null;
 }
 
+export function getActiveSaveTreeIdentity(): { rootId: string; nodeId: string } | null {
+  return activeSaveTreeMeta ? { rootId: activeSaveTreeMeta.rootId, nodeId: activeSaveTreeMeta.nodeId } : null;
+}
+
 export function clearActiveSaveTreeMetaIfMatches(target?: { rootId?: string; nodeId?: string } | null): void {
   if (!activeSaveTreeMeta) { activeManualSave = null; return; }
   if (!target?.rootId && !target?.nodeId) {

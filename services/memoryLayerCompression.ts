@@ -83,6 +83,7 @@ export async function runMemoryLayerCompression(input: {
 }): Promise<{ state: MemoryMaintenanceState; patch: MemoryMaintenancePatch; failures: 记忆失败草稿[]; blockedReason?: string; usedModel: boolean; usedLocal: boolean; usedFallback: boolean }> {
   const base = ensureMemorySourceIdentities(input.state);
   let state = base; const failures: 记忆失败草稿[] = []; const archiveReads = new Set<string>();
+  const sourceReads = new Set<string>();
   const archiveHistory = new Map(base.irminsul.entries.map(entry => [entry.id, entry]));
   let usedModel = false; let usedLocal = false; let usedFallback = false; let batches = 0;
   const thresholds = readMemoryLayerThresholds(input.settings);
@@ -128,6 +129,7 @@ export async function runMemoryLayerCompression(input: {
       for (const archive of archives) if (archive) archiveReads.add(archive.id);
       const sourceTurns = [...new Set(selected.flatMap(item => item.sourceTurns))].sort((a, b) => a - b);
       const sourceIds = selected.map(item => item.id!);
+      sourceIds.forEach(id => sourceReads.add(id));
       const sourceRange = sourceTurns.length ? { start: sourceTurns[0]!, end: sourceTurns.at(-1)! } : { start: 0, end: 0 };
       const identity = fingerprintMemoryText(JSON.stringify([operation.kind, sourceIds, items]));
       const archiveId = `recall_${operation.kind}_${identity}`;
@@ -209,6 +211,7 @@ export async function runMemoryLayerCompression(input: {
   state = { ...state, irminsul: { entries: [...preserved, ...surviving] } };
   const baseItems = readMemorySourceItems(base); const nextItems = readMemorySourceItems(state);
   const patch: MemoryMaintenancePatch = {
+    sourceReads: baseItems.filter(item => item.id && sourceReads.has(item.id)),
     removed: baseItems.filter(item => !nextItems.some(next => next.id === item.id)),
     added: nextItems.filter(item => !baseItems.some(previous => previous.id === item.id)),
     archiveUpserts: state.irminsul.entries.filter(entry => !input.state.irminsul.entries.some(previous => previous.id === entry.id && same(previous, entry))),

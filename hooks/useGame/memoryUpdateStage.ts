@@ -56,6 +56,7 @@ export async function runMemoryUpdateStage(deps: RunMemoryUpdateStageDeps) {
       settings: state.gameSettings.记忆系统 ?? 创建默认记忆系统设置(),
       mainConfig: config,
       signal: abortController.signal,
+      sessionId: state.getGameSessionId?.(),
     });
     assertWorkflowActive();
     let mem = memorySettlement.memory;
@@ -69,5 +70,6 @@ export async function runMemoryUpdateStage(deps: RunMemoryUpdateStageDeps) {
   return {
     mem,
     irminsulWithCompression,
+    patch: memorySettlement.patch,
   };
 }

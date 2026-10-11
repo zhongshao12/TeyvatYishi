@@ -988,11 +988,11 @@ export default function App() {
             album: state.相册,
             onAlbumChange: state.set相册,
             memorySystem: state.记忆,
-            onMemorySystemChange: state.set记忆,
             failedDrafts: state.记忆.失败草稿 ?? [],
             onRetryFailedDraft: (draft) => void actions.handleRetryMemoryFailureDraft(draft.id),
             onIgnoreFailedDraft: (draft) => void actions.handleIgnoreMemoryFailureDraft(draft.id),
             onOpenMemoryRebuild: handleOpenMemoryRebuild,
+            onCompressMemory: actions.handleCompressMemory,
             irminsulMemory: state.世界树,
             codex: state.图鉴,
             memorySettings: state.gameSettings.记忆系统 ?? 创建默认记忆系统设置(),
@@ -1504,11 +1504,11 @@ function renderSystemPanel(
     album: 相册系统;
     onAlbumChange: React.Dispatch<React.SetStateAction<相册系统>>;
     memorySystem: 记忆系统;
-    onMemorySystemChange: React.Dispatch<React.SetStateAction<记忆系统>>;
     failedDrafts?: 记忆失败草稿[];
     onRetryFailedDraft?: (draft: 记忆失败草稿) => void;
     onIgnoreFailedDraft?: (draft: 记忆失败草稿) => void;
     onOpenMemoryRebuild?: () => void;
+    onCompressMemory?: (layer: import('@/models/memorySource').MemorySourceLayer) => Promise<void>;
     irminsulMemory: import('@/models/teyvat').IrminsulMemory;
     codex: import('@/models/teyvat').ArchiveCodex;
     memorySettings: import('@/models/settings').记忆系统设置;
@@ -1628,14 +1628,12 @@ function renderSystemPanel(
       return (
         <MemoryPanel
           memorySystem={ctx.memorySystem}
-          onMemorySystemChange={ctx.onMemorySystemChange}
-          getGameSessionId={ctx.getGameSessionId}
-          turnCount={ctx.turnCount}
           settings={ctx.memorySettings}
           failedDrafts={ctx.failedDrafts}
           onRetryFailedDraft={ctx.onRetryFailedDraft}
           onIgnoreFailedDraft={ctx.onIgnoreFailedDraft}
           onOpenBatchRebuild={ctx.onOpenMemoryRebuild}
+          onCompress={ctx.onCompressMemory}
         />
       );
     default:

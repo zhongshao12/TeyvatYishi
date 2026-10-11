@@ -2,33 +2,25 @@ import { CLIP_ITEM, CLIP_SECTION, insetRing } from '@/styles/clipPaths';
 ﻿// 记忆系统面板（v2）。
 // 左侧切换 即时 / 短期 / 中期 / 长期，右侧显示条目与整理动作。
 
-import { useState } from 'react';
-import { MEMORY_LAYER_COMPRESSION_THRESHOLD, type 记忆失败草稿, type 记忆系统 } from '@/models/memory';
+import { useRef, useState } from 'react';
+import { type 记忆失败草稿, type 记忆系统 } from '@/models/memory';
+import type { MemorySourceLayer } from '@/models/memorySource';
 import type { 记忆系统设置 } from '@/models/settings';
 import { pushToast } from '@/utils/toastStore';
 import { toUserFacingError } from '@/utils/userFacingError';
 import { formatWorldMomentRange } from '@/services/worldMoment';
-import {
-  checkCompressionThreshold,
-  checkMiddleTermThreshold,
-  checkLongTermThreshold,
-  compressToShortTerm,
-  compressToMiddleTerm,
-  compressToLongTerm,
-} from '@/hooks/useGame/memoryUtils';
 
 interface MemoryPanelProps {
   memorySystem: 记忆系统;
-  onMemorySystemChange: React.Dispatch<React.SetStateAction<记忆系统>>;
-  turnCount: number;
+  onMemorySystemChange?: React.Dispatch<React.SetStateAction<记忆系统>>;
+  turnCount?: number;
   settings: 记忆系统设置;
   getGameSessionId?: () => number;
+  onCompress?: (layer: MemorySourceLayer) => Promise<void>;
 }
 
 type MemoryLayer = 'immediate' | 'short' | 'middle' | 'long' | 'failed';
 
-/** 撤销提示的可见时长；比普通 toast 长，让玩家有时间反应。 */
-const UNDO_WINDOW_MS = 9000;
 
 
 
@@ -51,10 +43,8 @@ const layerMeta: Record<MemoryLayer, { label: string; subtitle: string; accent: 
 
 export function MemoryPanel({
   memorySystem,
-  onMemorySystemChange,
-  turnCount,
   settings,
-  getGameSessionId,
+  onCompress,
   failedDrafts: failedDraftsProp,
   onRetryFailedDraft,
   onIgnoreFailedDraft,
@@ -67,44 +57,14 @@ export function MemoryPanel({
 }) {
   const [activeLayer, setActiveLayer] = useState<MemoryLayer>('immediate');
   const failedDrafts = failedDraftsProp ?? memorySystem.失败草稿 ?? [];
-
-  /** 只还原本次压缩碰过的层级，其他层级上的后续记忆保持原样。 */
-  const applyMemoryUpdate = (compute: () => 记忆系统) => {
-    const snapshot = memorySystem;
-    const compressed = compute();
-    const sessionId = getGameSessionId?.();
-    const layers = (['即时记忆', '短期记忆', '中期记忆', '长期记忆'] as const)
-      .filter((layer) => JSON.stringify(snapshot[layer]) !== JSON.stringify(compressed[layer]));
-    if (!layers.length) return;
-    onMemorySystemChange(compressed);
-    pushToast({
-      kind: 'info',
-      title: '记忆已整理',
-      detail: '点「撤销」可恢复本次整理的条目，不会覆盖其他层级的新记忆。',
-      durationMs: UNDO_WINDOW_MS,
-      action: {
-        label: '撤销',
-        run: () => {
-          if (getGameSessionId && getGameSessionId() !== sessionId) return;
-          onMemorySystemChange((current) => {
-            if (layers.some((layer) => JSON.stringify(current[layer]) !== JSON.stringify(compressed[layer]))) return current;
-            const restored = { ...current };
-            for (const layer of layers) {
-              restored[layer] = snapshot[layer];
-              if (layer === '即时记忆') restored.即时记忆ID = snapshot.即时记忆ID;
-              if (layer === '短期记忆') restored.短期归档ID = snapshot.短期归档ID;
-              if (layer === '中期记忆') restored.中期归档ID = snapshot.中期归档ID;
-              if (layer === '长期记忆') restored.长期归档ID = snapshot.长期归档ID;
-            }
-            return restored;
-          });
-        },
-      },
-    });
-  };
-
-  const announceCompression = (detail: string) => {
-    pushToast({ kind: 'info', title: '压缩完成', detail });
+  const [compressing, setCompressing] = useState(false);
+  const busyRef = useRef(false);
+  const handleCompress = async (layer: MemorySourceLayer) => {
+    if (busyRef.current || !onCompress) return;
+    busyRef.current = true; setCompressing(true);
+    try { await onCompress(layer); }
+    catch (error) { pushToast({ kind: 'error', title: '整理未完成', detail: toUserFacingError(error) }); }
+    finally { busyRef.current = false; setCompressing(false); }
   };
 
   const visibleTextItems =
@@ -122,65 +82,6 @@ export function MemoryPanel({
       : activeLayer === 'middle' ? memorySystem.中期归档ID
         : activeLayer === 'long' ? memorySystem.长期归档ID : undefined;
 
-  const handleCompressShort = () => {
-    const threshold = settings.即时转短期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD;
-    // 压缩是破坏性操作（原始条目会被摘要替换）。改为「立即执行 + 撤销窗口」：
-    // 不再用原生 confirm 打断，撤销提示可把整套记忆原样还原。
-    if (!checkCompressionThreshold(memorySystem, threshold)) {
-      announceCompression('即时记忆条数不足阈值，已按当前累积内容压缩到短期。');
-    } else {
-      announceCompression('已压缩即时记忆到短期。');
-    }
-    applyMemoryUpdate(() => {
-      let next = memorySystem;
-      if (next.即时记忆.length > 0 && next.即时记忆.length < threshold) {
-        return compressToShortTerm(next, turnCount, next.即时记忆.length);
-      }
-      while (next.即时记忆.length >= threshold) {
-        next = compressToShortTerm(next, turnCount, threshold);
-      }
-      return next;
-    });
-  };
-
-  const handleCompressMiddle = () => {
-    const threshold = settings.短期转中期阈值 || settings.短期转长期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD;
-    if (!checkMiddleTermThreshold(memorySystem, threshold)) {
-      announceCompression('短期记忆条数不足阈值，已按当前累积内容压缩到中期。');
-    } else {
-      announceCompression('已压缩短期记忆到中期。');
-    }
-    applyMemoryUpdate(() => {
-      let next = memorySystem;
-      if (next.短期记忆.length > 0 && next.短期记忆.length < threshold) {
-        return compressToMiddleTerm(next, turnCount, next.短期记忆.length);
-      }
-      while (next.短期记忆.length >= threshold) {
-        next = compressToMiddleTerm(next, turnCount, threshold);
-      }
-      return next;
-    });
-  };
-
-  const handleCompressLong = () => {
-    const threshold = settings.中期转长期阈值 || MEMORY_LAYER_COMPRESSION_THRESHOLD;
-    if (!checkLongTermThreshold(memorySystem, threshold)) {
-      announceCompression('中期记忆条数不足阈值，已按当前累积内容压缩到长期。');
-    } else {
-      announceCompression('已压缩中期记忆到长期。');
-    }
-    applyMemoryUpdate(() => {
-      let next = memorySystem;
-      const middle = next.中期记忆 ?? [];
-      if (middle.length > 0 && middle.length < threshold) {
-        return compressToLongTerm(next, turnCount, middle.length);
-      }
-      while ((next.中期记忆 ?? []).length >= threshold) {
-        next = compressToLongTerm(next, turnCount, threshold);
-      }
-      return next;
-    });
-  };
 
   const selectedCount =
     activeLayer === 'immediate'
@@ -287,17 +188,17 @@ export function MemoryPanel({
                 </ActionButton>
               )}
               {activeLayer === 'immediate' && (
-                <ActionButton onClick={handleCompressShort} tone="gold">
+                <ActionButton onClick={() => void handleCompress('immediate')} disabled={compressing || !onCompress} tone="gold">
                   压缩到短期
                 </ActionButton>
               )}
               {activeLayer === 'short' && (
-                <ActionButton onClick={handleCompressMiddle} tone="gold">
+                <ActionButton onClick={() => void handleCompress('short')} disabled={compressing || !onCompress} tone="gold">
                   压缩到中期
                 </ActionButton>
               )}
               {activeLayer === 'middle' && (
-                <ActionButton onClick={handleCompressLong} tone="gold">
+                <ActionButton onClick={() => void handleCompress('middle')} disabled={compressing || !onCompress} tone="gold">
                   压缩到长期
                 </ActionButton>
               )}

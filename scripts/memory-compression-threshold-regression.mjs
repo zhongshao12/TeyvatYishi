@@ -23,14 +23,17 @@ assert.doesNotMatch(memoryUtils, /settings\.短期转中期阈值 \|\| settings\
   '短期转中期运行时不得继续回退到 20。');
 assert.doesNotMatch(memoryUtils, /settings\.中期转长期阈值 \|\| 10/,
   '中期转长期运行时不得继续回退到 10。');
-assert.ok((memoryPanel.match(/MEMORY_LAYER_COMPRESSION_THRESHOLD/g) ?? []).length >= 4,
-  '记忆面板的三层手动压缩兜底必须统一为 15。');
+assert.match(memoryPanel, /await onCompress\(layer\)/,
+  '记忆面板三层入口必须委托共享协调器，阈值由共享服务统一读取。');
+assert.doesNotMatch(memoryPanel, /compressTo(?:Short|Middle|Long)Term\(/,
+  '记忆面板不得绕过共享阈值或世界树执行本地文字替换。');
 
 const bundled = await build({
   stdin: {
     contents: [
       "export { 创建默认记忆系统设置, 归一化记忆系统设置 } from './models/settings.ts';",
       "export { autoCompressMemorySystem, checkCompressionThreshold, checkMiddleTermThreshold, checkLongTermThreshold } from './hooks/useGame/memoryUtils.ts';",
+      "export { readMemoryLayerThresholds, runMemoryLayerCompression } from './services/memoryLayerCompression.ts';",
     ].join('\n'),
     resolveDir: process.cwd(),
     sourcefile: 'memory-compression-threshold-regression-entry.ts',
@@ -52,6 +55,8 @@ const {
   checkLongTermThreshold,
   创建默认记忆系统设置,
   归一化记忆系统设置,
+  readMemoryLayerThresholds,
+  runMemoryLayerCompression,
 } = await import(moduleUrl);
 
 const defaults = 创建默认记忆系统设置();
@@ -60,6 +65,13 @@ assert.deepEqual(
   [15, 15, 15],
   '新配置的三层压缩阈值必须统一为 15。',
 );
+assert.deepEqual(readMemoryLayerThresholds({}), { immediateToShort: 15, shortToMiddle: 15, middleToLong: 15 });
+const incomplete = { 即时记忆: Array.from({ length: 14 }, (_, index) => `raw-${index}`), 短期记忆: [], 中期记忆: [], 长期记忆: [] };
+let calls = 0;
+const below = await runMemoryLayerCompression({ state: { memory: incomplete, irminsul: { entries: [] } }, turn: 14,
+  settings: defaults, mode: 'manual', summarizer: async () => { calls++; return { ok: true, summary: 'should not run' }; } });
+assert.equal(calls, 0, '未达共享阈值的手动整理不得调用模型。');
+assert.deepEqual(below.state.memory.即时记忆, incomplete.即时记忆, '余额原文不得被强行整理。');
 
 const migrated = 归一化记忆系统设置({
   即时转短期阈值: 25,

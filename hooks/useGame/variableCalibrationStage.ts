@@ -267,6 +267,7 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
           narrativeSummary: parsedForDisplay.continuation.summary,
           body: displayText,
           moment: settledMoment,
+          patch: memoryUpdate.patch,
         });
         const next = withLegacyMemory(current, memoryCommit.memory);
         memoryWrite.commit = memoryCommit;

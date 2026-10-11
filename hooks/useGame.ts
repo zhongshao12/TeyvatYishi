@@ -25,6 +25,7 @@ import { clearWorkflowRecoveryJournal } from '@/services/workflowRecovery';
 import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 import { setStreamingMessage } from '@/utils/streamingMessageStore';
 import type { createMemoryMaintenanceCoordinator } from '@/hooks/useGame/memoryMaintenanceStage';
+import type { MemorySourceLayer } from '@/models/memorySource';
 
 export interface UseGameReturn {
   state: UseGameStateReturn;
@@ -41,6 +42,8 @@ export interface UseGameReturn {
     handleRetryMemoryFailureDraft: (draftId: string) => Promise<void>;
     handleIgnoreMemoryFailureDraft: (draftId: string) => Promise<void>;
     handleCancelMemoryMaintenance: () => void;
+    handleCompressMemory: (layer?: MemorySourceLayer) => Promise<void>;
+    handleCompressIrminsul: () => Promise<void>;
     handleBatchMemoryRebuild: (options: {
       batchSize: number;
       range?: MemoryRebuildRange;
@@ -266,6 +269,12 @@ export function useGame(): UseGameReturn {
   const handleCancelMemoryMaintenance = useCallback(() => {
     void maintenanceRef.current?.then(coordinator => coordinator.cancel());
   }, []);
+  const handleCompressMemory = useCallback(async (layer?: MemorySourceLayer) => {
+    await (await getMemoryMaintenance()).compress('manual', layer);
+  }, [getMemoryMaintenance]);
+  const handleCompressIrminsul = useCallback(async () => {
+    await (await getMemoryMaintenance()).compress('irminsul');
+  }, [getMemoryMaintenance]);
 
       // 重新开局：清掉所有运行时累积的变量切片，保留创角设定（名字 / 元素 / 世界周期等）。
   // 不这样做的话，老的 NPC / 蒸汽鸟报 / 剧情节点 / variableBatches / 全局事件
@@ -341,6 +350,8 @@ export function useGame(): UseGameReturn {
     handleIgnoreMemoryFailureDraft,
     handleBatchMemoryRebuild,
     handleCancelMemoryMaintenance,
+    handleCompressMemory,
+    handleCompressIrminsul,
     handleRestartOpening,
     getContextSnapshot,
   }), [
@@ -357,6 +368,8 @@ export function useGame(): UseGameReturn {
     handleIgnoreMemoryFailureDraft,
     handleBatchMemoryRebuild,
     handleCancelMemoryMaintenance,
+    handleCompressMemory,
+    handleCompressIrminsul,
     handleRestartOpening,
     getContextSnapshot,
   ]);

@@ -97,7 +97,7 @@ export async function runMemoryLayerCompression(input: {
   promotion: for (const operation of operations) {
     while (true) {
       assertActive();
-      const pendingIds = new Set((state.memory.失败草稿 ?? []).filter(draft => draft.status === 'pending' || draft.status === 'retrying').flatMap(draft => draft.sourceIds ?? []));
+      const pendingIds = new Set((state.memory.失败草稿 ?? []).filter(draft => draft.status === 'pending' || draft.status === 'retrying' || (input.mode === 'automatic' && draft.status === 'ignored')).flatMap(draft => draft.sourceIds ?? []));
       const pendingFallbacks = new Set((state.memory.失败草稿 ?? []).filter(draft => !draft.sourceIds?.length && (draft.status === 'pending' || draft.status === 'retrying')).map(draft => draft.fallbackSummary));
       const bound = readMemorySourceItems(state);
       const eligible = bound.filter(item => {
@@ -156,7 +156,7 @@ export async function runMemoryLayerCompression(input: {
         if (!failureCode && !summary.trim()) { failureCode = 'empty_output'; failureMessage = '记忆总结返回空内容。'; }
       } catch (error) {
         assertActive();
-        if (error instanceof Error && error.name === 'AbortError') throw error;
+        if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') throw error;
         failureCode = 'request_failed'; failureMessage = '记忆总结请求失败；原始来源已保留。';
       }
       assertActive();

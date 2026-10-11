@@ -5,6 +5,8 @@ describe('manual chunk strategy', () => {
   it('does not force on-demand memory rebuilding into the first-screen core', () => {
     expect(resolveManualChunk('/repo/services/memoryRebuild.ts')).toBeUndefined();
     expect(resolveManualChunk('/repo/hooks/useGame/memoryMaintenanceStage.ts')).toBeUndefined();
+    expect(resolveManualChunk('/repo/hooks/useGame/postNarrativeMemoryStage.ts')).toBeUndefined();
+    expect(resolveManualChunk('/repo/hooks/useGame/recoveredSettlementTasks.ts')).toBeUndefined();
     expect(resolveManualChunk('C:\\repo\\services\\memoryRebuild.ts')).toBeUndefined();
     expect(resolveManualChunk('/repo/services/memorySources.ts')).toBeUndefined();
     expect(resolveManualChunk('/repo/services/memoryMaintenanceMerge.ts')).toBeUndefined();

@@ -469,6 +469,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
   usedModel: boolean;
   usedLocal: boolean;
   blockedReason?: string;
+  patch?: import('@/models/memorySource').MemoryMaintenancePatch;
 }> {
   const { runMemoryLayerCompression } = await import('@/services/memoryLayerCompression');
   const result = await runMemoryLayerCompression({
@@ -478,7 +479,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
   });
   return { memory: result.state.memory, archives: result.patch.archiveUpserts, failures: result.failures,
     usedFallback: result.usedFallback, usedModel: result.usedModel, usedLocal: result.usedLocal,
-    blockedReason: result.blockedReason };
+    blockedReason: result.blockedReason, patch: result.patch };
 }
 
 export interface RetryMemoryFailureDraftResult {

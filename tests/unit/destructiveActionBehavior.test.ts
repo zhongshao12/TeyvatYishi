@@ -163,12 +163,13 @@ describe('destructive action undo', () => {
     expect(latest).toEqual({ mora: 999, items: [] });
   });
 
-  it('offers an undo toast instead of a native confirm when compressing memory', async () => {
+  it('delegates memory compression without native confirm or an unsafe text-only undo', async () => {
     let current = memorySystem;
     const onMemorySystemChange = vi.fn((action: React.SetStateAction<记忆系统>) => {
       current = typeof action === 'function' ? action(current) : action;
     });
     const confirmSpy = vi.fn(() => true);
+    const requests: string[] = [];
     vi.stubGlobal('confirm', confirmSpy);
 
     await act(async () => {
@@ -177,35 +178,37 @@ describe('destructive action undo', () => {
         onMemorySystemChange,
         turnCount: 6,
         settings: memorySettings,
+        onCompress: async layer => { requests.push(layer); },
       }));
     });
     await act(async () => findButton('压缩到短期').click());
 
     expect(confirmSpy).not.toHaveBeenCalled();
-    const toast = undoAction();
-
-    await act(async () => toast.action!.run());
+    expect(requests).toEqual(['immediate']);
+    expect(onMemorySystemChange).not.toHaveBeenCalled();
+    expect(getToasts().some(toast => toast.action?.label === '撤销')).toBe(false);
     expect(current.即时记忆).toEqual(memorySystem.即时记忆);
     expect(current.短期记忆).toEqual(memorySystem.短期记忆);
     vi.unstubAllGlobals();
   });
 
-  it('undoing memory compression preserves another layer updated afterward', async () => {
+  it('a pending delegated compression does not overwrite another layer updated afterward', async () => {
     let latest = memorySystem;
     let update: React.Dispatch<React.SetStateAction<记忆系统>> = () => undefined;
+    let finish!: () => void;
     function Harness() {
       const [current, setCurrent] = useState(memorySystem);
       latest = current;
       update = setCurrent;
       return createElement(MemoryPanel, {
         memorySystem: current, onMemorySystemChange: setCurrent, turnCount: 6, settings: memorySettings,
+        onCompress: () => new Promise<void>(resolve => { finish = resolve; }),
       });
     }
     await act(async () => root.render(createElement(Harness)));
     await act(async () => findButton('压缩到短期').click());
-    const toast = undoAction();
     await act(async () => update((current) => ({ ...current, 长期记忆: ['后来记录'] })));
-    await act(async () => toast.action!.run());
+    await act(async () => finish());
     expect(latest.即时记忆).toEqual(['记录一', '记录二']);
     expect(latest.短期记忆).toEqual(['摘要一']);
     expect(latest.长期记忆).toEqual(['后来记录']);

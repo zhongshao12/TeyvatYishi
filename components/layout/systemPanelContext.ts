@@ -12,6 +12,7 @@ import type { API设置, 游戏设置, 记忆系统设置 } from '@/models/setti
 import type { ElementId } from '@/models/teyvat/elements';
 import type { 变量命令批次 } from '@/models/variableCommand';
 import type { MemoryMaintenanceSnapshot } from '@/services/memoryMaintenanceRegistry';
+import type { CourierPanelProps } from '@/components/features/Courier/CourierPanel';
 
 /** UI-only input boundary; panels receive actions, not the entire game coordinator. */
 export interface SystemPanelContext {
@@ -29,6 +30,8 @@ export interface SystemPanelContext {
   onNpcRecordsChange: Dispatch<SetStateAction<NPC记录[]>>;
   onCompanionProfileSaved: () => void;
   courier: CourierSystem;
+  phoneProps?: CourierPanelProps;
+  initialElementSection?: 'elements' | 'talents';
   onCourierChange: (update: CourierSystem | ((previous: CourierSystem) => CourierSystem)) => void;
   quest: QuestJournal;
   onQuestChange: (updater: (previous: QuestJournal) => QuestJournal) => void;
@@ -37,6 +40,7 @@ export interface SystemPanelContext {
   focusedCompanionRequest?: number;
   album: 相册系统;
   onAlbumChange: Dispatch<SetStateAction<相册系统>>;
+  onCommitGeneratedImage?: (update: (current: { album: 相册系统; traveler: 角色数据结构; npcs: NPC记录[] }) => 相册系统, sessionId: number) => boolean;
   memorySystem: 记忆系统;
   failedDrafts?: 记忆失败草稿[];
   onRetryFailedDraft?: (draft: 记忆失败草稿) => void;

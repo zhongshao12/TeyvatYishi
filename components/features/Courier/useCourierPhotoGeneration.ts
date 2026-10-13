@@ -2,8 +2,9 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { CourierPhotoComposerProps } from './CourierPhotoComposer';
 import { resolveCourierPhotoTarget, readCourierPhotoContext, commitCourierPhotoToGame, sameCourierPhotoTarget, sanitizeCourierPhotoText } from '@/services/courierPhoto';
 import { applyNovelAIRulePreset } from '@/utils/imagePromptRules';
-import { readImageCharacterFacts, formatImageCharacterFacts } from '@/utils/imageCharacterFacts';
+import { readSourceImageCharacterFacts, formatImageCharacterFacts, imageCharacterSourceKey, type ImageCharacterFactInput } from '@/utils/imageCharacterFacts';
 import { compactImagePrompts } from '@/utils/imagePromptCompaction';
+import { buildImageCharacterEnglishConfig, prepareEnglishImagePrompts } from '@/services/imageCharacterEnglish';
 import { globalImageTaskQueue } from '@/utils/imageTaskQueue';
 import { runImageGenerationWithRetry } from '@/utils/imageGenerationRetry';
 import { generateImage } from '@/services/ai/imageGeneration';
@@ -12,8 +13,8 @@ import type { 图片生成任务 } from '@/models/imageGeneration';
 import { resolveReferenceImagesForGeneration } from '../GameSystems/album/referenceInjection';
 import { generateTargets } from '../GameSystems/album/foundation';
 
-function phoneCharacter(npc: CourierPhotoComposerProps['npcRecords'][number]) {
-  const facts = readImageCharacterFacts(npc);
+function phoneCharacter(npc: ImageCharacterFactInput) {
+  const facts = readSourceImageCharacterFacts(npc);
   const appearanceDetails = Object.fromEntries(Object.entries(facts.appearanceDetails ?? {}).flatMap(([key, fact]) => {
     const value = sanitizeCourierPhotoText(fact.value);
     return value ? [[key, { ...fact, value }]] : [];
@@ -35,6 +36,10 @@ export function useCourierPhotoGeneration(props: CourierPhotoComposerProps) {
   const [name] = useState(() => props.npcRecords.find(npc => npc.id === openedTarget.npcId)?.姓名 ?? '角色');
   const [description, setDescription] = useState(() => readCourierPhotoContext(props.courier, props.target));
   const [draftRequirement, setDraftRequirement] = useState(() => sanitizeCourierPhotoText(readCourierPhotoContext(props.courier, props.target)));
+  const [draftSourceKey, setDraftSourceKey] = useState(() => {
+    const npc = props.npcRecords.find(item => item.id === props.target.npcId);
+    return npc ? imageCharacterSourceKey(npc) : '';
+  });
   const [draft, setDraft] = useState(() => {
     try { return { ...createPreview(props, readCourierPhotoContext(props.courier, props.target)), error: '' }; }
     catch (error) { return { prompt: '', negative: '', compacted: false, error: String(error instanceof Error ? error.message : error) }; }
@@ -77,11 +82,14 @@ export function useCourierPhotoGeneration(props: CourierPhotoComposerProps) {
   const currentTarget = resolveCourierPhotoTarget(props.courier, props.npcRecords, openedTarget.conversationId, openedTarget.messageId)?.target;
   const targetValid = Boolean(currentTarget && sameCourierPhotoTarget(currentTarget, openedTarget) && sameCourierPhotoTarget(props.target, openedTarget));
   const currentRequirement = sanitizeCourierPhotoText(description);
-  const disabledReason = !targetValid ? '照片目标已变化，预览失效，请重新选择消息。' : !props.imageSettings.enabled || !props.imageSettings.普通接口.enabled ? '文生图未开启，请先在设置中启用普通图片接口。' : !currentRequirement ? '请填写本次照片需求，再更新提示词。' : currentRequirement !== draftRequirement ? '照片需求已修改，请先更新提示词后再确认生成。' : '';
+  const currentNpc = props.npcRecords.find(item => item.id === openedTarget.npcId);
+  const profileChanged = Boolean(currentNpc && imageCharacterSourceKey(currentNpc) !== draftSourceKey);
+  const disabledReason = !targetValid ? '照片目标已变化，预览失效，请重新选择消息。' : profileChanged ? '角色资料已变化，请先更新提示词；原草稿仍保留。' : !props.imageSettings.enabled || !props.imageSettings.普通接口.enabled ? '文生图未开启，请先在设置中启用普通图片接口。' : !currentRequirement ? '请填写本次照片需求，再更新提示词。' : currentRequirement !== draftRequirement ? '照片需求已修改，请先更新提示词后再确认生成。' : '';
 
   function rebuild() {
     if (!targetValid) return;
-    try { setDraft({ ...createPreview(latest.current, description), error: '' }); setDraftRequirement(currentRequirement); setStatus(''); }
+    try { setDraft({ ...createPreview(latest.current, description), error: '' }); setDraftRequirement(currentRequirement);
+      if (currentNpc) setDraftSourceKey(imageCharacterSourceKey(currentNpc)); setStatus(''); }
     catch (error) { setDraft(previous => ({ ...previous, error: error instanceof Error ? error.message : String(error) })); }
   }
   async function generate() {
@@ -95,8 +103,14 @@ export function useCourierPhotoGeneration(props: CourierPhotoComposerProps) {
     try {
       // Re-protect real character facts after manual edits; use the exact previewed caption.
       const character = phoneCharacter(resolved.npc);
+      let englishCharacters = [character];
       const caption = formatImageCharacterFacts(character.facts);
-      const compacted = compactImagePrompts({ prompt: sanitizeCourierPhotoText(draft.prompt.replaceAll(caption, '')), negative: sanitizeCourierPhotoText(draft.negative), characters: [character] });
+      let compacted = compactImagePrompts({ prompt: sanitizeCourierPhotoText(draft.prompt.replaceAll(caption, '')), negative: sanitizeCourierPhotoText(draft.negative), characters: [character] });
+      const sourceFacts = JSON.stringify(character.facts);
+      const sourceStillCurrent = () => {
+        const liveNpc = latest.current.npcRecords.find(item => item.id === resolved.npc.id);
+        return Boolean(liveNpc && JSON.stringify(phoneCharacter(liveNpc).facts) === sourceFacts);
+      };
       setDraft({ ...compacted, error: '' });
       active.current = { id, sessionId: expectedSession }; setBusy(true); setStatus('等待图片生成队列…');
       const task: 图片生成任务 = { id, targetType: 'npc', targetId: resolved.npc.id, slot: 'misc', source: 'manual', status: 'queued', backend: config.backend,
@@ -105,19 +119,26 @@ export function useCourierPhotoGeneration(props: CourierPhotoComposerProps) {
       const result = await globalImageTaskQueue.createRunner(async (_taskId, signal) => {
         if (!isCurrent(id, expectedSession)) throw new Error('会话或存档已变化，生成已取消。');
         updateTask(id, expectedSession, { status: 'running', startedAt: Date.now() });
+        if (mounted.current) setStatus('正在准备角色英文生图资料…');
+        const prepared = await prepareEnglishImagePrompts({ ...compacted, characters: [character] }, buildImageCharacterEnglishConfig(current.imageSettings, current.apiSettings), signal);
+        compacted = prepared;
+        englishCharacters = prepared.characters as typeof englishCharacters;
+        if (!isCurrent(id, expectedSession) || !sourceStillCurrent()) throw new Error('角色资料或存档已变化，请重新打开照片预览。');
+        updateTask(id, expectedSession, { prompt: compacted.prompt, negativePrompt: compacted.negative });
+        if (mounted.current) setDraft({ ...compacted, error: '' });
         if (mounted.current) setStatus('正在生成照片…');
         // Ordinary photos may not consume private image reference assets.
         const safeAlbum = { ...latest.current.album, entries: latest.current.album.entries.filter(entry => !entry.nsfw), assets: latest.current.album.assets.filter(asset => !asset.nsfw) };
         const references = resolveReferenceImagesForGeneration({ target: generateTargets.find(target => target.id === 'npc_portrait')!, targetId: resolved.npc.id,
           api: config, settings: current.imageSettings.参考图, album: safeAlbum, assetMap: new Map(safeAlbum.assets.map(asset => [asset.id, asset])) });
         return runImageGenerationWithRetry(() => {
-          if (!isCurrent(id, expectedSession)) throw Object.assign(new Error('会话或存档已变化。'), { retryable: false });
+          if (!isCurrent(id, expectedSession) || !sourceStillCurrent()) throw Object.assign(new Error('角色资料、会话或存档已变化。'), { retryable: false });
           return generateImage(config, { prompt: compacted.prompt, negativePrompt: compacted.negative, nsfw: false, size: config.defaultSize,
-            referenceImages: references.images, referenceStrength: current.imageSettings.参考图.sdWebuiDenoisingStrength, signal });
+            referenceImages: references.images, referenceStrength: current.imageSettings.参考图.sdWebuiDenoisingStrength, signal, protectedCharacters: englishCharacters });
         }, { signal, maxRetries: config.retryCount ?? current.imageSettings.最大重试次数 ?? 2,
           onRetry: attempt => updateTask(id, expectedSession, { retryCount: attempt }) });
       })(id);
-      if (!isCurrent(id, expectedSession)) {
+      if (!isCurrent(id, expectedSession) || !sourceStillCurrent()) {
         updateTask(id, expectedSession, { status: 'cancelled', error: '目标已变化，照片结果未写入。', finishedAt: Date.now() });
         if (mounted.current) setStatus('目标已变化，照片结果未写入，请关闭预览后重新选择。');
         return;
@@ -130,7 +151,14 @@ export function useCourierPhotoGeneration(props: CourierPhotoComposerProps) {
         note: `会话 ${props.target.conversationId} · 回合 ${props.target.turn}` });
       // A synchronous root CAS acknowledgement prevents a rejected commit from looking successful.
       active.current = null;
-      const accepted = current.onCommitPhoto(game => commitCourierPhotoToGame(game, openedTarget, image, id), expectedSession);
+      const accepted = current.onCommitPhoto(game => {
+        const npc = game.NPC.find(item => item.id === resolved.npc.id);
+        if (!npc) return game;
+        const source = phoneCharacter({ 姓名: npc.姓名, 别名: npc.aliases[0], 性别: npc.gender,
+          外貌: npc.appearance, 外貌档案: npc.appearanceFacts, 穿着: npc.clothing, 介绍: npc.说明, 备注: npc.notes,
+          NSFW档案: npc.matureArchive ? { 年龄确认: npc.matureArchive.ageConfirmation, 年龄确认来源: npc.matureArchive.ageConfirmationSource } as ImageCharacterFactInput['NSFW档案'] : undefined });
+        return JSON.stringify(source.facts) === sourceFacts ? commitCourierPhotoToGame(game, openedTarget, image, id) : game;
+      }, expectedSession);
       if (!accepted) {
         updateTask(id, expectedSession, { status: 'cancelled', error: '目标已变化，照片结果未写入。', finishedAt: Date.now() });
         if (mounted.current) setStatus('目标已变化，照片结果未写入，请重新选择。');

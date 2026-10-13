@@ -1,6 +1,6 @@
 [package]
 name = "kaituoyishi-desktop"
-version = "1.5.0"
+version = "1.6.0"
 description = "旅行者纪事 Desktop Edition"
 authors = ["KaiTuoYiShi"]
 edition = "2021"

@@ -1,6 +1,7 @@
 import type { NPC外貌档案, NPC_NSFW档案 } from '@/models/npc';
 import { canRevealNpcMeasurements, normalizeNpcAppearanceFacts, NPC_APPEARANCE_KEYS, npcAppearanceSourceLabel } from '@/services/npcAppearanceFacts';
 import { omitNpcAppearanceMeasurements, reconcileNpcAppearance } from '@/utils/npcAppearanceReconciliation';
+import { normalizeImageCharacterEnglishCache, type ImageCharacterEnglishCache } from '@/models/imageCharacterEnglish';
 
 /** Read-only profile input: private archive fields are used solely by the existing eligibility gate. */
 export interface ImageCharacterFactInput {
@@ -14,9 +15,11 @@ export interface ImageCharacterFactInput {
   外貌档案?: NPC外貌档案;
   身高?: string;
   NSFW档案?: NPC_NSFW档案;
+  图像档案?: { englishFacts?: ImageCharacterEnglishCache };
 }
 
 export interface ImageCharacterFacts {
+  language?: 'en';
   name: string;
   gender?: string;
   appearance?: string;
@@ -28,6 +31,16 @@ export interface ImageCharacterFacts {
 
 /** No inference or NPC mutation: emit only recorded, permitted visual facts. */
 export function readImageCharacterFacts(character: ImageCharacterFactInput): ImageCharacterFacts {
+  const source = readSourceImageCharacterFacts(character);
+  const cached = normalizeImageCharacterEnglishCache(character.图像档案?.englishFacts);
+  return cached?.sourceKey === imageCharacterSourceKey(character) ? cached.facts : source;
+}
+
+export function imageCharacterSourceKey(character: ImageCharacterFactInput): string {
+  return JSON.stringify(readSourceImageCharacterFacts(character));
+}
+
+export function readSourceImageCharacterFacts(character: ImageCharacterFactInput): ImageCharacterFacts {
   const name = character.姓名?.trim() || 'Traveler';
   const eligible = canRevealNpcMeasurements({
     name, aliases: character.别名 ? [character.别名] : [], gender: character.性别,
@@ -49,14 +62,16 @@ export function readImageCharacterFacts(character: ImageCharacterFactInput): Ima
 
 /** Provenance stays attached to its recorded value, including AI estimates. */
 export function formatImageCharacterFacts(facts: ImageCharacterFacts): string {
+  const english = facts.language === 'en';
+  const labels = { 发色: 'hair color', 瞳色: 'eye color', 身高: 'height', 体重: 'weight', 三围: 'bust/waist/hips' };
   return [
     `character name: ${facts.name}`,
     facts.gender ? `gender: ${facts.gender}` : '',
     facts.appearance ? `appearance: ${facts.appearance}` : '',
-    facts.profileHeight ? `身高: ${facts.profileHeight} (source: traveler_profile; 旅人档案)` : '',
+    facts.profileHeight ? `${english ? 'height' : '身高'}: ${facts.profileHeight} (source: traveler_profile${english ? '' : '; 旅人档案'})` : '',
     ...NPC_APPEARANCE_KEYS.flatMap(key => {
       const fact = facts.appearanceDetails?.[key];
-      return fact ? [`${key}: ${fact.value} (source: ${fact.source}; ${npcAppearanceSourceLabel(fact.source)})`] : [];
+      return fact ? [`${english ? labels[key] : key}: ${fact.value} (source: ${fact.source}${english ? '' : `; ${npcAppearanceSourceLabel(fact.source)}`})`] : [];
     }),
     facts.outfit ? `outfit: ${facts.outfit}` : '',
   ].filter(Boolean).join('\n');

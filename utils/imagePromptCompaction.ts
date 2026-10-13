@@ -12,6 +12,18 @@ export interface PromptCharacter {
   anchorPrompt?: string;
 }
 
+/** Remove only our exact generated fact blocks, never a name or arbitrary manual prose. */
+export function removeDisabledImageCharacterCaptions(text: string, characters: readonly PromptCharacter[]): string {
+  return characters.filter(character => character.enabled === false && character.facts).reduce((value, character) => {
+    const facts = formatImageCharacterFacts(character.facts!);
+    const block = [facts, character.anchorPrompt ? `stable anchor (priority over profile): ${character.anchorPrompt.trim()}` : ''].filter(Boolean).join('\n');
+    for (const caption of [block, facts]) {
+      value = value.replaceAll(caption, '').replaceAll(caption.replaceAll('\n', ', '), '');
+    }
+    return value;
+  }, text);
+}
+
 const safety = /adult(?:s| only)?|no minors|underage|未成年|仅限成年/i;
 const instruction = /^(?:choose composition|avatar:|portrait:|scene:|phone wallpaper:|anchor hair|keep stable|do not (?:change|output|rewrite|redesign)|only add |for (?:official|original) characters|but still |if other prompt|when |if |return |output |only output|output format|prompt must|must |never |follow |preserve (?:stable|character|identity)|keep (?:stable|character|identity)|use (?:the|plain|traveler)|the (?:prompt|model|character)|(?:novelai|comfyui|sd webui|openai-compatible) |png style preset|it should |target canvas|visible personality|abilities:|identity:|faithful to the official|角色锚定|锚定模式|输出格式|输出英文|你是|把(?:性格|正文|角色档案|输入|新闻)|适用范围|正文生图|不再依赖|先建立|再写|再突出|场景必须|故事快照应|场景图应|信使背景优先|不要把|纯场景可以|请|必须|不得|禁止把|规则)/i;
 

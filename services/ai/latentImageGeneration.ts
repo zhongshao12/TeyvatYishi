@@ -1,6 +1,6 @@
 import type { 文生图API配置 } from '@/models/settings';
 import type { ImageGenerationRequest, ImageGenerationResult } from './imageGeneration';
-import { compactImagePrompts } from '@/utils/imagePromptCompaction';
+import { compactImagePrompts, removeDisabledImageCharacterCaptions } from '@/utils/imagePromptCompaction';
 
 export const LATENT_BASE_URL = 'https://latent.moe';
 export const LATENT_IMAGE_PATH = '/api/novelai/ai/generate-image';
@@ -72,13 +72,14 @@ export function generateLatentImage(
     if (!config.apiKey.trim()) throw new Error('请填写 Latent Designer API Key（lat_sk_…）。');
     if (request.referenceImages?.some(image => image.src.trim())) throw new Error('Latent 不支持参考图，请关闭参考图参与生成。');
     const context = request.storySnapshotContext;
-    const characters = context?.characters.filter(character => character.enabled !== false) ?? [];
+    const characters = context?.characters.filter(character => character.enabled !== false) ?? request.protectedCharacters?.filter(character => character.enabled !== false) ?? [];
     // V4 characterPrompts are discarded by Latent; keep all characters in the base caption.
-    let positive = joinCaptionParts([request.prompt, context?.scenePrompt, context?.stylePrompt, ...characters.map(character => character.visualPrompt)]);
+    const stripDisabled = (text: string | undefined) => text && removeDisabledImageCharacterCaptions(text, context?.characters ?? request.protectedCharacters ?? []);
+    let positive = joinCaptionParts([stripDisabled(request.prompt), stripDisabled(context?.scenePrompt), stripDisabled(context?.stylePrompt), ...characters.map(character => character.visualPrompt)]);
     let negative = joinCaptionParts([request.negativePrompt, config.negativePrompt, context?.sceneNegativePrompt, context?.styleNegativePrompt,
       ...characters.map(character => character.negativePrompt)]);
     const promptCompacted = positive.length > 2000 || negative.length > 2000;
-    if (promptCompacted) {
+    if (promptCompacted || characters.some(character => character.facts)) {
       const compacted = compactImagePrompts({ prompt: positive, negative, characters, limit: 2000 });
       positive = compacted.prompt;
       negative = compacted.negative;

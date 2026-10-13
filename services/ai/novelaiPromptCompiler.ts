@@ -4,6 +4,8 @@ import type {
   StorySnapshotRenderContext,
 } from '@/models/imageGeneration';
 import { normalizeStorySnapshotRenderContext } from '@/models/imageGeneration';
+import { formatImageCharacterFacts } from '@/utils/imageCharacterFacts';
+import { removeDisabledImageCharacterCaptions, type PromptCharacter } from '@/utils/imagePromptCompaction';
 
 export type NovelAIModelFamily = 'v3' | 'v4' | 'v4.5';
 
@@ -23,6 +25,7 @@ export interface NovelAICharacterPrompt {
   prompt: string;
   negativePrompt: string;
   center: { x: number; y: number };
+  protectedPrompt?: string;
 }
 
 export interface CompiledNovelAIPrompt {
@@ -47,6 +50,7 @@ export interface CompileNovelAIPromptInput {
   taskOverrides?: NovelAITaskOverrides;
   storySnapshotContext?: StorySnapshotRenderContext;
   ucPreset?: number;
+  protectedCharacters?: readonly PromptCharacter[];
 }
 
 const NOVELAI_MODEL_PROFILES: Record<string, NovelAIModelProfile> = {
@@ -233,6 +237,21 @@ function applyPromptBudget(
   characters: NovelAICharacterPrompt[],
   limit: number,
 ): { base: string; characters: NovelAICharacterPrompt[]; used: number; truncated: boolean } {
+  if (characters.some(character => character.protectedPrompt)) {
+    const reserved = characters.reduce((sum, character) => sum + (character.protectedPrompt?.length ?? 0) + 2, 0);
+    if (reserved > limit) throw new Error('已记录角色外貌事实超过 NovelAI 提示词上限，请减少同框角色或缩短外貌摘要；不会静默丢弃已记录事实。');
+    const available = limit - reserved;
+    const baseResult = truncatePrompt(base, Math.floor(available / 2));
+    const share = Math.floor((available - baseResult.text.length) / Math.max(1, characters.length));
+    let truncated = baseResult.truncated;
+    const normalizedCharacters = characters.map(character => {
+      const optional = truncatePrompt(character.prompt.replaceAll(character.protectedPrompt || '\u0000', ''), share);
+      truncated ||= optional.truncated;
+      return { ...character, prompt: joinPromptParts(character.protectedPrompt, optional.text) };
+    });
+    return { base: baseResult.text, characters: normalizedCharacters, truncated,
+      used: baseResult.text.length + normalizedCharacters.reduce((sum, character) => sum + character.prompt.length, 0) };
+  }
   if (!characters.length) {
     const result = truncatePrompt(base, limit);
     return { base: result.text, characters, used: result.text.length, truncated: result.truncated };
@@ -279,22 +298,25 @@ export function compileNovelAIPrompt(input: CompileNovelAIPromptInput): Compiled
     if (value !== undefined) (advanced as Record<string, unknown>)[key] = value;
   }
   const context = normalizeStorySnapshotRenderContext(input.storySnapshotContext) ?? input.storySnapshotContext;
-  const activeCharacters = context?.characters.filter((character) => character.enabled !== false).slice(0, 4) ?? [];
+  const activeCharacters = context?.characters.filter((character) => character.enabled !== false).slice(0, 4)
+    ?? input.protectedCharacters?.filter(character => character.enabled !== false).map(character => ({ ...character, subjectType: 'other' as const })).slice(0, 4) ?? [];
   const basePromptBody = sanitizePrompt(joinPromptParts(
     advanced.basePromptPrefix,
-    context?.scenePrompt || input.prompt,
+    removeDisabledImageCharacterCaptions(context?.scenePrompt || input.prompt, context?.characters ?? input.protectedCharacters ?? []),
     context?.stylePrompt,
     advanced.basePromptSuffix,
   ), (segment) => COUNT_TAG_PATTERN.test(segment));
   const characterPrompts = activeCharacters.map((character, index) => ({
     name: character.name,
+    // Recorded structured facts are data, not builder instructions. Keep their spelling and Unicode intact.
+    protectedPrompt: character.facts ? joinPromptParts(formatImageCharacterFacts(character.facts), character.anchorPrompt) : undefined,
     prompt: sanitizePrompt(joinPromptParts(
       advanced.characterPromptPrefix,
       character.subjectType === 'other' ? '' : character.subjectType,
       character.visualPrompt,
       advanced.characterPromptSuffix,
     )),
-    negativePrompt: sanitizePrompt(character.negativePrompt),
+    negativePrompt: sanitizePrompt(character.negativePrompt ?? ''),
     center: {
       x: activeCharacters.length <= 1 ? 0.5 : (index + 1) / (activeCharacters.length + 1),
       y: 0.5,
@@ -334,16 +356,20 @@ export function compileNovelAIPrompt(input: CompileNovelAIPromptInput): Compiled
     negativeBudget.truncated ? 'negative_prompt_truncated' : '',
   ].filter(Boolean);
 
+  const base = profile.supportsCharacterPrompts ? positiveBudget.base
+    : joinPromptParts(positiveBudget.base, ...positiveBudget.characters.map(character => character.prompt));
+  const finalUc = profile.supportsCharacterPrompts ? negativeBudget.base
+    : joinPromptParts(negativeBudget.base, ...negativeBudget.characters.map(character => character.negativePrompt));
   return {
     family: profile.family,
-    basePrompt: positiveBudget.base,
+    basePrompt: base,
     baseNegativePrompt: negativeBudget.base,
     characterPrompts: positiveBudget.characters.map((character, index) => ({
       ...character,
       negativePrompt: negativeBudget.characters[index]?.negativePrompt ?? '',
     })),
     qualityTags,
-    uc,
+    uc: finalUc,
     ucPreset: advanced.ucMode === 'off' || advanced.ucMode === 'replace'
       ? profile.ucPresets.length - 1
       : presetIndex,

@@ -10,11 +10,12 @@ interface RightMenuProps {
   onSettings: () => void;
   /** 未处理的记忆失败草稿数量；只用于入口提醒，不在打开面板时自动清除。 */
   memoryUnread?: number;
+  courierUnread?: number;
 }
 
 
 
-export const RightMenu = memo(function RightMenu({ activeId, onSelect, onSaveGame, onLoadGame, onSettings, memoryUnread = 0 }: RightMenuProps) {
+export const RightMenu = memo(function RightMenu({ activeId, onSelect, onSaveGame, onLoadGame, onSettings, memoryUnread = 0, courierUnread = 0 }: RightMenuProps) {
   return (
     <div className="teyvat-right-menu journal-system-tabs__rail hidden min-h-0 flex-col md:flex">
 
@@ -27,7 +28,8 @@ export const RightMenu = memo(function RightMenu({ activeId, onSelect, onSaveGam
             subtitle={item.subtitle}
             active={activeId === item.id}
             onClick={() => onSelect(item.id)}
-            badge={item.id === 'memory' ? memoryUnread : 0}
+            badge={item.id === 'memory' ? memoryUnread : item.id === 'phone' ? courierUnread : 0}
+            badgeLabel={item.id === 'phone' ? '条手机未读消息' : '份失败记忆草稿待处理'}
           />
         ))}
       </div>
@@ -54,6 +56,7 @@ function SystemButton({
   active,
   onClick,
   badge = 0,
+  badgeLabel,
 }: {
   glyph: string;
   label: string;
@@ -61,6 +64,7 @@ function SystemButton({
   active: boolean;
   onClick: () => void;
   badge?: number;
+  badgeLabel?: string;
 }) {
   return (
     <button
@@ -102,17 +106,17 @@ function SystemButton({
           {subtitle}
         </span>
       </span>
-      {badge > 0 && <UnreadDot count={badge} />}
+      {badge > 0 && <UnreadDot count={badge} label={badgeLabel} />}
     </button>
   );
 }
 
-function UnreadDot({ count }: { count: number }) {
+function UnreadDot({ count, label = '份失败记忆草稿待处理' }: { count: number; label?: string }) {
   return (
     <span
       className="relative ml-auto flex h-4 min-w-4 items-center justify-center px-1 text-[9px] font-bold leading-none"
-      title={`有 ${count} 份失败记忆草稿待处理`}
-      aria-label={`有 ${count} 份失败记忆草稿待处理`}
+      title={`有 ${count} ${label}`}
+      aria-label={`有 ${count} ${label}`}
       style={{
         color: 'rgb(var(--tj-text-primary))',
         background: 'rgba(var(--tj-danger), 0.92)',

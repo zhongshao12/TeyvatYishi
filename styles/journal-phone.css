@@ -1,0 +1,25 @@
+.journal-phone {
+  --phone-ink: rgb(var(--tj-text-primary));
+  --phone-paper: rgb(var(--tj-parchment));
+  --phone-green: color-mix(in srgb, rgb(var(--tj-sage-deep)) 80%, var(--phone-ink));
+  color: var(--phone-ink);
+  background: var(--phone-paper);
+  border-color: rgba(var(--tj-border), .5);
+}
+.journal-phone .phone-cover {
+  color: rgb(var(--tj-on-accent));
+  background: linear-gradient(125deg, var(--phone-green), color-mix(in srgb, var(--phone-green) 75%, rgb(var(--tj-sage-soft))));
+  border-bottom: 3px solid rgba(var(--tj-accent-primary), .65);
+}
+.journal-phone .phone-moment-card {
+  border: 1px solid rgba(var(--tj-border), .45);
+  background: rgb(var(--tj-surface-strong));
+  box-shadow: 0 4px 18px rgba(var(--tj-shadow), .06);
+}
+.journal-phone .phone-filter[aria-pressed="true"] {
+  background: var(--phone-green);
+  color: rgb(var(--tj-on-accent));
+}
+.journal-phone .phone-filter:focus-visible,
+.journal-phone button:focus-visible { outline: 2px solid rgb(var(--tj-accent-primary)); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .journal-phone * { scroll-behavior: auto !important; } }

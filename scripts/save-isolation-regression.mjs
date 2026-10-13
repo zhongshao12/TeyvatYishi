@@ -48,7 +48,7 @@ const courierSetterWritesRuntimeRoot = useGameStateSource.includes(
   'updateGameState((current) => ({ ...current, 手机: applyStateAction(current.手机, action) }))',
 );
 assert(
-  appSource.includes('onCourierChange={state.set手机}')
+  appSource.includes('onCourierChange: state.set手机')
     && appSource.includes('onCourierChange: (update) => state.set手机(update)')
     && courierSetterWritesRuntimeRoot,
   '手机 UI 修改只能进入当前正式运行态。',

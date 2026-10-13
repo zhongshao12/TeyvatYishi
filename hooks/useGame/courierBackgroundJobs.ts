@@ -16,6 +16,7 @@ import {
   endCourierReply,
   findCourierReplyCandidates,
   type CourierReplyCandidate,
+  isCourierReplySenderLive,
   selectGroupReplyMembers,
   splitLetterIntoLines,
   type CourierGroupReplyContext,
@@ -26,6 +27,7 @@ import { generateCourierGroupReply, generateCourierLetter, generateCourierReply 
 import { appendApiErrorReport } from '@/services/ai/apiErrorReportService';
 import { processScheduledCourierSeeds } from './courierWorkflow';
 import { buildCourierPlayerBatch } from '@/utils/courierReplyBatch';
+import { PROACTIVE_CONTACT_INTERVAL_TURNS, PROACTIVE_CONTACT_MIN_AFFINITY } from '@/services/proactiveContacts';
 
 /**
  * 信使回信纯逻辑：找出最后一条仍是玩家消息的会话，为每个会话生成一封联系人回信
@@ -67,6 +69,8 @@ export interface CourierReplyPassResult {
    * 可选：没有群聊部分失败的路径不必构造它。
    */
   failedMemberNames?: string[];
+  /** 与失败姓名一一对应，用于等待期间成员变化后的身份校验。 */
+  failedMemberIds?: string[];
 }
 
 export const COURIER_MESSAGE_REVEAL_INTERVAL_MS = 500;
@@ -122,7 +126,7 @@ export async function runCourierDeliveryTask(input: CourierDeliveryTaskInput): P
         deliverySeeds: [...courier.deliverySeeds, ...proactiveSeeds],
         unreadTotal: courier.unreadTotal + proactiveSeeds.length,
       };
-    } else {
+    } else if (input.proactiveSeeds === undefined) {
       const fallbackSeed = buildFallbackCourierSeed({
         courier,
         npcs,
@@ -150,13 +154,13 @@ export async function runCourierDeliveryTask(input: CourierDeliveryTaskInput): P
     // 剧情自动建群默认关闭（玩家反馈「角色老是拉个群聊和我对话」）。
     allowStoryCreatedGroups: input.allowStoryCreatedGroups === true,
   });
+  courier = scheduled.next;
   if (!scheduled.due.length) {
     return {
       status: 'skipped', courier, npcs, delivered: 0, newNpcNames: [],
       detail: '本回合没有待处理的手机消息。',
     };
   }
-  courier = scheduled.next;
 
   for (const seed of scheduled.due.slice(0, 2)) {
     if (!input.letterApiConfig) break;
@@ -237,25 +241,28 @@ export function buildFallbackCourierSeed(input: {
   contactCooldownTurns: number;
 }): CourierDeliverySeed | null {
   if (input.maxSeedsPerTurn <= 0) return null;
+  if (input.turn < PROACTIVE_CONTACT_INTERVAL_TURNS) return null;
   const pendingCount = input.courier.deliverySeeds.filter((seed) => seed.status === 'pending').length;
   if (pendingCount >= input.maxSeedsPerTurn || pendingCount > 0) return null;
 
   const cooldown = Math.max(1, Math.trunc(input.contactCooldownTurns || 3));
-  const fallbackGlobalCooldown = Math.max(3, cooldown);
+  const fallbackGlobalCooldown = Math.max(PROACTIVE_CONTACT_INTERVAL_TURNS, cooldown);
   const lastNonUrgentSeedTurn = input.courier.deliverySeeds
     .filter((seed) => seed.priority !== 'urgent')
     .reduce((latest, seed) => Math.max(latest, Number(seed.turn) || 0), 0);
   if (lastNonUrgentSeedTurn > 0 && input.turn - lastNonUrgentSeedTurn < fallbackGlobalCooldown) return null;
 
-  const text = `${input.userInput}\n${input.body}`;
   const candidates = input.npcs
     .filter((npc) => npc.关系 !== 'enemy')
+    .filter((npc) => npc.好感度 >= PROACTIVE_CONTACT_MIN_AFFINITY && input.courier.contacts.some(contact =>
+      contact.available && (!contact.status || contact.status === 'available')
+      && (contact.npcId ? contact.npcId === npc.id : contact.id === npc.id)))
     .filter((npc) => npc.阶位 === 'companion' || npc.同行 || 提取NPC同行记忆文本列表(npc).length > 0)
     .filter((npc) => {
       const recentTurn = Number(npc.最近回合 || 0);
       if (recentTurn < Math.max(1, input.turn - 4)) return false;
-      const aliases = [npc.姓名, npc.别名].filter((item): item is string => Boolean(item?.trim()));
-      return npc.同行 || aliases.some((name) => text.includes(name));
+      const profile = buildCourierSenderProfile(npc);
+      return npc.同行 || Boolean(profile.recentInteraction || profile.recentMemories?.length || profile.sharedExperiences?.length);
     })
     .filter((npc) => {
       const lastSeedTurn = input.courier.deliverySeeds
@@ -272,19 +279,20 @@ export function buildFallbackCourierSeed(input: {
 
   const npc = candidates[0];
   if (!npc) return null;
-  const reason = [
-    input.body.replace(/\s+/g, ' ').trim().slice(0, 120),
-    提取NPC同行记忆文本列表(npc).slice(-1)[0],
-  ].filter(Boolean).join('；');
+  const profile = buildCourierSenderProfile(npc);
+  const reason = [profile.recentInteraction, profile.recentMemories?.slice(-1)[0], profile.sharedExperiences?.slice(-1)[0]]
+    .filter(Boolean).join('；');
   const title = `${npc.姓名}的跟进来信`;
-  const context = `${npc.姓名}近期与旅行者有互动，可低频投递一封跟进、确认状况或延续约定的来信。已发生事实：${reason || '近期剧情互动。'}`;
+  const context = reason
+    ? `${npc.姓名}已有记录的亲历事实：${reason}。只能延续上述本人已知的经历，不得推测旅行者的其他行动或秘密。`
+    : `${npc.姓名}想问候旅行者。没有具体已知事件，只能自然问候，不得假称知道近况或编造约定。`;
   if (hasRecentSimilarCourierSeed({ courier: input.courier, npcId: npc.id, turn: input.turn, title, context })) return null;
   return {
     id: `courier_seed_fallback_${input.turn}_${npc.id}_${Math.random().toString(36).slice(2, 8)}`,
     senderId: npc.id,
     reason: '近期剧情互动跟进',
     turn: input.turn,
-    source: 'main_story',
+    source: 'memory',
     triggerType: npc.同行 ? 'quest' : 'relationship',
     priority: 'low',
     targetType: 'private',
@@ -292,6 +300,7 @@ export function buildFallbackCourierSeed(input: {
     title,
     context,
     relatedNpcIds: [npc.id],
+    relatedEventId: `proactive:fallback:${npc.id}`,
     expiresAfterTurns: 6,
     status: 'pending',
   };
@@ -394,6 +403,9 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
     requestedCandidates = findCourierReplyCandidates(input.courier, input.maxReplies ?? 2, preclaimed);
   }
   const candidates = requestedCandidates
+    .filter(candidate => candidate.conversation.type === 'group'
+      ? candidate.conversation.participantIds.some(id => isCourierReplySenderLive(input.courier, candidate.conversation.id, id))
+      : isCourierReplySenderLive(input.courier, candidate.conversation.id, candidate.contactId))
     .filter((candidate) => {
       if (preclaimed.has(candidate.conversation.id)) return true;
       if (!beginCourierReply(candidate.conversation.id, input.sessionId)) return false;
@@ -411,6 +423,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
   let replied = 0;
   /** U04：本次回信里没能回复的群成员名（部分成功时也要让玩家看见）。 */
   const failedMemberNames: string[] = [];
+  const failedReplyMemberIds: string[] = [];
   try {
     for (const candidate of candidates) {
     const { conversation, playerMessage, contactId } = candidate;
@@ -425,7 +438,8 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
       // A retry inherits the original full set, never its current selection/subset.
       const expectedReplyIds = priorProofs.length ? [...new Set(priorProofs.flatMap(message => message.expectedReplyIds ?? []))]
         : selectedMembers.map(memberId => `${prefix}${memberId}`);
-      const memberIds = priorProofs.length ? expectedReplyIds.filter(id => id.startsWith(prefix)).map(id => id.slice(prefix.length)) : selectedMembers;
+      const memberIds = (priorProofs.length ? expectedReplyIds.filter(id => id.startsWith(prefix)).map(id => id.slice(prefix.length)) : selectedMembers)
+        .filter(id => isCourierReplySenderLive(updated, conversation.id, id));
       let proofWritten = priorProofs.length > 0;
       let nextCourier = updated;
       let memberReplied = 0;
@@ -529,6 +543,7 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
         const contact = updated.contacts.find((item) => item.id === memberId);
         const npc = updatedNpcs.find((item) => item.id === memberId || item.id === contact?.npcId);
         failedMemberNames.push(contact?.name?.trim() || npc?.姓名?.trim() || memberId);
+        failedReplyMemberIds.push(memberId);
       }
         continue;
       }
@@ -604,7 +619,8 @@ export async function runCourierReplyPass(input: CourierReplyPassInput): Promise
     }
       replied += 1;
     }
-    return { courier: updated, npcs: updatedNpcs, replied, failedMemberNames };
+    return { courier: updated, npcs: updatedNpcs, replied, failedMemberNames,
+      ...(failedReplyMemberIds.length ? { failedMemberIds: failedReplyMemberIds } : {}) };
   } finally {
     for (const conversationId of ownedClaims) endCourierReply(conversationId, input.sessionId);
   }

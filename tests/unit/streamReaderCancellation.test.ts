@@ -2,6 +2,47 @@ import { describe, expect, it, vi } from 'vitest';
 import * as chatCompletionClient from '@/services/ai/chatCompletionClient';
 
 describe('stream reader cancellation', () => {
+  it.each([false, true])('completes on DONE without waiting for HTTP EOF (fragmented: %s)', async fragmented => {
+    let cancelled = false;
+    const encoder = new TextEncoder();
+    const data = 'data: {"delta":"完成"}\n\ndata: {"usage":{"total_tokens":3}}\n\ndata: [DONE]\n\n';
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (fragmented) {
+          const boundary = data.indexOf('[DONE]') + 3;
+          controller.enqueue(encoder.encode(data.slice(0, boundary)));
+          controller.enqueue(encoder.encode(data.slice(boundary)));
+        } else controller.enqueue(encoder.encode(data));
+        // The compatible gateway intentionally keeps its HTTP body open.
+      },
+      cancel() { cancelled = true; },
+    });
+    const onData = vi.fn();
+    await expect(chatCompletionClient.readSseStream(new Response(stream), undefined, onData,
+      { firstByteTimeoutMs: 20, idleTimeoutMs: 20 })).resolves.toBeUndefined();
+    expect(onData.mock.calls.map(([frame]) => frame)).toEqual([{ delta: '完成' }, { usage: { total_tokens: 3 } }]);
+    expect(cancelled).toBe(true);
+  });
+
+  it('does not parse or dispatch frames buffered after DONE', async () => {
+    const encoder = new TextEncoder();
+    const onData = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"delta":"完成"}\n\ndata: [DONE]\n\ndata: {"error":"late invalid frame"}\n\ndata: {"delta":"不应接收"}'));
+        controller.close();
+      },
+    });
+    await expect(chatCompletionClient.readSseStream(new Response(stream), undefined, onData)).resolves.toBeUndefined();
+    expect(onData.mock.calls.map(([frame]) => frame)).toEqual([{ delta: '完成' }]);
+  });
+
+  it('accepts a terminal DONE frame without its final newline at EOF', async () => {
+    const onData = vi.fn();
+    await chatCompletionClient.readSseStream(new Response('data: {"delta":"完成"}\n\ndata: [DONE]'), undefined, onData);
+    expect(onData.mock.calls.map(([frame]) => frame)).toEqual([{ delta: '完成' }]);
+  });
+
   it('cancels the underlying stream before releasing its lock', async () => {
     let cancelReason: unknown;
     const stream = new ReadableStream<Uint8Array>({

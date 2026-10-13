@@ -245,6 +245,8 @@ export function toLegacyTraveler(game: TeyvatGameState): 角色数据结构 {
     身份: game.旅行者.身份, 外貌: game.旅行者.外貌, 性格: game.旅行者.性格,
     背景: game.旅行者.背景, 专长知识: game.旅行者.专长知识, 头像: game.旅行者.头像,
     图像档案: {
+      englishFacts: game.旅行者.visualArchive.englishFacts,
+      角色锚点: game.旅行者.visualArchive.characterAnchor,
       头像: game.旅行者.visualArchive.profileImage,
       正文头像: game.旅行者.visualArchive.narrativeImage,
       手机头像: game.旅行者.visualArchive.courierImage,
@@ -269,6 +271,8 @@ function withLegacyTraveler(game: TeyvatGameState, traveler: 角色数据结构)
       主元素: traveler.主元素, attributes: Object.fromEntries(Object.entries(traveler.属性).map(([key, value]) => [key, Number(value) || 0])),
       capabilities: [...traveler.能力],
       visualArchive: {
+        englishFacts: traveler.图像档案?.englishFacts,
+        characterAnchor: traveler.图像档案?.角色锚点,
         profileImage: traveler.图像档案?.头像, narrativeImage: traveler.图像档案?.正文头像,
         courierImage: traveler.图像档案?.手机头像, fullPortrait: traveler.图像档案?.立绘,
       },
@@ -394,8 +398,16 @@ export function toLegacyTurnCheckpoint(checkpoint: ConversationTurnCheckpoint): 
   };
 }
 
+// Game slices are immutable. Weak keys reuse unchanged message projections without
+// retaining departed saves, and let setters skip re-normalizing old debug/checkpoint data.
+type CanonicalChatEntry = TeyvatGameState['对话']['entries'][number];
+const legacyChatEntryCache = new WeakMap<CanonicalChatEntry, 聊天消息>();
+const canonicalChatEntryCache = new WeakMap<聊天消息, CanonicalChatEntry>();
 function toLegacyChat(game: TeyvatGameState): 聊天消息[] {
-  return game.对话.entries.map((entry) => ({
+  return game.对话.entries.map((entry) => {
+    const cached = legacyChatEntryCache.get(entry);
+    if (cached) return cached;
+    const message: 聊天消息 = {
     id: entry.id, role: entry.role, content: entry.content, timestamp: entry.timestamp, gameTime: entry.gameTime,
     ...(entry.worldMoment ? { worldMoment: { ...entry.worldMoment } } : {}),
     parsedResponse: entry.structuredResponse ? {
@@ -432,13 +444,18 @@ function toLegacyChat(game: TeyvatGameState): 聊天消息[] {
       codexRecallRawText: entry.debugMetadata.codexRecallRawText, codexRecallUsedModel: entry.debugMetadata.codexRecallUsedModel,
     } : undefined,
     narrativeImages: entry.narrativeImages?.map((image) => ({ ...image })),
-  }));
+    };
+    legacyChatEntryCache.set(entry, message);
+    canonicalChatEntryCache.set(message, entry);
+    return message;
+  });
 }
 
 function withLegacyChat(game: TeyvatGameState, messages: 聊天消息[]): TeyvatGameState {
-  return {
-    ...game,
-    对话: normalizeConversationLog({ entries: messages.map((message) => ({
+  const entries = messages.map((message) => {
+    const cached = canonicalChatEntryCache.get(message);
+    if (cached) return cached;
+    return normalizeConversationLog({ entries: [{
       id: message.id, role: message.role, content: message.content, timestamp: message.timestamp,
       gameTime: message.gameTime,
       worldMoment: message.worldMoment,
@@ -476,8 +493,20 @@ function withLegacyChat(game: TeyvatGameState, messages: 聊天消息[]): Teyvat
       inputTokens: message.inputTokens, outputTokens: message.outputTokens, responseDurationSec: message.responseDurationSec,
       streaming: message.isStreaming, bookmark: message.bookmark ? { title: message.bookmark.title, note: message.bookmark.note, createdAt: message.bookmark.createdAt } : undefined,
       narrativeImages: message.narrativeImages?.map((image) => ({ id: image.id, dataUrl: image.dataUrl, type: image.type, kind: image.kind, prompt: image.prompt, negativePrompt: image.negativePrompt, description: image.description, status: image.status, error: image.error, assetId: image.assetId })),
-    })) }),
-  };
+    }] }).entries[0]!;
+  });
+  // Preserve the existing reroll rule: only the newest anchor survives. Reused
+  // records with older checkpoints need a shallow copy, not whole-log normalization.
+  let lastCheckpointIndex = -1;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]?.preTurnState) { lastCheckpointIndex = index; break; }
+  }
+  const normalized = entries.map((entry, index) => {
+    if (!entry.preTurnState || index === lastCheckpointIndex) return entry;
+    const { preTurnState: _oldCheckpoint, ...rest } = entry;
+    return rest;
+  });
+  return { ...game, 对话: { entries: normalized } };
 }
 
 export function toLegacyMemory(game: TeyvatGameState): 记忆系统 {
@@ -579,7 +608,7 @@ export function mapTeyvatNpcsToLegacy(game: TeyvatGameState): NPC记录[] {
       经历: [...npc.matureArchive.experiences], 长期事实: [...npc.matureArchive.longTermFacts], 标签: [...npc.matureArchive.tags],
       部位图片: { 女性胸部: npc.matureArchive.partImages.femaleChest, 女性私处: npc.matureArchive.partImages.femaleGenital, 男性器: npc.matureArchive.partImages.maleGenital, 后庭: npc.matureArchive.partImages.rear, 体态参考: npc.matureArchive.partImages.bodyReference }, 备注: npc.matureArchive.notes,
     } : undefined,
-    图像档案: { 头像: npc.visualArchive.profileImage, 立绘: npc.visualArchive.fullPortrait, 头像槽位: { 档案: npc.visualArchive.slotImages.profile, 正文: npc.visualArchive.slotImages.narrative, 手机: npc.visualArchive.slotImages.courier }, 头像提示词: npc.visualArchive.profilePrompt, 立绘提示词: npc.visualArchive.portraitPrompt, 状态: npc.visualArchive.status, 来源: ({ manual: '手动', canon: '原著', generated: '文生图', placeholder: '占位' } as const)[npc.visualArchive.source ?? 'manual'] }, 头像: npc.avatar,
+    图像档案: { englishFacts: npc.visualArchive.englishFacts, 角色锚点: npc.visualArchive.characterAnchor, 头像: npc.visualArchive.profileImage, 立绘: npc.visualArchive.fullPortrait, 头像槽位: { 档案: npc.visualArchive.slotImages.profile, 正文: npc.visualArchive.slotImages.narrative, 手机: npc.visualArchive.slotImages.courier }, 头像提示词: npc.visualArchive.profilePrompt, 立绘提示词: npc.visualArchive.portraitPrompt, 状态: npc.visualArchive.status, 来源: ({ manual: '手动', canon: '原著', generated: '文生图', placeholder: '占位' } as const)[npc.visualArchive.source ?? 'manual'] }, 头像: npc.avatar,
   }));
 }
 
@@ -608,6 +637,8 @@ export function applyLegacyNpcRecords(game: TeyvatGameState, records: NPC记录[
     },
     notes: [...npc.备注], playerCorrections: [...(npc.玩家纠正记录 ?? [])], canonical: npc.原著角色 === true,
     avatar: npc.头像 ?? '', visualArchive: npc.图像档案 ? {
+      englishFacts: npc.图像档案.englishFacts,
+      characterAnchor: npc.图像档案.角色锚点,
       profileImage: npc.图像档案.头像, fullPortrait: npc.图像档案.立绘,
       slotImages: { profile: npc.图像档案.头像槽位?.档案, narrative: npc.图像档案.头像槽位?.正文, courier: npc.图像档案.头像槽位?.手机 },
       profilePrompt: npc.图像档案.头像提示词, portraitPrompt: npc.图像档案.立绘提示词, status: npc.图像档案.状态,
@@ -922,13 +953,8 @@ export function createLegacyGameViewSelector(): (game: TeyvatGameState) => Legac
  * React StrictMode 的重复调用），整条 `toLegacyChat` → `withLegacyChat` 重建都可以跳过，
  * 直接返回 `current`；`updateTeyvatState` 见到同一个引用也会让 React 跳过这次渲染。
  *
- * 其余情况与原实现逐字一致：`withLegacyChat(toLegacyChat(current) ± action)`。
- *
- * 关于"更深的切片级 bail-out"：真正省时间的是**逐条 entry 复用**
- * （改一条书签/附图时只重建那一条），但 `withLegacyChat` 末尾的
- * `normalizeConversationLog`（`models/teyvat/runtimeSlices.ts:427-453`）对每条 entry
- * 无条件新建对象并重跑 13 个 normalizer，逐条复用必须改那个文件——超出本次允许改动
- * 的文件范围，故未做（见报告）。
+ * 复制但未改变条目的数组同样是无操作。不可变更新只规范化真正变化的条目，
+ * 未变条目通过 WeakMap 复用；旧重掷锚点仍按原规则剥离，只保留最新有效锚点。
  */
 export function applyChatHistoryAction(
   current: TeyvatGameState,
@@ -936,7 +962,7 @@ export function applyChatHistoryAction(
 ): TeyvatGameState {
   const legacyChat = toLegacyChat(current);
   const nextChat = applyStateAction(legacyChat, action);
-  if (nextChat === legacyChat) return current;
+  if (nextChat === legacyChat || (nextChat.length === legacyChat.length && nextChat.every((entry, index) => entry === legacyChat[index]))) return current;
   return withLegacyChat(current, nextChat);
 }
 
@@ -1150,7 +1176,9 @@ export function useGameState(): UseGameStateReturn {
           await saveSetting(CODEX_CHARACTER_REBUILD_MIGRATION_KEY, migrationAt);
         }
         const mergedCodex = mergeBundledCodexSystem(preset, savedCodex, migrationAt);
-        updateGameState((current) => applyLegacyCodex(current, mergedCodex));
+        updateGameState((current) => startupStorySession === getGameSessionId()
+          ? applyLegacyCodex(current, mergedCodex)
+          : current);
       } catch (err) {
         console.warn('[codex] preset 加载失败，回退到本地图鉴:', err);
         if (err instanceof ContentResourceError) {
@@ -1163,12 +1191,12 @@ export function useGameState(): UseGameStateReturn {
           if (!savedMigrationAt) {
             await saveSetting(CODEX_CHARACTER_REBUILD_MIGRATION_KEY, migrationAt);
           }
-          updateGameState((current) => applyLegacyCodex(current, 升级自制图鉴系统({
+          updateGameState((current) => startupStorySession === getGameSessionId() ? applyLegacyCodex(current, 升级自制图鉴系统({
             条目: removeLegacyCodexCharacterEntries(
               removeRetiredCodexEntries(savedCodex.条目.filter((entry) => !isBundledCodexDuplicate(entry))),
               migrationAt,
             ),
-          })));
+          })) : current);
         }
       }
 

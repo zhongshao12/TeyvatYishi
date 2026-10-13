@@ -3,6 +3,7 @@
 // 晋升单向:路人 → 伙伴可手动也可由原著角色库自动;v1 不做降级(兜底 UI 提供)。
 
 import { matchCanonical } from '@/data/canonicalCharacters';
+import { normalizeImageCharacterEnglishCache, type ImageCharacterEnglishCache } from './imageCharacterEnglish';
 import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
 import { getAvatarCharacterProfile } from '@/data/avatarCharacterProfiles';
@@ -343,6 +344,7 @@ export interface NPC记录 {
   原著角色?: boolean;                // 来自原著角色库的标记
   NSFW档案?: NPC_NSFW档案;
   图像档案?: {
+    englishFacts?: ImageCharacterEnglishCache;
     头像?: string;
     立绘?: string;
     头像槽位?: Partial<Record<NPC头像槽位, string>>;
@@ -1126,7 +1128,8 @@ function 归一化图像档案(raw: unknown, avatar: unknown): NPC记录['图像
   const characterAnchor = 归一化NPC角色锚点(candidate.角色锚点 ?? candidate.characterAnchor ?? candidate.anchor);
   const status = normalizeImageStatus(candidate.状态);
   const source = normalizeImageSource(candidate.来源);
-  if (!imageAvatar && !portrait && !avatarSlots && !avatarPrompt && !portraitPrompt && !characterAnchor && !status && !source) return undefined;
+  const englishFacts = normalizeImageCharacterEnglishCache(candidate.englishFacts);
+  if (!imageAvatar && !portrait && !avatarSlots && !avatarPrompt && !portraitPrompt && !characterAnchor && !englishFacts && !status && !source) return undefined;
   return {
     头像: imageAvatar,
     立绘: portrait,
@@ -1134,12 +1137,13 @@ function 归一化图像档案(raw: unknown, avatar: unknown): NPC记录['图像
     头像提示词: avatarPrompt,
     立绘提示词: portraitPrompt,
     角色锚点: characterAnchor,
+    englishFacts,
     状态: status,
     来源: source,
   };
 }
 
-function 归一化NPC角色锚点(raw: unknown): NPC角色锚点档案 | undefined {
+export function 归一化NPC角色锚点(raw: unknown): NPC角色锚点档案 | undefined {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
   if (!source) return undefined;
   const readString = (...keys: string[]) => {

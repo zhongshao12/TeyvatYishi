@@ -3,7 +3,8 @@ import type { 角色数据结构 } from '@/models/character';
 import type { NPC记录, NPC角色锚点档案 } from '@/models/npc';
 import type { NovelAI模型族, PNG画风预设来源, 故事快照解析规则预设, 文生图API配置, 文生图NAI规则预设, 文生图PNG画风预设, 文生图画师串预设, 文生图模型规则集, 文生图规则模板, 文生图规则模板类型, 文生图规则中心设置, 文生图详细画风预设, 文生图质量增强预设, 画师串预设适用范围 } from '@/models/settings';
 import { migrateLegacyImageRuleKeys } from '@/compat/legacy-hsr/migrate';
-import { formatImageCharacterFacts, readImageCharacterFacts, resolveImageCharacterFactsForAnchor, type ImageCharacterFactInput } from '@/utils/imageCharacterFacts';
+import { formatImageCharacterFacts, imageCharacterSourceKey, readImageCharacterFacts, resolveImageCharacterFactsForAnchor, type ImageCharacterFactInput } from '@/utils/imageCharacterFacts';
+import { normalizeImageCharacterEnglishCache } from '@/models/imageCharacterEnglish';
 import type { PromptCharacter } from '@/utils/imagePromptCompaction';
 
 export type 生图Prompt模式 = 'avatar' | 'portrait' | 'scene' | 'phone_wallpaper' | 'nsfw';
@@ -1057,8 +1058,8 @@ function readCharacterAnchorPrompt(anchor: NPC角色锚点档案 | undefined, la
   ].filter(Boolean).join('\n');
 }
 
-function readCharacterAnchorLock(anchor: NPC角色锚点档案 | undefined, label: string): string {
-  const prompt = readCharacterAnchorPrompt(anchor, label);
+function readCharacterAnchorLock(anchor: NPC角色锚点档案 | undefined, label: string, preparedPrompt?: string): string {
+  const prompt = preparedPrompt ?? readCharacterAnchorPrompt(anchor, label);
   if (!prompt) return '';
   return [
     `${label} APPEARANCE LOCK: the following visual anchor is the stable identity baseline and has higher priority than ordinary profile text, style presets, reference-image influence, and extra requirements.`,
@@ -1079,14 +1080,19 @@ export function readImagePromptCharacter(character: ImageCharacterFactInput & {
 }, scene = false): PromptCharacter {
   const anchor = character.图像档案?.角色锚点;
   const eligible = !scene || anchor?.场景生图自动注入 !== false;
-  const anchorPrompt = eligible ? readCharacterAnchorPrompt(anchor, 'character') : '';
+  const sourceAnchor = eligible ? readCharacterAnchorPrompt(anchor, 'character') : '';
+  const sourceNegative = eligible ? readCharacterAnchorNegative(anchor) : '';
+  const cache = normalizeImageCharacterEnglishCache(character.图像档案?.englishFacts);
+  const cachedAnchor = cache?.sourceKey === imageCharacterSourceKey(character)
+    && cache.anchorSourceKey === JSON.stringify({ prompt: sourceAnchor, negative: sourceNegative });
+  const anchorPrompt = cachedAnchor ? cache.anchorPrompt || '' : sourceAnchor;
   const facts = resolveImageCharacterFactsForAnchor(readImageCharacterFacts(character), anchorPrompt);
   return {
     name: facts.name,
     facts,
     anchorPrompt,
     visualPrompt: anchorPrompt || [facts.appearance, facts.outfit].filter(Boolean).join(', '),
-    negativePrompt: eligible ? readCharacterAnchorNegative(anchor) : '',
+    negativePrompt: cachedAnchor ? cache.anchorNegative || '' : sourceNegative,
   };
 }
 
@@ -1096,7 +1102,8 @@ export function readImagePromptParserCharacter(character: ImageCharacterFactInpu
 }) {
   const visual = readImagePromptCharacter(character, true);
   return {
-    name: visual.name,
+    // Story identity matching still uses the player's Chinese name/alias.
+    name: character.姓名?.trim() || visual.name,
     gender: visual.facts?.gender,
     clothing: visual.facts?.outfit,
     appearance: [
@@ -1115,27 +1122,27 @@ export function selectImagePromptSceneNpcs(npcs: readonly NPC记录[], sourceTex
 }
 
 function readNpcCharacterAnchorPrompt(npc: NPC记录): string {
-  return readCharacterAnchorPrompt(npc.图像档案?.角色锚点, 'character');
+  return readImagePromptCharacter(npc).anchorPrompt || '';
 }
 
 function readNpcCharacterAnchorLock(npc: NPC记录): string {
-  return readCharacterAnchorLock(npc.图像档案?.角色锚点, 'character');
+  return readCharacterAnchorLock(npc.图像档案?.角色锚点, 'character', readNpcCharacterAnchorPrompt(npc));
 }
 
 function readNpcCharacterAnchorNegative(npc: NPC记录): string {
-  return readCharacterAnchorNegative(npc.图像档案?.角色锚点);
+  return readImagePromptCharacter(npc).negativePrompt || '';
 }
 
 function readTravelerCharacterAnchorPrompt(traveler: 角色数据结构): string {
-  return readCharacterAnchorPrompt(traveler.图像档案?.角色锚点, 'player character');
+  return readImagePromptCharacter(traveler).anchorPrompt || '';
 }
 
 function readTravelerCharacterAnchorLock(traveler: 角色数据结构): string {
-  return readCharacterAnchorLock(traveler.图像档案?.角色锚点, 'player character');
+  return readCharacterAnchorLock(traveler.图像档案?.角色锚点, 'player character', readTravelerCharacterAnchorPrompt(traveler));
 }
 
 function readTravelerCharacterAnchorNegative(traveler: 角色数据结构): string {
-  return readCharacterAnchorNegative(traveler.图像档案?.角色锚点);
+  return readImagePromptCharacter(traveler).negativePrompt || '';
 }
 
 function readSceneCharacterAnchors(traveler?: 角色数据结构, presentNpcs?: NPC记录[]): { prompt: string; negative: string; hasAnchor: boolean } {
@@ -1150,7 +1157,7 @@ function readSceneCharacterAnchors(traveler?: 角色数据结构, presentNpcs?: 
     .filter((npc) => npc.图像档案?.角色锚点?.场景生图自动注入 !== false)
     .map((npc) => {
       const lock = readNpcCharacterAnchorLock(npc);
-      return lock ? `${npc.姓名}:\n${lock}` : '';
+      return lock ? `${readImagePromptCharacter(npc).name}:\n${lock}` : '';
     })
     .filter(Boolean)
     .slice(0, 4);
@@ -1256,12 +1263,9 @@ export function buildTravelerImagePrompt(params: {
     ruleForMode(mode, rules),
     mode === 'nsfw' ? rules.nsfwIsolationRule : undefined,
     mode === 'nsfw' ? rules.nsfwPartRule : undefined,
-    `player character name: ${traveler.姓名 || 'Traveler'}`,
-    traveler.性别 ? `gender: ${traveler.性别}` : undefined,
+    formatImageCharacterFacts(readImagePromptCharacter(traveler).facts!),
     traveler.年龄 ? `age: ${traveler.年龄}` : undefined,
-    traveler.身高 ? `height: ${traveler.身高}` : undefined,
     traveler.身份 ? `identity: ${traveler.身份}` : undefined,
-    traveler.外貌 ? `appearance: ${traveler.外貌}` : undefined,
     traveler.性格 ? `visible personality impression: ${traveler.性格}` : undefined,
     traveler.能力?.length ? `abilities: ${traveler.能力.join(', ')}` : undefined,
     traveler.主元素 ? `element: ${traveler.主元素}` : undefined,

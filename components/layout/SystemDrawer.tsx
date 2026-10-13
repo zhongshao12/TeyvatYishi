@@ -10,12 +10,13 @@ interface SystemDrawerProps {
   glyph?: string;
   onClose: () => void;
   children: ReactNode;
+  contentMode?: 'scroll' | 'contained';
 }
 
 // 系统面板弹窗（G 阶段后升级）：由内嵌抽屉升级为大号手账弹窗。
 // 套用 journal-story-page 让内部 --tj-* 翻转为羊皮纸色，所有系统面板自动获得日式西幻皮肤；
 // 内容超长时在弹窗内部滚动。
-export function SystemDrawer({ open, title, subtitle, glyph, onClose, children }: SystemDrawerProps) {
+export function SystemDrawer({ open, title, subtitle, glyph, onClose, children, contentMode = 'scroll' }: SystemDrawerProps) {
   const dialogRef = useModalAccessibility<HTMLElement>(onClose, open);
   if (!open) {
     return (
@@ -38,7 +39,7 @@ export function SystemDrawer({ open, title, subtitle, glyph, onClose, children }
           clipPath: CLIP_PANEL,
         }}
       >
-        <header
+        {contentMode !== 'contained' && <header
           className="flex items-center gap-3 px-5 py-3.5"
           style={{ borderBottom: '1px solid rgba(var(--tj-accent-primary), 0.3)' }}
         >
@@ -73,9 +74,9 @@ export function SystemDrawer({ open, title, subtitle, glyph, onClose, children }
           >
             ✕
           </button>
-        </header>
+        </header>}
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4">{children}</div>
+        <div className={`flex min-h-0 flex-1 flex-col ${contentMode === 'contained' ? 'overflow-hidden' : 'overflow-y-auto px-5 py-4'}`}>{children}</div>
       </section>
     </div>,
     document.body,

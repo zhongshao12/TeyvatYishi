@@ -9,10 +9,11 @@ const memoryRebuildPanelStyle = {
   boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.55)',
 };
 
-export function LazySurfaceFallback({ label = '系统载入中' }: { label?: string }) {
+export function LazySurfaceFallback({ label = '系统载入中', onClose }: { label?: string; onClose?: () => void }) {
   return (
     <div className="flex min-h-[180px] items-center justify-center p-6 text-sm" style={{ color: 'rgba(var(--tj-text-secondary),0.82)' }}>
       {label}
+      {onClose && <button type="button" className="ml-4 min-h-11 min-w-11 rounded border px-3" aria-label="关闭载入面板" onClick={onClose}>关闭</button>}
     </div>
   );
 }

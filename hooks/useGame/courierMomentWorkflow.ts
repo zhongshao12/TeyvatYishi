@@ -22,8 +22,9 @@ function currentPost(deps: MomentWorkflowDeps, postId: string, revision: number)
   return deps.getCourier().moments?.find((post) => post.id === postId && post.revision === revision);
 }
 
-function eligibleNpc(deps: MomentWorkflowDeps, npcId: string, options?: { allowBelowAffinity?: boolean }): NPC记录 | undefined {
-  const hasContact = deps.getCourier().contacts.some((contact) => contact.available && contact.npcId === npcId);
+function eligibleNpc(deps: MomentWorkflowDeps, npcId: string, options?: { allowBelowAffinity?: boolean }, courier = deps.getCourier()): NPC记录 | undefined {
+  const hasContact = courier.contacts.some((contact) => contact.available
+    && (!contact.status || contact.status === 'available') && contact.npcId === npcId);
   if (!hasContact) return undefined;
   const npc = deps.getNpcs().find((entry) => entry.id === npcId);
   if (!npc) return undefined;
@@ -83,17 +84,19 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
     const stillCurrent = () => deps.getSessionId() === sessionId && Boolean(currentPost(deps, postId, revision));
     if (!stillCurrent()) return;
     /** @ 点名的角色：模型失败时用确定性本地写作器补一条回应（并标注来源），保证「一定会回」。 */
-    const writeLocalReply = (npc: NPC记录, reason: string) => {
+    const writeLocalReply = (reason: string) => {
       if (!stillCurrent()) return;
       deps.setCourier((old) => {
         if (deps.getSessionId() !== sessionId) return old;
         const livePost = old.moments?.find((item) => item.id === postId && item.revision === revision);
         if (!livePost || livePost.targets.find((item) => item.npcId === npcId)?.status !== 'generating') return old;
+        const currentNpc = eligibleNpc(deps, npcId, { allowBelowAffinity: isMentioned(livePost, npcId) }, old);
+        if (!currentNpc) return markMomentTarget(old, postId, revision, npcId, 'failed');
         return appendMomentComment(old, postId, revision, {
           id: `${postId}:${revision}:${npcId}`,
           npcId,
-          npcName: npc.姓名,
-          content: composeMomentCommentLocally(npc, livePost),
+          npcName: currentNpc.姓名,
+          content: composeMomentCommentLocally(currentNpc, livePost),
           createdAt: Date.now(),
           ...(livePost.worldMoment ? { worldMoment: livePost.worldMoment } : {}),
           source: 'local',
@@ -105,7 +108,7 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
     const npc = eligibleNpc(deps, npcId, { allowBelowAffinity: mentioned });
     const config = deps.getApiConfig();
     if (!npc || !config) {
-      if (mentioned && npc) writeLocalReply(npc, config ? 'missing_npc' : 'missing_api_config');
+      if (mentioned && npc) writeLocalReply(config ? 'missing_npc' : 'missing_api_config');
       else if (stillCurrent()) deps.setCourier((old) => markMomentTarget(old, postId, revision, npcId, 'failed'));
       return;
     }
@@ -116,15 +119,12 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
         if (deps.getSessionId() !== sessionId) return old;
         const livePost = old.moments?.find((item) => item.id === postId && item.revision === revision);
         if (!livePost || livePost.targets.find((item) => item.npcId === npcId)?.status !== 'generating') return old;
-        const knownContact = old.contacts.some((contact) => contact.available && contact.npcId === npcId);
-        const currentNpc = deps.getNpcs().find((entry) => entry.id === npcId);
-        const stillMentioned = isMentioned(livePost, npcId);
-        if (!knownContact || !currentNpc
-          || (!stillMentioned && currentNpc.好感度 <= NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD)) {
+        const currentNpc = eligibleNpc(deps, npcId, { allowBelowAffinity: isMentioned(livePost, npcId) }, old);
+        if (!currentNpc) {
           return markMomentTarget(old, postId, revision, npcId, 'failed');
         }
         return appendMomentComment(old, postId, revision, {
-          id: `${postId}:${revision}:${npcId}`, npcId, npcName: npc.姓名, content, createdAt: Date.now(),
+          id: `${postId}:${revision}:${npcId}`, npcId, npcName: currentNpc.姓名, content, createdAt: Date.now(),
           ...(livePost.worldMoment ? { worldMoment: livePost.worldMoment } : {}),
           source: 'model',
         });
@@ -132,7 +132,7 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
     } catch {
       if (!stillCurrent()) return;
       if (mentioned) {
-        writeLocalReply(npc, 'model_failed');
+        writeLocalReply('model_failed');
         return;
       }
       deps.setCourier((old) => {

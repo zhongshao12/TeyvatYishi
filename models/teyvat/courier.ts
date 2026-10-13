@@ -136,6 +136,30 @@ export interface CourierMomentTarget {
   status: 'generating' | 'done' | 'failed';
 }
 
+export interface CourierMomentImage {
+  entryId: string;
+  assetId: string;
+  /** Public player-written caption, not an image prompt or private archive. */
+  caption?: string;
+}
+
+export const MAX_MOMENT_IMAGES = 9;
+
+/** Save boundary: discard payloads, malformed IDs and duplicate asset references. */
+export function normalizeMomentImages(value: unknown): CourierMomentImage[] {
+  const seen = new Set<string>();
+  return (Array.isArray(value) ? value : []).flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const entryId = text(item.entryId).trim();
+    const assetId = text(item.assetId).trim();
+    if (!entryId || !assetId || [entryId, assetId].some(id => id.length > 200 || /^(?:data:|blob:|https?:)/iu.test(id))
+      || seen.has(assetId) || seen.size >= MAX_MOMENT_IMAGES) return [];
+    seen.add(assetId);
+    const caption = text(item.caption).trim().slice(0, 200);
+    return [{ entryId, assetId, ...(caption ? { caption } : {}) }];
+  });
+}
+
 export interface CourierMoment {
   id: string;
   authorId: 'player';
@@ -149,6 +173,8 @@ export interface CourierMoment {
   comments: CourierMomentComment[];
   /** 玩家在正文里 @ 的角色（2026-09-29 第 7 项）：他们不占自动评论名额，且一定会回应一次。 */
   mentionIds?: string[];
+  /** Album references only; image bytes remain owned by the shared album. */
+  images?: CourierMomentImage[];
 }
 
 export interface CourierSystem {
@@ -175,6 +201,10 @@ export function createEmptyCourierSystem(): CourierSystem {
 }
 
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
+export function normalizeCourierTimestamp(value: unknown): number {
+  const timestamp = Number(value);
+  return Number.isFinite(timestamp) && Math.abs(timestamp) <= 8.64e15 ? timestamp : 0;
+}
 const optionalText = (value: unknown): string | undefined => typeof value === 'string' && value ? value : undefined;
 const textList = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 const integer = (value: unknown): number => Math.max(0, Math.trunc(Number(value) || 0));
@@ -186,7 +216,7 @@ function normalizeContact(value: unknown): CourierContact | null {
   const status = statuses.find((item) => item === value.status);
   const unlockSource = unlockSources.find((item) => item === value.unlockSource);
   return {
-    id: text(value.id), name: text(value.name), available: value.available !== false,
+    id: text(value.id), name: text(value.name), available: value.available !== false && (!status || status === 'available'),
     ...(text(value.remark).trim() ? { remark: Array.from(text(value.remark).trim()).slice(0, 40).join('') } : {}),
     ...(optionalText(value.npcId) ? { npcId: text(value.npcId) } : {}), ...(optionalText(value.avatar) ? { avatar: text(value.avatar) } : {}),
     ...(optionalText(value.relationLabel) ? { relationLabel: text(value.relationLabel) } : {}), ...(optionalText(value.organization) ? { organization: text(value.organization) } : {}),
@@ -318,7 +348,8 @@ function normalizeMoment(value: unknown): CourierMoment | null {
   const id = text(value.id).trim();
   const worldMoment = normalizeWorldMoment(value.worldMoment);
   const content = text(value.content).trim();
-  if (!id || !content || content.length > 500) return null;
+  const images = normalizeMomentImages(value.images);
+  if (!id || (!content && !images.length) || content.length > 500) return null;
   // @ 点名的角色（2026-09-29 第 7 项）：先归一化，因为评论/目标名额 = 3 + 点名人数，
   // 顺序反了会在读档时把 @ 目标的回应静默截断。
   const seenMentions = new Set<string>();
@@ -339,7 +370,7 @@ function normalizeMoment(value: unknown): CourierMoment | null {
     const commentMoment = normalizeWorldMoment(entry.worldMoment);
     return [{
       id: text(entry.id), npcId, npcName: text(entry.npcName), content: comment,
-      createdAt: Number(entry.createdAt) || 0,
+      createdAt: normalizeCourierTimestamp(entry.createdAt),
       ...(commentMoment ? { worldMoment: commentMoment } : {}),
       ...(entry.source === 'local' ? { source: 'local' as const } : entry.source === 'model' ? { source: 'model' as const } : {}),
     }];
@@ -356,12 +387,13 @@ function normalizeMoment(value: unknown): CourierMoment | null {
   });
   return {
     id, authorId: 'player', content, turn: integer(value.turn),
-    createdAt: Number(value.createdAt) || 0,
-    updatedAt: Number(value.updatedAt) || 0,
+    createdAt: normalizeCourierTimestamp(value.createdAt),
+    updatedAt: normalizeCourierTimestamp(value.updatedAt),
     revision: Math.max(1, integer(value.revision)),
     targets, comments,
     ...(worldMoment ? { worldMoment } : {}),
     ...(mentionIds.length ? { mentionIds } : {}),
+    ...(images.length ? { images } : {}),
   };
 }
 
@@ -489,15 +521,21 @@ function courierNpcAvatar(npc: TeyvatNpcRecord): string | undefined {
 export function reconcileCourierContactsWithNpcs(value: unknown, npcs: readonly TeyvatNpcRecord[]): CourierSystem {
   const normalized = normalizeCourierSystem(value);
   const npcById = new Map(npcs.map((npc) => [npc.id, npc]));
-  const npcByName = new Map<string, TeyvatNpcRecord>();
-  const npcByCanonicalName = new Map<string, TeyvatNpcRecord>();
+  const npcByName = new Map<string, TeyvatNpcRecord | null>();
+  const npcByCanonicalName = new Map<string, TeyvatNpcRecord | null>();
+  const rememberUnambiguousName = (map: Map<string, TeyvatNpcRecord | null>, name: string, npc: TeyvatNpcRecord) => {
+    if (!name) return;
+    const previous = map.get(name);
+    if (previous === undefined) map.set(name, npc);
+    else if (previous?.id !== npc.id) map.set(name, null);
+  };
   for (const npc of npcs) {
-    if (npc.姓名 && !npcByName.has(npc.姓名)) npcByName.set(npc.姓名, npc);
+    rememberUnambiguousName(npcByName, npc.姓名, npc);
     for (const alias of npc.aliases) {
-      if (alias && !npcByName.has(alias)) npcByName.set(alias, npc);
+      rememberUnambiguousName(npcByName, alias, npc);
     }
     const canonicalName = matchCanonicalIdentity({ id: npc.id, name: npc.姓名, aliases: npc.aliases })?.name;
-    if (canonicalName && !npcByCanonicalName.has(canonicalName)) npcByCanonicalName.set(canonicalName, npc);
+    if (canonicalName) rememberUnambiguousName(npcByCanonicalName, canonicalName, npc);
   }
   const findNpc = (contact: CourierContact): TeyvatNpcRecord | undefined => {
     const exactId = contact.npcId || contact.id;
@@ -505,8 +543,8 @@ export function reconcileCourierContactsWithNpcs(value: unknown, npcs: readonly 
     if (exact) return exact;
     if (contact.npcId) return undefined;
     const canonical = matchCanonicalIdentity({ id: exactId, name: contact.name });
-    if (canonical) return npcByCanonicalName.get(canonical.name);
-    return npcByName.get(contact.name);
+    if (canonical) return npcByCanonicalName.get(canonical.name) ?? undefined;
+    return npcByName.get(contact.name) ?? undefined;
   };
 
   const contacts = normalized.contacts.map((contact) => {
@@ -517,8 +555,6 @@ export function reconcileCourierContactsWithNpcs(value: unknown, npcs: readonly 
       ...contact,
       name: npc.姓名,
       npcId: npc.id,
-      available: true,
-      status: 'available' as const,
       ...(avatar ? { avatar } : {}),
     };
   });

@@ -154,7 +154,7 @@ assert.equal(repeated[0].同行记忆.length, first[0].同行记忆.length, '同
 
 const stateSource = fs.readFileSync('models/teyvat/state.ts', 'utf8');
 const settingsSource = fs.readFileSync('models/settings.ts', 'utf8');
-const uiSource = fs.readFileSync('components/features/Courier/CourierModal.tsx', 'utf8');
+const uiSource = fs.readFileSync('components/features/Courier/CourierPanel.tsx', 'utf8');
 const workflowSource = readWorkflowSources();
 assert.match(stateSource, /手机: CourierSystem/);
 assert.doesNotMatch(stateSource, /信使: CourierSystem/);

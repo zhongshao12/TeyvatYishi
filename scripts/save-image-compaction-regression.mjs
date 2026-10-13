@@ -14,7 +14,7 @@ const savePackage = fs.readFileSync('services/savePackage.ts', 'utf8');
 const sendWorkflow = readWorkflowSources();
 const runtimeCompactor = fs.readFileSync('utils/saveRuntimeCompactor.ts', 'utf8');
 const turnItem = fs.readFileSync('components/features/Chat/TurnItem.tsx', 'utf8');
-const courierModal = fs.readFileSync('components/features/Courier/CourierModal.tsx', 'utf8');
+const courierModal = fs.readFileSync('components/features/Courier/CourierPanel.tsx', 'utf8');
 const albumActions = fs.readFileSync('utils/albumActions.ts', 'utf8');
 
 assert(compactor.includes('export function compactDuplicatedSaveImages'), 'must export save image compactor.');

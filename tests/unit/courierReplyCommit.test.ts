@@ -8,6 +8,7 @@ const reply: CourierMessage = {
 };
 const live: CourierSystem = {
   ...createEmptyCourierSystem(),
+  contacts: [{ id: 'amber', npcId: 'amber', name: '安柏', available: true }],
   conversations: [{
     id: 'amber', title: '安柏', participantIds: ['player', 'amber'], type: 'private',
     messages: [{ id: 'p1', senderId: 'player', senderName: '旅人', role: 'user', content: '你好', turn: 1, timestamp: 1, readBy: ['player'] }],

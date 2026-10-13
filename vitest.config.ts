@@ -10,6 +10,8 @@ export default defineConfig({
       provider: 'v8',
       exclude: [
         '.audit/**',
+        '.superpowers/**',
+        'src-tauri/target/**',
         '.triage/**',
         '.storybook/**',
         '.tmp*/**',

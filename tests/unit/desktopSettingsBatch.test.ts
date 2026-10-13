@@ -206,11 +206,13 @@ describe('desktop settings batching', () => {
       .resolves.toEqual({ day: 4 });
   });
 
-  it('commits the end-of-turn settings snapshot in one batch', () => {
-    // 读工作流源码视图，而非写死 sendWorkflow.ts：M6 已把收尾存档搬到独立阶段模块，const source = workflowSources 会随搬迁自动跟随（后续拆分不会再打红本测试）。
+  it('leaves global settings persistence to settings editing entry points', () => {
+    // A03: the turn snapshot is stale after settings edits during generation.
+    // Batch/mirror guarantees remain covered above; a turn must not save that snapshot.
+    // Runtime ownership is covered by autoSaveSettingsOwnership.test.ts.
     const source = readWorkflowSources();
 
-    expect(source).toContain('await saveSettings({');
+    expect(source).not.toContain('await saveSettings({');
     expect(source).not.toMatch(/await saveSetting\('(theme|apiSettings|gameSettings|worldbooks)'/);
   });
 });

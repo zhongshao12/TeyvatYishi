@@ -1,16 +1,24 @@
 import { NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD, type NPC记录 } from '@/models/npc';
-import type { CourierContact, CourierMoment, CourierMomentComment, CourierMomentTarget, CourierSystem } from '@/models/teyvat/courier';
+import { MAX_MOMENT_IMAGES, normalizeMomentImages, type CourierContact, type CourierMoment, type CourierMomentComment, type CourierMomentImage, type CourierMomentTarget, type CourierSystem } from '@/models/teyvat/courier';
 import type { WorldMoment } from '@/models/teyvat/worldMoment';
 
-function validatedContent(input: string): string {
+function validatedContent(input: string, images: readonly CourierMomentImage[]): string {
   const content = input.trim();
-  if (!content) throw new Error('MOMENT_EMPTY');
+  if (!content && !images.length) throw new Error('MOMENT_EMPTY');
   if (content.length > 500) throw new Error('MOMENT_TOO_LONG');
   return content;
 }
 
-export function createMoment(system: CourierSystem, input: { id: string; content: string; turn: number; now: number; mentionIds?: string[]; worldMoment?: WorldMoment }): CourierSystem {
-  const content = validatedContent(input.content);
+function validatedImages(input: readonly CourierMomentImage[] = []): CourierMomentImage[] {
+  if (input.length > MAX_MOMENT_IMAGES) throw new Error('MOMENT_IMAGE_LIMIT');
+  const normalized = normalizeMomentImages(input);
+  if (normalized.length !== input.length) throw new Error('MOMENT_IMAGE_INVALID');
+  return normalized;
+}
+
+export function createMoment(system: CourierSystem, input: { id: string; content: string; turn: number; now: number; mentionIds?: string[]; worldMoment?: WorldMoment; images?: readonly CourierMomentImage[] }): CourierSystem {
+  const images = validatedImages(input.images);
+  const content = validatedContent(input.content, images);
   const existing = system.moments ?? [];
   if (existing.length >= 500) throw new Error('MOMENT_LIMIT');
   if (existing.some((post) => post.id === input.id)) throw new Error('MOMENT_EXISTS');
@@ -20,6 +28,7 @@ export function createMoment(system: CourierSystem, input: { id: string; content
     ...(input.worldMoment ? { worldMoment: input.worldMoment } : {}),
     targets: [], comments: [],
     ...(input.mentionIds?.length ? { mentionIds: [...new Set(input.mentionIds)] } : {}),
+    ...(images.length ? { images } : {}),
   }, ...existing] };
 }
 
@@ -29,9 +38,12 @@ export function editMoment(
   contentInput: string,
   now: number,
   mentionIds?: string[],
+  imagesInput?: readonly CourierMomentImage[],
 ): CourierSystem {
-  const content = validatedContent(contentInput);
-  if (!(system.moments ?? []).some((post) => post.id === id)) throw new Error('MOMENT_NOT_FOUND');
+  const existing = system.moments?.find((post) => post.id === id);
+  if (!existing) throw new Error('MOMENT_NOT_FOUND');
+  const images = validatedImages(imagesInput ?? existing.images);
+  const content = validatedContent(contentInput, images);
   return { ...system, moments: (system.moments ?? []).map((post) => post.id === id
     ? {
         ...post,
@@ -40,6 +52,7 @@ export function editMoment(
         revision: post.revision + 1,
         targets: [],
         comments: [],
+        images: images.length ? images : undefined,
         // 编辑后重新解析 @：正文可能已经删掉或新增了点名（2026-09-29 第 7 项）。
         ...(mentionIds?.length ? { mentionIds: [...new Set(mentionIds)] } : { mentionIds: undefined }),
       }
@@ -94,6 +107,51 @@ export function momentCommentCapacity(post: Pick<CourierMoment, 'mentionIds'>): 
   return MOMENT_AUTO_COMMENT_LIMIT + (post.mentionIds?.length ?? 0);
 }
 
+/** 草稿内的字符位置绑定；持久化仍只写已有 mentionIds。 */
+export interface MomentMentionBinding { npcId: string; start: number; token: string; fromArchive?: boolean }
+
+export function shiftMomentMentionBindings(before: string, after: string, bindings: readonly MomentMentionBinding[]): MomentMentionBinding[] {
+  const identitiesByToken = new Map<string, Set<string>>();
+  for (const binding of bindings) identitiesByToken.set(binding.token, new Set([...(identitiesByToken.get(binding.token) ?? []), binding.npcId]));
+  const ambiguousTokens = new Set([...identitiesByToken].filter(([token, ids]) => token && ids.size > 1
+    && before.split(token).length !== after.split(token).length).map(([token]) => token));
+  let prefix = 0;
+  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1;
+  let suffix = 0;
+  while (suffix < before.length - prefix && suffix < after.length - prefix
+    && before[before.length - suffix - 1] === after[after.length - suffix - 1]) suffix += 1;
+  const oldEnd = before.length - suffix;
+  return bindings.flatMap(binding => {
+    if (!binding.token || ambiguousTokens.has(binding.token)) return [];
+    const start = binding.start + (binding.start >= oldEnd ? after.length - before.length : 0);
+    if (binding.start + binding.token.length > prefix && binding.start < oldEnd) return [];
+    const end = start + binding.token.length;
+    const oldFollowing = before[binding.start + binding.token.length];
+    if ((!oldFollowing || /[\s，。！？、,.!?]/u.test(oldFollowing)) && after[end]
+      && !/[\s，。！？、,.!?]/u.test(after[end]!)) return [];
+    return after.slice(start, start + binding.token.length) === binding.token ? [{ ...binding, start }] : [];
+  });
+}
+
+export function restoreMomentMentionBindings(post: Pick<CourierMoment, 'content' | 'mentionIds'>, contacts: readonly CourierContact[]): MomentMentionBinding[] {
+  const ids = [...new Set(post.mentionIds ?? [])];
+  if (!ids.length) return [];
+  const selected = contacts.filter(contact => contact.npcId && post.mentionIds?.includes(contact.npcId));
+  const anchors = [...post.content.matchAll(/[@＠]/gu)];
+  return anchors.flatMap(match => {
+    const start = match.index;
+    const rest = post.content.slice(start + 1);
+    const matching = contacts.filter(contact => contact.name && rest.startsWith(contact.name)).sort((a, b) => b.name.length - a.name.length);
+    const name = matching[0]?.name ?? rest.match(/^[^\s，。！？、,.!?@＠]+/u)?.[0];
+    if (!name) return [];
+    const matchingIds = [...new Set(selected.filter(contact => contact.name === name).map(contact => contact.npcId!))];
+    const npcId = ids.length === 1 && anchors.length === 1 ? ids[0]!
+      : matchingIds.length === 1 ? matchingIds[0]! : '';
+    // 不明确的旧字符也占位，阻止它在当前姓名表里误命中另一个人；需玩家重新选择。
+    return [{ npcId, start, token: `${match[0]}${name}`, fromArchive: true }];
+  });
+}
+
 /**
  * 解析正文里的 `@角色`（2026-09-29 第 7 项）。
  *
@@ -104,18 +162,24 @@ export function momentCommentCapacity(post: Pick<CourierMoment, 'mentionIds'>): 
 export function parseMomentMentions(
   content: string,
   contacts: readonly CourierContact[],
+  bindings: readonly MomentMentionBinding[] = [],
 ): string[] {
   const text = content ?? '';
   if (!text.includes('@') && !text.includes('＠')) return [];
   const named = contacts
-    .filter((contact) => contact.available !== false && contact.npcId && contact.name?.trim())
+    .filter((contact) => contact.available !== false && (!contact.status || contact.status === 'available') && contact.npcId && contact.name?.trim())
     .map((contact) => ({ npcId: contact.npcId!, name: contact.name!.trim() }))
     // 最长名字优先：避免「安」这类短名把「安柏」的前缀抢走。
     .sort((a, b) => b.name.length - a.name.length);
   const found: string[] = [];
   for (const match of text.matchAll(/[@＠]/gu)) {
     const rest = text.slice((match.index ?? 0) + 1);
-    const hit = named.find((candidate) => rest.startsWith(candidate.name));
+    const binding = bindings.find(item => item.start === match.index && text.slice(item.start, item.start + item.token.length) === item.token);
+    const longest = named.find((candidate) => rest.startsWith(candidate.name));
+    const matches = longest ? named.filter(candidate => candidate.name === longest.name) : [];
+    const hit = binding
+      ? named.find(candidate => candidate.npcId === binding.npcId)
+      : new Set(matches.map(candidate => candidate.npcId)).size === 1 ? matches[0] : undefined;
     if (hit && !found.includes(hit.npcId)) found.push(hit.npcId);
   }
   return found;

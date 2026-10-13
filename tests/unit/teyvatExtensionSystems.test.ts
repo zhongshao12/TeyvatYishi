@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { RightMenu } from '@/components/layout/RightMenu';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createEmptyCourierSystem, MAX_COURIER_MESSAGES_PER_CONVERSATION, normalizeCourierSystem, type CourierConversation, type CourierDeliverySeed } from '@/models/teyvat/courier';
@@ -579,7 +580,7 @@ describe('Teyvat extension systems', () => {
     expect(conversation.entries[0]!.debugMetadata).not.toHaveProperty('zhikuRecallPreview');
   });
 
-  it('exposes formal Codex workflow names and a functional Courier launcher prop', () => {
+  it('exposes formal Codex workflow names and the Courier launcher on the system rail', () => {
     expect(buildCodexKeywordRecallQuery({ userInput: '风魔龙', history: [] })).toContain('风魔龙');
     expect(getCodexNpcNamesForTurn({
       world: { 当前地点: '蒙德城' } as never,
@@ -588,9 +589,13 @@ describe('Teyvat extension systems', () => {
 
     const markup = renderToStaticMarkup(createElement(LeftPanel, {
       traveler: 创建空角色(),
-      onOpenCourier: () => undefined,
     } as never));
-    expect(markup).toMatch(/<button(?=[^>]*title="打开手机")(?![^>]*disabled="")[^>]*>/u);
+    expect(markup).not.toContain('title="打开手机"');
+    const menu = renderToStaticMarkup(createElement(RightMenu, {
+      activeId: null, onSelect: () => {}, onSaveGame: () => {}, onLoadGame: () => {}, onSettings: () => {}, courierUnread: 2,
+    }));
+    expect(menu).toContain('手机');
+    expect(menu).toContain('aria-label="有 2 条手机未读消息"');
   });
 
   it('builds only formal temporary model lookup IDs for active system tabs', () => {

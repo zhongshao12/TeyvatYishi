@@ -2,7 +2,7 @@ import type { ArchiveCodex, CodexEntry } from '@/models/teyvat/codex';
 import { buildCodexEntryInjectionPreview } from '@/services/codexRetrieval';
 import type { NPC记录 } from '@/models/npc';
 import { canRevealNpcMeasurements, canRevealNpcRecordMeasurements, NPC_APPEARANCE_KEYS, npcAppearanceSourceLabel } from '@/services/npcAppearanceFacts';
-import { readImageCharacterFacts, type ImageCharacterFacts } from '@/utils/imageCharacterFacts';
+import { readSourceImageCharacterFacts, type ImageCharacterFacts } from '@/utils/imageCharacterFacts';
 import { omitNpcAppearanceMeasurements, reconcileNpcAppearance, reconcileNpcAppearanceParagraphs } from '@/utils/npcAppearanceReconciliation';
 import { matchesNpcCodexIdentity } from '@/utils/npcCodexIdentity';
 
@@ -20,7 +20,7 @@ export interface CodexArchiveItem {
 }
 
 function publicCharacterProjection(entry: CodexEntry, npc: NPC记录 | undefined): { entry: CodexEntry; characterFacts?: ImageCharacterFacts } {
-  const characterFacts = npc ? readImageCharacterFacts(npc) : undefined;
+  const characterFacts = npc ? readSourceImageCharacterFacts(npc) : undefined;
   const permittedMeasurements = npc ? canRevealNpcRecordMeasurements(npc) : canRevealNpcMeasurements({ name: entry.name, description: [entry.summary, entry.description].join(' ') });
   const publicText = (text: string) => permittedMeasurements ? text : omitNpcAppearanceMeasurements(text);
   // Summary and description may also narrate other people; only labeled appearance sections establish subject scope.
@@ -39,7 +39,7 @@ function publicCharacterProjection(entry: CodexEntry, npc: NPC记录 | undefined
 export function buildCodexArchiveItems(codex: ArchiveCodex, npcRecords: readonly NPC记录[] = []): CodexArchiveItem[] {
   return codex.entries.map((entry: CodexEntry) => {
     const unlocked = codex.unlockedEntryIds.includes(entry.id) || entry.runtimeUnlock.status === 'unlocked';
-    const readable = unlocked || entry.category === 'character';
+    const readable = true; // Player browsing is independent of story discovery and NPC knowledge.
     const projection = entry.category === 'character' ? publicCharacterProjection(entry, npcRecords.find(npc => matchesNpcCodexIdentity(npc, entry))) : { entry };
     const visible = projection.entry;
     const details = NPC_APPEARANCE_KEYS.flatMap(key => {

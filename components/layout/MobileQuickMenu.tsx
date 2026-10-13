@@ -49,7 +49,7 @@ export function MobileQuickMenu({
 
   const moreItems = useMemo<MenuItem[]>(
     () => [
-      ...GAME_MENU_ITEMS.filter((item) => item.id !== 'companion').map((item) => ({
+      ...GAME_MENU_ITEMS.filter((item) => item.id !== 'companion' && item.id !== 'phone').map((item) => ({
         id: item.id,
         label: item.label,
         glyph: item.glyph,

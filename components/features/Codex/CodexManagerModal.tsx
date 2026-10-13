@@ -279,8 +279,8 @@ export function CodexManagerModal({ codex, npcRecords, onClose }: CodexManagerMo
                 )}
                 {(
                   <section>
-                    <h4 className="mb-2 font-serif text-[13px] tracking-[0.2em]" style={{ color: gold }}>{selectedItem?.unlocked ? '回合内注入预览' : '公开内容预览'}</h4>
-                    {!selectedItem?.unlocked && <p className="mb-2 text-xs leading-5" style={{ color: muted(0.8) }}>仅供阅读，未解锁时不会在回合中注入。</p>}
+                    <h4 className="mb-2 font-serif text-[13px] tracking-[0.2em]" style={{ color: gold }}>回合内召回预览</h4>
+                    <p className="mb-2 text-xs leading-5" style={{ color: muted(0.8) }}>全部条目可阅读，并按本回合相关度召回；图鉴不是 NPC 已知信息。</p>
                     <p className="whitespace-pre-wrap border-l-2 pl-3 text-[13px] leading-6" style={{ borderColor: goldSoft(0.5), color: muted(0.9) }}>
                       {buildCodexEntryInjectionPreview(selectedEntry) || '（无注入内容）'}
                     </p>
@@ -294,7 +294,7 @@ export function CodexManagerModal({ codex, npcRecords, onClose }: CodexManagerMo
                         <button
                           key={entry.id}
                           type="button"
-                          onClick={() => { setActiveCategory(entry.category); setSelectedId(entry.id); }}
+                          onClick={() => { setQuery(''); setActiveCategory(entry.category); setSelectedId(entry.id); }}
                           className="px-2 py-1 text-[12px]"
                           style={{ color: goldSoft(0.92), boxShadow: `inset 0 0 0 1px ${goldSoft(0.3)}`, clipPath: CLIP_ITEM }}
                         >

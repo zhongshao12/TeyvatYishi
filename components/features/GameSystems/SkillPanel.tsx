@@ -11,6 +11,7 @@ interface SkillPanelProps {
   traveler: 角色数据结构;
   onTravelerChange: React.Dispatch<React.SetStateAction<角色数据结构>>;
   apiSettings?: API设置;
+  browsedElement?: ElementId;
 }
 
 const CATEGORY_LABELS: Record<TalentCategory, string> = {
@@ -26,7 +27,7 @@ const ink = (alpha: number) => `rgba(var(--tj-text-primary), ${alpha})`;
 const muted = (alpha: number) => `rgba(var(--tj-text-secondary), ${alpha})`;
 
 
-export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPanelProps) {
+export function SkillPanel({ traveler, onTravelerChange, apiSettings, browsedElement }: SkillPanelProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<TalentCategory>('elemental_skill');
@@ -46,8 +47,8 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
       groups.set(key, list);
     }
     for (const list of groups.values()) list.sort((a, b) => CATEGORY_ORDER.indexOf(a.类别) - CATEGORY_ORDER.indexOf(b.类别) || a.名称.localeCompare(b.名称, 'zh'));
-    return [...ELEMENT_IDS, 'general' as const].filter((key) => groups.has(key)).map((key) => ({ element: key, talents: groups.get(key)! }));
-  }, [traveler.天赋]);
+    return [...ELEMENT_IDS, 'general' as const].filter((key) => groups.has(key) && (!browsedElement || key === 'general' || key === browsedElement)).map((key) => ({ element: key, talents: groups.get(key)! }));
+  }, [traveler.天赋, browsedElement]);
 
   const activeConfig = apiSettings?.configs.find((item) => item.id === apiSettings.activeConfigId) ?? apiSettings?.configs[0] ?? null;
 

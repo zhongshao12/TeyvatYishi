@@ -1,8 +1,9 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
 import { useCourierPhotoCommit } from '@/hooks/useCourierPhotoCommit';
 import { useGame } from '@/hooks/useGame';
 import type { SystemPanelContext } from '@/components/layout/systemPanelContext';
-import { mapTeyvatNpcsToLegacy, readLiveGameState } from '@/hooks/useGameState';
+import { applyLegacyGameStateOverrides, createLegacyGameViewSelector, mapTeyvatNpcsToLegacy, readLiveGameState } from '@/hooks/useGameState';
 import { prepareNewGameState } from '@/hooks/useGame/newGameOpening';
 import { useKeyboardShortcuts } from '@/hooks/useGame/useKeyboardShortcuts';
 import { KEYBOARD_SHORTCUT_DEFAULTS } from '@/data/keyboardShortcutDefaults';
@@ -52,7 +53,6 @@ import { runTrackedSave, saveStatusStore } from '@/utils/saveStatus';
 import { isDesktopRuntime } from '@/utils/platform/desktopRuntime';
 import type { 角色数据结构 } from '@/models/character';
 import { 切换剧情书签 } from '@/utils/storyBookmarks';
-import { mergeNpcWriteBack } from '@/utils/npcWriteBack';
 import { applyDoudizhuGameAction } from '@/services/doudizhu/settlement';
 import { 累计Token用量 } from '@/utils/tokenUsageStats';
 import { TokenMeter } from '@/components/features/Chat/TokenMeter';
@@ -61,7 +61,8 @@ import { clearCommands, registerCommand, type CommandItem } from '@/utils/comman
 import type { 世界状态 } from '@/models/world';
 import type { NPC记录 } from '@/models/npc';
 import type { 世界书 } from '@/models/worldbook';
-import { lazyWithRetry, preloadAll } from '@/utils/lazyWithRetry';
+import { lazyWithRetry } from '@/utils/lazyWithRetry';
+import { useGamePanelPreload } from '@/hooks/useGamePanelPreload';
 import { buildManuallyEditedNarrativeTurn } from '@/services/ai/narrativeTurnParser';
 import {
   BookOpenOverlay,
@@ -73,7 +74,7 @@ import {
 
 const NewGameWizard = lazyWithRetry(() => import('@/components/features/NewGame/NewGameWizard').then((module) => ({ default: module.NewGameWizard })), 'new-game-wizard');
 const SaveLoadModal = lazyWithRetry(() => import('@/components/features/SaveLoad/SaveLoadModal').then((module) => ({ default: module.SaveLoadModal })), 'save-load-modal');
-const CourierModal = lazyWithRetry(() => import('@/components/features/Courier/CourierModal').then((module) => ({ default: module.CourierModal })), 'courier-modal');
+const CourierPanel = lazyWithRetry(() => import('@/components/features/Courier/CourierPanel').then((module) => ({ default: module.CourierPanel })), 'courier-panel');
 const WorldbookManagerModal = lazyWithRetry(() => import('@/components/features/Worldbook/WorldbookManagerModal').then((module) => ({ default: module.WorldbookManagerModal })), 'worldbook-manager-modal');
 const CodexManagerModal = lazyWithRetry(() => import('@/components/features/Codex/CodexManagerModal').then((module) => ({ default: module.CodexManagerModal })), 'codex-manager-modal');
 const GitHubCloudSaveModal = lazyWithRetry(() => import('@/components/features/CloudSave/GitHubCloudSaveModal').then((module) => ({ default: module.GitHubCloudSaveModal })), 'github-cloud-save-modal');
@@ -83,13 +84,15 @@ const IrminsulPanel = lazyWithRetry(() => import('@/components/features/GameSyst
 const MapPanel = lazyWithRetry(() => import('@/components/features/GameSystems/MapPanel').then((module) => ({ default: module.MapPanel })), 'map-panel');
 const MemoryPanel = lazyWithRetry(() => import('@/components/features/GameSystems/MemoryPanel').then((module) => ({ default: module.MemoryPanel })), 'memory-panel');
 const AlbumPanel = lazyWithRetry(() => import('@/components/features/GameSystems/AlbumPanel').then((module) => ({ default: module.AlbumPanel })), 'album-panel');
-const SkillPanel = lazyWithRetry(() => import('@/components/features/GameSystems/SkillPanel').then((module) => ({ default: module.SkillPanel })), 'skill-panel');
+const ElementTalentPanel = lazyWithRetry(() => import('@/components/features/GameSystems/ElementTalentPanel').then((module) => ({ default: module.ElementTalentPanel })), 'element-talent-panel');
 const InventoryPanel = lazyWithRetry(() => import('@/components/features/GameSystems/InventoryPanel').then((module) => ({ default: module.InventoryPanel })), 'inventory-panel');
 const SteambirdPanel = lazyWithRetry(() => import('@/components/features/GameSystems/SteambirdPanel').then((module) => ({ default: module.SteambirdPanel })), 'steambird-panel');
 const DoudizhuPanel = lazyWithRetry(() => import('@/components/features/GameSystems/DoudizhuPanel').then((module) => ({ default: module.DoudizhuPanel })), 'doudizhu-panel');
 const CompanionPanel = lazyWithRetry(() => import('@/components/features/GameSystems/CompanionPanel').then((module) => ({ default: module.CompanionPanel })), 'companion-panel');
-const PathPanel = lazyWithRetry(() => import('@/components/features/GameSystems/PathPanel').then((module) => ({ default: module.PathPanel })), 'path-panel');
 const QuestPanel = lazyWithRetry(() => import('@/components/features/GameSystems/QuestPanel').then((module) => ({ default: module.QuestPanel })), 'quest-panel');
+const GAME_PANELS_TO_PRELOAD = [
+  PlotPanel, IrminsulPanel, MapPanel, MemoryPanel, AlbumPanel, ElementTalentPanel, InventoryPanel, QuestPanel, SteambirdPanel, DoudizhuPanel, CompanionPanel,
+];
 
 
 import type { ElementId } from '@/models/teyvat/elements';
@@ -101,11 +104,11 @@ import { revealCourierMessages, runCourierReplyPass, type CourierReplyPassResult
 import { classifyCourierReplyResult, createCourierReplyQueue, type CourierReplyBatchIntent, type CourierReplyDispatchResult } from '@/hooks/useGame/courierReplyQueue';
 import { courierReplyFailureKey, publishCourierReplyFeedback } from '@/hooks/useGame/courierReplyFeedback';
 import { resolveCourierApiConfig } from '@/services/ai/courierLetterModel';
-import { beginCourierReply, endCourierReply, selectGroupReplyMembers } from '@/services/ai/courierService';
+import { beginCourierReply, endCourierReply, isCourierReplySenderLive, selectGroupReplyMembers } from '@/services/ai/courierService';
 import { buildCourierPlayerBatch } from '@/utils/courierReplyBatch';
-import { applyCourierReplyMessageIfLive, isCourierReplyTargetLive } from '@/utils/courierReplyCommit';
+import { applyCourierReplyMessageIfLive, getCommittedCourierMessages, isCourierReplyTargetLive } from '@/utils/courierReplyCommit';
 import { 天气列表 } from '@/data/weatherRules';
-import { normalizeCourierSystem, type CourierSystem } from '@/models/teyvat/courier';
+import type { CourierSystem } from '@/models/teyvat/courier';
 import { runMomentComments } from '@/hooks/useGame/courierMomentWorkflow';
 import { generateMomentComment } from '@/services/ai/courierMomentComments';
 
@@ -271,10 +274,10 @@ export default function App() {
   const [showCharacter, setShowCharacter] = useState(false);
   const [focusedCompanionNpcId, setFocusedCompanionNpcId] = useState<string | undefined>();
   const [focusedCompanionRequest, setFocusedCompanionRequest] = useState(0);
-  const [showCourier, setShowCourier] = useState(false);
   const [showMemoryRebuild, setShowMemoryRebuild] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('api');
   const [activeSystem, setActiveSystem] = useState<GameSystemId | null>(null);
+  const [initialElementSection, setInitialElementSection] = useState<'elements' | 'talents'>('elements');
   const [launchingJourney, setLaunchingJourney] = useState(false);
   const [homeJourneyTransitioning, setHomeJourneyTransitioning] = useState(false);
   const [saveLoadTransitioning, setSaveLoadTransitioning] = useState(false);
@@ -324,21 +327,9 @@ export default function App() {
     if (live.getGameSessionId() !== batch.sessionId
       || !isCourierReplyTargetLive(readLiveGameState(live).手机, batch.conversationId, batch.messageIds)) return;
 
-    live.updateGameState((current) => {
-      if (live.getGameSessionId() !== batch.sessionId
-        || !isCourierReplyTargetLive(current.手机, batch.conversationId, batch.messageIds)) return current;
-      return {
-        ...current,
-        手机: {
-          ...current.手机,
-          contacts: normalizeCourierSystem({ contacts: [...current.手机.contacts, ...result.courier.contacts] }).contacts,
-        },
-      };
-    });
-
     await revealCourierMessages(newMessages, (message) => {
       const currentLive = latestStateRef.current;
-      currentLive.updateGameState((current) => {
+      flushSync(() => currentLive.updateGameState((current) => {
         const nextCourier = applyCourierReplyMessageIfLive({
           current: current.手机,
           currentSessionId: currentLive.getGameSessionId(),
@@ -346,21 +337,20 @@ export default function App() {
           conversationId: batch.conversationId,
           messageIds: batch.messageIds,
           message: { ...message, timestamp: Date.now() },
+          expectedContact: startCourier.contacts.find(contact => contact.id === message.senderId || contact.npcId === message.senderId),
         });
         return nextCourier === current.手机 ? current : { ...current, 手机: nextCourier };
-      });
+      }));
     });
 
+    const { applyCourierReplyTaskResult } = await import('@/hooks/useGame/courierReplyCommitWorkflow');
     const afterReveal = latestStateRef.current;
     if (afterReveal.getGameSessionId() !== batch.sessionId
       || !isCourierReplyTargetLive(readLiveGameState(afterReveal).手机, batch.conversationId, batch.messageIds)) return;
-    afterReveal.setNPC((previous) => mergeNpcWriteBack({
-      start: npcWriteBackBase,
-      next: result.npcs,
-      current: previous,
-      expectedSessionId: batch.sessionId,
-      currentSessionId: afterReveal.getGameSessionId(),
-    }).records);
+    flushSync(() => afterReveal.updateGameState(current => applyCourierReplyTaskResult(current, {
+      baseCourier: startCourier, resultCourier: result.courier, baseNpcs: npcWriteBackBase,
+      expectedSessionId: batch.sessionId, currentSessionId: afterReveal.getGameSessionId(), messagesAlreadyRevealed: true,
+    })));
   }, []);
 
   const dispatchCourierReply = useCallback(async (batch: CourierReplyBatchIntent): Promise<CourierReplyDispatchResult> => {
@@ -373,11 +363,12 @@ export default function App() {
     if (!conversation || !playerMessage) return 'sent';
     if (!beginCourierReply(batch.conversationId, batch.sessionId)) return 'defer';
 
-    const typingIds = conversation.type === 'group'
+    const typingIds = (conversation.type === 'group'
       ? selectGroupReplyMembers(conversation, playerMessage, 3, root.手机.contacts)
         .filter((id) => !conversation.messages.some((message) => message.id === `courier_group_reply_${playerMessage.id}_${id}`))
       : [([...conversation.messages].reverse().find((message) => message.senderId !== 'player')?.senderId
-        ?? conversation.participantIds.find((id) => id !== 'player'))].filter((id): id is string => Boolean(id));
+        ?? conversation.participantIds.find((id) => id !== 'player'))].filter((id): id is string => Boolean(id)))
+      .filter(id => isCourierReplySenderLive(root.手机, conversation.id, id));
     if (!typingIds.length) {
       endCourierReply(batch.conversationId, batch.sessionId);
       return 'sent';
@@ -422,18 +413,32 @@ export default function App() {
         || !isCourierReplyTargetLive(readLiveGameState(currentLive).手机, batch.conversationId, batch.messageIds)) return 'sent';
       await commitAndRevealCourierReply(result, batch, root.手机, npcWriteBackBase);
       if (latestStateRef.current.getGameSessionId() !== batch.sessionId) return 'sent';
+      const finalCourier = readLiveGameState(latestStateRef.current).手机;
+      const received = getCommittedCourierMessages(root.手机, result.courier, finalCourier);
+      const failedMemberNames = result.failedMemberIds
+        ? (result.failedMemberNames ?? []).filter((_name, index) => isCourierReplySenderLive(finalCourier,
+          batch.conversationId, result.failedMemberIds![index]!, root.手机.contacts.find(contact => contact.id === result.failedMemberIds![index])))
+        : result.failedMemberNames;
+      const observedResult = { replied: received.length > 0 ? 1 : 0, failedMemberNames };
+      const obsolete = !observedResult.replied && !failedMemberNames?.length;
       setCourierReplyErrors((previous) => {
-        if (classifyCourierReplyResult(result) === 'retry') return { ...previous, [batch.conversationId]: 'reply_failed' };
+        if (latestStateRef.current.getGameSessionId() !== batch.sessionId) return previous;
+        if (!obsolete && classifyCourierReplyResult(observedResult) === 'retry') return { ...previous, [batch.conversationId]: 'reply_failed' };
         if (!previous[batch.conversationId]) return previous;
         const next = { ...previous };
         delete next[batch.conversationId];
         return next;
       });
-      publishCourierReplyFeedback({ batch, replied: result.replied, failedMemberNames: result.failedMemberNames, turn: currentLive.turnCount }, {
+      if (obsolete) {
+        resolveFailure(failureItemId('courier_reply', courierReplyFailureKey(batch, 'members')));
+        resolveFailure(failureItemId('courier_reply', courierReplyFailureKey(batch, 'messages')));
+        return 'sent';
+      }
+      publishCourierReplyFeedback({ batch, ...observedResult, turn: currentLive.turnCount }, {
         report: reportFailure, registerRetry: registerFailureRetry, resolve: resolveFailure,
         retry: (conversationId, messageIds) => courierReplyQueue.retry(conversationId, messageIds), toast: pushToast,
       });
-      return classifyCourierReplyResult(result);
+      return classifyCourierReplyResult(observedResult);
     } catch (error) {
       const currentLive = latestStateRef.current;
       if (currentLive.getGameSessionId() !== batch.sessionId
@@ -537,7 +542,7 @@ export default function App() {
     reroll: () => void actions.handleReroll(),
     save: () => void actions.handleSave(),
     systemDrawer: () => setActiveSystem((current) => (current === null ? 'path' : null)),
-    courier: () => setShowCourier(true),
+    courier: () => setActiveSystem('phone'),
     commandPalette: () => setShowCommandPalette(true),
     closeTop: () => {
       // 与 Modal 栈保持同一语义：只关真正的栈顶弹窗，不再硬关指定布尔开关。
@@ -554,7 +559,8 @@ export default function App() {
     { id: 'save', label: '手动存档', keywords: ['存档', 'save'], run: () => void actions.handleSave() },
     { id: 'reroll', label: '重新生成（重 roll）', keywords: ['重 roll', 'reroll', '重新生成'], run: () => void actions.handleReroll() },
     { id: 'settings', label: '打开设置', keywords: ['设置', 'settings'], run: () => setShowSettings(true) },
-    { id: 'courier', label: '打开手机', keywords: ['手机', '聊天', 'courier'], run: () => setShowCourier(true) },
+    { id: 'courier', label: '打开手机', keywords: ['手机', '聊天', 'courier'], run: () => setActiveSystem('phone') },
+    { id: 'skill', label: '打开天赋', keywords: ['天赋', 'skill'], run: () => { setInitialElementSection('talents'); setActiveSystem('path'); } },
     { id: 'codex', label: '北陆图书馆', keywords: ['图鉴', '北陆图书馆', 'codex'], run: () => setShowCodexManager(true) },
     { id: 'companion', label: '伙伴', keywords: ['伙伴', 'companion'], run: () => setActiveSystem('companion') },
     { id: 'worldbook', label: '提瓦特之书（世界书）', keywords: ['世界书', 'worldbook', '提瓦特之书'], run: () => setShowWorldbookManager(true) },
@@ -603,15 +609,7 @@ export default function App() {
     </div>
   );
 
-  const gamePanelsPreloadedRef = useRef(false);
-  useEffect(() => {
-    if (state.turnCount < 1 || gamePanelsPreloadedRef.current) return;
-    gamePanelsPreloadedRef.current = true;
-    const cancelPreload = preloadAll([
-      PlotPanel, IrminsulPanel, MapPanel, MemoryPanel, AlbumPanel, SkillPanel, InventoryPanel, QuestPanel, SteambirdPanel, DoudizhuPanel, CompanionPanel, PathPanel,
-    ]);
-    return cancelPreload;
-  }, [state.turnCount]);
+  useGamePanelPreload(state.turnCount, GAME_PANELS_TO_PRELOAD);
 
   const storyConflictFacts = useMemo(() => {
     const facts: string[] = [];
@@ -633,6 +631,10 @@ export default function App() {
   }, [state.variableBatches]);
 
   const handleMenuSelect = useCallback((id: GameSystemId) => {
+    if (id === 'skill') {
+      setInitialElementSection('talents'); setActiveSystem('path'); return;
+    }
+    if (id === 'path') setInitialElementSection('elements');
     if (id === 'worldbook') {
       setActiveSystem(null);
       setShowWorldbookManager(true);
@@ -648,9 +650,15 @@ export default function App() {
 
   const handleOpenSteambird = useCallback(() => setActiveSystem('steambird'), []);
   const handleOpenProfile = useCallback(() => setShowCharacter(true), []);
-  const handleOpenCourier = useCallback(() => setShowCourier(true), []);
-  const handleCloseCourier = useCallback(() => setShowCourier(false), []);
+  const handleOpenCourier = useCallback(() => setActiveSystem('phone'), []);
   const handleCourierPhotoCommit = useCourierPhotoCommit(state.updateGameState, state.getGameSessionId);
+  const selectImageCommitView = useMemo(createLegacyGameViewSelector, []);
+  const handleGeneratedAlbumCommit = useCallback<NonNullable<SystemPanelContext['onCommitGeneratedImage']>>((update, sessionId) =>
+    handleCourierPhotoCommit(current => {
+      const view = selectImageCommitView(current);
+      const album = update({ album: view.相册, traveler: view.旅人, npcs: view.NPC });
+      return album === view.相册 ? current : applyLegacyGameStateOverrides(current, { 相册: album });
+    }, sessionId), [handleCourierPhotoCommit, selectImageCommitView]);
   const handleOpenMemoryRebuild = useCallback(() => setShowMemoryRebuild(true), []);
   const handleOpenSaveLoad = useCallback(() => setShowSaveLoad(true), []);
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
@@ -840,7 +848,7 @@ export default function App() {
       cancelIdleCallback?: (handle: number) => void;
     };
     const preloadFrequentPanels = () => {
-      void Promise.allSettled([CourierModal.preload(), CompanionPanel.preload()]);
+      void Promise.allSettled([CourierPanel.preload(), CompanionPanel.preload()]);
     };
     if (idleWindow.requestIdleCallback) {
       const idleHandle = idleWindow.requestIdleCallback(preloadFrequentPanels, { timeout: 800 });
@@ -871,8 +879,6 @@ export default function App() {
       album={state.相册}
       npcRecords={state.NPC}
       onOpenProfile={handleOpenProfile}
-      onOpenCourier={handleOpenCourier}
-      courierUnread={state.手机.unreadTotal}
       currentStoryChapter={currentStoryChapter}
       recallSummary={latestRecallSummary}
       recallFullContent={latestRecallFullContent}
@@ -887,6 +893,7 @@ export default function App() {
       onLoadGame={handleOpenSaveLoad}
       onSettings={handleOpenSettings}
       memoryUnread={pendingMemoryDraftCount}
+      courierUnread={state.手机.unreadTotal}
     />
   );
 
@@ -954,9 +961,10 @@ export default function App() {
         title={activeMenuItem?.label ?? ''}
         subtitle={activeMenuItem?.subtitle}
         glyph={activeMenuItem?.glyph}
+        contentMode={activeSystem === 'phone' ? 'contained' : 'scroll'}
         onClose={handleCloseSystemDrawer}
       >
-        <Suspense fallback={<LazySurfaceFallback label="系统面板载入中" />}>
+        <Suspense fallback={<LazySurfaceFallback label="系统面板载入中" onClose={activeSystem === 'phone' ? handleCloseSystemDrawer : undefined} />}>
           {renderSystemPanel(activeSystem, {
             traveler: state.旅人,
             inventory: state.背包,
@@ -974,6 +982,22 @@ export default function App() {
             onNpcRecordsChange: state.setNPC,
             onCompanionProfileSaved: requestCompanionSave,
             courier: state.game.手机,
+            initialElementSection,
+            phoneProps: {
+              courier: state.game.手机, album: state.相册, npcRecords: state.NPC,
+              imageSettings: state.gameSettings.文生图系统, apiSettings: state.apiSettings, traveler: state.旅人,
+              onAlbumChange: state.set相册, onCommitPhoto: handleCourierPhotoCommit,
+              travelerName: state.旅人.姓名, travelerAvatar: state.旅人.头像,
+              currentTurn: state.game.turnCount, worldMoment: state.game.叙事.lastCommittedMoment,
+              onCourierChange: state.set手机, getGameSessionId: state.getGameSessionId,
+              onRequestReply: handleCourierReplyRequest, replyErrorByConversationId: courierReplyErrors,
+              replyQueue: courierReplyQueue, onRetryReply: handleCourierReplyRetry,
+              onRequestMomentComments: handleMomentCommentRequest, canGenerateMomentComments,
+              enabled: state.gameSettings.手机系统.enabled,
+              visible: !showSettings && !showSaveLoad && !showCharacter && !showWorldbookManager && !showCodexManager,
+              onOpenSettings: () => { setSettingsInitialTab('api'); setShowSettings(true); },
+              onClose: handleCloseSystemDrawer,
+            },
             onCourierChange: (update) => state.set手机(update),
             variableBatches: state.variableBatches,
             quest: state.game.任务,
@@ -983,6 +1007,7 @@ export default function App() {
             })),
             album: state.相册,
             onAlbumChange: state.set相册,
+            onCommitGeneratedImage: handleGeneratedAlbumCommit,
             memorySystem: state.记忆,
             failedDrafts: state.记忆.失败草稿 ?? [],
             onRetryFailedDraft: (draft) => void actions.handleRetryMemoryFailureDraft(draft.id),
@@ -1311,7 +1336,7 @@ export default function App() {
       />
 
       {/* Mobile bottom menu */}
-      {!activeSystem && !showSettings && !showWorldbookManager && !showCodexManager && !showSaveLoad && !showCharacter && !showCourier && !showMemoryRebuild && (
+      {!activeSystem && !showSettings && !showWorldbookManager && !showCodexManager && !showSaveLoad && !showCharacter && !showMemoryRebuild && (
         <MobileQuickMenu
           onHome={actions.handleGoHome}
           onCharacter={handleOpenProfile}
@@ -1388,31 +1413,6 @@ export default function App() {
         />
       )}
 
-      {showCourier && (
-        <Suspense fallback={<LazySurfaceFallback label="手机载入中" />}>
-          <CourierModal
-            courier={state.game.手机}
-            album={state.相册}
-            npcRecords={state.NPC}
-            imageSettings={state.gameSettings.文生图系统}
-            onAlbumChange={state.set相册}
-            onCommitPhoto={handleCourierPhotoCommit}
-            travelerName={state.旅人.姓名}
-            travelerAvatar={state.旅人.头像}
-            currentTurn={state.game.turnCount}
-            worldMoment={state.game.叙事.lastCommittedMoment}
-            onCourierChange={state.set手机}
-            getGameSessionId={state.getGameSessionId}
-            onRequestReply={handleCourierReplyRequest}
-            replyErrorByConversationId={courierReplyErrors}
-            replyQueue={courierReplyQueue}
-            onRetryReply={handleCourierReplyRetry}
-            onRequestMomentComments={handleMomentCommentRequest}
-            canGenerateMomentComments={canGenerateMomentComments}
-            onClose={handleCloseCourier}
-          />
-        </Suspense>
-      )}
 
       {showMemoryRebuild && (
         <MemoryRebuildModal
@@ -1485,17 +1485,20 @@ function renderSystemPanel(
 ) {
   switch (id) {
     case 'path':
+    case 'skill':
       return (
-        <PathPanel
+        <ElementTalentPanel
           traveler={ctx.traveler}
           onTravelerChange={ctx.onTravelerChange}
           onUnlockedElement={ctx.onUnlockedElement}
           elementalField={ctx.elementalField}
           elementalEvents={ctx.elementalEvents}
+          apiSettings={ctx.apiSettings}
+          initialSection={id === 'skill' ? 'talents' : ctx.initialElementSection}
         />
       );
-      case 'skill':
-        return <SkillPanel traveler={ctx.traveler} onTravelerChange={ctx.onTravelerChange} apiSettings={ctx.apiSettings} />;
+    case 'phone':
+      return ctx.phoneProps ? <CourierPanel {...ctx.phoneProps} key={ctx.getGameSessionId()} /> : null;
     case 'quest':
       return (
         <QuestPanel
@@ -1538,6 +1541,7 @@ function renderSystemPanel(
         <AlbumPanel
           album={ctx.album}
           onAlbumChange={ctx.onAlbumChange}
+          onCommitGeneratedImage={ctx.onCommitGeneratedImage}
           traveler={ctx.traveler}
           onTravelerChange={ctx.onTravelerChange}
           npcs={ctx.npcRecords}

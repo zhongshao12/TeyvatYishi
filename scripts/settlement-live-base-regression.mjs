@@ -38,7 +38,7 @@ const sendWorkflow = read('hooks/useGame/sendWorkflow.ts');
 const calibrationStage = read('hooks/useGame/variableCalibrationStage.ts');
 const settlementWorkflow = read('hooks/useGame/variableSettlementWorkflow.ts');
 const rebase = read('utils/settlementRebase.ts');
-const courierModal = read('components/features/Courier/CourierModal.tsx');
+const courierModal = read('components/features/Courier/CourierPanel.tsx');
 const courierTimeline = read('components/features/Courier/CourierMessageTimeline.tsx');
 
 // ── A) 活体根读取器 ──
@@ -170,9 +170,14 @@ runFocusedBehaviorRegression([
 const appSource = read('App.tsx');
 assertIncludes(
   appSource,
-  'afterReveal.setNPC((previous) => mergeNpcWriteBack({',
-  '手机回信的 NPC 写回必须按 id 与活体根合并：整片 setNPC(result.npcs) 会把飞行期间结算/玩家的 NPC 写入顶掉。',
+  'afterReveal.updateGameState(current => applyCourierReplyTaskResult(current, {',
+  '手机回信必须从同一个活体根提交消息与对应NPC记忆，不能分别重放作业快照。',
 );
 assert(!appSource.includes('state.setNPC(result.npcs);'), 'App 不得再整片写回回信作业的 NPC 快照。');
+runFocusedBehaviorRegression([
+  'tests/unit/courierReplyRootCommit.test.ts',
+  'tests/unit/courierReplyMemoryCommit.test.ts',
+  'tests/unit/courierReplyEligibility.test.ts',
+]);
 
 console.log('settlement-live-base-regression: ok');

@@ -1,5 +1,6 @@
 import { ELEMENT_IDS, type ElementalAttunement, type ElementId, type PowerSource } from './elements';
-import { isReservedNpcIdentityName, type NPC外貌档案 } from '../npc';
+import { normalizeImageCharacterEnglishCache, type ImageCharacterEnglishCache } from '../imageCharacterEnglish';
+import { isReservedNpcIdentityName, 归一化NPC角色锚点, type NPC外貌档案, type NPC角色锚点档案 } from '../npc';
 import { matchCanonicalIdentity } from '@/data/canonicalCharacters';
 import { hasBuiltinAvatarIdentity } from '@/data/canonicalIdentity';
 import { getAvatarCharacterProfile } from '@/data/avatarCharacterProfiles';
@@ -41,6 +42,8 @@ export interface TravelerProfile {
   /** Free-form learned capabilities that are not elemental talents. */
   capabilities: string[];
   visualArchive: {
+    englishFacts?: ImageCharacterEnglishCache;
+    characterAnchor?: NPC角色锚点档案;
     profileImage?: string;
     narrativeImage?: string;
     courierImage?: string;
@@ -125,6 +128,8 @@ export interface TeyvatNpcSummaryMemory {
 }
 
 export interface TeyvatNpcVisualArchive {
+  englishFacts?: ImageCharacterEnglishCache;
+  characterAnchor?: NPC角色锚点档案;
   profileImage?: string;
   fullPortrait?: string;
   slotImages: { profile?: string; narrative?: string; courier?: string };
@@ -229,7 +234,7 @@ export function normalizeTravelerProfile(value: unknown): TravelerProfile {
     天赋: Array.isArray(raw.天赋) ? raw.天赋.flatMap((entry) => normalizeTalent(entry) ?? []) : [],
     attributes: isRecord(raw.attributes) ? Object.fromEntries(Object.entries(raw.attributes).flatMap(([key, item]) => Number.isFinite(Number(item)) ? [[key, Number(item)]] : [])) : {},
     capabilities: textList(raw.capabilities),
-    visualArchive: isRecord(raw.visualArchive) ? { profileImage: optionalText(raw.visualArchive.profileImage), narrativeImage: optionalText(raw.visualArchive.narrativeImage), courierImage: optionalText(raw.visualArchive.courierImage), fullPortrait: optionalText(raw.visualArchive.fullPortrait) } : {},
+    visualArchive: isRecord(raw.visualArchive) ? { englishFacts: normalizeImageCharacterEnglishCache(raw.visualArchive.englishFacts), characterAnchor: 归一化NPC角色锚点(raw.visualArchive.characterAnchor), profileImage: optionalText(raw.visualArchive.profileImage), narrativeImage: optionalText(raw.visualArchive.narrativeImage), courierImage: optionalText(raw.visualArchive.courierImage), fullPortrait: optionalText(raw.visualArchive.fullPortrait) } : {},
   };
 }
 
@@ -266,6 +271,8 @@ export function normalizeTeyvatNpcVisualArchive(value: unknown): TeyvatNpcVisual
   const status = ['none', 'pending', 'done', 'failed'].includes(text(raw.status)) ? text(raw.status) as TeyvatNpcVisualArchive['status'] : undefined;
   const source = ['manual', 'canon', 'generated', 'placeholder'].includes(text(raw.source)) ? text(raw.source) as TeyvatNpcVisualArchive['source'] : undefined;
   return {
+    englishFacts: normalizeImageCharacterEnglishCache(raw.englishFacts),
+    characterAnchor: 归一化NPC角色锚点(raw.characterAnchor),
     ...(optionalText(raw.profileImage) ? { profileImage: text(raw.profileImage) } : {}),
     ...(optionalText(raw.fullPortrait) ? { fullPortrait: text(raw.fullPortrait) } : {}),
     slotImages: {

@@ -5,6 +5,14 @@ export const API_ERROR_REPORTS_KEY = 'apiErrorReports';
 const MAX_API_ERROR_REPORTS = 80;
 const REDACTED_QUERY_VALUE = '[REDACTED]';
 const REDACTED_SECRET_VALUE = '[REDACTED]';
+// Serialize the entire read/modify/write, including historical repair and clear.
+// A failed operation must not poison later diagnostics.
+let reportOperationTail: Promise<unknown> = Promise.resolve();
+function serializeReportOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = reportOperationTail.then(operation, operation);
+  reportOperationTail = result.catch(() => undefined);
+  return result;
+}
 /**
  * 脱敏不只看 URL：供应商常把 Key 回显在错误正文里（`invalid api_key: "sk-..."`、
  * `x-goog-api-key: ...`、`Authorization: Bearer ...`）。诊断报告是可以整份复制/导出的文本，
@@ -91,7 +99,7 @@ function trimText(value: unknown, maxLength = 4000): string {
   return String(value ?? '').trim().slice(0, maxLength);
 }
 
-export async function appendApiErrorReport(input: {
+interface ApiErrorReportInput {
   source: string;
   config?: Partial<API配置项> | null;
   status?: number;
@@ -99,7 +107,13 @@ export async function appendApiErrorReport(input: {
   requestMode?: ApiErrorReport['requestMode'];
   error?: unknown;
   responseText?: string;
-}): Promise<void> {
+}
+
+export async function appendApiErrorReport(input: ApiErrorReportInput): Promise<void> {
+  await serializeReportOperation(() => appendApiErrorReportUnqueued(input));
+}
+
+async function appendApiErrorReportUnqueued(input: ApiErrorReportInput): Promise<void> {
   try {
     const current = await loadSetting<ApiErrorReport[]>(API_ERROR_REPORTS_KEY);
     const error = input.error instanceof Error ? input.error : null;
@@ -143,6 +157,10 @@ export async function appendApiErrorReport(input: {
 }
 
 export async function loadApiErrorReports(): Promise<ApiErrorReport[]> {
+  return serializeReportOperation(loadApiErrorReportsUnqueued);
+}
+
+async function loadApiErrorReportsUnqueued(): Promise<ApiErrorReport[]> {
   const list = await loadSetting<ApiErrorReport[]>(API_ERROR_REPORTS_KEY);
   if (!Array.isArray(list)) return [];
   const sanitized = list.map(sanitizeStoredReport);
@@ -153,5 +171,5 @@ export async function loadApiErrorReports(): Promise<ApiErrorReport[]> {
 }
 
 export async function clearApiErrorReports(): Promise<void> {
-  await saveSetting(API_ERROR_REPORTS_KEY, []);
+  await serializeReportOperation(() => saveSetting(API_ERROR_REPORTS_KEY, []));
 }

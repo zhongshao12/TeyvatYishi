@@ -151,6 +151,7 @@ export async function readSseStream(
   }
   const decoder = new TextDecoder();
   let buffer = '';
+  let streamCompleted = false;
   const abort = () => {
     void reader.cancel(signal?.reason ?? new DOMException('请求已取消。', 'AbortError'));
   };
@@ -158,7 +159,11 @@ export async function readSseStream(
     const trimmed = line.trim();
     if (!trimmed.startsWith('data:')) return;
     const data = trimmed.slice(5).trim();
-    if (!data || data === '[DONE]') return;
+    if (!data) return;
+    if (data === '[DONE]') {
+      streamCompleted = true;
+      return;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(data);
@@ -203,7 +208,7 @@ export async function readSseStream(
       throw signal.reason ?? new DOMException('请求已取消。', 'AbortError');
     }
     let receivedFirstChunk = false;
-    while (true) {
+    while (!streamCompleted) {
       const timeoutMs = receivedFirstChunk
         ? Math.max(0, watchdog.idleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS)
         : Math.max(0, watchdog.firstByteTimeoutMs ?? DEFAULT_STREAM_FIRST_BYTE_TIMEOUT_MS);
@@ -216,10 +221,13 @@ export async function readSseStream(
       for (const line of lines) {
         if (signal?.aborted) throw signal.reason ?? new DOMException('请求已取消。', 'AbortError');
         consumeLine(line);
+        if (streamCompleted) break;
       }
     }
-    buffer += decoder.decode();
-    if (buffer) consumeLine(buffer);
+    if (!streamCompleted) {
+      buffer += decoder.decode();
+      if (buffer) consumeLine(buffer);
+    }
     if (signal?.aborted) {
       throw signal.reason ?? new DOMException('请求已取消。', 'AbortError');
     }

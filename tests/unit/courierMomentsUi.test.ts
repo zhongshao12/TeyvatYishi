@@ -19,7 +19,7 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 function button(label: string): HTMLButtonElement {
-  const found = [...host.querySelectorAll('button')].find((item) => item.textContent?.trim() === label);
+  const found = [...document.querySelectorAll('button')].find((item) => item.textContent?.trim() === label);
   if (!found) throw new Error(`Missing button: ${label}`);
   return found;
 }
@@ -40,27 +40,28 @@ it('lets the player publish, edit, and delete a phone Moment without fake NPC po
   }
   await act(async () => root.render(createElement(Harness)));
   await act(async () => button('朋友圈').click());
-  expect(host.textContent).toContain('仅你可以发布动态');
-  expect(host.textContent).toContain('当前有 0 位角色符合评论条件');
-  expect(host.textContent).toContain('生死挚友（好感度超过 100）');
+  expect(document.body.textContent).toContain('仅你可以发布动态');
+  expect(document.body.textContent).toContain('当前有 0 位角色符合评论条件');
+  expect(document.body.textContent).toContain('生死挚友（好感度超过 100）');
   // 2026-09-29 第 7 项：文案改为区分「自动评论」与「@ 点名一定回应」，断言随契约更新。
-  expect(host.textContent).toContain('暂无符合条件的角色，不会收到自动评论；但 @ 点名的联系人仍会回应');
-  const composer = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="写朋友圈"]');
+  expect(document.body.textContent).toContain('暂无符合条件的角色，不会收到自动评论；但 @ 点名的联系人仍会回应');
+  await act(async () => button('写下旅途此刻').click());
+  const composer = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="写朋友圈"]');
   expect(composer).not.toBeNull();
   await act(async () => typeInto(composer!, '今天的风很温柔'));
   await act(async () => button('发布').click());
-  expect(host.textContent).toContain('今天的风很温柔');
-  expect(host.textContent).toContain('现实发布时间');
+  expect(document.body.textContent).toContain('今天的风很温柔');
+  expect(document.body.textContent).toContain('现实发布时间');
   expect(onRequestMomentComments).toHaveBeenCalledTimes(1);
   await act(async () => button('编辑').click());
-  expect(host.textContent).toContain('保存修改将清空旧评论，并按新内容重新生成');
-  const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="编辑朋友圈"]');
+  expect(document.body.textContent).toContain('保存修改将清空旧评论，并按新内容重新生成');
+  const editor = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="编辑朋友圈"]');
   await act(async () => typeInto(editor!, '晚风也很温柔'));
   await act(async () => button('保存修改').click());
-  expect(host.textContent).toContain('晚风也很温柔');
-  expect(host.textContent).not.toContain('今天的风很温柔');
+  expect(document.body.textContent).toContain('晚风也很温柔');
+  expect(document.body.textContent).not.toContain('今天的风很温柔');
   await act(async () => button('删除').click());
-  expect(host.textContent).not.toContain('晚风也很温柔');
+  expect(document.body.textContent).not.toContain('晚风也很温柔');
 });
 
 it('explains missing local phone API while allowing the player to publish and cancel edits', async () => {
@@ -74,11 +75,11 @@ it('explains missing local phone API while allowing the player to publish and ca
     courier, npcRecords: [amber], canGenerateMomentComments: false, onCourierChange: vi.fn(), onClose: vi.fn(),
   })));
   await act(async () => button('朋友圈').click());
-  expect(host.textContent).toContain('当前有 1 位角色符合评论条件');
-  expect(host.textContent).toContain('手机评论接口未配置：自动评论不会生成，@ 点名的联系人会由本地回应补上');
+  expect(document.body.textContent).toContain('当前有 1 位角色符合评论条件');
+  expect(document.body.textContent).toContain('手机评论接口未配置：自动评论不会生成，@ 点名的联系人会由本地回应补上');
   await act(async () => button('编辑').click());
   await act(async () => button('取消').click());
-  expect(host.textContent).toContain('晨风');
+  expect(document.body.textContent).toContain('晨风');
   expect(courier.moments?.[0]?.revision).toBe(1);
 });
 
@@ -99,8 +100,8 @@ it('retries only the named failed commenter without inventing a local reply', as
   await act(async () => button('朋友圈').click());
   await act(async () => button('重试安柏评论').click());
   expect(request).toHaveBeenCalledWith('p1', 3, 'amber');
-  expect(host.textContent).toContain('重试丽莎评论');
-  expect(host.textContent).not.toContain('下次一起');
+  expect(document.body.textContent).toContain('重试丽莎评论');
+  expect(document.body.textContent).not.toContain('下次一起');
 });
 
 it('keeps the chat timeline mounted and its scroll offset when visiting Moments', async () => {
@@ -111,13 +112,13 @@ it('keeps the chat timeline mounted and its scroll offset when visiting Moments'
     ], unread: 0, type: 'private', typingMemberIds: [], updatedAt: 1 }],
   };
   await act(async () => root.render(createElement(CourierModal, { courier, onCourierChange: vi.fn(), onClose: vi.fn() })));
-  const timeline = host.querySelector<HTMLElement>('[data-testid="phone-message-timeline"]');
+  const timeline = document.querySelector<HTMLElement>('[data-testid="phone-message-timeline"]');
   expect(timeline).not.toBeNull();
   timeline!.scrollTop = 42;
   await act(async () => button('朋友圈').click());
-  expect(host.querySelector('[data-testid="phone-message-timeline"]')).toBe(timeline);
-  const amberChat = [...host.querySelectorAll('button')].find((item) => item.querySelector('strong')?.textContent === '安柏');
+  expect(document.querySelector('[data-testid="phone-message-timeline"]')).toBe(timeline);
+  const amberChat = [...document.querySelectorAll('button')].find((item) => item.querySelector('strong')?.textContent === '安柏');
   expect(amberChat).toBeDefined();
   await act(async () => amberChat!.click());
-  expect(host.querySelector<HTMLElement>('[data-testid="phone-message-timeline"]')?.scrollTop).toBe(42);
+  expect(document.querySelector<HTMLElement>('[data-testid="phone-message-timeline"]')?.scrollTop).toBe(42);
 });

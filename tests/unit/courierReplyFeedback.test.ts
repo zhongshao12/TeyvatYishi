@@ -30,3 +30,11 @@ it('does not resolve a failure when the dispatcher produced no reply', () => {
   publishCourierReplyFeedback({ batch: { conversationId: 'group', messageIds: ['p1'], sessionId: 7 }, replied: 0, turn: 4 }, ports);
   expect(ports.resolve).not.toHaveBeenCalled();
 });
+
+it('does not claim remaining members have replied when no generated bubble was accepted', () => {
+  const ports = effects();
+  publishCourierReplyFeedback({ batch: { conversationId: 'group', messageIds: ['p1'], sessionId: 7 }, replied: 0, failedMemberNames: ['丽莎'], turn: 4 }, ports);
+  expect(ports.toast.mock.calls[0]?.[0]?.detail).not.toContain('其余成员已回信');
+  expect(ports.toast.mock.calls[0]?.[0]?.title).toBe('群聊回信待重试');
+  expect(ports.registerRetry).toHaveBeenCalledTimes(1);
+});

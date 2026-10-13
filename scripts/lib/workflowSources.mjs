@@ -90,6 +90,7 @@ export const WORKFLOW_FILES = [
   'hooks/useGame/npcPresence.ts',
   'hooks/useGame/courierWorkflow.ts',
   'hooks/useGame/courierBackgroundJobs.ts',
+  'hooks/useGame/courierReplyCommitWorkflow.ts',
   'hooks/useGame/questWorkflow.ts',
   'hooks/useGame/steambirdWorkflow.ts',
   'hooks/useGame/narrativeImageWorkflow.ts',

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, createElement, useCallback, useReducer } from 'react';
+import { act, createElement, StrictMode, useCallback, useReducer } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { 相册系统 } from '@/models/imageGeneration';
 import type { 角色数据结构 } from '@/models/character';
@@ -30,6 +30,13 @@ const generateImageMock = vi.fn();
 const extractAnchorMock = vi.fn();
 let usePromptModel = false;
 let useQualityPreset = false;
+let useStrictMode = false;
+let imageApiEnabled = true;
+const { englishStore } = vi.hoisted(() => ({ englishStore: new Map<string, unknown>() }));
+vi.mock('@/services/dbService', async importOriginal => ({ ...await importOriginal<object>(),
+  loadSetting: async (key: string) => englishStore.get(key) ?? null,
+  saveSetting: async (key: string, value: unknown) => { englishStore.set(key, value); },
+}));
 
 vi.mock('@/services/ai/imageGeneration', () => ({
   generateImage: (...args: unknown[]) => generateImageMock(...args),
@@ -62,7 +69,7 @@ const imageGameSettings = () => {
   }
   settings.文生图系统.普通接口 = {
     ...settings.文生图系统.普通接口,
-    enabled: true,
+    enabled: imageApiEnabled,
     baseUrl: 'https://image.example/v1',
     apiKey: 'test-key',
     model: 'image-model',
@@ -117,6 +124,14 @@ function AlbumHost() {
   return createElement(AlbumPanel, {
     album: active.album.current,
     onAlbumChange: (action: unknown) => commit(active.album as { current: unknown }, action),
+    onCommitGeneratedImage: (update: (current: { album: 相册系统; traveler: 角色数据结构; npcs: NPC记录[] }) => 相册系统, expected: number) => {
+      if (expected !== sessionId) return false;
+      const live = sessions[sessionId]!;
+      const next = update({ album: live.album.current, traveler: live.traveler.current, npcs: live.npcs.current });
+      if (next === live.album.current) return false;
+      commit(live.album, next);
+      return true;
+    },
     onTravelerChange: (action: unknown) => commit(active.traveler as { current: unknown }, action),
     onNpcChange: (action: unknown) => commit(active.npcs as { current: unknown }, action),
     traveler: active.traveler.current,
@@ -189,7 +204,7 @@ describe('B02 生图完成不得写进另一个存档', () => {
 
   const renderHost = async () => {
     if (!root) return;
-    await act(async () => { root!.render(createElement(AlbumHost)); });
+    await act(async () => { root!.render(useStrictMode ? createElement(StrictMode, null, createElement(AlbumHost)) : createElement(AlbumHost)); });
   };
   const flush = async () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
@@ -231,7 +246,14 @@ describe('B02 生图完成不得写进另一个存档', () => {
     extractAnchorMock.mockReset();
     usePromptModel = false;
     useQualityPreset = false;
-    vi.mocked(chatCompletionNonStream).mockReset().mockRejectedValue(new Error('offline prompt test'));
+    useStrictMode = false;
+    imageApiEnabled = true;
+    englishStore.clear();
+    vi.mocked(chatCompletionNonStream).mockReset().mockImplementation(async (_config, request) => {
+      if (!request.systemPrompt?.startsWith('Translate only')) throw new Error('offline prompt test');
+      const source = JSON.parse(String(request.messages?.[0]?.content));
+      return JSON.stringify({ ...source, name: source.name === '云' ? 'Yun' : 'Amber', gender: source.gender === '女' ? 'female' : source.gender });
+    });
     sessionId = 1;
     sessions = { 1: newSlot(), 2: newSlot() };
   });
@@ -257,7 +279,7 @@ describe('B02 生图完成不得写进另一个存档', () => {
   });
 
   /** A 档里点「生成」：phase-1 立刻登记任务，然后等待可控的网络 deferred。 */
-  async function startGeneration() {
+  async function startGeneration(repeatClick = false) {
     const pending = deferred<{ src: string; finalPrompt?: string; finalNegativePrompt?: string; promptCompacted?: boolean }>();
     outstanding = pending;
     generateImageMock.mockImplementation(() => pending.promise);
@@ -274,7 +296,11 @@ describe('B02 生图完成不得写进另一个存档', () => {
     if (!(prompt instanceof HTMLTextAreaElement)) throw new Error('找不到提示词输入框');
     await act(async () => { setTextareaValue(prompt, '安柏的骑士团头像'); });
     await flush();
-    await act(async () => { exactButton('生成', 'min-h-[54px]').click(); });
+    await act(async () => {
+      const generate = exactButton('生成', 'min-h-[54px]');
+      generate.click();
+      if (repeatClick) generate.click();
+    });
     await flush();
     return pending;
   }
@@ -284,6 +310,61 @@ describe('B02 生图完成不得写进另一个存档', () => {
     await startGeneration();
     expect(sessions[1]!.album.current.tasks).toHaveLength(1);
     expect(sessions[1]!.album.current.tasks[0]?.targetId).toBe('npc_amber');
+  });
+
+  it('开发模式的重复挂载检查不会把后续英文准备永久取消', async () => {
+    useStrictMode = true;
+    await mountPanel();
+    const image = await startGeneration();
+    expect(generateImageMock).toHaveBeenCalledTimes(1);
+    await act(async () => image.resolve({ src: 'data:image/png;base64,QU1CRVI=' }));
+    await settle();
+    expect(sessions[1]!.album.current.entries).toHaveLength(1);
+  });
+
+  it('图片接口未启用时不先调用英文翻译接口', async () => {
+    imageApiEnabled = false;
+    await mountPanel();
+    await startGeneration();
+    expect(chatCompletionNonStream).not.toHaveBeenCalled();
+    expect(generateImageMock).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain('接口未启用');
+  });
+
+  it('英文资料准备期间的重复点击只登记并调用一次图片请求', async () => {
+    const translation = deferred<string>();
+    vi.mocked(chatCompletionNonStream).mockImplementation(() => translation.promise);
+    await mountPanel();
+    const image = await startGeneration(true);
+    await act(async () => { translation.resolve(JSON.stringify({ name: 'Amber', gender: 'female' })); });
+    await settle(() => generateImageMock.mock.calls.length > 0);
+    expect(sessions[1]!.album.current.tasks).toHaveLength(1);
+    await act(async () => { image.resolve({ src: 'data:image/png;base64,QU1CRVI=' }); });
+    await settle();
+    expect(generateImageMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('图片等待期间角色外貌变化，旧图片不会作为成功结果保存', async () => {
+    await mountPanel();
+    const image = await startGeneration();
+    sessions[1]!.npcs.current = sessions[1]!.npcs.current.map(item => ({ ...item, 外貌: 'silver hair' }));
+    await renderHost();
+    await act(async () => { image.resolve({ src: 'data:image/png;base64,QU1CRVI=' }); });
+    await settle();
+    expect(sessions[1]!.album.current.entries).toHaveLength(0);
+    expect(sessions[1]!.album.current.tasks[0]?.status).toBe('failed');
+    expect(document.body.textContent).toContain('角色资料已变化');
+  });
+
+  it('最终提交检查活体资料，即使界面还没有收到新资料', async () => {
+    await mountPanel();
+    const image = await startGeneration();
+    sessions[1]!.npcs.current = sessions[1]!.npcs.current.map(item => ({ ...item, 外貌: 'silver hair' }));
+    // 不刷新宿主：面板props仍是旧值，提交必须读事务里现在的资料。
+    await act(async () => { image.resolve({ src: 'data:image/png;base64,QU1CRVI=' }); });
+    await settle();
+    expect(sessions[1]!.album.current.entries).toHaveLength(0);
+    expect(sessions[1]!.album.current.tasks[0]?.status).toBe('failed');
   });
 
   it('相册与成功任务保存供应商实际发送的精简提示词，仍保留原始来源', async () => {
@@ -309,7 +390,9 @@ describe('B02 生图完成不得写进另一个存档', () => {
     await act(async () => { exactButton('生成提示词').click(); });
     const prompt = Array.from(document.querySelectorAll('textarea')).find(candidate => candidate.rows === 7 && !candidate.placeholder)!;
     expect(prompt.value.length).toBeLessThanOrEqual(1800);
-    for (const tag of ['安柏', 'brown hair', 'amber eyes', 'red rabbit ribbon']) expect(prompt.value).toContain(tag);
+    for (const tag of ['Amber', 'brown hair', 'amber eyes', 'red rabbit ribbon']) expect(prompt.value).toContain(tag);
+    expect(sessions[1]!.npcs.current[0]?.姓名).toBe('安柏');
+    expect(sessions[1]!.npcs.current[0]?.图像档案?.englishFacts?.facts.name).toBe('Amber');
     expect(document.body.textContent).toContain('自动精简');
   });
 
@@ -376,10 +459,11 @@ describe('B02 生图完成不得写进另一个存档', () => {
     usePromptModel = true;
     useQualityPreset = true;
     sessions[1]!.npcs.current[0]!.图像档案 = { 角色锚点: { 是否启用: true, 正面提示词: 'silver hair, green ribbon', 负面提示词: 'red ribbon' } };
-    vi.mocked(chatCompletionNonStream).mockResolvedValue(JSON.stringify({
+    const sceneResponse = JSON.stringify({
       scene: { title: '喷泉灯火', location: '蒙德喷泉', atmosphere: '灯火', subject: '安柏在喷泉旁挥手', camera: '中景', avoid: '' },
       prompt: 'Mondstadt fountain, evening lanterns, waving, cinematic framing', negativePrompt: 'fog',
-    }));
+    });
+    vi.mocked(chatCompletionNonStream).mockImplementation(async (_config, request) => request.systemPrompt?.startsWith('Translate only') ? JSON.stringify({ name: 'Amber', gender: 'female' }) : sceneResponse);
     await mountPanel();
     const tab = Array.from(document.querySelectorAll('button')).find(candidate => candidate.textContent?.includes('场景图'))!;
     await act(async () => { tab.click(); });
@@ -393,7 +477,7 @@ describe('B02 生图完成不得写进另一个存档', () => {
     for (const fact of ['fog', 'red ribbon', 'weak lighting']) expect(negative.value).toContain(fact);
     expect(prompt.value).not.toMatch(/APPEARANCE LOCK|higher priority|unless the user/i);
     expect(prompt.value.length).toBeLessThanOrEqual(1800);
-    expect(chatCompletionNonStream).toHaveBeenCalledTimes(1);
+    expect(chatCompletionNonStream).toHaveBeenCalledTimes(2);
   });
 
   it('A 档启动生图后切到 B 档：完成结果不进入 B 档', async () => {

@@ -1,3 +1,5 @@
+import { normalizeImageCharacterEnglishCache, type EnglishImageCharacterFacts } from './imageCharacterEnglish';
+
 export type 图片后端类型 = 'openai_compatible' | 'novelai' | 'latent' | 'sd_webui' | 'comfyui';
 
 export type NovelAIContentMode = 'official' | 'append' | 'replace' | 'off';
@@ -23,6 +25,9 @@ export interface StorySnapshotCharacterContext {
   negativePrompt: string;
   source: 'traveler' | 'npc' | 'model';
   enabled?: boolean;
+  /** Prepared, image-only facts; never shorten these when budgeting captions. */
+  facts?: EnglishImageCharacterFacts;
+  anchorPrompt?: string;
 }
 
 export interface StorySnapshotRenderContext {
@@ -190,6 +195,9 @@ export function normalizeStorySnapshotRenderContext(input: unknown): StorySnapsh
             ? character.source
             : 'model' as const,
           enabled: character.enabled !== false,
+          facts: character.facts ? normalizeImageCharacterEnglishCache({ schemaVersion: 1,
+            sourceKey: JSON.stringify(character.facts), preparedAt: 0, facts: character.facts })?.facts : undefined,
+          anchorPrompt: typeof character.anchorPrompt === 'string' ? character.anchorPrompt : undefined,
         };
       }).filter((character) => character.visualPrompt)
     : [];

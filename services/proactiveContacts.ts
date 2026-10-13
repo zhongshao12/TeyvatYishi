@@ -38,11 +38,13 @@ export interface ProactiveContactPlan {
   skippedReason?: string;
 }
 
-function 是手机联系人(courier: CourierSystem, npc: NPC记录): boolean {
+function 是手机联系人(courier: CourierSystem, npc: NPC记录, npcs: readonly NPC记录[]): boolean {
   return courier.contacts.some((contact) =>
-    contact.id === npc.id
-    || contact.npcId === npc.id
-    || (contact.name?.trim() && (contact.name.trim() === npc.姓名 || contact.name.trim() === npc.别名)));
+    contact.available && (!contact.status || contact.status === 'available')
+    && (contact.npcId ? contact.npcId === npc.id : contact.id === npc.id
+      || (Boolean(contact.name?.trim()) && npcs.filter(candidate =>
+        candidate.姓名 === contact.name.trim() || candidate.别名 === contact.name.trim()).length === 1
+        && (contact.name.trim() === npc.姓名 || contact.name.trim() === npc.别名))));
 }
 
 function 提取主动联系回合(seeds: readonly CourierDeliverySeed[]): number {
@@ -74,6 +76,7 @@ function 推导触发(npc: NPC记录, turn: number): { trigger: 主动触发; re
  */
 export function planProactiveContacts(input: ProactiveContactInput): ProactiveContactPlan {
   const turn = Math.max(0, Math.trunc(input.turn) || 0);
+  if (turn < PROACTIVE_CONTACT_INTERVAL_TURNS) return { seeds: [], skippedReason: `未完成 ${PROACTIVE_CONTACT_INTERVAL_TURNS} 个游戏回合` };
   const 上次主动 = 提取主动联系回合(input.courier.deliverySeeds);
   if (上次主动 > 0 && turn - 上次主动 < PROACTIVE_CONTACT_INTERVAL_TURNS) {
     return { seeds: [], skippedReason: `距上次主动联系仅 ${turn - 上次主动} 个回合，未到 ${PROACTIVE_CONTACT_INTERVAL_TURNS} 回合节奏` };
@@ -82,7 +85,7 @@ export function planProactiveContacts(input: ProactiveContactInput): ProactiveCo
   const 候选人 = input.npcs
     .filter((npc) => Number(npc.好感度 || 0) >= PROACTIVE_CONTACT_MIN_AFFINITY)
     .filter((npc) => npc.关系 !== 'enemy')
-    .filter((npc) => 是手机联系人(input.courier, npc));
+    .filter((npc) => 是手机联系人(input.courier, npc, input.npcs));
   if (!候选人.length) {
     return {
       seeds: [],

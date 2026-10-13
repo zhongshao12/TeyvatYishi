@@ -33,8 +33,13 @@ describe('manual chunk strategy', () => {
     // app-core（白名单漏登记 + 静态边），两者都必须不复存在，否则它就回不到异步分包。
     expect(resolveManualChunk('/repo/hooks/useGame/mainNarrativeRequestStage.ts')).toBeUndefined();
   });
+  it('does not force the shared phone commit workflow into the first-screen core', () => {
+    expect(resolveManualChunk('/repo/hooks/useGame/courierReplyCommitWorkflow.ts')).toBeUndefined();
+    expect(resolveManualChunk('C:\\repo\\hooks\\useGame\\courierReplyCommitWorkflow.ts')).toBeUndefined();
+  });
 
   it('keeps the lazy phone photo service outside the eagerly forced core chunk', () => {
+    expect(resolveManualChunk('/repo/services/imageCharacterEnglish.ts')).toBeUndefined();
     expect(resolveManualChunk('/repo/services/courierPhoto.ts')).toBeUndefined();
     expect(resolveManualChunk('C:\\repo\\services\\courierPhoto.ts')).toBeUndefined();
     expect(resolveManualChunk('/repo/services/ai/imagePromptTokenizer.ts')).toBeUndefined();

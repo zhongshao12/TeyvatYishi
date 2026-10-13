@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-const modal = fs.readFileSync('components/features/Courier/CourierModal.tsx', 'utf8');
+const modal = fs.readFileSync('components/features/Courier/CourierPanel.tsx', 'utf8');
 const service = fs.readFileSync('services/ai/courierService.ts', 'utf8');
 const jobs = fs.readFileSync('hooks/useGame/courierBackgroundJobs.ts', 'utf8');
 const queue = fs.readFileSync('hooks/useGame/courierReplyQueue.ts', 'utf8');

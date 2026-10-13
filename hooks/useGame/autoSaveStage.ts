@@ -7,7 +7,7 @@
  *
  * 拆分原则：**纯搬运，不改行为** —— 被搬动的代码逐字保留（含原有换行与缩进）。
  */
-import { saveGame, saveSettings } from '@/services/dbService';
+import { saveGame } from '@/services/dbService';
 import {
   clearWorkflowRecoveryJournal,
   persistWorkflowRecoveryJournal,
@@ -79,12 +79,8 @@ export async function runAutoSaveStage(deps: RunAutoSaveStageDeps) {
       deps.onJournalUpdated(recoveryJournal);
       await persistWorkflowRecoveryJournal(recoveryJournal);
 
-    await saveSettings({
-      theme: state.currentTheme,
-      apiSettings: state.apiSettings,
-      gameSettings: state.gameSettings,
-      worldbooks: state.worldbooks,
-    });
+    // Settings are persisted by their editing entry points. This turn holds an
+    // older render snapshot; writing it here would undo edits made while waiting.
     await clearWorkflowRecoveryJournal(recoveryJournal.workflowId);
 
   return {

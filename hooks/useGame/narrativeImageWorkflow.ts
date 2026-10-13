@@ -1,5 +1,7 @@
-import type { UseGameStateReturn } from '@/hooks/useGameState';
+import { applyLegacyGameStateOverrides, createLegacyGameViewSelector, readLiveGameState, type UseGameStateReturn } from '@/hooks/useGameState';
+import { flushSync } from 'react-dom';
 import type { 叙事插图 } from '@/models/chat';
+import type { TeyvatGameState } from '@/models/teyvat';
 import { narrativeTurnBodyText } from '@/models/teyvat/narrativeTurn';
 import type { API配置项, API设置, 文生图API配置 } from '@/models/settings';
 import { generateNarrativeImage } from '@/services/ai/imageGeneration';
@@ -7,6 +9,7 @@ import { buildImagePromptTokenizerConfig } from '@/services/ai/imagePromptTokeni
 import { resolveStorySnapshot, selectPresentStorySnapshotNpcs } from '@/services/ai/storySnapshotPipeline';
 import { 创建相册图片条目, 添加图片到相册, 创建相册资源引用 } from '@/utils/albumActions';
 import { applyNovelAIRulePreset } from '@/utils/imagePromptRules';
+import { imageCharacterSourceKey } from '@/utils/imageCharacterFacts';
 import { pushWorkflowQueueTask } from './workflowQueue';
 
 function buildSingleApiSettings(config: API配置项): API设置 {
@@ -28,15 +31,11 @@ export function resolveNarrativeImageGenerationApi(state: UseGameStateReturn): �
     : null;
 }
 
-function archiveNarrativeSnapshotToAlbum(
-  state: UseGameStateReturn,
+function prepareNarrativeSnapshotForAlbum(
   image: 叙事插图,
   params: { title: string; size: string; sourcePrompt: string },
-  domainAlbum?: UseGameStateReturn['相册'],
-  onDomainAlbumChange?: (next: UseGameStateReturn['相册']) => void,
-  writeState = true,
-): 叙事插图 {
-  if (image.status !== 'done' || !image.dataUrl) return image;
+): { image: 叙事插图; item?: ReturnType<typeof 创建相册图片条目> } {
+  if (image.status !== 'done' || !image.dataUrl) return { image };
   const item = 创建相册图片条目({
     title: params.title || image.description || '故事快照',
     src: image.dataUrl,
@@ -52,10 +51,11 @@ function archiveNarrativeSnapshotToAlbum(
     tags: ['故事快照', '正文生图'],
     note: '故事快照',
   });
-  const nextAlbum = 添加图片到相册(domainAlbum ?? state.相册, item);
-  onDomainAlbumChange?.(nextAlbum);
-  if (writeState) state.set相册(nextAlbum);
-  return { ...image, dataUrl: 创建相册资源引用(item.asset.id), assetId: item.asset.id };
+  return { item, image: { ...image, dataUrl: 创建相册资源引用(item.asset.id), assetId: item.asset.id } };
+}
+
+function narrativeImageCharacterKey(character: UseGameStateReturn['旅人'] | UseGameStateReturn['NPC'][number]): string {
+  return JSON.stringify([imageCharacterSourceKey(character), character.图像档案?.角色锚点 ?? null, character.图像档案?.englishFacts ?? null]);
 }
 
 export interface GenerateNarrativeImagesParams {
@@ -80,9 +80,45 @@ export async function generateNarrativeImagesForMessage(
     state, messageId, body, tokenizerConfig, imageApiConfig, turn, signal,
     replaceExisting = false, domainContext, writeDomainState = true,
   } = params;
+  const sessionId = state.getGameSessionId();
+  const selectView = createLegacyGameViewSelector();
+  const sessionLive = () => !signal?.aborted && state.getGameSessionId() === sessionId;
+  if (!sessionLive()) return null;
+  const initialView = writeDomainState ? selectView(readLiveGameState(state)) : null;
+  const sourceMessage = initialView?.chatHistory.find(message => message.id === messageId && message.role === 'assistant');
+  const messageBody = (message: UseGameStateReturn['chatHistory'][number]) =>
+    message.parsedResponse ? narrativeTurnBodyText(message.parsedResponse) : message.content.trim();
+  const sourceBody = sourceMessage ? messageBody(sourceMessage) : undefined;
+  const imageStateKey = (images: 叙事插图[] | undefined) => JSON.stringify((images ?? []).map(image => [image.id, image.status]));
+  const sourceImagesKey = imageStateKey(sourceMessage?.narrativeImages);
+  const traveler = domainContext?.旅人 ?? initialView?.旅人 ?? state.旅人;
+  const presentNpcs = selectPresentStorySnapshotNpcs(domainContext?.NPC ?? initialView?.NPC ?? state.NPC ?? [], body);
+  const initialNpcKeys = new Map(presentNpcs.map(npc => [npc.id, narrativeImageCharacterKey(npc)]));
+  const initialTravelerKey = narrativeImageCharacterKey(traveler);
+  let includedNpcIds: string[] = [];
+  let includedTraveler = false;
+  const isLive = (current?: TeyvatGameState) => {
+    if (!sessionLive()) return false;
+    // Recovery owns a local working copy and its later atomic root commit.
+    if (!writeDomainState) return true;
+    const view = selectView(current ?? readLiveGameState(state));
+    const message = view.chatHistory.find(entry => entry.id === messageId && entry.role === 'assistant');
+    if (!message || sourceBody !== body.trim() || messageBody(message) !== sourceBody) return false;
+    if (imageStateKey(message.narrativeImages) !== sourceImagesKey) return false;
+    if (includedTraveler && narrativeImageCharacterKey(view.旅人) !== initialTravelerKey) return false;
+    return includedNpcIds.every(id => {
+      const npc = view.NPC.find(entry => entry.id === id);
+      return npc && narrativeImageCharacterKey(npc) === initialNpcKeys.get(id);
+    });
+  };
+  if (!isLive()) return null;
+  const queueState: UseGameStateReturn = { ...state, setQueueTasks: action => state.setQueueTasks(previous =>
+    sessionLive() ? (typeof action === 'function' ? action(previous) : action) : previous) };
   const failMessage = (error: string) => {
     if (!replaceExisting || !writeDomainState) return;
-    state.setChatHistory((previous) => previous.map((message) =>
+    flushSync(() => state.updateGameState(current => {
+      if (!isLive(current)) return current;
+      return applyLegacyGameStateOverrides(current, { chatHistory: selectView(current).chatHistory.map((message) =>
       message.id === messageId && message.role === 'assistant'
         ? {
             ...message,
@@ -98,19 +134,19 @@ export async function generateNarrativeImagesForMessage(
               error,
             }],
           }
-        : message));
+        : message) });
+    }));
   };
 
-  pushWorkflowQueueTask(state, 'narrative_image_parse', 'pending', {
+  pushWorkflowQueueTask(queueState, 'narrative_image_parse', 'pending', {
     detail: '正在解析正文中的故事快照提示词。', turn, targetMessageId: messageId,
   });
   try {
     const playerAppearanceMode = state.gameSettings.文生图系统?.正文生图?.playerAppearanceMode ?? 'auto';
-    const presentNpcs = selectPresentStorySnapshotNpcs(domainContext?.NPC ?? state.NPC ?? [], body);
     const snapshot = await resolveStorySnapshot({
       apiConfig: tokenizerConfig,
       body,
-      traveler: domainContext?.旅人 ?? state.旅人,
+      traveler,
       playerAppearanceMode,
       presentNpcs,
       rules: state.gameSettings.文生图系统.rules,
@@ -118,7 +154,11 @@ export async function generateNarrativeImagesForMessage(
       slot: 'scene',
       signal,
     });
-    pushWorkflowQueueTask(state, 'narrative_image_parse', 'success', {
+    const visibleNames = new Set(snapshot.renderContext.characters.filter(character => character.enabled !== false).map(character => character.name));
+    includedNpcIds = presentNpcs.filter(npc => visibleNames.has(npc.姓名) || Boolean(npc.别名 && visibleNames.has(npc.别名))).map(npc => npc.id);
+    includedTraveler = visibleNames.has(traveler.姓名) || Boolean(traveler.别名 && visibleNames.has(traveler.别名));
+    if (!isLive()) return null;
+    pushWorkflowQueueTask(queueState, 'narrative_image_parse', 'success', {
       detail: snapshot.source === 'local'
         ? `模型解析未完成，已使用本地草稿：${snapshot.summary.title || '剧情瞬间'}。${snapshot.warning ? ` ${snapshot.warning}` : ''}`
         : `已解析故事快照：${snapshot.summary.title || '剧情瞬间'}。`,
@@ -126,7 +166,7 @@ export async function generateNarrativeImagesForMessage(
       turn,
       targetMessageId: messageId,
     });
-    pushWorkflowQueueTask(state, 'narrative_image_generate', 'pending', {
+    pushWorkflowQueueTask(queueState, 'narrative_image_generate', 'pending', {
       detail: `正在生成故事快照：${snapshot.summary.title || '剧情瞬间'}。`, turn, targetMessageId: messageId,
     });
     const result = await generateNarrativeImage(
@@ -139,34 +179,43 @@ export async function generateNarrativeImagesForMessage(
       snapshot.renderContext,
       signal,
     );
+    if (!isLive()) return null;
     if (result.status === 'done' || result.status === 'failed') result.kind = 'snapshot';
-    const generatedImages = [archiveNarrativeSnapshotToAlbum(state, result, {
+    const archived = prepareNarrativeSnapshotForAlbum(result, {
       title: snapshot.summary.title || '故事快照',
       size: '1280x720',
       sourcePrompt: body,
-    }, domainContext?.相册, domainContext?.onAlbumChange, writeDomainState)];
-    pushWorkflowQueueTask(state, 'narrative_image_generate', result.status === 'done' ? 'success' : 'failed', {
+    });
+    const generatedImages = [archived.image];
+    if (writeDomainState) {
+      let accepted = false;
+      flushSync(() => state.updateGameState(current => {
+        if (!isLive(current)) return current;
+        const view = selectView(current);
+        accepted = true;
+        return applyLegacyGameStateOverrides(current, {
+          ...(archived.item ? { 相册: 添加图片到相册(view.相册, archived.item) } : {}),
+          chatHistory: view.chatHistory.map(message => message.id === messageId && message.role === 'assistant'
+            ? { ...message, narrativeImages: replaceExisting ? generatedImages : [...(message.narrativeImages ?? []), ...generatedImages] }
+            : message),
+        });
+      }));
+      if (!accepted) return null;
+    } else if (archived.item) {
+      domainContext?.onAlbumChange?.(添加图片到相册(domainContext.相册, archived.item));
+    }
+    pushWorkflowQueueTask(queueState, 'narrative_image_generate', result.status === 'done' ? 'success' : 'failed', {
       detail: result.status === 'done'
         ? `${snapshot.summary.title || '故事快照'} 故事快照生成完成。`
         : `${snapshot.summary.title || '故事快照'} 故事快照生成失败：${result.error}`,
       turn,
       targetMessageId: messageId,
     });
-    if (writeDomainState) {
-      state.setChatHistory((previous) => previous.map((message) => message.id === messageId && message.role === 'assistant'
-        ? {
-            ...message,
-            narrativeImages: replaceExisting
-              ? generatedImages
-              : [...(message.narrativeImages ?? []), ...generatedImages],
-          }
-        : message));
-    }
     return generatedImages;
   } catch (error) {
-    if ((error as Error).name !== 'AbortError') {
+    if (isLive() && (error as Error).name !== 'AbortError') {
       failMessage((error as Error).message);
-      pushWorkflowQueueTask(state, 'narrative_image_parse', 'failed', {
+      pushWorkflowQueueTask(queueState, 'narrative_image_parse', 'failed', {
         detail: `故事快照解析失败：${(error as Error).message}`, turn, targetMessageId: messageId,
       });
     }
@@ -179,7 +228,8 @@ export async function regenerateNarrativeImagesForMessage(
   getActiveConfig: () => API配置项 | null,
   messageId: string,
 ): Promise<void> {
-  const message = state.chatHistory.find((item) => item.id === messageId);
+  const sessionId = state.getGameSessionId();
+  const message = createLegacyGameViewSelector()(readLiveGameState(state)).chatHistory.find((item) => item.id === messageId);
   if (!message || message.role !== 'assistant') return;
   const body = message.parsedResponse ? narrativeTurnBodyText(message.parsedResponse) : message.content.trim();
   if (!body) return;
@@ -204,19 +254,37 @@ export async function regenerateNarrativeImagesForMessage(
   }
   const turn = Number(message.gameTime) || state.turnCount;
   const previousImages = message.narrativeImages ?? [];
-  state.setChatHistory((previous) => previous.map((item) => item.id === messageId
-    ? {
-        ...item,
-        narrativeImages: previousImages.length
-          ? previousImages.map((image) => ({ ...image, status: 'generating' as const, error: undefined }))
-          : [{
-              id: `narrative_regen_${turn}_${Date.now()}`,
-              dataUrl: '', type: 'scene' as const, prompt: '', negativePrompt: '',
-              description: '故事快照', kind: 'snapshot' as const, status: 'generating' as const,
-            }],
-      }
+  const generationId = `narrative_regen_${turn}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  // Transient IDs identify this request without adding a new persisted field.
+  const pendingImages: 叙事插图[] = previousImages.length
+    ? previousImages.map((image, index) => ({ ...image, id: `${generationId}_${index}`, status: 'generating', error: undefined }))
+    : [{ id: generationId, dataUrl: '', type: 'scene', prompt: '', negativePrompt: '',
+      description: '故事快照', kind: 'snapshot', status: 'generating' }];
+  state.setChatHistory((previous) => state.getGameSessionId() !== sessionId ? previous : previous.map((item) => item.id === messageId
+    ? { ...item, narrativeImages: pendingImages }
     : item));
-  await generateNarrativeImagesForMessage({
-    state, messageId, body, tokenizerConfig, imageApiConfig, turn, replaceExisting: true,
-  });
+  try {
+    await generateNarrativeImagesForMessage({
+      state, messageId, body, tokenizerConfig, imageApiConfig, turn, replaceExisting: true,
+    });
+  } finally {
+    let restored = false;
+    const selectView = createLegacyGameViewSelector();
+    flushSync(() => state.updateGameState(current => {
+      if (state.getGameSessionId() !== sessionId) return current;
+      const view = selectView(current);
+      const target = view.chatHistory.find(item => item.id === messageId && item.role === 'assistant');
+      if (!target || target.narrativeImages?.length !== pendingImages.length
+        || !target.narrativeImages.every((image, index) => image.id === pendingImages[index]?.id && image.status === 'generating')) return current;
+      restored = true;
+      const images = previousImages.map(image => image.status === 'generating'
+        ? { ...image, status: 'failed' as const, error: '前一次生成已失效，可重新生成。' } : image);
+      return applyLegacyGameStateOverrides(current, {
+        chatHistory: view.chatHistory.map(item => item === target ? { ...item, narrativeImages: images } : item),
+      });
+    }));
+    if (restored) pushWorkflowQueueTask(state, 'narrative_image_generate', 'cancelled', {
+      detail: '源正文或人物资料已变化，本次故事快照已弃用；可以重新生成。', turn, targetMessageId: messageId,
+    });
+  }
 }

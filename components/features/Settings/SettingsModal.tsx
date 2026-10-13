@@ -369,7 +369,7 @@ export function SettingsModal({
             }}
           >
             <span style={{ color: 'rgba(var(--tj-accent-primary), 0.5)' }}>✦</span>
-            <span className="ml-2">旅行者纪事 · v1.5.0</span>
+            <span className="ml-2">旅行者纪事 · v1.6.0</span>
           </div>
         </aside>
 

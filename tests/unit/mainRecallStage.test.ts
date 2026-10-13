@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { normalizeArchiveCodex } from '@/models/teyvat/codex';
 import { normalizeIrminsulMemory } from '@/models/teyvat/irminsul';
 import { buildMainRecallStage } from '@/hooks/useGame/mainRecallStage';
+import { buildSystemPrompt } from '@/hooks/useGame/systemPromptBuilder';
+import { 创建空角色 } from '@/models/character';
+import { 创建空世界状态 } from '@/models/world';
+import { 创建空记忆系统 } from '@/models/memory';
+import { 创建默认游戏设置 } from '@/models/settings';
 
 const codex = normalizeArchiveCodex({
   entries: [{
@@ -54,6 +59,19 @@ const baseInput = {
 };
 
 describe('main recall stage', () => {
+  it.each(['place', 'term', 'story'] as const)('delivers locked %s reference through the main prompt without granting NPC knowledge', category => {
+    const archive = normalizeArchiveCodex({ entries: [{ ...codex.entries[0]!, id: category, name: '明灯', category,
+      keywords: ['明灯'], triggerKeywords: ['明灯'], tags: [], summary: '尚未解锁的明灯资料', description: '',
+      injection: { publicText: '明灯的条目事实' }, runtimeUnlock: { status: 'locked', note: '' } },
+      { ...codex.entries[0]!, id: 'unrelated', name: '无关商会', keywords: ['商会'], triggerKeywords: ['商会'], tags: [], summary: '无关商会资料', description: '', injection: { publicText: '不应发送的无关资料' } }], unlockedEntryIds: [] });
+    const stage = buildMainRecallStage({ ...baseInput, codex: archive, codexRecallQuery: '请查询明灯' });
+    const prompt = buildSystemPrompt(创建空角色(), 创建空世界状态(), 创建空记忆系统(), 创建默认游戏设置(), 12,
+      undefined, undefined, [], undefined, undefined, undefined, archive, undefined, undefined, undefined, undefined, stage.codexPreview?.injection).systemPrompt;
+    expect(prompt).toContain('明灯的条目事实');
+    expect(prompt).not.toContain('不应发送的无关资料');
+    expect(prompt).toContain('不是 NPC 已知信息');
+    expect(archive.unlockedEntryIds).toEqual([]);
+  });
   it('builds ranked Codex and Irminsul previews plus upload diagnostics', () => {
     const result = buildMainRecallStage(baseInput);
 

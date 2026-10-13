@@ -171,7 +171,7 @@ describe('user reported workflow regressions', () => {
 
   it('contains group management and mandatory latest-message scrolling hooks in both chat surfaces', () => {
     const courier = [
-      'components/features/Courier/CourierModal.tsx',
+      'components/features/Courier/CourierPanel.tsx',
       'components/features/Courier/CourierMessageTimeline.tsx',
     ].map((path) => readFileSync(resolve(process.cwd(), path), 'utf8')).join('\n');
     const companion = [
@@ -236,7 +236,7 @@ describe('user reported workflow regressions', () => {
 
   it('renders explicit protagonist relationship labels and safe text layers in map and album', () => {
     const graph = readFileSync(resolve(process.cwd(), 'components/features/GameSystems/RelationshipGraphPanel.tsx'), 'utf8');
-    const phone = readFileSync(resolve(process.cwd(), 'components/features/Courier/CourierModal.tsx'), 'utf8');
+    const phone = readFileSync(resolve(process.cwd(), 'components/features/Courier/CourierPanel.tsx'), 'utf8');
     const map = readFileSync(resolve(process.cwd(), 'components/features/GameSystems/MapPanel.tsx'), 'utf8');
     const album = readFileSync(resolve(process.cwd(), 'components/features/GameSystems/AlbumPanel.tsx'), 'utf8');
     expect(graph).toContain('node.relationLabel');

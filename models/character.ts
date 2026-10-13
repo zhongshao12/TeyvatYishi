@@ -1,4 +1,5 @@
 import type { NPC角色锚点档案 } from './npc';
+import type { ImageCharacterEnglishCache } from './imageCharacterEnglish';
 import type { Talent } from './teyvat/character';
 import type { ElementalAttunement, ElementId } from './teyvat/elements';
 
@@ -39,6 +40,7 @@ export interface 角色数据结构 {
   专长知识: string[];
   头像: string;
   图像档案?: {
+    englishFacts?: ImageCharacterEnglishCache;
     头像?: string;
     正文头像?: string;
     手机头像?: string;

@@ -1,7 +1,7 @@
 {
   "name": "kaituoyishi",
   "private": false,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "engines": {
     "node": ">=22.18.0"
   },

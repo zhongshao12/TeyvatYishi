@@ -11,6 +11,7 @@
  */
 import {
   applyLegacyGameStateOverrides,
+  mapTeyvatNpcsToLegacy,
   readLiveGameState,
   toLegacyMemory,
   toLegacyStoryWeaving,
@@ -29,10 +30,11 @@ import {
   updateWorkflowRecoveryJournal,
   type WorkflowRecoveryJournal} from '@/services/workflowRecovery';
 import { resolveCourierApiConfig } from '@/services/ai/courierLetterModel';
-import { mergeCourierSystemUpdates } from '@/services/ai/courierService';
 import { runCourierDeliveryTask, runCourierReplyTask } from './courierBackgroundJobs';
+import { applyCourierDeliveryTaskResult, applyCourierReplyTaskResult } from './courierReplyCommitWorkflow';
 import { planProactiveContacts } from '@/services/proactiveContacts';
-import { mergeNpcWriteBack, mergeSettlementSliceWriteBack, rebaseStoryProgressMemory } from '@/utils/npcWriteBack';
+import { mergeSettlementSliceWriteBack, rebaseStoryProgressMemory } from '@/utils/npcWriteBack';
+import { getCommittedCourierMessages } from '@/utils/courierReplyCommit';
 import { applyStoryArchiveCodexRuntimeUnlock } from '@/services/codexRuntimeUnlock';
 import { buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 import { runPostTurnBackgroundTasks, runSteambirdPostTurnTask } from './postTurnBackgroundTasks';
@@ -587,28 +589,27 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
           environment: courierEnvironment,
           travelerName: courierTravelerName,
           letterApiConfig: courierLetterApiConfig,
-          ...(proactivePlan.seeds.length ? { proactiveSeeds: proactivePlan.seeds } : {}),
+          proactiveSeeds: proactivePlan.seeds,
         });
         assertWorkflowActive();
-        courierAfterFallbackSeed = taskResult.courier;
-        npcAfterCompression = taskResult.npcs;
-        if (taskResult.newNpcNames.length) {
-          pushQueueTask(state, 'courier', 'success', {
-            detail: `已登记 ${taskResult.newNpcNames.length} 位通过手机结识的新角色：${taskResult.newNpcNames.join('、')}。`,
-          });
-        }
-        pushQueueTask(state, 'courier', taskResult.status, { detail: taskResult.detail });
-        if (taskResult.status === 'success') {
-          state.setNPC((current) => mergeNpcWriteBack({
-            start: taskBaseNpc, next: taskResult.npcs, current,
+        if (taskResult.courier !== taskBaseCourier || taskResult.npcs !== taskBaseNpc) {
+          flushSync(() => state.updateGameState(current => applyCourierDeliveryTaskResult(current, {
+            baseCourier: taskBaseCourier, resultCourier: taskResult.courier, baseNpcs: taskBaseNpc,
             expectedSessionId: taskSessionId, currentSessionId: state.getGameSessionId(),
-          }).records);
-          state.set手机((current) => state.getGameSessionId() === taskSessionId
-            ? mergeCourierSystemUpdates(current, taskBaseCourier, taskResult.courier)
-            : current);
-          notifyEvent(state.gameSettings.notificationSettings ?? DEFAULT_NOTIFICATION_SETTINGS, 'courier', '手机新消息', `收到 ${taskResult.delivered} 条新消息`);
+          })));
+        }
+        const committedDelivery = readLiveGameState(state);
+        courierAfterFallbackSeed = committedDelivery.手机;
+        npcAfterCompression = mapTeyvatNpcsToLegacy(committedDelivery);
+        const received = getCommittedCourierMessages(taskBaseCourier, taskResult.courier, committedDelivery.手机);
+        const delivered = new Set(received.flatMap(message => message.sourceSeedId ?? [])).size;
+        pushQueueTask(state, 'courier', delivered > 0 ? 'success' : 'skipped', {
+          detail: delivered > 0 ? `已送达 ${delivered} 条定时手机消息。` : taskResult.status === 'success' ? '接收对象已变化，迟到来信已跳过。' : taskResult.detail,
+        });
+        if (delivered > 0) {
+          notifyEvent(state.gameSettings.notificationSettings ?? DEFAULT_NOTIFICATION_SETTINGS, 'courier', '手机新消息', `收到 ${delivered} 条新消息`);
           if ((state.gameSettings.notificationSettings?.events.courier) !== false) {
-            pushToast({ kind: 'info', title: '手机新消息', detail: `收到 ${taskResult.delivered} 条新消息` });
+            pushToast({ kind: 'info', title: '手机新消息', detail: `收到 ${delivered} 条新消息` });
           }
         }
       };
@@ -633,15 +634,17 @@ export async function runVariableCalibrationStage(deps: VariableCalibrationDeps)
         });
         assertWorkflowActive();
         if (taskResult.status !== 'success') return;
-        courierAfterFallbackSeed = taskResult.courier;
-        npcAfterCompression = taskResult.npcs;
-        state.set手机((current) => state.getGameSessionId() === taskSessionId
-          ? mergeCourierSystemUpdates(current, taskBaseCourier, taskResult.courier)
-          : current);
-        state.setNPC((current) => mergeNpcWriteBack({
-          start: taskBaseNpc, next: taskResult.npcs, current,
+        flushSync(() => state.updateGameState(current => applyCourierReplyTaskResult(current, {
+          baseCourier: taskBaseCourier, resultCourier: taskResult.courier, baseNpcs: taskBaseNpc,
           expectedSessionId: taskSessionId, currentSessionId: state.getGameSessionId(),
-        }).records);
+        })));
+        const committedReply = readLiveGameState(state);
+        courierAfterFallbackSeed = committedReply.手机;
+        npcAfterCompression = mapTeyvatNpcsToLegacy(committedReply);
+        if (!getCommittedCourierMessages(taskBaseCourier, taskResult.courier, committedReply.手机).length) {
+          pushQueueTask(state, 'courier', 'skipped', { detail: '接收成员已变化，迟到回信已跳过。' });
+          return;
+        }
         pushQueueTask(state, 'courier', 'success', { detail: taskResult.detail });
         notifyEvent(state.gameSettings.notificationSettings ?? DEFAULT_NOTIFICATION_SETTINGS, 'courier', '手机回复', `收到 ${taskResult.replied} 个会话回复`);
         if ((state.gameSettings.notificationSettings?.events.courier) !== false) {

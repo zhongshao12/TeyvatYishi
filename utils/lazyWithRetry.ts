@@ -82,11 +82,27 @@ export function preloadAll(
   idleTimeout = 4000,
 ): () => void {
   let cancelled = false;
-  const schedule = typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
-    ? (cb: () => void) => window.requestIdleCallback(() => cb(), { timeout: idleTimeout })
-    : (cb: () => void) => window.setTimeout(cb, 300);
-  schedule(() => {
-    if (!cancelled) components.forEach((component) => void component.preload().catch(() => undefined));
-  });
-  return () => { cancelled = true; };
+  let index = 0;
+  let scheduled: number | undefined;
+  const idle = typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function' && typeof window.cancelIdleCallback === 'function';
+  const scheduleNext = () => {
+    if (cancelled || index >= components.length) return;
+    const run = () => {
+      scheduled = undefined;
+      if (cancelled) return;
+      const component = components[index++];
+      // Avoid importing/evaluating every large panel in the same idle turn.
+      void Promise.resolve().then(() => cancelled ? undefined : component?.preload())
+        .catch(() => undefined).then(scheduleNext);
+    };
+    scheduled = idle ? window.requestIdleCallback(run, { timeout: idleTimeout }) : window.setTimeout(run, 300);
+  };
+  scheduleNext();
+  return () => {
+    cancelled = true;
+    if (scheduled !== undefined) {
+      if (idle) window.cancelIdleCallback(scheduled);
+      else window.clearTimeout(scheduled);
+    }
+  };
 }

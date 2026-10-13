@@ -366,7 +366,10 @@ function buildStorySnapshotRenderContext(
     sceneNegativePrompt: compactedScene.negative,
     characters: characters.map(character => {
       const compacted = compactImagePrompts({ prompt: character.visualPrompt, negative: character.negativePrompt, characters: readSnapshotPromptCharacters(params, [character]), limit: STORY_SNAPSHOT_CONTEXT_LIMITS.characterPrompt, negativeLimit: STORY_SNAPSHOT_CONTEXT_LIMITS.characterNegativePrompt });
-      return { ...character, visualPrompt: compacted.prompt, negativePrompt: compacted.negative };
+      const visual = readSnapshotPromptCharacters(params, [character])[0];
+      return { ...character, visualPrompt: compacted.prompt, negativePrompt: compacted.negative,
+        facts: visual?.facts?.language === 'en' ? visual.facts : undefined,
+        anchorPrompt: visual?.facts?.language === 'en' ? visual.anchorPrompt : undefined };
     }),
   })!;
 }

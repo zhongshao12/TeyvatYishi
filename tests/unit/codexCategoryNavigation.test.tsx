@@ -27,6 +27,21 @@ const codex: ArchiveCodex = {
 describe('codex category navigation', () => {
   const hosts: HTMLDivElement[] = [];
   afterEach(() => { hosts.forEach((host) => host.remove()); hosts.length = 0; clearContentResourceStatuses(); });
+  it.each(['character', 'location'])('related_navigation_clears_a_search_that_excludes_its_%s_target', async category => {
+    const alpha = { ...entry('a', 'character', 'Alpha', 'A 的资料'), relatedEntryIds: ['b'] };
+    const beta = entry('b', category, 'Beta', 'B 的完整资料');
+    const archive: ArchiveCodex = { entries: [alpha, beta], unlockedEntryIds: ['a', 'b'] };
+    const host = document.createElement('div'); hosts.push(host); document.body.append(host); const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(CodexManagerModal, { codex: archive, onClose: () => {} })));
+      const search = host.querySelector<HTMLInputElement>('[aria-label="搜索图鉴条目"]')!;
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'Alpha'); search.dispatchEvent(new Event('input', { bubbles: true })); });
+      const related = [...host.querySelectorAll<HTMLButtonElement>('main button')].find(button => button.textContent?.trim() === 'Beta');
+      expect(related).toBeDefined(); await act(async () => related!.click());
+      expect(host.querySelector('main')?.textContent).toContain('B 的完整资料');
+      expect(search.value).toBe('');
+    } finally { await act(async () => root.unmount()); }
+  });
 
   it('switching_location_character_term_shows_matching_entries', async () => {
     const host = document.createElement('div'); hosts.push(host); document.body.append(host);
@@ -71,7 +86,7 @@ describe('codex category navigation', () => {
     } finally { await act(async () => root.unmount()); }
   });
 
-  it('locked_entry_hides_body_and_injection', async () => {
+  it('story_locked_entry_remains_readable_for_the_player_without_granting_npc_knowledge', async () => {
     const locked = { ...entry('sealed', 'term', '封存词条', 'SECRET_SUMMARY'), description: 'SECRET_DESCRIPTION', injection: { publicText: 'SECRET_INJECTION' }, runtimeUnlock: { status: 'locked', note: '继续探索解锁' } };
     const archive: ArchiveCodex = { entries: [locked], unlockedEntryIds: [] };
     const host = document.createElement('div'); hosts.push(host); document.body.append(host);
@@ -79,8 +94,11 @@ describe('codex category navigation', () => {
     try {
       await act(async () => root.render(createElement(CodexManagerModal, { codex: archive, onClose: () => undefined })));
       expect(host.textContent).toContain('封存词条');
-      expect(host.textContent).toContain('继续探索解锁');
-      expect(host.textContent).not.toContain('SECRET_');
+      expect(host.textContent).toContain('SECRET_SUMMARY');
+      expect(host.textContent).toContain('SECRET_DESCRIPTION');
+      expect(host.textContent).toContain('SECRET_INJECTION');
+      expect(host.textContent).toContain('图鉴不是 NPC 已知信息');
+      expect(archive.unlockedEntryIds).toEqual([]);
     } finally { await act(async () => root.unmount()); }
   });
 

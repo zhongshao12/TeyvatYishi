@@ -23,6 +23,8 @@ interface PathPanelProps {
   /** G1：当前场面附着与最近反应事件（可选，便于独立使用）。 */
   elementalField?: ElementalFieldState;
   elementalEvents?: ElementalReactionEvent[];
+  browsedElement?: ElementId;
+  onBrowseElement?: (element: ElementId) => void;
 }
 
 const ELEMENT_DETAILS: Record<ElementId, { name: string; emblem: string; color: string; description: string }> = {
@@ -35,7 +37,7 @@ const ELEMENT_DETAILS: Record<ElementId, { name: string; emblem: string; color: 
   cryo: { name: ELEMENT_NAMES.cryo, emblem: ELEMENT_EMBLEMS.cryo, color: ELEMENT_COLORS.cryo, description: '沉静、冻结与保存。' },
 };
 
-export function PathPanel({ traveler, onTravelerChange, elementalField, elementalEvents = [] }: PathPanelProps) {
+export function PathPanel({ traveler, onTravelerChange, elementalField, elementalEvents = [], browsedElement, onBrowseElement }: PathPanelProps) {
   const unlocked = new Map(traveler.元素共鸣.map((entry) => [entry.element, entry]));
   const recentEvents = elementalEvents.slice(-3).reverse();
 
@@ -61,8 +63,9 @@ export function PathPanel({ traveler, onTravelerChange, elementalField, elementa
             <button
               key={element}
               type="button"
-              disabled={!attunement?.unlocked}
-              onClick={() => choosePrimary(element)}
+              disabled={!onBrowseElement && !attunement?.unlocked}
+              onClick={() => onBrowseElement ? onBrowseElement(element) : choosePrimary(element)}
+              aria-pressed={onBrowseElement ? browsedElement === element : isPrimary}
               className="p-4 text-left transition-opacity disabled:cursor-not-allowed disabled:opacity-55"
               style={{ background: 'rgba(var(--tj-panel-bg-end),0.56)', boxShadow: `inset 0 0 0 1px ${isPrimary ? detail.color : 'rgba(var(--tj-text-secondary),0.18)'}` }}
             >
@@ -87,6 +90,13 @@ export function PathPanel({ traveler, onTravelerChange, elementalField, elementa
           );
         })}
       </div>
+
+      {onBrowseElement && browsedElement && <div className="flex flex-wrap items-center justify-between gap-3 rounded border p-3" style={{ borderColor: 'rgba(var(--tj-border),0.5)' }}>
+        <p className="text-xs leading-6">正在浏览{ELEMENT_NAMES[browsedElement]}元素天赋。浏览不会觉醒或切换共鸣。</p>
+        <button type="button" className="teyvat-btn teyvat-btn-primary min-h-11 px-4 text-xs disabled:opacity-45"
+          disabled={!unlocked.get(browsedElement)?.unlocked || traveler.主元素 === browsedElement}
+          onClick={() => choosePrimary(browsedElement)}>设为主元素</button>
+      </div>}
 
       {elementalField && (elementalField.auraElement || recentEvents.length > 0) && (
         <section className="p-4" style={{ background: 'rgba(var(--tj-panel-bg-end),0.56)', boxShadow: `inset 0 0 0 1px rgba(var(--tj-text-secondary),0.18)`, clipPath: CLIP_ITEM }}>

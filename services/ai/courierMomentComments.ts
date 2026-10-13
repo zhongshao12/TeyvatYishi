@@ -21,6 +21,8 @@ export function buildMomentCommentPrompt(input: MomentCommentInput): string {
     input.profile.sharedExperiences?.length ? `共同经历：${input.profile.sharedExperiences.slice(-3).join('；')}` : '',
     input.profile.unfinishedBusiness?.length ? `你与旅行者的约定：${input.profile.unfinishedBusiness.slice(0, 2).join('；')}` : '',
     `旅行者动态：${input.post.content}`,
+    input.post.images?.length ? `公开配图：${input.post.images.length} 张。你是文字模型，无法查看图片；只能回应动态正文和玩家公开填写的配图说明，不得猜测未见到的画面、图片生成提示词或私密档案。` : '',
+    ...(input.post.images ?? []).flatMap((image, index) => image.caption ? [`配图 ${index + 1} 公开说明：${image.caption}`] : []),
   ].filter(Boolean).join('\n');
 }
 

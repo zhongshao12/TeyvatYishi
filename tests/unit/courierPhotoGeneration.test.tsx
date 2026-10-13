@@ -2,7 +2,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { 创建默认游戏设置 } from '@/models/settings';
+import { 创建默认游戏设置, type API配置项 } from '@/models/settings';
 import { 创建NPC记录 } from '@/models/npc';
 import { 创建空相册系统 } from '@/models/imageGeneration';
 import { createEmptyTeyvatGameState, type TeyvatGameState } from '@/models/teyvat/state';
@@ -11,20 +11,31 @@ import { createEmptyCourierSystem } from '@/models/teyvat/courier';
 import { resolveCourierPhotoTarget } from '@/services/courierPhoto';
 import { CourierPhotoComposer, type CourierPhotoComposerProps } from '@/components/features/Courier/CourierPhotoComposer';
 import { CourierModal } from '@/components/features/Courier/CourierModal';
+import { CourierPanel } from '@/components/features/Courier/CourierPanel';
 import { normalizeJourneyAlbum } from '@/models/teyvat/runtimeSlices';
 import { useCourierPhotoGeneration } from '@/components/features/Courier/useCourierPhotoGeneration';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const imageApi = vi.hoisted(() => vi.fn());
+const { translationApi, translationStore } = vi.hoisted(() => ({ translationApi: vi.fn(), translationStore: new Map<string, unknown>() }));
 vi.mock('@/services/ai/imageGeneration', () => ({ generateImage: imageApi }));
+vi.mock('@/services/ai/chatCompletionClient', () => ({ chatCompletionNonStream: translationApi }));
+vi.mock('@/services/dbService', async importOriginal => ({ ...await importOriginal<object>(),
+  loadSetting: async (key: string) => translationStore.get(key) ?? null,
+  saveSetting: async (key: string, value: unknown) => { translationStore.set(key, value); },
+}));
 const npc = { ...创建NPC记录({ 姓名: '安柏', 初见回合: 1 }), id: 'amber', 性别: '女' as const, 外貌: '棕发，红色兔耳发饰', 外貌档案: { 发色: { value: '棕色', source: 'manual' as const } } };
 let root: Root | undefined;
 let host: HTMLDivElement;
-afterEach(async () => { await act(async () => root?.unmount()); root = undefined; host?.remove(); imageApi.mockReset(); vi.unstubAllGlobals(); });
+afterEach(async () => { await act(async () => root?.unmount()); root = undefined; host?.remove(); imageApi.mockReset(); translationApi.mockReset(); translationStore.clear(); vi.unstubAllGlobals(); });
 
 async function mount() {
+  translationApi.mockResolvedValue(JSON.stringify({ name: 'Amber', gender: 'female', appearance: 'brown hair, red rabbit-ear accessory', appearanceDetails: { 发色: { value: 'brown' } } }));
   let game = createEmptyTeyvatGameState();
-  game.NPC = normalizeTeyvatNpcRecords([{ id: 'amber', name: '安柏', gender: '女' }]);
+  game.NPC = [{ ...normalizeTeyvatNpcRecords([{ id: 'amber', name: '测试同伴' }])[0]!,
+    姓名: npc.姓名, gender: npc.性别, appearance: npc.外貌, appearanceFacts: npc.外貌档案,
+    clothing: npc.穿着 ?? '', 说明: npc.介绍 ?? '', notes: npc.备注,
+  }];
   game.手机 = { ...createEmptyCourierSystem(), contacts: [{ id: 'contact', npcId: 'amber', name: '备注', available: true }], conversations: [{ id: 'chat', title: '群聊', type: 'group', participantIds: ['player', 'contact'], unread: 0, typingMemberIds: [], updatedAt: 1, messages: [
     { id: 'ask', senderId: 'player', senderName: '云', role: 'user', content: '拍张城门的照片给我看看', turn: 2, timestamp: 1, readBy: [] },
     { id: 'reply', senderId: 'contact', senderName: '安柏', role: 'contact', content: '我站在城门前，身后是鲜花。', turn: 2, timestamp: 2, readBy: [] },
@@ -37,6 +48,7 @@ async function mount() {
   const target = resolveCourierPhotoTarget(game.手机, [npc], 'chat', 'reply')!.target;
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   const props: CourierPhotoComposerProps = { target, courier: game.手机, album, npcRecords: [npc], imageSettings: settings,
+    apiSettings: { activeConfigId: 'text', configs: [{ id: 'text', name: 'test', provider: 'openai', model: 'test', baseUrl: '', apiKey: '', createdAt: 1, updatedAt: 1 } as API配置项] },
     getGameSessionId: () => session,
     onAlbumChange: update => { album = typeof update === 'function' ? update(album) : update; game = { ...game, 相册: normalizeJourneyAlbum({ ...game.相册, assets: album.assets, generationTasks: album.tasks }) }; },
     onCommitPhoto: (update, expectedSession) => { if (expectedSession !== session) return false; const next = update(game); const accepted = next !== game; game = next; return accepted; },
@@ -46,9 +58,54 @@ async function mount() {
   await render();
   return { props, render, game: () => game, album: () => album, switchSession: () => { session++; }, removeTarget: () => { game.手机.conversations = []; }, setGame: (next: TeyvatGameState) => { game = next; } };
 }
-const button = (label: string) => Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(item => item.textContent === label)!;
+const button = (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(item => item.textContent === label)!;
 
 describe('confirmed phone photos', () => {
+  it('photo_preview_is_a_separate_dialog_and_escape_closes_only_the_preview', async () => {
+    const ui = await mount();
+    expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('手机照片预览');
+    expect(imageApi).not.toHaveBeenCalled();
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(ui.props.onClose).toHaveBeenCalledTimes(1);
+  });
+  it('opens the photo preview for a visible chat beyond the first page of conversation rows', async () => {
+    const ui = await mount();
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const conversation = ui.props.courier.conversations[0]!;
+    let courier = { ...ui.props.courier, conversations: Array.from({ length: 80 }, (_, i) => ({ ...conversation, id: i === 0 ? conversation.id : `other-${i}`, updatedAt: i + 1 })) };
+    await act(async () => root!.render(createElement(CourierPanel, { ...ui.props, courier, travelerName: '云',
+      onCourierChange: update => { courier = typeof update === 'function' ? update(courier) : update; } })));
+    const photo = [...document.querySelectorAll<HTMLButtonElement>('button')].find(item => item.getAttribute('aria-label') === '手机照片')!;
+    expect(photo.disabled).toBe(false);
+    await act(async () => { photo.click(); await vi.dynamicImportSettled(); });
+    expect(document.querySelector('[role="dialog"][aria-label="手机照片预览"]')).not.toBeNull();
+    expect(imageApi).not.toHaveBeenCalled();
+  });
+  it('does not show a private photo action when the group filter has no matching conversation', async () => {
+    const ui = await mount(); vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    let courier: typeof ui.props.courier = { ...ui.props.courier, conversations: ui.props.courier.conversations.map(item => ({ ...item, type: 'private' as const })) };
+    await act(async () => root!.render(createElement(CourierPanel, { ...ui.props, courier, travelerName: '云',
+      onCourierChange: update => { courier = typeof update === 'function' ? update(courier) : update; } })));
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === '群组')!.click());
+    expect(document.querySelector('[aria-label="手机照片"]')).toBeNull();
+    expect(imageApi).not.toHaveBeenCalled();
+  });
+  it.each(['外貌', '穿着'] as const)('invalidates an open preview when recorded %s changes', async field => {
+    const ui = await mount();
+    let generation!: ReturnType<typeof useCourierPhotoGeneration>;
+    function Harness() { generation = useCourierPhotoGeneration(ui.props); return null; }
+    await act(async () => root!.render(createElement(Harness)));
+    const previous = generation.draft.prompt;
+    ui.props.npcRecords = [{ ...npc, [field]: field === '外貌' ? '银发，蓝眼睛' : 'green coat',
+      外貌档案: field === '外貌' ? { 发色: { value: '银色', source: 'manual' } } : npc.外貌档案 }];
+    await act(async () => root!.render(createElement(Harness)));
+    expect(generation.disabledReason).toContain('资料已变化');
+    expect(generation.draft.prompt).toBe(previous);
+    await act(async () => generation.generate());
+    expect(imageApi).not.toHaveBeenCalled();
+    await act(async () => generation.rebuild());
+    expect(generation.disabledReason).toBe('');
+  });
   it.each(['unknown', 'known'] as const)('blocks paying for a stale preview after editing an %s photo requirement', async kind => {
     const ui = await mount();
     if (kind === 'unknown') {
@@ -88,8 +145,8 @@ describe('confirmed phone photos', () => {
     ui.props.target = resolveCourierPhotoTarget(ui.props.courier, [npc], 'chat', 'reply')!.target;
     await act(async () => { root!.unmount(); }); root = createRoot(host);
     await ui.render();
-    expect(host.querySelector<HTMLTextAreaElement>('[aria-label="照片描述"]')!.value).toBe('');
-    expect(host.textContent).toContain('未能确定');
+    expect(document.querySelector<HTMLTextAreaElement>('[aria-label="照片描述"]')!.value).toBe('');
+    expect(document.body.textContent).toContain('未能确定');
     expect(button('确认生成').disabled).toBe(true);
     expect(imageApi).not.toHaveBeenCalled();
   });
@@ -98,7 +155,7 @@ describe('confirmed phone photos', () => {
     ui.props.npcRecords = [{ ...npc, 外貌: '棕发。好感度90。NSFW档案: 秘密。', 外貌档案: { 发色: { value: '棕色, 关系标签: 内部秘密', source: 'manual' } } }];
     await act(async () => { root!.unmount(); }); root = createRoot(host);
     await ui.render();
-    const prompt = host.querySelector<HTMLTextAreaElement>('[aria-label="照片正面提示词"]')!.value;
+    const prompt = document.querySelector<HTMLTextAreaElement>('[aria-label="照片正面提示词"]')!.value;
     expect(prompt).toContain('棕色');
     expect(prompt).not.toMatch(/好感|NSFW|秘密|关系标签/);
   });
@@ -112,7 +169,7 @@ describe('confirmed phone photos', () => {
     await act(async () => generation.generate());
     expect(imageApi.mock.calls[0]?.[1].prompt.length).toBeLessThanOrEqual(2000);
     expect(imageApi.mock.calls[0]?.[1].negativePrompt.length).toBeLessThanOrEqual(2000);
-    expect(imageApi.mock.calls[0]?.[1].prompt).toContain('安柏');
+    expect(imageApi.mock.calls[0]?.[1].prompt).toContain('Amber');
   });
   it('sanitizes manual prompt edits at final send without erasing the requested scene', async () => {
     const ui = await mount();
@@ -124,7 +181,7 @@ describe('confirmed phone photos', () => {
     await act(async () => generation.generate());
     const request = imageApi.mock.calls[0]?.[1];
     expect(request.prompt).toContain('lake sunset');
-    expect(request.prompt).toContain('安柏');
+    expect(request.prompt).toContain('Amber');
     expect(request.prompt).not.toMatch(/好感|七维|NSFW|私密|内部/);
     expect(request.prompt.length).toBeLessThanOrEqual(2000);
     expect(request.negativePrompt.length).toBeLessThanOrEqual(2000);
@@ -133,14 +190,16 @@ describe('confirmed phone photos', () => {
     imageApi.mockResolvedValue({ src: 'https://example.invalid/generated.webp', backend: 'openai_compatible' });
     const ui = await mount();
     expect(imageApi).not.toHaveBeenCalled();
-    expect(host.querySelector<HTMLTextAreaElement>('[aria-label="照片正面提示词"]')?.value).toContain('安柏');
-    expect(host.querySelector<HTMLTextAreaElement>('[aria-label="照片描述"]')?.value).toBe('拍张城门的照片给我看看');
-    expect(host.querySelector<HTMLTextAreaElement>('[aria-label="照片正面提示词"]')?.value).not.toMatch(/鲜花|official|portrait|personality|关系|七维/);
-    expect(host.querySelector<HTMLTextAreaElement>('[aria-label="照片正面提示词"]')!.value.length).toBeLessThan(700);
+    expect(translationApi).not.toHaveBeenCalled();
+    expect(document.querySelector<HTMLTextAreaElement>('[aria-label="照片正面提示词"]')?.value).toContain('安柏');
+    expect(document.querySelector<HTMLTextAreaElement>('[aria-label="照片描述"]')?.value).toBe('拍张城门的照片给我看看');
+    expect(document.querySelector<HTMLTextAreaElement>('[aria-label="照片正面提示词"]')?.value).not.toMatch(/鲜花|official|portrait|personality|关系|七维/);
+    expect(document.querySelector<HTMLTextAreaElement>('[aria-label="照片正面提示词"]')!.value.length).toBeLessThan(700);
     await act(async () => { button('确认生成').click(); });
     expect(imageApi).toHaveBeenCalledTimes(1);
     expect(imageApi.mock.calls[0]?.[1]).toMatchObject({ nsfw: false });
-    expect(imageApi.mock.calls[0]?.[1].prompt).toContain('棕色');
+    expect(imageApi.mock.calls[0]?.[1].prompt).toContain('brown');
+    expect(imageApi.mock.calls[0]?.[1].prompt).not.toContain('character name: 安柏');
     expect(imageApi.mock.calls[0]?.[1].prompt).toContain('城门');
     expect(imageApi.mock.calls[0]?.[1].prompt).toContain('phone photo');
     expect(imageApi.mock.calls[0]?.[1].prompt.match(/character name:/gu)).toHaveLength(1);
@@ -196,7 +255,7 @@ describe('confirmed phone photos', () => {
     const ui = await mount();
     await act(async () => { button('确认生成').click(); button('确认生成').click(); });
     expect(imageApi).toHaveBeenCalledTimes(1);
-    expect(host.textContent).toContain('测试失败');
+    expect(document.body.textContent).toContain('测试失败');
     await act(async () => { button('重试生成').click(); });
     expect(imageApi).toHaveBeenCalledTimes(2);
     expect(ui.game().相册.entries).toHaveLength(1);
@@ -211,7 +270,7 @@ describe('confirmed phone photos', () => {
     await ui.render();
     await act(async () => { button('确认生成').click(); });
     expect(imageApi).not.toHaveBeenCalled();
-    expect(host.textContent).toMatch(/变化|失效/);
+    expect(document.body.textContent).toMatch(/变化|失效/);
   });
 
   it('marks a rejected live-root commit cancelled instead of pretending success', async () => {
@@ -224,12 +283,28 @@ describe('confirmed phone photos', () => {
     expect(ui.game().相册.entries).toHaveLength(0);
     expect(ui.game().相册.generationTasks[0]?.status).toBe('cancelled');
     expect(ui.props.onClose).not.toHaveBeenCalled();
-    expect(host.textContent).toMatch(/变化|未写入/);
+    expect(document.body.textContent).toMatch(/变化|未写入/);
+  });
+
+  it.each(['rendered', 'root-only'] as const)('rejects old character photos after %s appearance changes', async change => {
+    let finish!: (value: { src: string }) => void;
+    imageApi.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const ui = await mount();
+    await act(async () => button('确认生成').click());
+    ui.setGame({ ...ui.game(), NPC: ui.game().NPC.map(item => ({ ...item, appearance: '银发，红色兔耳发饰', appearanceFacts: { 发色: { value: '银色', source: 'manual' } } })) });
+    if (change === 'rendered') {
+      ui.props.npcRecords = [{ ...npc, 外貌: '银发，红色兔耳发饰', 外貌档案: { 发色: { value: '银色', source: 'manual' } } }];
+      await ui.render();
+    }
+    await act(async () => finish({ src: 'https://example.invalid/old-appearance.webp' }));
+    expect(ui.game().相册.entries).toHaveLength(0);
+    expect(ui.props.onClose).not.toHaveBeenCalled();
+    expect(document.body.textContent).toMatch(/变化|未写入/);
   });
 
   it('does not call a disabled image API', async () => {
     const ui = await mount(); ui.props.imageSettings.enabled = false; await ui.render();
-    expect(host.textContent).toContain('未开启');
+    expect(document.body.textContent).toContain('未开启');
     expect(button('确认生成').disabled).toBe(true);
     expect(imageApi).not.toHaveBeenCalled();
   });
@@ -242,20 +317,20 @@ describe('confirmed phone photos', () => {
     const renderPhone = async () => act(async () => root!.render(createElement(CourierModal, {
       courier: JSON.parse(JSON.stringify(ui.game().手机)), album: { ...ui.album(), assets: ui.game().相册.assets,
         entries: ui.game().相册.entries.map(entry => ({ ...entry, assetId: entry.assetId!, title: entry.title!, targetType: entry.targetType!, slot: entry.slot!, nsfw: entry.nsfw!, tags: entry.tags!, referenceTargets: entry.referenceTargets! })) },
-      npcRecords: [npc], imageSettings: ui.props.imageSettings, getGameSessionId: ui.props.getGameSessionId,
+      npcRecords: [npc], imageSettings: ui.props.imageSettings, apiSettings: ui.props.apiSettings, getGameSessionId: ui.props.getGameSessionId,
       onAlbumChange: ui.props.onAlbumChange, onCommitPhoto: ui.props.onCommitPhoto, onCourierChange: vi.fn(), onClose: vi.fn(),
     })));
     await renderPhone();
-    expect(host.querySelectorAll('[aria-label="手机照片"]')).toHaveLength(1);
-    expect(host.querySelectorAll('[data-phone-message-row] button')).toHaveLength(0);
-    expect(host.querySelectorAll('[aria-label="生成 云 的照片"]')).toHaveLength(0);
-    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="手机照片"]')!.click(); });
-    expect(host.querySelector('[aria-label="照片正面提示词"]')).toBeTruthy();
+    expect(document.querySelectorAll('[aria-label="手机照片"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-phone-message-row] button')).toHaveLength(0);
+    expect(document.querySelectorAll('[aria-label="生成 云 的照片"]')).toHaveLength(0);
+    await act(async () => { document.querySelector<HTMLButtonElement>('[aria-label="手机照片"]')!.click(); });
+    expect(document.querySelector('[aria-label="照片正面提示词"]')).toBeTruthy();
     expect(imageApi).not.toHaveBeenCalled();
     await act(async () => { button('确认生成').click(); });
     await renderPhone();
-    expect(host.querySelector<HTMLImageElement>('img[alt="安柏 的手机照片"]')?.src).toBe('https://example.invalid/generated.webp');
-    expect(host.textContent).toContain('我站在城门前，身后是鲜花。');
+    expect(document.querySelector<HTMLImageElement>('img[alt="安柏 的手机照片"]')?.src).toBe('https://example.invalid/generated.webp');
+    expect(document.body.textContent).toContain('我站在城门前，身后是鲜花。');
     expect(ui.game().相册.generationTasks[0]?.status).toBe('success');
   });
 

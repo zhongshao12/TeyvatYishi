@@ -216,11 +216,18 @@ describe('destructive action undo', () => {
 
   it('offers an undo toast instead of a native confirm when dissolving a group chat', async () => {
     const onCourierChange = vi.fn();
+    let latest = courier;
+    function Harness() {
+      const [current, setCurrent] = useState(courier);
+      latest = current;
+      return createElement(CourierModal, { courier: current,
+        onCourierChange: update => { onCourierChange(update); setCurrent(update); }, onClose: vi.fn() });
+    }
     const confirmSpy = vi.fn(() => true);
     vi.stubGlobal('confirm', confirmSpy);
 
     await act(async () => {
-      root.render(createElement(CourierModal, { courier, onCourierChange, onClose: vi.fn() }));
+      root.render(createElement(Harness));
     });
     await act(async () => findButton('群聊设置').click());
     await act(async () => findButton('解散群聊').click());
@@ -228,10 +235,12 @@ describe('destructive action undo', () => {
     expect(confirmSpy).not.toHaveBeenCalled();
     // 解散必须立刻生效。
     expect(onCourierChange).toHaveBeenCalledTimes(1);
+    expect(latest.conversations.some(conversation => conversation.id === 'mondstadt-group')).toBe(false);
 
     const toast = undoAction();
     await act(async () => toast.action!.run());
     expect(onCourierChange).toHaveBeenCalledTimes(2);
+    expect(latest.conversations.some(conversation => conversation.id === 'mondstadt-group')).toBe(true);
     vi.unstubAllGlobals();
   });
 

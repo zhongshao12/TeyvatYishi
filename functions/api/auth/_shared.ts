@@ -57,6 +57,7 @@ export async function limitRequestBody(
     method: request.method,
     headers: request.headers,
     body: text,
+    signal: request.signal,
   });
 }
 

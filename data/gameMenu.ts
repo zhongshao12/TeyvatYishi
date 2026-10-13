@@ -4,6 +4,7 @@
 export type GameSystemId =
   | 'path'
   | 'skill'
+  | 'phone'
   | 'inventory'
   | 'quest'
   | 'companion'
@@ -25,8 +26,8 @@ export interface GameMenuItem {
 }
 
 export const GAME_MENU_ITEMS: GameMenuItem[] = [
-  { id: 'path', label: '元素', subtitle: '神之眼与元素共鸣，被尘世七执政注视的证明。', glyph: '✶' },
-  { id: 'skill', label: '天赋', subtitle: '元素战技 / 元素爆发', glyph: '✧' },
+  { id: 'path', label: '元素与天赋', subtitle: '元素共鸣 · 战技 · 固有天赋', glyph: '✶' },
+  { id: 'phone', label: '手机', subtitle: '消息 · 通讯录 · 朋友圈', glyph: '✧' },
   { id: 'inventory', label: '背包', subtitle: '圣遗物 · 武器 · 料理', glyph: '◇' },
   { id: 'quest', label: '任务', subtitle: '魔神任务 / 传说任务 / 委托', glyph: '⚑' },
   { id: 'companion', label: '同伴', subtitle: '同行角色与好感', glyph: '✦' },

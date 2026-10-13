@@ -20,8 +20,6 @@ interface LeftPanelProps {
   traveler: 角色数据结构;
   /** 点击头像 / 名字时触发，打开旅人档案只读弹窗。 */
   onOpenProfile?: () => void;
-  onOpenCourier?: () => void;
-  courierUnread?: number;
   album?: 相册系统;
   npcRecords?: NPC记录[];
   currentStoryChapter?: string;
@@ -33,8 +31,6 @@ interface LeftPanelProps {
 export const LeftPanel = memo(function LeftPanel({
   traveler,
   onOpenProfile,
-  onOpenCourier,
-  courierUnread = 0,
   album,
   npcRecords = [],
   currentStoryChapter,
@@ -194,38 +190,6 @@ export const LeftPanel = memo(function LeftPanel({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onOpenCourier}
-          disabled={!onOpenCourier}
-          className="journal-focus-target mt-4 flex min-h-11 items-center justify-between px-3 py-2.5 transition-all hover:opacity-90 disabled:cursor-default"
-          style={{
-            background: BOOKMARK_PANEL,
-            boxShadow: `inset 0 0 0 1px ${BOOKMARK_BORDER}`,
-            clipPath:
-              CLIP_MEDIUM,
-          }}
-          title="打开手机"
-        >
-          <span className="flex items-center gap-2">
-            <span className="font-serif text-base" style={{ color: 'rgb(var(--tj-accent-primary))' }}>▣</span>
-            <span className="font-serif text-[13px] font-bold tracking-[0.22em]" style={{ color: BOOKMARK_TEXT }}>
-              手机
-            </span>
-          </span>
-          {courierUnread > 0 && (
-            <span
-              className="rounded-full px-2 py-0.5 text-[11px] font-bold"
-              style={{
-                color: 'rgb(var(--tj-ui-active-text))',
-                background: 'rgba(220, 80, 80, 0.42)',
-                boxShadow: '0 0 10px rgba(220, 80, 80, 0.35)',
-              }}
-            >
-              {courierUnread}
-            </span>
-          )}
-        </button>
         {currentStoryChapter && (
           <div
             className="mt-2 px-3 py-2"

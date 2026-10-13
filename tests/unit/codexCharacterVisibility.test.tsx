@@ -24,11 +24,11 @@ async function render(records: NPC记录[] = [npc], archive = codex) {
   return { host, root };
 }
 describe('public character codex visibility', () => {
-  it('makes characters readable while keeping actual unlock and AI retrieval unchanged', () => {
+  it('makes every category readable and recallable while keeping actual discovery flags unchanged', () => {
     const items = buildCodexArchiveItems(codex);
     expect(items[0]?.summary).toContain('图书管理员'); expect(items[0]?.unlocked).toBe(false);
-    expect(items.slice(1).every(item => item.summary === '')).toBe(true);
-    expect(retrieveCodexEntries(codex, '丽莎').entries).toEqual([]); expect(codex.unlockedEntryIds).toEqual([]);
+    expect(items.slice(1).every(item => item.summary === '封存内容')).toBe(true);
+    expect(retrieveCodexEntries(codex, '丽莎').entries.map(entry => entry.id)).toEqual(['lisa']); expect(codex.unlockedEntryIds).toEqual([]);
   });
   it('shows current public appearance and sourced details without two contradictory anchors or private archives', async () => {
     const { host, root } = await render();
@@ -124,9 +124,9 @@ describe('public character codex visibility', () => {
     try { expect(host.textContent).toContain('蓝色长裙'); expect(host.textContent).not.toContain('90/60/90'); }
     finally { await act(async () => root.unmount()); }
   });
-  it('explains that readable locked characters are not injected into a turn', async () => {
+  it('explains that full player access does not grant NPC knowledge', async () => {
     const { host, root } = await render();
-    try { expect(host.textContent).toContain('仅供阅读，未解锁时不会在回合中注入'); expect(retrieveCodexEntries(codex, '丽莎').entries).toEqual([]); }
+    try { expect(host.textContent).toContain('图鉴不是 NPC 已知信息'); expect(retrieveCodexEntries(codex, '丽莎').entries.map(entry => entry.id)).toEqual(['lisa']); }
     finally { await act(async () => root.unmount()); }
   });
   it('hides unverified and protected measurements including explicit prose, without hiding height', async () => {

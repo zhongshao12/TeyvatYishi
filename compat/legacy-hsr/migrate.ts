@@ -1,3 +1,4 @@
+import { 归一化NPC角色锚点 } from '@/models/npc';
 import {
   createEmptyElementalField,
   createEmptyTeyvatGameState,
@@ -20,6 +21,7 @@ import type {
 } from './types';
 import { parseStoredLegacyResponse } from '@/services/ai/responseParser';
 import { normalizeWorldMoment } from '@/services/worldMoment';
+import { normalizeImageCharacterEnglishCache } from '@/models/imageCharacterEnglish';
 
 export { classifySaveUniverse } from './classify';
 export type { DbSaveClassificationResult, MigrationIssue, MigrationReport, SaveMigrationResult, SaveUniverseClass } from './types';
@@ -112,6 +114,8 @@ function mapNpcVisualArchive(value: unknown): TeyvatNpcRecord['visualArchive'] {
   const statusMap = { none: 'none', pending: 'pending', done: 'done', failed: 'failed' } as const;
   const sourceMap = { 手动: 'manual', 原著: 'canon', 文生图: 'generated', 占位: 'placeholder' } as const;
   return {
+    englishFacts: normalizeImageCharacterEnglishCache(raw.englishFacts),
+    characterAnchor: 归一化NPC角色锚点(raw.角色锚点),
     ...(optionalText(raw.头像) ? { profileImage: text(raw.头像) } : {}), ...(optionalText(raw.立绘) ? { fullPortrait: text(raw.立绘) } : {}),
     slotImages: { ...(optionalText(slots.档案) ? { profile: text(slots.档案) } : {}), ...(optionalText(slots.正文) ? { narrative: text(slots.正文) } : {}), ...(optionalText(slots.手机) ? { courier: text(slots.手机) } : {}) },
     ...(optionalText(raw.头像提示词) ? { profilePrompt: text(raw.头像提示词) } : {}), ...(optionalText(raw.立绘提示词) ? { portraitPrompt: text(raw.立绘提示词) } : {}),
@@ -494,6 +498,8 @@ function migratePartial(input: RecordValue, resolutions: MigrationResolutions, r
       : {},
     capabilities: textList(traveler.能力),
     visualArchive: isRecord(traveler.图像档案) ? {
+      englishFacts: normalizeImageCharacterEnglishCache(traveler.图像档案.englishFacts),
+      characterAnchor: 归一化NPC角色锚点(traveler.图像档案.角色锚点),
       profileImage: text(traveler.图像档案.头像),
       narrativeImage: text(traveler.图像档案.正文头像),
       courierImage: text(traveler.图像档案.手机头像),

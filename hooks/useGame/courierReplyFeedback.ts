@@ -31,11 +31,14 @@ export function publishCourierReplyFeedback(input: {
     return;
   }
   const names = failedMemberNames.join('、');
+  const title = replied > 0 ? '群聊回信部分完成' : '群聊回信待重试';
   effects.report({
     source: 'courier_reply', reasonCode: 'phone_reply_partial_members',
-    humanReason: `群聊回信部分完成：${names}没有回复。`,
+    humanReason: `${title}：${names}没有回复。`,
     dedupeKey, retryable: 'manual', retryLabel: '重试未回复成员', turn,
   });
   effects.registerRetry(failureId, () => effects.retry(batch.conversationId, batch.messageIds));
-  effects.toast({ kind: 'info', title: '群聊回信部分完成', detail: `${names}没有回复；其余成员已回信，可在失败结算里重试。` });
+  effects.toast({ kind: 'info', title, detail: replied > 0
+    ? `${names}没有回复；其余成员已回信，可在失败结算里重试。`
+    : `${names}没有回复；当前没有可接收的回信，可在失败结算里重试。` });
 }

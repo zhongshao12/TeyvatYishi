@@ -56,6 +56,18 @@ export function isCourierReplyInFlight(conversationId: string): boolean {
   return courierReplyInFlight.has(conversationId);
 }
 
+/** 姓名不参与资格判断；提交时确认发送者仍是本会话的可用联系人。 */
+export function isCourierReplySenderLive(system: CourierSystem, conversationId: string, senderId: string, expectedContact?: CourierContact): boolean {
+  const conversation = system.conversations.find(item => item.id === conversationId);
+  const contact = system.contacts.find(item => item.id === senderId) ?? system.contacts.find(item => item.npcId === senderId);
+  if (!conversation || conversation.type === 'system' || !contact || !contact.available
+    || (contact.status && contact.status !== 'available')
+    || system.deletedConversationIds?.includes(conversationId)
+    || system.deletedContactIds?.includes(contact.id) || system.deletedNpcIds?.includes(contact.npcId || contact.id)
+    || (expectedContact?.npcId && expectedContact.npcId !== contact.npcId)) return false;
+  return conversation.participantIds.includes(contact.id) || Boolean(contact.npcId && conversation.participantIds.includes(contact.npcId));
+}
+
 /**
  * Apply a task result to the newest phone state. The task's input snapshot is
  * used only to compute unread deltas; live messages, typing state and user UI
@@ -75,6 +87,13 @@ export function mergeCourierSystemUpdates(
   const contactDeleted = (contact: CourierContact) => deletedContactIds.has(contact.id) || deletedNpcIds.has(contact.npcId ?? '')
     || Boolean(current.deletedLegacyCanonicalNames?.includes(matchCanonicalIdentity({ id: contact.npcId || contact.id, name: contact.name })?.name ?? ''));
   for (const contact of taskResult.contacts) if (contactDeleted(contact)) deletedContactIds.add(contact.id);
+  const liveContactIds = new Set(current.contacts.map((contact) => contact.id));
+  const liveNpcIds = new Set(current.contacts.flatMap(contact => contact.npcId ?? []));
+  const baseContactIds = new Set(taskBase.contacts.map((contact) => contact.id));
+  const contacts = normalizeCourierSystem({ contacts: [...current.contacts, ...taskResult.contacts.filter((contact) =>
+    !contactDeleted(contact) && !baseContactIds.has(contact.id) && !liveContactIds.has(contact.id)
+    && (!contact.npcId || !liveNpcIds.has(contact.npcId)))] }).contacts;
+  const phoneWithLiveContacts = { ...current, contacts };
   const conversationIds = Array.from(new Set([
     ...current.conversations.map((conversation) => conversation.id),
     ...taskResult.conversations.map((conversation) => conversation.id),
@@ -89,9 +108,12 @@ export function mergeCourierSystemUpdates(
     const messageIds = new Set(live.messages.map((message) => message.id));
     const appended = result.messages
       .filter((message) => !messageIds.has(message.id) && !deletedContactIds.has(message.senderId))
+      .filter(message => message.senderId === 'player' || (message.replyToMessageIds === undefined && !message.sourceSeedId)
+        || isCourierReplySenderLive(phoneWithLiveContacts, id, message.senderId,
+          taskBase.contacts.find(contact => contact.id === message.senderId || contact.npcId === message.senderId)))
       .map((message) => ({ ...message, readBy: [...message.readBy] }));
     const baseUnread = baseById.get(id)?.unread ?? 0;
-    const unreadDelta = appended.length ? Math.max(0, result.unread - baseUnread) : 0;
+    const unreadDelta = appended.length ? Math.min(appended.length, Math.max(0, result.unread - baseUnread)) : 0;
     return [{
       ...live,
       messages: [...live.messages, ...appended],
@@ -109,10 +131,6 @@ export function mergeCourierSystemUpdates(
   for (const seed of current.deliverySeeds) {
     if (!resultSeeds.has(seed.id)) resultSeeds.set(seed.id, seed);
   }
-  const liveContactIds = new Set(current.contacts.map((contact) => contact.id));
-  const baseContactIds = new Set(taskBase.contacts.map((contact) => contact.id));
-  const contacts = normalizeCourierSystem({ contacts: [...current.contacts, ...taskResult.contacts.filter((contact) =>
-    !contactDeleted(contact) && (!baseContactIds.has(contact.id) || liveContactIds.has(contact.id)))] }).contacts;
   const liveSeedIds = new Set(current.deliverySeeds.map((seed) => seed.id));
   const baseSeedIds = new Set(taskBase.deliverySeeds.map((seed) => seed.id));
   const deliverySeeds = Array.from(resultSeeds.values()).filter((seed) =>
@@ -150,14 +168,17 @@ export function updateCourierGroupConversation(
 }
 
 /** 解散玩家创建的群聊；联系人和其他会话保持不变。 */
+export function canDissolveCourierGroupConversation(system: CourierSystem, conversationId: string, requesterId = 'player'): boolean {
+  const target = system.conversations.find((conversation) => conversation.id === conversationId);
+  return Boolean(target?.type === 'group' && (!target.creatorId || target.creatorId === requesterId));
+}
+
 export function dissolveCourierGroupConversation(
   system: CourierSystem,
   conversationId: string,
   requesterId = 'player',
 ): CourierSystem {
-  const target = system.conversations.find((conversation) => conversation.id === conversationId);
-  if (!target || target.type !== 'group') return system;
-  if (target.creatorId && target.creatorId !== requesterId) return system;
+  if (!canDissolveCourierGroupConversation(system, conversationId, requesterId)) return system;
   const conversations = system.conversations.filter((conversation) => conversation.id !== conversationId);
   const deliverySeeds = system.deliverySeeds.filter((seed) => seed.targetId !== conversationId);
   return {
@@ -927,6 +948,7 @@ export function deliverDueCourierSeeds(
     const npc = (context.npcs ?? []).find((item) => item.id === (contact?.npcId ?? seed.senderId));
     const canonicalName = matchCanonicalIdentity({ id: contact?.npcId ?? seed.senderId, name: npc?.姓名 ?? contact?.name })?.name;
     if (system.deletedConversationIds?.includes(seed.targetId)
+      || (contact && (!contact.available || (contact.status && contact.status !== 'available')))
       || system.deletedContactIds?.includes(seed.senderId)
       || system.deletedNpcIds?.includes(contact?.npcId ?? seed.senderId)
       || (canonicalName && system.deletedLegacyCanonicalNames?.includes(canonicalName))) return { ...seed, status: 'dismissed' as const };

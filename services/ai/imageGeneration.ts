@@ -5,6 +5,8 @@ import { fetchModels } from '@/services/ai/apiTools';
 import { compileNovelAIPrompt, resolveNovelAIModelProfile } from './novelaiPromptCompiler';
 import { findEndOfCentralDirectory } from '@/utils/zip';
 import { generateLatentImage, latentEndpoint } from './latentImageGeneration';
+import { containsCjk } from '@/models/imageCharacterEnglish';
+import type { PromptCharacter } from '@/utils/imagePromptCompaction';
 
 export interface ImageGenerationRequest {
   prompt: string;
@@ -16,6 +18,7 @@ export interface ImageGenerationRequest {
   storySnapshotContext?: StorySnapshotRenderContext;
   novelAIOverrides?: NovelAITaskOverrides;
   signal?: AbortSignal;
+  protectedCharacters?: readonly PromptCharacter[];
 }
 
 export interface ImageReferenceInput {
@@ -93,6 +96,16 @@ export async function generateNarrativeImage(
   signal?: AbortSignal,
 ): Promise<叙事插图> {
   try {
+    const profileFields = /(?:character name|player character name|gender|appearance|outfit|hair color|eye color|height|weight|发色|瞳色|身高|体重|三围|anchor positive prompt|anchor negative|APPEARANCE LOCK)\s*:\s*([^\n]+)/gi;
+    const prompts = [prompt, ...(storySnapshotContext?.characters.filter(character => character.enabled !== false).map(character => character.visualPrompt) ?? [])];
+    // Cached facts do not make a later edited Chinese anchor ready. Negative
+    // anchors lose their field label during composition, so check those layers too.
+    const negatives = [negativePrompt, storySnapshotContext?.sceneNegativePrompt ?? '',
+      ...(storySnapshotContext?.characters.filter(character => character.enabled !== false).map(character => character.negativePrompt) ?? [])];
+    if (prompts.some(text => [...text.matchAll(profileFields)].some(match => containsCjk(match[1] ?? '')))
+      || negatives.some(containsCjk)) {
+      throw new Error('角色英文生图资料尚未准备，请先到相册点击生成提示词/准备资料，再重试正文图片；不会在后台额外翻译。');
+    }
     const result = await generateImage(config, {
       prompt,
       negativePrompt: negativePrompt || undefined,
@@ -727,6 +740,7 @@ export function buildNovelAIRequestPayload(
     taskOverrides: request.novelAIOverrides,
     storySnapshotContext: request.storySnapshotContext,
     ucPreset: resolveNovelAIUcPresetIndex(profile, config.novelAIUcPreset),
+    protectedCharacters: request.protectedCharacters,
   });
   const useCustomParameters = config.novelAIParameterMode === 'custom';
   const characterPrompts = profile.supportsCharacterPrompts
@@ -805,6 +819,10 @@ async function generateNovelAIImage(config: 文生图API配置, request: ImageGe
     negativePrompt: mergeNegativePrompt(config, request),
   }, config.seed >= 0 ? config.seed : Math.floor(Math.random() * 2147483647));
   const model = config.model.trim();
+  const captions = payload.parameters.characterPrompts as Array<{ prompt: string; uc: string }>;
+  const final = { finalPrompt: [payload.input, ...captions.map(character => character.prompt)].filter(Boolean).join(', '),
+    finalNegativePrompt: [String(payload.parameters.uc || ''), ...captions.map(character => character.uc)].filter(Boolean).join(', '),
+    promptCompacted: payload.input !== request.prompt || captions.length > 0 };
 
   const response = await fetch(joinUrl(config.baseUrl.replace(/^https:\/\/novelai\.net/i, 'https://image.novelai.net'), readPath(config)), {
     method: 'POST',
@@ -824,13 +842,13 @@ async function generateNovelAIImage(config: 文生图API配置, request: ImageGe
     const data = await readJsonResponse(response, 'NovelAI 图片接口');
     const b64 = data?.data?.[0]?.b64_json || data?.image || data?.output?.[0];
     if (typeof b64 === 'string' && b64.trim()) {
-      return { src: b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`, mimeType: 'image/png', model: config.model, backend: config.backend };
+      return { src: b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`, mimeType: 'image/png', model: config.model, backend: config.backend, ...final };
     }
     throw new Error('NovelAI 图片接口返回 JSON，但未包含可用的图片数据。');
   }
   const blob = await response.blob();
   const image = await readNovelAIImageBlob(blob, contentType);
-  return { src: image.src, mimeType: image.mimeType, model: config.model, backend: config.backend };
+  return { src: image.src, mimeType: image.mimeType, model: config.model, backend: config.backend, ...final };
 }
 
 function formatNovelAIError(status: number, text: string, model: string): string {

@@ -161,7 +161,7 @@ describe('second user-reported UX regression batch', () => {
   it('contains the required visual alignment and legibility hooks', () => {
     const message = readFileSync(resolve(process.cwd(), 'components/features/Chat/MessageRenderers.tsx'), 'utf8');
     const courier = [
-      'components/features/Courier/CourierModal.tsx',
+      'components/features/Courier/CourierPanel.tsx',
       'components/features/Courier/CourierMessageTimeline.tsx',
     ].map((path) => readFileSync(resolve(process.cwd(), path), 'utf8')).join('\n');
     const inventory = readFileSync(resolve(process.cwd(), 'components/features/GameSystems/InventoryPanel.tsx'), 'utf8');
@@ -173,7 +173,7 @@ describe('second user-reported UX regression batch', () => {
     expect(inventory).toContain('data-testid="inventory-item-cell"');
     expect(inventory).not.toContain('rgba(20, 16, 22, 0.62)');
     expect(album).toContain('data-testid="album-studio-status"');
-    expect(app).toContain('currentTurn={state.game.turnCount}');
+    expect(app).toContain('currentTurn: state.game.turnCount');
   });
 
   it('places an execution bridge after imported Tavern preset content', () => {

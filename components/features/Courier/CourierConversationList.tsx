@@ -2,6 +2,7 @@ import { memo } from 'react';
 import type { CourierConversation } from '@/models/teyvat/courier';
 import { CLIP_ITEM } from '@/styles/clipPaths';
 import { displayCourierMessageText } from '@/utils/courierTextSanitizer';
+import { CourierConversationAvatar, CourierUnreadBadge, type CourierAvatarData } from './CourierAvatar';
 
 interface CourierConversationListProps {
   conversations: CourierConversation[];
@@ -10,6 +11,7 @@ interface CourierConversationListProps {
   hiddenConversationCount: number;
   onSelect: (conversationId: string) => void;
   onShowMore: () => void;
+  resolveAvatars?: (conversation: CourierConversation) => readonly CourierAvatarData[];
 }
 
 const TYPE_LABELS: Record<CourierConversation['type'], string> = {
@@ -28,11 +30,13 @@ const CourierConversationListItem = memo(function CourierConversationListItem({
   displayTitle,
   active,
   onSelect,
+  resolveAvatars,
 }: {
   conversation: CourierConversation;
   displayTitle?: string;
   active: boolean;
   onSelect: (conversationId: string) => void;
+  resolveAvatars?: CourierConversationListProps['resolveAvatars'];
 }) {
   const last = conversation.messages.at(-1);
   return (
@@ -46,15 +50,13 @@ const CourierConversationListItem = memo(function CourierConversationListItem({
         clipPath: CLIP_ITEM,
       }}
     >
+      <div className="flex items-center gap-3">
+      <span className="phone-conversation-portrait"><CourierConversationAvatar avatars={resolveAvatars?.(conversation) ?? []} name={displayTitle || conversation.title || '会话'} /><CourierUnreadBadge count={conversation.unread} /></span>
+      <div className="min-w-0 flex-1">
       <div className="flex items-center justify-between gap-2">
         <strong className="min-w-0 truncate font-serif text-sm tracking-wide" style={{ color: ink(0.96) }}>
           {conversation.pinned ? '📌 ' : ''}{displayTitle || conversation.title || '未命名会话'}
         </strong>
-        {conversation.unread > 0 && (
-          <span className="shrink-0 px-1.5 text-[11px] font-bold" style={{ color: 'rgb(var(--tj-on-accent))', background: goldSoft(0.9) }}>
-            {conversation.unread}
-          </span>
-        )}
       </div>
       <div className="mt-0.5 flex items-center justify-between gap-2">
         <span className="min-w-0 break-words text-[12px]" style={{ color: muted(0.8) }}>
@@ -63,6 +65,8 @@ const CourierConversationListItem = memo(function CourierConversationListItem({
         <span className="shrink-0 text-[10px]" style={{ color: muted(0.6) }}>
           {conversation.type === 'group' ? `${conversation.participantIds.filter((id) => id !== 'player').length}位成员` : TYPE_LABELS[conversation.type]}
         </span>
+      </div>
+      </div>
       </div>
     </button>
   );
@@ -75,6 +79,7 @@ export const CourierConversationList = memo(function CourierConversationList({
   hiddenConversationCount,
   onSelect,
   onShowMore,
+  resolveAvatars,
 }: CourierConversationListProps) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
@@ -90,6 +95,7 @@ export const CourierConversationList = memo(function CourierConversationList({
           displayTitle={displayTitleByConversationId?.get(conversation.id)}
           active={selectedId === conversation.id}
           onSelect={onSelect}
+          resolveAvatars={resolveAvatars}
         />
       ))}
       {hiddenConversationCount > 0 && (

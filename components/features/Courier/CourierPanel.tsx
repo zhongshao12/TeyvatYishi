@@ -12,6 +12,7 @@ import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { pushToast } from '@/utils/toastStore';
 import { sanitizeCourierMessageText } from '@/utils/courierTextSanitizer';
 import { CourierConversationList } from './CourierConversationList';
+import type { CourierAvatarData } from './CourierAvatar';
 import { CourierMessageTimeline } from './CourierMessageTimeline';
 import { CourierContactTools } from './CourierContactTools';
 import { CourierMomentsPanel } from './CourierMomentsPanel';
@@ -63,6 +64,7 @@ const VISIBLE_MESSAGE_INCREMENT = 80;
 const INITIAL_VISIBLE_CONVERSATIONS = 60;
 /** 解散群聊的撤销窗口；比普通 toast 长，避免玩家来不及反应。 */
 const UNDO_WINDOW_MS = 9000;
+const EMPTY_NPC_RECORDS: NPC记录[] = [];
 
 const gold = 'rgb(var(--tj-accent-primary))';
 const goldSoft = (alpha: number) => `rgba(var(--tj-accent-primary), ${alpha})`;
@@ -80,8 +82,9 @@ function formatWallTime(timestamp: number): string {
   return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-export const CourierPanel = memo(function CourierPanel({ courier, album, imageSettings, apiSettings, traveler, onAlbumChange, onCommitPhoto, npcRecords = [], travelerName, travelerAvatar, currentTurn = 0, worldMoment, onCourierChange, onRequestReply, replyErrorByConversationId, replyQueue, onRetryReply, getGameSessionId, onRequestMomentComments, canGenerateMomentComments = false, enabled = true, visible = true, onOpenSettings, onClose }: CourierPanelProps) {
+export const CourierPanel = memo(function CourierPanel({ courier, album, imageSettings, apiSettings, traveler, onAlbumChange, onCommitPhoto, npcRecords = EMPTY_NPC_RECORDS, travelerName, travelerAvatar, currentTurn = 0, worldMoment, onCourierChange, onRequestReply, replyErrorByConversationId, replyQueue, onRetryReply, getGameSessionId, onRequestMomentComments, canGenerateMomentComments = false, enabled = true, visible = true, onOpenSettings, onClose }: CourierPanelProps) {
   const [selectedId, setSelectedId] = useState(courier.conversations[0]?.id ?? '');
+  const [openedConversationId, setOpenedConversationId] = useState<string | null>(null);
   // U02（PROJECT_AUDIT_2026-10-03）：草稿按**会话**隔离 —— 旧实现只有一个 draft，
   // 切到别的会话再切回来时草稿内容会跟着走，容易发错人。这里按 conversationId 暂存，
   // 并跟随游戏 session 重置（换存档不把旧草稿带进新档）。
@@ -144,10 +147,12 @@ export const CourierPanel = memo(function CourierPanel({ courier, album, imageSe
 
   const handleSelectConversation = useCallback((conversationId: string) => {
     setSelectedId(conversationId);
+    setOpenedConversationId(conversationId);
     setFilter('all');
     setPhoneSection('chats');
     setMobileView('chat');
   }, []);
+  useEffect(() => { setOpenedConversationId(null); }, [draftSessionId, visible]);
   const handleShowMoreConversations = useCallback(() => {
     setVisibleConversationCount((count) => count + INITIAL_VISIBLE_CONVERSATIONS);
   }, []);
@@ -245,6 +250,7 @@ export const CourierPanel = memo(function CourierPanel({ courier, album, imageSe
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
   const [messageCountAtBottom, setMessageCountAtBottom] = useState(0);
   const followBottomRef = useRef(true);
+  const previousConversationRef = useRef<string | undefined>(undefined);
   const selectedMessageCount = selected?.messages.length ?? 0;
   const pendingNewMessages = followBottomRef.current ? 0 : Math.max(0, selectedMessageCount - messageCountAtBottom);
   const handleMessageScroll = useCallback(() => {
@@ -263,11 +269,13 @@ export const CourierPanel = memo(function CourierPanel({ courier, album, imageSe
   }, [selectedMessageCount]);
 
   useLayoutEffect(() => {
+    if (previousConversationRef.current === selected?.id) return;
+    previousConversationRef.current = selected?.id;
     setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
     // 切换会话/进入聊天：这是玩家主动进入，仍然跳到最新。
     followBottomRef.current = true;
-    setMessageCountAtBottom(selected?.messages.length ?? 0);
-  }, [selected?.id]);
+    setMessageCountAtBottom(selectedMessageCount);
+  }, [selected?.id, selectedMessageCount]);
 
   useLayoutEffect(() => {
     if (!selected || mobileView !== 'chat') return;
@@ -304,9 +312,9 @@ export const CourierPanel = memo(function CourierPanel({ courier, album, imageSe
   );
   const selectedIsVisible = Boolean(selected && conversations.some((conversation) => conversation.id === selected.id));
   useEffect(() => {
-    if (chatSurfaceVisible && !photoTarget && selectedIsVisible && selected?.unread) markConversationRead(selected.id);
+    if (chatSurfaceVisible && !photoTarget && selectedIsVisible && openedConversationId === selected?.id && selected?.unread) markConversationRead(selected.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id, selected?.unread, chatSurfaceVisible, selectedIsVisible, Boolean(photoTarget)]);
+  }, [selected?.id, selected?.unread, chatSurfaceVisible, selectedIsVisible, Boolean(photoTarget), openedConversationId]);
 
   const eligibleNpcContacts = useMemo(() => {
     const knownNpcIds = new Set(courier.contacts.flatMap((contact) => [contact.id, contact.npcId ?? '']));
@@ -437,6 +445,15 @@ export const CourierPanel = memo(function CourierPanel({ courier, album, imageSe
     const resolved = contact?.avatar || 读取NPC头像(npc, '手机') || 读取NPC头像(npc, '正文') || 读取NPC头像(npc, '档案') || getDefaultBuiltinAvatar(contact?.name || message.senderName);
     return resolved ? resolveAlbumValue(resolved) || resolved : undefined;
   }, [contactByParticipantId, npcById, resolveAlbumValue, travelerAvatar]);
+  const resolveConversationAvatars = useCallback((conversation: CourierConversation): CourierAvatarData[] => {
+    const ids = conversation.participantIds.filter(id => id !== 'player').slice(0, conversation.type === 'group' ? 4 : 1);
+    return ids.map(id => {
+      const contact = contactByParticipantId.get(id), npc = npcById.get(contact?.npcId || id);
+      const name = contact?.name || npc?.姓名 || (conversation.type === 'private' ? conversation.title : '同伴');
+      const value = contact?.avatar || 读取NPC头像(npc, '手机') || 读取NPC头像(npc, '正文') || 读取NPC头像(npc, '档案') || getDefaultBuiltinAvatar(name);
+      return { name, src: value ? resolveAlbumValue(value) || value : undefined };
+    });
+  }, [contactByParticipantId, npcById, resolveAlbumValue]);
   const memberName = (participantId: string): string => {
     if (participantId === 'player') return travelerName?.trim() || '旅人';
     const contact = contactByParticipantId.get(participantId);
@@ -461,7 +478,7 @@ export const CourierPanel = memo(function CourierPanel({ courier, album, imageSe
     // @ 点名（2026-09-29 第 7 项）：发布时即解析并落库；被点名的角色一定会回应一次。
     commit((previous) => (previous.moments?.length ?? 0) >= 500
       ? previous
-      : createMoment(previous, { id, content, images, turn: currentTurn, now,
+      : createMoment(previous, { id, content, images, turn: currentTurn, now, npcs: npcRecords,
         mentionIds: parseMomentMentions(content, previous.contacts, bindings), ...(worldMoment ? { worldMoment } : {}) }));
     onRequestMomentComments?.(id, 1);
     return true;
@@ -478,7 +495,7 @@ export const CourierPanel = memo(function CourierPanel({ courier, album, imageSe
       const explicitlyReselected = bindings?.some(binding => !binding.fromArchive
         && content.slice(binding.start, binding.start + binding.token.length) === binding.token);
       const mentionIds = content.trim() === post.content && post.mentionIds?.length && !explicitlyReselected ? retained : parsed;
-      return editMoment(previous, id, content, Date.now(), mentionIds, images);
+      return editMoment(previous, id, content, Date.now(), mentionIds, images, npcRecords);
     });
     onRequestMomentComments?.(id, post.revision + 1);
     return true;
@@ -516,7 +533,7 @@ export const CourierPanel = memo(function CourierPanel({ courier, album, imageSe
         <header className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
           <div><p className="text-[10px] tracking-[.25em]" style={{ color: gold }}>TRAVELER'S PHONE</p><h2 className="font-serif text-lg">提瓦特手机</h2></div>
           <div className="flex items-center gap-2">
-            {courier.unreadTotal > 0 && <span className="rounded-full px-2 py-1 text-xs" style={{ background: 'var(--phone-green)', color: 'rgb(var(--tj-on-accent))' }}>未读 {courier.unreadTotal}</span>}
+            {courier.unreadTotal > 0 && <span className="phone-unread-summary">未读 {courier.unreadTotal > 99 ? '99+' : courier.unreadTotal}</span>}
             {onOpenSettings && <button type="button" className="min-h-11 rounded border px-3 text-xs" onClick={onOpenSettings}>手机设置</button>}
             <button type="button" className="min-h-11 min-w-11 text-base" aria-label="关闭手机" onClick={onClose}>✕</button>
           </div>
@@ -549,6 +566,7 @@ export const CourierPanel = memo(function CourierPanel({ courier, album, imageSe
           <CourierConversationList
             conversations={visibleConversations}
             displayTitleByConversationId={displayTitleByConversationId}
+            resolveAvatars={resolveConversationAvatars}
             selectedId={selected?.id}
             hiddenConversationCount={hiddenConversationCount}
             onSelect={handleSelectConversation}

@@ -24,6 +24,34 @@ const courier: CourierSystem = {
   conversations: [conversation],
 };
 
+it('retains private/group profile labels and their distinct history limits when sharing prompt assembly', () => {
+  const items = ['事一', '事二', '事三', '事四', '事五', '事六', '事七'];
+  const context = { conversation, playerMessage: conversation.messages[0]!, travelerName: '旅人', sender: {
+    name: '安柏', playerAddress: '旅人', personality: '热心', speechStyle: '轻快', background: '侦察骑士',
+    longTermImpression: '可靠', recentInteraction: '一起巡逻', sharedExperiences: items,
+    unfinishedBusiness: items, completedBusiness: items, unresolvedConflicts: items,
+    mustRemember: items, summaryMemories: items, recentMemories: items, recentMessages: items,
+  } };
+  expect(buildCourierReplyPrompt(context)).toContain([
+    '收信人对旅行者的称呼：旅人', '收信人性格：热心', '收信人说话方式：轻快',
+    '人物背景：侦察骑士', '对旅行者的长期印象：可靠', '最近互动：一起巡逻',
+    '共同经历：事三；事四；事五；事六；事七', '约定与未完成事项：事一；事二；事三；事四；事五',
+    '已经完成的约定（不要再催、不要再当待办）：事三；事四；事五；事六；事七',
+    '未解决冲突：事一；事二；事三；事四', '必须记得：事一；事二；事三；事四；事五；事六',
+    '长期同行记忆：事五；事六；事七', '近期同行记忆：事二；事三；事四；事五；事六；事七',
+    '近期手机对话：\n事一\n事二\n事三\n事四\n事五\n事六\n事七',
+  ].join('\n'));
+  expect(buildCourierGroupReplyPrompt(context)).toContain([
+    '该成员对旅行者的称呼：旅人', '成员性格：热心', '成员说话方式：轻快',
+    '人物背景：侦察骑士', '对旅行者的长期印象：可靠', '与旅行者最近互动：一起巡逻',
+    '共同经历：事四；事五；事六；事七', '约定与未完成事项：事一；事二；事三；事四',
+    '已经完成的约定（不要再催、不要再当待办）：事四；事五；事六；事七',
+    '未解决的顾虑或冲突：事一；事二；事三', '必须记得：事一；事二；事三；事四；事五',
+    '长期同行记忆：事五；事六；事七', '近期同行记忆：事三；事四；事五；事六；事七',
+    '本群近期对话：\n事一\n事二\n事三\n事四\n事五\n事六\n事七',
+  ].join('\n'));
+});
+
 it('does not inherit a different batch manifest when player IDs share a prefix', async () => {
   const olderPlayer = { ...conversation.messages[0]!, id: 'p1_extra' };
   const seen: string[] = [];

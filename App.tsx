@@ -136,7 +136,17 @@ const getSaveLoadViewSwitchDelay = () => prefersReducedMotion() ? SAVE_LOAD_REDU
 const getBookOpenDelay = () => prefersReducedMotion() ? BOOK_OPEN_REDUCED_MOTION_MS : BOOK_OPEN_ANIMATION_MS;
 const getBookOpenViewSwitchDelay = () => prefersReducedMotion() ? BOOK_OPEN_REDUCED_VIEW_SWITCH_MS : BOOK_OPEN_VIEW_SWITCH_MS;
 
+const Core2Runtime = import.meta.env.VITE_CORE2_ENABLED === 'true'
+  ? lazyWithRetry(() => import('@/components/features/Core2/Core2Runtime'), 'core2-runtime') : null;
+
+/** Default-off boundary: the disabled path never initializes the new repository. */
 export default function App() {
+  if (import.meta.env.VITE_CORE2_ENABLED !== 'true') return <LegacyRuntime />;
+  if (!Core2Runtime) throw Error('CORE2_RUNTIME_NOT_REGISTERED');
+  return <Suspense fallback={<p role="status">正在翻开新手账……</p>}><Core2Runtime /></Suspense>;
+}
+
+function LegacyRuntime() {
   const { state, actions, maintenance } = useGame();
   const setWorldbooks = state.setWorldbooks;
   const persistWorldbooks = useCallback(async (books: 世界书[]) => {

@@ -4,9 +4,9 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { ImageGenerationSettingsTab } from '@/components/features/Settings/ImageGenerationSettingsTab';
 import { 创建默认游戏设置 } from '@/models/settings';
-import { saveSetting } from '@/services/dbService';
+import { saveSetting } from '@/services/storage/indexedSettingsStore';
 
-vi.mock('@/services/dbService', () => ({ saveSetting: vi.fn(async () => undefined) }));
+vi.mock('@/services/storage/indexedSettingsStore', () => ({ saveSetting: vi.fn(async () => undefined), saveSettings: vi.fn(async () => undefined), loadSetting: vi.fn(async () => null) }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 it('offers Latent with its endpoint, bounded settings and unsupported controls disabled', async () => {

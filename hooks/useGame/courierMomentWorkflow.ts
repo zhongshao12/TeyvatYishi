@@ -1,9 +1,10 @@
-import { NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD, type NPC记录 } from '@/models/npc';
+import type { NPC记录 } from '@/models/npc';
 import type { API配置项 } from '@/models/settings';
 import type { CourierMoment, CourierSystem } from '@/models/teyvat/courier';
 import { buildCourierSenderProfile } from '@/services/ai/courierService';
 import type { MomentCommentInput } from '@/services/ai/courierMomentComments';
-import { appendMomentComment, composeMomentCommentLocally, markMomentTarget, momentCommentCapacity, selectMomentCommenters } from '@/services/courierMoments';
+import { appendMomentComment, composeMomentCommentLocally, markMomentTarget, momentCommentCapacity, planMomentComments } from '@/services/courierMoments';
+import { MOMENT_FRIEND_AFFINITY_MIN } from '@/utils/momentCommentSelection';
 import { failureItemId } from '@/models/failureCenter';
 import { registerFailureRetry, reportFailure } from '@/utils/failureCenterStore';
 
@@ -22,27 +23,31 @@ function currentPost(deps: MomentWorkflowDeps, postId: string, revision: number)
   return deps.getCourier().moments?.find((post) => post.id === postId && post.revision === revision);
 }
 
-function eligibleNpc(deps: MomentWorkflowDeps, npcId: string, options?: { allowBelowAffinity?: boolean }, courier = deps.getCourier()): NPC记录 | undefined {
+function eligibleNpc(deps: MomentWorkflowDeps, npcId: string, options?: { allowBelowAffinity?: boolean; teamMember?: boolean }, courier = deps.getCourier()): NPC记录 | undefined {
   const hasContact = courier.contacts.some((contact) => contact.available
     && (!contact.status || contact.status === 'available') && contact.npcId === npcId);
-  if (!hasContact) return undefined;
+  if (!hasContact && (!options?.teamMember || courier.contacts.some(contact => contact.npcId === npcId))) return undefined;
   const npc = deps.getNpcs().find((entry) => entry.id === npcId);
   if (!npc) return undefined;
-  // 被 @ 点名 = 玩家直接对着这位联系人说话：只要有手机联系人身份就一定要回，
-  // 不受「自动评论需要好感度 > 100」的限制（2026-09-29 第 7 项）。
+  // 发布时的队伍与 @ 目标不占随机好友名额，但显式屏蔽/锁定仍优先。
   if (options?.allowBelowAffinity) return npc;
-  return npc.好感度 > NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD ? npc : undefined;
+  return npc.好感度 >= MOMENT_FRIEND_AFFINITY_MIN ? npc : undefined;
 }
 
-function isMentioned(post: CourierMoment | undefined, npcId: string): boolean {
-  return Boolean(post?.mentionIds?.includes(npcId));
+function requiredOptions(post: CourierMoment | undefined, npcId: string) {
+  const teamMember = Boolean(post?.commentPlan?.teamNpcIds.includes(npcId));
+  return { allowBelowAffinity: teamMember || Boolean(post?.mentionIds?.includes(npcId)), teamMember };
 }
 
 /** Each selected companion owns one independent, revision-guarded comment job. */
 export async function runMomentComments(deps: MomentWorkflowDeps, postId: string, revision: number, retryNpcId?: string): Promise<void> {
   const sessionId = deps.getSessionId();
-  const post = currentPost(deps, postId, revision);
+  let post = currentPost(deps, postId, revision);
   if (!post) return;
+  if (!post.commentPlan) {
+    const commentPlan = planMomentComments(deps.getCourier(), post, deps.getNpcs());
+    post = { ...post, commentPlan };
+  }
   const mentionIds = post.mentionIds ?? [];
   const selectedIds = retryNpcId
     ? post.targets.some((target) => target.npcId === retryNpcId && target.status === 'failed') ? [retryNpcId] : []
@@ -50,14 +55,13 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
     // 就会让自动评论者全部消失（2026-09-29 第 7 项）。
     : [...new Set([
         ...mentionIds,
-        ...(post.targets.length
-          ? post.targets.map((target) => target.npcId)
-          : selectMomentCommenters(post.id, deps.getCourier().contacts, deps.getNpcs()).map((npc) => npc.id)),
+        ...post.commentPlan!.teamNpcIds,
+        ...post.commentPlan!.randomNpcIds,
       ])];
   const workIds = selectedIds.slice(0, momentCommentCapacity(post)).filter((npcId) => {
     const target = post.targets.find((entry) => entry.npcId === npcId);
     return target?.status !== 'done' && target?.status !== 'generating'
-      && Boolean(eligibleNpc(deps, npcId, { allowBelowAffinity: mentionIds.includes(npcId) }));
+      && Boolean(eligibleNpc(deps, npcId, requiredOptions(post, npcId)));
   });
   const claimKey = (npcId: string) => JSON.stringify([sessionId, postId, revision, npcId]);
   const claimedIds = workIds.filter((npcId) => {
@@ -71,7 +75,7 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
   try {
     deps.setCourier((old) => {
       if (deps.getSessionId() !== sessionId) return old;
-      let updated = old;
+      let updated: CourierSystem = { ...old, moments: old.moments?.map(item => item.id === postId && item.revision === revision && !item.commentPlan ? { ...item, commentPlan: post!.commentPlan } : item) };
       for (const npcId of claimedIds) updated = markMomentTarget(updated, postId, revision, npcId, 'generating');
       return updated;
     });
@@ -90,7 +94,7 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
         if (deps.getSessionId() !== sessionId) return old;
         const livePost = old.moments?.find((item) => item.id === postId && item.revision === revision);
         if (!livePost || livePost.targets.find((item) => item.npcId === npcId)?.status !== 'generating') return old;
-        const currentNpc = eligibleNpc(deps, npcId, { allowBelowAffinity: isMentioned(livePost, npcId) }, old);
+        const currentNpc = eligibleNpc(deps, npcId, requiredOptions(livePost, npcId), old);
         if (!currentNpc) return markMomentTarget(old, postId, revision, npcId, 'failed');
         return appendMomentComment(old, postId, revision, {
           id: `${postId}:${revision}:${npcId}`,
@@ -104,8 +108,8 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
       });
       void reason;
     };
-    const mentioned = isMentioned(currentPost(deps, postId, revision), npcId);
-    const npc = eligibleNpc(deps, npcId, { allowBelowAffinity: mentioned });
+    const options = requiredOptions(post, npcId), mentioned = options.allowBelowAffinity;
+    const npc = eligibleNpc(deps, npcId, options);
     const config = deps.getApiConfig();
     if (!npc || !config) {
       if (mentioned && npc) writeLocalReply(config ? 'missing_npc' : 'missing_api_config');
@@ -119,7 +123,7 @@ export async function runMomentComments(deps: MomentWorkflowDeps, postId: string
         if (deps.getSessionId() !== sessionId) return old;
         const livePost = old.moments?.find((item) => item.id === postId && item.revision === revision);
         if (!livePost || livePost.targets.find((item) => item.npcId === npcId)?.status !== 'generating') return old;
-        const currentNpc = eligibleNpc(deps, npcId, { allowBelowAffinity: isMentioned(livePost, npcId) }, old);
+        const currentNpc = eligibleNpc(deps, npcId, requiredOptions(livePost, npcId), old);
         if (!currentNpc) {
           return markMomentTarget(old, postId, revision, npcId, 'failed');
         }

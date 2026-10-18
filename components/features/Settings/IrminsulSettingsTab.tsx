@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import type { AI提供商, API设置, 游戏设置, 世界树API覆盖 } from '@/models/settings';
 import { 创建默认记忆系统设置 } from '@/models/settings';
 import { fetchModels, testConnection, type ConnectionTestResult } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import { useSettingsPersistence } from './SettingsPersistence';
 
 interface Props {
   settings: 游戏设置;
@@ -30,6 +30,7 @@ interface ResolvedApi {
 }
 
 export function IrminsulSettingsTab({ settings, onChange, apiSettings }: Props) {
+  const { saveSetting } = useSettingsPersistence();
   const memory = settings.记忆系统 ?? 创建默认记忆系统设置();
   const mainConfig = useMemo(
     () => apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null,

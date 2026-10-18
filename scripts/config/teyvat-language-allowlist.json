@@ -8,6 +8,12 @@
     "CHANGELOG.md"
   ],
   "allowHits": [
+    "components/features/Core2/Core2Runtime.tsx:newsModels",
+    "components/features/Core2/CoreNewsPanel.tsx:newsJob",
+    "components/features/Core2/CoreNewsPanel.tsx:newsPlan",
+    "hooks/useCore2Game.ts:newsModels",
+    "services/ai/core2NewsModel.ts:newsJob",
+    "services/ai/core2NewsModel.ts:newsContext",
     "components/features/Worldbook/WorldbookManagerModal.tsx:三月七",
     "components/features/Worldbook/WorldbookManagerModal.tsx:丹恒",
     "components/features/Worldbook/WorldbookManagerModal.tsx:仙舟",

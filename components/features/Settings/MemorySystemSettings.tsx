@@ -5,7 +5,7 @@ import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
 import type { AI提供商, API设置, 游戏设置 } from '@/models/settings';
 import { 创建默认记忆系统设置 } from '@/models/settings';
 import { fetchModels, testConnection, type ConnectionTestResult } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import { useSettingsPersistence } from './SettingsPersistence';
 
 interface Props {
   settings: 游戏设置;
@@ -19,6 +19,7 @@ const providerOptions = AI_PROVIDER_OPTIONS;
 
 
 export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Props) {
+  const { saveSetting } = useSettingsPersistence();
   const memory = settings.记忆系统 ?? 创建默认记忆系统设置();
   // 该字段由记忆系统模型统一迁移；这里保留对旧存档的兼容读取。
   const apiSummaryEnabled = (memory as typeof memory & { 启用中短长期API总结?: boolean }).启用中短长期API总结 !== false;

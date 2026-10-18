@@ -7,6 +7,7 @@ import { findEndOfCentralDirectory } from '@/utils/zip';
 import { generateLatentImage, latentEndpoint } from './latentImageGeneration';
 import { containsCjk } from '@/models/imageCharacterEnglish';
 import type { PromptCharacter } from '@/utils/imagePromptCompaction';
+import { defaultComfyWorkflowJson, ownComfyApiWorkflow, bindComfyPromptInputs } from '@/utils/comfyWorkflow';
 
 export interface ImageGenerationRequest {
   prompt: string;
@@ -190,8 +191,12 @@ export async function testImageGenerationConnection(config: 文生图API配置):
   }
 
   if (config.backend === 'comfyui') {
-    const response = await fetch(joinUrl(config.baseUrl, '/system_stats'));
-    if (response.ok) return `ComfyUI 可达：${config.baseUrl.replace(/\/+$/, '')}。`;
+    const response = await fetch(joinUrl(config.baseUrl, '/system_stats'), { headers: comfyHeaders(config) });
+    if (response.ok) {
+      const data = await readJsonResponse(response, 'ComfyUI 系统信息');
+      if (!isRecord(data) || !isRecord(data.system) || !Array.isArray(data.devices)) throw Error('ComfyUI 系统接口返回无效，尚未验证连接。');
+      return `ComfyUI API 可达：${config.baseUrl.replace(/\/+$/, '')}。工作流与模型尚未执行验证。`;
+    }
     const text = await response.text().catch(() => '');
     throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
   }
@@ -199,9 +204,9 @@ export async function testImageGenerationConnection(config: 文生图API配置):
   return `端点可达性检查已完成：${endpoint}。`;
 }
 
-export async function fetchComfyCheckpoints(config: 文生图API配置): Promise<string[]> {
+export async function fetchComfyCheckpoints(config: 文生图API配置, signal?: AbortSignal): Promise<string[]> {
   if (!config.baseUrl.trim()) throw new Error('请先填写 ComfyUI Base URL。');
-  const response = await fetch(joinUrl(config.baseUrl, '/object_info/CheckpointLoaderSimple'));
+  const response = await fetch(joinUrl(config.baseUrl, '/object_info/CheckpointLoaderSimple'), { signal, headers: comfyHeaders(config) });
   if (!response.ok) {
     const text = await response.text().catch(() => '');
     throw new Error(`获取 ComfyUI 模型列表失败 ${response.status}: ${text || response.statusText}`);
@@ -908,24 +913,35 @@ async function generateSdWebUIImage(config: 文生图API配置, request: ImageGe
 }
 
 async function generateComfyUIImage(config: 文生图API配置, request: ImageGenerationRequest): Promise<ImageGenerationResult> {
+  const abort = new AbortController(), stop = () => abort.abort(), seconds = Math.max(30, Math.min(3600, config.comfyTimeoutSeconds || 600));
+  request.signal?.addEventListener('abort', stop, { once: true }); if (request.signal?.aborted) stop();
+  const timer = setTimeout(stop, seconds * 1000);
+  try { return await executeComfyUIImage(config, { ...request, signal: abort.signal }); }
+  catch (error) {
+    const detail = request.signal?.aborted ? 'ComfyUI 本次等待已取消；已开始的本地任务可能仍在运行，未中断其它任务。'
+      : abort.signal.aborted ? `ComfyUI 等待超过 ${seconds} 秒；本地任务可能仍在排队或运行，请先查看 ComfyUI 队列，避免重复提交。`
+      : error instanceof Error ? error.message : String(error);
+    // Submission/result acknowledgement may be lost while the local GPU is
+    // still working. Never let a shared retry wrapper enqueue a duplicate.
+    throw Object.assign(Error(detail), { retryable: false });
+  } finally { clearTimeout(timer); request.signal?.removeEventListener('abort', stop); }
+}
+function comfyHeaders(config: 文生图API配置): Record<string, string> {
+  return config.apiKey.trim() ? { Authorization: `Bearer ${config.apiKey.trim()}` } : {};
+}
+async function executeComfyUIImage(config: 文生图API配置, request: ImageGenerationRequest): Promise<ImageGenerationResult> {
+  if (request.signal?.aborted) throw Error('ComfyUI 生成已取消。');
   if (!config.baseUrl.trim()) throw new Error('请填写 ComfyUI Base URL。');
-  if (!config.comfyWorkflowJson.trim()) {
-    throw new Error('请在文生图设置里填写 ComfyUI Workflow JSON。当前阶段需要工作流内包含 __PROMPT__ 和 __NEGATIVE_PROMPT__ 等占位符。');
-  }
+  const template = config.comfyWorkflowJson.trim() || (config.useDefaultComfyWorkflow ? defaultComfyWorkflowJson() : '');
+  if (!template) throw Error('请启用基础工作流，或导入 ComfyUI 的 API 格式 JSON。');
+  if (template.length > 4 * 1024 * 1024) throw Error('ComfyUI 工作流超过 4 MB，请移除画布元数据并重新导出 API 格式。');
   const { width, height } = parseSize(request.size || config.defaultSize);
   const seed = config.seed >= 0 ? config.seed : Math.floor(Math.random() * 2147483647);
   const negativePrompt = mergeNegativePrompt(config, request);
   const comfySampler = toComfySamplerName(config.sampler);
   const comfyScheduler = toComfySchedulerName(config.noiseSchedule);
   const modelName = config.model.trim();
-  const checkpoints: string[] = await fetchComfyCheckpoints(config).catch(() => [] as string[]);
-  if (checkpoints.length && (!modelName || !checkpoints.includes(modelName))) {
-    throw new Error([
-      `ComfyUI Checkpoint 不存在：${modelName || '未填写'}`,
-      `当前可用模型：${checkpoints.join(' / ')}`,
-      '请在文生图设置的「Checkpoint / 模型名」里选择本机已有 ckpt_name。',
-    ].join('\n'));
-  }
+  if (!config.comfyWorkflowJson.trim() && !modelName) throw Error('基础 ComfyUI 工作流需要先选择本机 Checkpoint；不会自动下载模型。');
   const referenceImages = normalizeReferenceImages(request.referenceImages);
   const firstReferenceImage = referenceImages[0]?.src
     ? await referenceSrcToBase64(referenceImages[0].src, request.signal, configuredHostsOf(config))
@@ -937,22 +953,24 @@ async function generateComfyUIImage(config: 文生图API配置, request: ImageGe
   };
   // Escape string fragments once, keeping quoted and bare numeric placeholders compatible.
   // A single pass also prevents a placeholder-like phrase inside the user's prompt being substituted again.
-  const workflowText = config.comfyWorkflowJson.replace(
+  const workflowText = template.replace(
     /__(PROMPT|NEGATIVE_PROMPT|WIDTH|HEIGHT|STEPS|CFG|SEED|SAMPLER|SCHEDULER|MODEL|CKPT_NAME|REFERENCE_IMAGE)__|\{\{(prompt|negative_prompt|width|height|steps|cfg|seed|sampler|scheduler|model|ckpt_name|reference_image)\}\}/g,
     (_match, upper: string | undefined, lower: string | undefined) => {
       const value = replacements[String(upper || lower).toLowerCase()];
       return typeof value === 'number' ? String(value) : JSON.stringify(value ?? '').slice(1, -1);
     },
   );
-  if (referenceImages.length > 0 && !/__REFERENCE_IMAGE__|\{\{reference_image\}\}/.test(config.comfyWorkflowJson)) {
+  if (referenceImages.length > 0 && !/__REFERENCE_IMAGE__|\{\{reference_image\}\}/.test(template)) {
     throw new Error('当前 ComfyUI 工作流没有参考图占位符。请在工作流中预留 __REFERENCE_IMAGE__ 或 {{reference_image}}，或关闭参考图参与生成。');
   }
-  let promptPayload: unknown;
+  let promptPayload: ReturnType<typeof ownComfyApiWorkflow>;
   try {
-    promptPayload = JSON.parse(workflowText);
+    promptPayload = ownComfyApiWorkflow(JSON.parse(workflowText));
   } catch (err) {
     throw new Error(`ComfyUI Workflow JSON 解析失败：${err instanceof Error ? err.message : String(err)}`);
   }
+  const binding = bindComfyPromptInputs(promptPayload, request.prompt.trim(), negativePrompt);
+  if (!binding.positive && !/__PROMPT__|\{\{prompt\}\}/u.test(template)) throw Error('ComfyUI 工作流没有可绑定的正面提示词节点，请在目标文本输入中填写 __PROMPT__。');
   patchComfyWorkflow(promptPayload, {
     model: modelName,
     sampler: comfySampler,
@@ -964,11 +982,17 @@ async function generateComfyUIImage(config: 文生图API配置, request: ImageGe
     height,
     positive: request.prompt.trim(),
     negative: negativePrompt,
+    overrideSampling: !config.comfyWorkflowJson.trim() || config.comfyOverrideWorkflowSampling === true,
   });
-  assertNoComfyPlaceholders(promptPayload);
+  const checkpointNames = [...new Set(Object.values(promptPayload).flatMap(node => node.class_type === 'CheckpointLoaderSimple' && typeof node.inputs.ckpt_name === 'string' ? [node.inputs.ckpt_name] : []))];
+  if (checkpointNames.length) {
+    const checkpoints = await fetchComfyCheckpoints(config, request.signal);
+    const missing = checkpointNames.filter(name => !name.trim() || checkpoints.length > 0 && !checkpoints.includes(name));
+    if (missing.length) throw Error(`ComfyUI Checkpoint 不存在：${missing.join('、') || '未填写'}。请在设置中选择本机已有模型。`);
+  }
   const response = await fetch(joinUrl(config.baseUrl, readPath(config)), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...comfyHeaders(config) },
     body: JSON.stringify({ prompt: promptPayload }),
     signal: request.signal,
   });
@@ -1015,6 +1039,7 @@ function patchComfyWorkflow(payload: unknown, values: {
   height: number;
   positive: string;
   negative: string;
+  overrideSampling: boolean;
 }) {
   if (!payload || typeof payload !== 'object') return;
   const nodes = Object.values(payload as Record<string, unknown>);
@@ -1028,10 +1053,12 @@ function patchComfyWorkflow(payload: unknown, values: {
       inputs.ckpt_name = values.model;
     }
     if (node.class_type === 'KSampler') {
-      inputs.sampler_name = values.sampler;
-      inputs.scheduler = values.scheduler;
-      inputs.steps = values.steps;
-      inputs.cfg = values.cfgScale;
+      if (values.overrideSampling) {
+        inputs.sampler_name = values.sampler;
+        inputs.scheduler = values.scheduler;
+        inputs.steps = values.steps;
+        inputs.cfg = values.cfgScale;
+      }
       inputs.seed = values.seed;
     }
     if (node.class_type === 'EmptyLatentImage') {
@@ -1043,14 +1070,6 @@ function patchComfyWorkflow(payload: unknown, values: {
       if (text.includes('__PROMPT__') || text.includes('{{prompt}}')) inputs.text = values.positive;
       if (text.includes('__NEGATIVE_PROMPT__') || text.includes('{{negative_prompt}}')) inputs.text = values.negative;
     }
-  }
-}
-
-function assertNoComfyPlaceholders(payload: unknown) {
-  const text = JSON.stringify(payload);
-  const match = text.match(/__(PROMPT|NEGATIVE_PROMPT|WIDTH|HEIGHT|STEPS|CFG|SEED|SAMPLER|SCHEDULER|MODEL|CKPT_NAME)__|\{\{(prompt|negative_prompt|width|height|steps|cfg|seed|sampler|scheduler|model|ckpt_name)\}\}/);
-  if (match) {
-    throw new Error(`ComfyUI Workflow 仍包含未替换占位符：${match[0]}。请检查 Workflow JSON 或对应接口设置。`);
   }
 }
 
@@ -1072,13 +1091,16 @@ function formatComfyError(text: string): string {
 
 async function pollComfyResult(config: 文生图API配置, promptId: string, signal?: AbortSignal): Promise<ImageGenerationResult> {
   const start = Date.now();
-  while (Date.now() - start < 120_000) {
+  while (Date.now() - start < Math.max(30, Math.min(3600, config.comfyTimeoutSeconds || 600)) * 1000) {
     if (signal?.aborted) throw new Error('ComfyUI 生成已取消。');
-    await delay(1500);
-    const response = await fetch(joinUrl(config.baseUrl, `/history/${promptId}`), { signal });
-    if (!response.ok) continue;
+    const response = await fetch(joinUrl(config.baseUrl, `/history/${encodeURIComponent(promptId)}`), { signal, headers: comfyHeaders(config) });
+    if (!response.ok) throw Error(`ComfyUI 历史查询失败 ${response.status}；任务 ${promptId} 可能仍在运行，请勿直接重复提交。`);
     const history = await readJsonResponse(response, 'ComfyUI 历史结果');
     const item = history?.[promptId];
+    if (item?.status?.status_str === 'error') {
+      const errors = (Array.isArray(item.status.messages) ? item.status.messages : []).flatMap((entry: unknown) => Array.isArray(entry) && entry[0] === 'execution_error' && isRecord(entry[1]) ? [`节点 ${String(entry[1].node_id ?? '?')}：${String(entry[1].exception_message ?? '执行失败')}`] : []);
+      throw Error(`ComfyUI 执行失败：${errors.join('；') || '请查看本地控制台的节点错误。'}`);
+    }
     const outputs = item?.outputs && typeof item.outputs === 'object' ? Object.values(item.outputs) : [];
     for (const output of outputs as any[]) {
       const images = Array.isArray(output?.images) ? output.images : [];
@@ -1094,15 +1116,22 @@ async function pollComfyResult(config: 文生图API配置, promptId: string, sig
           backend: config.backend,
           signal,
           allowedHosts: configuredHostsOf(config),
+          headers: comfyHeaders(config),
         });
       }
     }
+    if (item?.status?.completed === true) throw Error('ComfyUI 工作流已完成，但没有可读取的图片输出；请接入 SaveImage 或 PreviewImage 节点。');
+    await delay(1500, signal);
   }
   throw new Error('ComfyUI 生成超时。');
 }
 
-function delay(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+function delay(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(Error('ComfyUI 生成已取消。')); };
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, ms);
+    signal?.addEventListener('abort', abort, { once: true }); if (signal?.aborted) abort();
+  });
 }
 
 async function readNovelAIImageBlob(blob: Blob, contentType: string): Promise<{ src: string; mimeType: string }> {
@@ -1120,14 +1149,14 @@ async function readNovelAIImageBlob(blob: Blob, contentType: string): Promise<{ 
 
 async function persistRemoteImage(
   rawUrl: string,
-  meta: { model?: string; backend?: string; signal?: AbortSignal; allowedHosts?: readonly string[] },
+  meta: { model?: string; backend?: string; signal?: AbortSignal; allowedHosts?: readonly string[]; headers?: Record<string, string> },
 ): Promise<ImageGenerationResult> {
   const url = assertTrustedImageUrl(rawUrl, {
     allowedHosts: meta.allowedHosts ?? [],
     rejectionLabel: '上游返回的图片地址不受信任',
   });
   try {
-    const response = await fetch(url, { signal: meta.signal });
+    const response = await fetch(url, { signal: meta.signal, ...(meta.headers ? { headers: meta.headers } : {}) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const blob = await response.blob();
     const mimeType = await validatedImageMimeType(blob);

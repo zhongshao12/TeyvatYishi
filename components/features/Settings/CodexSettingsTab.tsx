@@ -7,7 +7,7 @@ import { toUserFacingError } from '@/utils/userFacingError';
 import { useState } from 'react';
 import type { AI提供商, API配置项, API设置, 游戏设置, 原著约束强度 } from '@/models/settings';
 import { fetchModels } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import { useSettingsPersistence } from './SettingsPersistence';
 
 interface Props {
   settings: 游戏设置;
@@ -37,6 +37,7 @@ type CodexPatch = Partial<Omit<游戏设置['图鉴系统'], 'api'>> & {
 };
 
 export function CodexSettingsTab({ settings, onChange, apiSettings }: Props) {
+  const { saveSetting } = useSettingsPersistence();
   const codex = settings.图鉴系统;
   const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null;
   const [loadingModels, setLoadingModels] = useState(false);

@@ -1,6 +1,8 @@
 /** 不符合 *-regression.mjs 命名规则但必须进入全量回归的脚本。 */
 export const EXTRA_REGRESSION_SCRIPTS = [
   'check-node-version.mjs',
+  'core2-native-schema.mjs',
+  'core2-runtime-boundary-regression.mjs',
   'npc-ledger-variable-facts-behavior.mjs',
   'teyvat-runtime-language-audit.mjs',
   'validate-story-weaving-canon.mjs',
@@ -11,6 +13,7 @@ export const EXTRA_REGRESSION_SCRIPTS = [
  * 因而不能被普通 `pnpm test` 自动执行。新增脚本必须在这里明确登记，或接入全量回归。
  */
 export const INTENTIONAL_MANUAL_SCRIPTS = [
+  'core2-recall-evaluation.mjs',
   'bundle-size-report.mjs',
   'generate-story-weaving-canon-total.mjs',
   'desktop-code-signing-decision.mjs',

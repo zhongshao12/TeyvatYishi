@@ -6,7 +6,7 @@ import { toUserFacingError } from '@/utils/userFacingError';
 ﻿import { useState } from 'react';
 import type { AI提供商, API配置项, API设置, 游戏设置 } from '@/models/settings';
 import { fetchModels } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import { useSettingsPersistence } from './SettingsPersistence';
 
 interface Props {
   settings: 游戏设置;
@@ -26,6 +26,7 @@ export function buildCourierModelLookupConfig(input: ModelLookupConfigInput): AP
 }
 
 export function CourierSystemSettingsTab({ settings, onChange, apiSettings }: Props) {
+  const { saveSetting } = useSettingsPersistence();
   const courier = settings.手机系统;
   const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? apiSettings.configs[0] ?? null;
   const [modelOptions, setModelOptions] = useState<string[]>([]);

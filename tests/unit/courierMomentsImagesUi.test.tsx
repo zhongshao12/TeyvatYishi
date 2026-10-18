@@ -13,6 +13,7 @@ import { 创建NPC记录, type NPC记录 } from '@/models/npc';
 import { 创建空角色, type 角色数据结构 } from '@/models/character';
 import { normalizeTeyvatNpcRecords } from '@/models/teyvat/character';
 import { 创建相册图片条目 } from '@/utils/albumActions';
+import { readSourceImageCharacterFacts } from '@/utils/imageCharacterFacts';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const imageApi = vi.hoisted(() => vi.fn());
@@ -41,6 +42,7 @@ async function mount(withImage = true, npcRecords: NPC记录[] = [], traveler?: 
   let game = createEmptyTeyvatGameState(); let session = 1; let rerender!: () => void;
   game.NPC = npcRecords.flatMap(npc => normalizeTeyvatNpcRecords([{ id: npc.id, 姓名: npc.姓名 }]).map(record => ({
     ...record, 姓名: npc.姓名, gender: npc.性别 ?? '', appearance: npc.外貌 ?? '', appearanceFacts: npc.外貌档案,
+    clothing: npc.穿着 ?? '', 说明: npc.介绍 ?? '', notes: npc.备注, aliases: npc.别名 ? [npc.别名] : [], visualArchive: { ...record.visualArchive, englishFacts: npc.图像档案?.englishFacts },
   })));
   if (traveler) game.旅行者 = { ...game.旅行者, id: traveler.id, 姓名: traveler.姓名, 性别: traveler.性别, 外貌: traveler.外貌, 身高: traveler.身高 };
   if (withImage) {
@@ -99,6 +101,18 @@ async function mount(withImage = true, npcRecords: NPC记录[] = [], traveler?: 
     },
     reviseExternally: () => { game = { ...game, 手机: { ...game.手机, moments: game.手机.moments?.map(post => ({ ...post, content: '较新的正文', revision: post.revision + 1 })) } }; rerender(); } };
 }
+
+it('uses the saved English character basics for a Moment picture without another translation and excludes the saved outfit', async () => {
+  const npc = { ...创建NPC记录({ 姓名: '安柏', 初见回合: 1 }), id: 'amber-saved', 性别: '女' as const, 外貌: '棕发', 穿着: '秘密服装', 图像档案: {} };
+  npc.图像档案 = { englishFacts: { schemaVersion: 1, sourceKey: JSON.stringify(readSourceImageCharacterFacts(npc)), preparedAt: 1, facts: { language: 'en', name: 'Amber', gender: 'female', appearance: 'brown hair', outfit: 'private outfit' } } };
+  await mount(false, [npc]); textApi.mockRejectedValue(Error('MUST_NOT_RETRANSLATE_SAVED_IDENTITY')); imageApi.mockResolvedValue({ src: 'https://example.invalid/saved-moment.webp' });
+  await act(async () => button('生成配图').click());
+  const select = document.querySelector<HTMLSelectElement>('[aria-label="朋友圈配图角色"]')!;
+  await act(async () => { select.value = npc.id; select.dispatchEvent(new Event('change', { bubbles: true })); typeInto('朋友圈配图正面提示词', 'sunset garden'); });
+  await act(async () => button('确认生成配图').click());
+  await act(async () => { await vi.waitFor(() => expect(imageApi).toHaveBeenCalledTimes(1)); });
+  expect(textApi).not.toHaveBeenCalled(); expect(imageApi.mock.calls[0]?.[1].prompt).toContain('character name: Amber'); expect(imageApi.mock.calls[0]?.[1].prompt).not.toMatch(/private outfit|秘密服装/);
+});
 
 it('closing pending image generation and reopening does not keep the retained publisher busy', async () => {
   await mount(false);

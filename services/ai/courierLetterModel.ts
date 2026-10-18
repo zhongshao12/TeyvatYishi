@@ -8,6 +8,49 @@ import { isCourierLedgerFieldText, sanitizeCourierMessageText } from '@/utils/co
 
 const META_PATTERN = /deliverySeed|triggerType|seed\.context|系统提示|以下是?消息[:：]|如下是?消息[:：]|(?:API|提示词|记忆库)(?:参数|内容|字段|数据)?|<\/?time_format\b|(?:^|[\s，：])(?:time|scene)\s*[:：]/i;
 
+/**
+ * 已完成的话题不得再当待办（2026-10-18 用户实测：「已经履行过的约定/已经完成的事，角色在手机里反复提」）。
+ * 「约定与未完成事项」为空时，角色手里就没有任何未了之事 —— 此时再提旧约定就是把已完结的事重新翻开。
+ */
+export const COURIER_SETTLED_TOPIC_RULE = '- 已经办完的事、已经结算的约定只当背景，不得再催促、不得当待办反复提起；「约定与未完成事项」为空时绝不能再提任何旧约定或旧任务。';
+
+/** 三条手机提示词共用的硬约束（同一句话写三遍会让打包体积白涨三份，也让口径容易漂）。 */
+const FACT_ONLY_RULE = '- 只能使用下方明确给出的事实与记忆；不得擅自发明初遇地点、共同经历、约定或关系进展。';
+const KNOWN_ONLY_RULE = '- 角色只能知道亲历、被告知、近期手机对话或明确私有记忆中的事；环境只是连续性参考，不代表角色知道旅行者的处境。';
+const TONE_RULE = '- 语气温度要符合与旅行者的关系亲疏：越亲近越亲切挂念，越生疏越克制有礼。';
+const SPEECH_RULE = '- 若给了说话方式/口癖，要让回复读起来就是这个人发的，避免千人一面的套话。';
+const shortMessagesRule = (max: number) => `- 只输出 1~${max} 条短消息，每条单独一行；不要标题、解释、引号、书信腔或旁白。`;
+
+/** 约定两栏一次说完：未完成的可以提，已完成的只当背景。 */
+function businessLines(sender: CourierSenderProfile | undefined, limit: number): string[] {
+  const open = sender?.unfinishedBusiness?.slice(0, limit) ?? [];
+  const done = sender?.completedBusiness?.slice(-limit) ?? [];
+  return [
+    open.length ? `约定与未完成事项：${open.join('；')}` : '',
+    done.length ? `已经完成的约定（不要再催、不要再当待办）：${done.join('；')}` : '',
+  ];
+}
+
+/** Shared assembly retains each channel's labels and history limits. */
+function senderContext(sender: CourierSenderProfile | undefined, role: '寄件人' | '收信人' | '成员'): string[] {
+  const group = role === '成员', limit = group ? 4 : 5;
+  return [
+    sender?.playerAddress ? `${group ? '该成员' : role}对旅行者的称呼：${sender.playerAddress}` : '',
+    sender?.personality ? `${role}性格：${sender.personality}` : '',
+    sender?.speechStyle ? `${role}说话方式：${sender.speechStyle}` : '',
+    sender?.background ? `人物背景：${sender.background}` : '',
+    sender?.longTermImpression ? `对旅行者的长期印象：${sender.longTermImpression}` : '',
+    sender?.recentInteraction ? `${group ? '与旅行者' : ''}最近互动：${sender.recentInteraction}` : '',
+    sender?.sharedExperiences?.length ? `共同经历：${sender.sharedExperiences.slice(-limit).join('；')}` : '',
+    ...businessLines(sender, limit),
+    sender?.unresolvedConflicts?.length ? `${group ? '未解决的顾虑或冲突' : '未解决冲突'}：${sender.unresolvedConflicts.slice(0, limit - 1).join('；')}` : '',
+    sender?.mustRemember?.length ? `必须记得：${sender.mustRemember.slice(0, limit + 1).join('；')}` : '',
+    sender?.summaryMemories?.length ? `长期同行记忆：${sender.summaryMemories.slice(-3).join('；')}` : '',
+    sender?.recentMemories?.length ? `近期同行记忆：${sender.recentMemories.slice(-limit - 1).join('；')}` : '',
+    sender?.recentMessages?.length ? `${group ? '本群近期对话' : '近期手机对话'}：\n${sender.recentMessages.slice(-8).join('\n')}` : '',
+  ];
+}
+
 function speechSafeSender(sender: CourierSenderProfile | undefined): CourierSenderProfile | undefined {
   if (!sender) return undefined;
   const line = (value: string | undefined) => {
@@ -21,6 +64,7 @@ function speechSafeSender(sender: CourierSenderProfile | undefined): CourierSend
     longTermImpression: line(sender.longTermImpression),
     sharedExperiences: lines(sender.sharedExperiences),
     unfinishedBusiness: lines(sender.unfinishedBusiness),
+    completedBusiness: lines(sender.completedBusiness),
     unresolvedConflicts: lines(sender.unresolvedConflicts),
     mustRemember: lines(sender.mustRemember),
     summaryMemories: lines(sender.summaryMemories),
@@ -82,30 +126,19 @@ export function buildCourierLetterPrompt(context: CourierLetterContext): string 
   return [
     '你正在为《原神》文字冒险生成角色主动发来的手机消息。请完全进入该角色，以第一人称自然联系旅行者。',
     '要求：',
-    '- 只输出 1~4 条短消息，每条单独一行；不要标题、解释、引号、书信腔或旁白。',
+    shortMessagesRule(4),
     '- 像熟人即时聊天：不要写落款，不要每条重复称呼，不要使用“见信如晤”“盼复”等套话。',
     '- 要自然承接共同经历、近期互动、约定或未解决的事，但不要机械罗列记忆。',
-    '- 语气温度要符合与旅行者的关系亲疏：越亲近越挂念亲昵，越生疏越克制有礼。',
-    '- 若给了说话方式/口癖，要让消息读起来就是这个人发的，避免千人一面的套话。',
+    COURIER_SETTLED_TOPIC_RULE,
+    TONE_RULE,
+    SPEECH_RULE,
     '- 不要照抄给你的事件描述原文，要用寄件人自己的口吻转述。',
-    '- 只能使用下方明确给出的事实与记忆；不得擅自发明初遇地点、共同经历、约定或关系进展。',
-    '- 角色只能知道亲历、被告知、近期手机对话或明确私有记忆中的事。下方环境只是系统连续性参考，不代表寄件人自动知道旅行者当前位置、时间与遭遇。',
+    FACT_ONLY_RULE,
+    KNOWN_ONLY_RULE,
     '- 总长度 30~140 字；“手机”只是界面载体，措辞仍符合提瓦特世界，不提 API、提示词、记忆库等系统术语。',
     '',
     `寄件人：${senderName}${sender?.affinityLabel ? `（与旅行者关系：${sender.affinityLabel}）` : ''}`,
-    sender?.playerAddress ? `寄件人对旅行者的称呼：${sender.playerAddress}` : '',
-    sender?.personality ? `寄件人性格：${sender.personality}` : '',
-    sender?.speechStyle ? `寄件人说话方式：${sender.speechStyle}` : '',
-    sender?.background ? `人物背景：${sender.background}` : '',
-    sender?.longTermImpression ? `对旅行者的长期印象：${sender.longTermImpression}` : '',
-    sender?.recentInteraction ? `最近互动：${sender.recentInteraction}` : '',
-    sender?.sharedExperiences?.length ? `共同经历：${sender.sharedExperiences.slice(-5).join('；')}` : '',
-    sender?.unfinishedBusiness?.length ? `约定与未完成事项：${sender.unfinishedBusiness.slice(0, 5).join('；')}` : '',
-    sender?.unresolvedConflicts?.length ? `未解决冲突：${sender.unresolvedConflicts.slice(0, 4).join('；')}` : '',
-    sender?.mustRemember?.length ? `必须记得：${sender.mustRemember.slice(0, 6).join('；')}` : '',
-    sender?.summaryMemories?.length ? `长期同行记忆：${sender.summaryMemories.slice(-3).join('；')}` : '',
-    sender?.recentMemories?.length ? `近期同行记忆：${sender.recentMemories.slice(-6).join('；')}` : '',
-    sender?.recentMessages?.length ? `近期手机对话：\n${sender.recentMessages.slice(-8).join('\n')}` : '',
+    ...senderContext(sender, '寄件人'),
     environment?.location ? `当前地点：${environment.location}` : '',
     environment?.timeText ? `当前时间：${environment.timeText}` : '',
     environment?.weather ? `当前天气：${environment.weather}` : '',
@@ -115,13 +148,16 @@ export function buildCourierLetterPrompt(context: CourierLetterContext): string 
 }
 
 export async function generateCourierLetter(config: API配置项, context: CourierLetterContext): Promise<string> {
-  const prompt = buildCourierLetterPrompt(context);
+  return generateValidatedCourierText(config, buildCourierLetterPrompt(context), 'LETTER', 6, 600);
+}
+
+async function generateValidatedCourierText(config: API配置项, prompt: string, kind: 'LETTER' | 'REPLY' | 'GROUP_REPLY', minimum: number, maximum: number): Promise<string> {
   const raw = await requestCourierText(config, prompt);
-  const letter = cleanLetterText(raw);
-  if (!letter && raw.trim()) throw new Error('LETTER_CONTAINS_META_TEXT');
-  if (!letter || letter.length < 6) throw new Error('EMPTY_LETTER');
-  if (META_PATTERN.test(letter) || isCourierLedgerFieldText(letter)) throw new Error('LETTER_CONTAINS_META_TEXT');
-  return letter.slice(0, 600);
+  const cleaned = cleanLetterText(raw), text = kind === 'GROUP_REPLY' ? cleaned.replace(/^——.*$/gm, '').trim() : cleaned;
+  if (!text && raw.trim()) throw new Error(`${kind}_CONTAINS_META_TEXT`);
+  if (!text || text.length < minimum) throw new Error(`EMPTY_${kind}`);
+  if (META_PATTERN.test(text) || isCourierLedgerFieldText(text)) throw new Error(`${kind}_CONTAINS_META_TEXT`);
+  return text.slice(0, maximum);
 }
 
 /** 把手机独立 API 覆盖叠到主接口上：留空字段回退主接口。 */
@@ -174,32 +210,21 @@ export function buildCourierReplyPrompt(context: CourierReplyContext): string {
   return [
     '你正在为《原神》文字冒险生成角色的手机回复。旅行者刚发来消息，请完全进入该角色，用第一人称接话。',
     '要求：',
-    '- 只输出 1~3 条短消息，每条单独一行；不要标题、解释、引号、书信腔或旁白。',
+    shortMessagesRule(3),
     '- 像真实即时聊天：不要写落款，不要每条重复称呼，不要说“来信收到”。',
     '- 要回应旅行者消息里的内容，体现联系人的性格、心情与说话习惯，语气自然有温度。',
     isConsecutiveBatch ? '- 旅行者连续发了多条消息；按顺序回应整段意思，不要逐条机械复读。' : '',
-    '- 语气温度要符合与旅行者的关系亲疏：越亲近越亲切挂念，越生疏越克制有礼。',
-    '- 若给了说话方式/口癖，要让回复读起来就是这个人发的，避免千人一面的套话。',
+    TONE_RULE,
+    SPEECH_RULE,
     '- 不要照抄旅行者原文，用联系人自己的口吻回应。',
     '- 自然承接共同经历、近期对话、约定或关系变化，不要机械复述记忆条目。',
-    '- 只能使用下方明确给出的事实与记忆；不得擅自发明初遇地点、共同经历、约定或关系进展。',
-    '- 角色只能知道亲历、被告知、近期手机对话或明确私有记忆中的事。下方环境只是系统连续性参考，不代表联系人自动知道旅行者当前位置、时间与遭遇。',
+    COURIER_SETTLED_TOPIC_RULE,
+    FACT_ONLY_RULE,
+    KNOWN_ONLY_RULE,
     '- 总长度 20~120 字，保持提瓦特人物语言风格，不要出现 API、提示词、记忆库等系统术语。',
     '',
     `收信人：${sender?.name || context.conversation.title || '联系人'}${sender?.affinityLabel ? `（与旅行者关系：${sender.affinityLabel}）` : ''}`,
-    sender?.playerAddress ? `收信人对旅行者的称呼：${sender.playerAddress}` : '',
-    sender?.personality ? `收信人性格：${sender.personality}` : '',
-    sender?.speechStyle ? `收信人说话方式：${sender.speechStyle}` : '',
-    sender?.background ? `人物背景：${sender.background}` : '',
-    sender?.longTermImpression ? `对旅行者的长期印象：${sender.longTermImpression}` : '',
-    sender?.recentInteraction ? `最近互动：${sender.recentInteraction}` : '',
-    sender?.sharedExperiences?.length ? `共同经历：${sender.sharedExperiences.slice(-5).join('；')}` : '',
-    sender?.unfinishedBusiness?.length ? `约定与未完成事项：${sender.unfinishedBusiness.slice(0, 5).join('；')}` : '',
-    sender?.unresolvedConflicts?.length ? `未解决冲突：${sender.unresolvedConflicts.slice(0, 4).join('；')}` : '',
-    sender?.mustRemember?.length ? `必须记得：${sender.mustRemember.slice(0, 6).join('；')}` : '',
-    sender?.summaryMemories?.length ? `长期同行记忆：${sender.summaryMemories.slice(-3).join('；')}` : '',
-    sender?.recentMemories?.length ? `近期同行记忆：${sender.recentMemories.slice(-6).join('；')}` : '',
-    sender?.recentMessages?.length ? `近期手机对话：\n${sender.recentMessages.slice(-8).join('\n')}` : '',
+    ...senderContext(sender, '收信人'),
     environment?.location ? `当前地点：${environment.location}` : '',
     environment?.timeText ? `当前时间：${environment.timeText}` : '',
     environment?.weather ? `当前天气：${environment.weather}` : '',
@@ -209,13 +234,7 @@ export function buildCourierReplyPrompt(context: CourierReplyContext): string {
 }
 
 export async function generateCourierReply(config: API配置项, context: CourierReplyContext): Promise<string> {
-  const prompt = buildCourierReplyPrompt(context);
-  const raw = await requestCourierText(config, prompt);
-  const letter = cleanLetterText(raw);
-  if (!letter && raw.trim()) throw new Error('REPLY_CONTAINS_META_TEXT');
-  if (!letter || letter.length < 4) throw new Error('EMPTY_REPLY');
-  if (META_PATTERN.test(letter) || isCourierLedgerFieldText(letter)) throw new Error('REPLY_CONTAINS_META_TEXT');
-  return letter.slice(0, 600);
+  return generateValidatedCourierText(config, buildCourierReplyPrompt(context), 'REPLY', 4, 600);
 }
 
 /**
@@ -236,36 +255,19 @@ export function buildCourierGroupReplyPrompt(context: CourierGroupReplyContext):
     '- 必须回应旅行者这句话的核心含义；涉及恋爱、承诺、冲突或请求时，要给出该角色自己的明确态度。',
     isConsecutiveBatch ? '- 旅行者连续发了多条消息；按顺序回应整段意思，不要逐条机械复读。' : '',
     '- 自然承接一项最相关的同行记忆、近期互动或未完成约定（若有），但不要逐项复述档案。',
+    COURIER_SETTLED_TOPIC_RULE,
     '- 禁止使用“这事我记下了”“你展开讲讲”“我也在想这个”“待会儿聊”一类万能敷衍句。',
     '- 不要照抄旅行者的原话，可以顺着话题接、调侃、关心或补充。',
-    '- 只能使用下方明确给出的事实与记忆，不得虚构共同经历或关系进展。',
-    '- 成员只能知道亲历、被告知、本群消息或明确私有记忆里的内容，不得读取系统状态、旅行者未说出口的信息或别人的私密记忆。',
+    FACT_ONLY_RULE,
+    KNOWN_ONLY_RULE,
     '',
     `发言成员：${sender?.name || '群成员'}${sender?.affinityLabel ? `（与旅行者关系：${sender.affinityLabel}）` : ''}`,
-    sender?.playerAddress ? `该成员对旅行者的称呼：${sender.playerAddress}` : '',
-    sender?.personality ? `成员性格：${sender.personality}` : '',
-    sender?.speechStyle ? `成员说话方式：${sender.speechStyle}` : '',
-    sender?.background ? `人物背景：${sender.background}` : '',
-    sender?.longTermImpression ? `对旅行者的长期印象：${sender.longTermImpression}` : '',
-    sender?.recentInteraction ? `与旅行者最近互动：${sender.recentInteraction}` : '',
-    sender?.sharedExperiences?.length ? `共同经历：${sender.sharedExperiences.slice(-4).join('；')}` : '',
-    sender?.unfinishedBusiness?.length ? `尚未完成的约定：${sender.unfinishedBusiness.slice(0, 4).join('；')}` : '',
-    sender?.unresolvedConflicts?.length ? `未解决的顾虑或冲突：${sender.unresolvedConflicts.slice(0, 3).join('；')}` : '',
-    sender?.mustRemember?.length ? `必须记得：${sender.mustRemember.slice(0, 5).join('；')}` : '',
-    sender?.summaryMemories?.length ? `长期同行记忆：${sender.summaryMemories.slice(-3).join('；')}` : '',
-    sender?.recentMemories?.length ? `近期同行记忆：${sender.recentMemories.slice(-5).join('；')}` : '',
-    sender?.recentMessages?.length ? `本群近期对话：\n${sender.recentMessages.slice(-8).join('\n')}` : '',
+    ...senderContext(sender, '成员'),
     `旅行者刚说的：${playerContent}`,
     `旅行者名字：${context.travelerName || '旅行者'}`,
   ].filter(Boolean).join('\n');
 }
 
 export async function generateCourierGroupReply(config: API配置项, context: CourierGroupReplyContext): Promise<string> {
-  const prompt = buildCourierGroupReplyPrompt(context);
-  const raw = await requestCourierText(config, prompt);
-  const reply = cleanLetterText(raw).replace(/^——.*$/gm, '').trim();
-  if (!reply && raw.trim()) throw new Error('GROUP_REPLY_CONTAINS_META_TEXT');
-  if (!reply || reply.length < 4) throw new Error('EMPTY_GROUP_REPLY');
-  if (META_PATTERN.test(reply) || isCourierLedgerFieldText(reply)) throw new Error('GROUP_REPLY_CONTAINS_META_TEXT');
-  return reply.slice(0, 160);
+  return generateValidatedCourierText(config, buildCourierGroupReplyPrompt(context), 'GROUP_REPLY', 4, 160);
 }

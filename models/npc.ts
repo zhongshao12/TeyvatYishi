@@ -109,6 +109,8 @@ export interface NPC记忆账本视图 {
   对玩家长期印象?: string;
   共同经历: string[];
   未完成事项: string[];
+  /** 已履行/已取消的约定：只作为「不能再催」的背景，不进未完成事项。 */
+  已完成事项?: string[];
   未解决冲突: string[];
   必须记得: string[];
   禁止遗忘: string[];
@@ -334,6 +336,7 @@ export interface NPC记录 {
   当前关系阶段?: string;             // NPC 账本：比关系枚举更具体的阶段描述
   共同经历?: string[];               // NPC 账本：稳定共同经历
   未完成事项?: string[];             // NPC 账本：承诺、约定、待办
+  已完成事项?: string[];             // NPC 账本：已经履行/取消的约定（不得再当待办催促）
   未解决冲突?: string[];             // NPC 账本：尚未化解的冲突/误会
   必须记得?: string[];               // NPC 账本：主剧情不得遗忘的事实
   禁止遗忘?: string[];               // NPC 账本：强保护事实，解决前不得删除
@@ -449,6 +452,7 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
   const rawAvatar = source.头像 ?? source.avatar ?? source.avatarUrl;
   const rawNSFW = source.NSFW档案 ?? source.nsfw ?? source.NSFW;
   const rawImage = source.图像档案 ?? source.image ?? source.images;
+  const fixedEnglish = rawImage && typeof rawImage === 'object' && normalizeImageCharacterEnglishCache((rawImage as { englishFacts?: unknown }).englishFacts);
   const archive = 归一化NSFW档案(rawNSFW);
   const eligibleForMeasurements = canRevealNpcMeasurements({
     name, aliases: typeof rawAlias === 'string' ? [rawAlias] : [], gender: typeof rawGender === 'string' ? rawGender : undefined,
@@ -464,14 +468,14 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
   const appearanceFacts = normalizeNpcAppearanceFacts(source.外貌档案 ?? source.appearanceFacts, eligibleForMeasurements);
   const avatarProfile = getAvatarCharacterProfile(name, typeof rawAlias === 'string' ? [rawAlias] : undefined);
   let finalAppearanceFacts = appearanceFacts;
-  if (avatarProfile) {
+  if (avatarProfile && !fixedEnglish) {
     const appearanceMap: NPC外貌档案 = { ...(appearanceFacts ?? {}) };
     let appearanceChanged = false;
     for (const key of ['发色', '瞳色', '身高', '体重'] as const) {
       const val = avatarProfile[key];
       if (val) {
         const existing = appearanceMap[key];
-        if (!existing || (existing.source !== 'manual' && existing.value !== val)) {
+        if (!existing) {
           appearanceMap[key] = { value: val, source: 'canon' };
           appearanceChanged = true;
         }
@@ -487,7 +491,7 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
   const tierBeforeArchive = source.归档前阶位 === 'companion' || source.tierBeforeArchive === 'companion'
     ? 'companion' : source.归档前阶位 === 'extra' || source.tierBeforeArchive === 'extra' ? 'extra' : undefined;
 
-  const resolvedClothing = typeof rawClothing === 'string' && rawClothing.trim()
+  const resolvedClothing = fixedEnglish ? typeof rawClothing === 'string' ? rawClothing : undefined : typeof rawClothing === 'string' && rawClothing.trim()
     ? rawClothing
     : (avatarProfile?.常用穿着 ?? undefined);
   const isCandace = name === '坎蒂丝' || rawAlias === 'Candace' || canonical?.name === '坎蒂丝';
@@ -528,6 +532,7 @@ function 归一化单个NPC记录(source: Partial<NPC记录> & Record<string, un
     当前关系阶段: 获取NPC关系阶段(affinity),
     共同经历: normalizeNpcTextList(source.共同经历 ?? source.sharedExperiences),
     未完成事项: normalizeNpcTextList(source.未完成事项 ?? source.openItems),
+    已完成事项: normalizeNpcTextList(source.已完成事项 ?? source.completedItems),
     未解决冲突: normalizeNpcTextList(source.未解决冲突 ?? source.unresolvedConflicts),
     必须记得: normalizeNpcTextList(source.必须记得 ?? source.mustRemember),
     禁止遗忘: normalizeNpcTextList(source.禁止遗忘 ?? source.doNotForget),
@@ -587,6 +592,7 @@ function 合并NPC记录(base: NPC记录, incoming: NPC记录): NPC记录 {
     当前关系阶段: 获取NPC关系阶段(affinity),
     共同经历: 去重文本列表([...(base.共同经历 ?? []), ...(incoming.共同经历 ?? [])]),
     未完成事项: 去重文本列表([...(base.未完成事项 ?? []), ...(incoming.未完成事项 ?? [])]),
+    已完成事项: 去重文本列表([...(base.已完成事项 ?? []), ...(incoming.已完成事项 ?? [])]).slice(-24),
     未解决冲突: 去重文本列表([...(base.未解决冲突 ?? []), ...(incoming.未解决冲突 ?? [])]),
     必须记得: 去重文本列表([...(base.必须记得 ?? []), ...(incoming.必须记得 ?? [])]),
     禁止遗忘: 去重文本列表([...(base.禁止遗忘 ?? []), ...(incoming.禁止遗忘 ?? [])]),
@@ -1306,6 +1312,7 @@ export function buildNpcMemoryLedgerView(record: NPC记录, recentMemoryLimit = 
     对玩家长期印象: record.对玩家长期印象,
     共同经历: record.共同经历 ?? [],
     未完成事项: record.未完成事项 ?? [],
+    已完成事项: record.已完成事项 ?? [],
     未解决冲突: record.未解决冲突 ?? [],
     必须记得: record.必须记得 ?? [],
     禁止遗忘: record.禁止遗忘 ?? [],
@@ -1336,6 +1343,7 @@ export function formatNpcLedgerForPrompt(item: NPC账本选择条目): string {
     ledger.禁止遗忘.length ? `- 禁止遗忘：${ledger.禁止遗忘.slice(0, 4).join('；')}` : '',
     ledger.共同经历.length ? `- 共同经历：${ledger.共同经历.slice(-4).join('；')}` : '',
     ledger.未完成事项.length ? `- 未完成事项：${ledger.未完成事项.slice(0, 4).join('；')}` : '',
+    (ledger.已完成事项 ?? []).length ? `- 已完成（只当背景，不得再催促）：${ledger.已完成事项!.slice(-3).join('；')}` : '',
     ledger.未解决冲突.length ? `- 未解决冲突：${ledger.未解决冲突.slice(0, 4).join('；')}` : '',
     ledger.总结记忆.length ? `- 总结记忆：${ledger.总结记忆.slice(-2).map((summary) => summary.摘要).join('；')}` : '',
     ledger.最近原始记忆.length ? `- 最近原始记忆：${ledger.最近原始记忆.slice(-3).join('；')}` : '',

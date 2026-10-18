@@ -14,7 +14,7 @@ export interface ImageCharacterFactInput {
   备注?: string[];
   外貌档案?: NPC外貌档案;
   身高?: string;
-  NSFW档案?: NPC_NSFW档案;
+  NSFW档案?: Pick<NPC_NSFW档案, '年龄确认' | '年龄确认来源'>;
   图像档案?: { englishFacts?: ImageCharacterEnglishCache };
 }
 

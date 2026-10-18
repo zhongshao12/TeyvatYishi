@@ -1,6 +1,7 @@
 export {};
 
 declare global {
+  interface ImportMeta { readonly env: { readonly VITE_CORE2_ENABLED?: string; readonly BASE_URL: string } }
   interface Window {
     __ROOT_MOUNTED__?: boolean;
     __PREBOOT_ERROR__?: string | null;

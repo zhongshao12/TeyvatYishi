@@ -11,6 +11,10 @@ export interface NPC关系规划条目 {
   建议动作: '继续同行互动' | '兑现承诺或冲突' | '补充关系记忆' | '适合信使联系' | '暂作背景';
   理由: string[];
   关注点: string[];
+  /** 还没兑现的约定（账本原文）：手机/来信里可以提，但不能反复催同一件。 */
+  未完成承诺: string[];
+  /** 已经履行或取消的约定：只作为「已经办完」的背景，不得再当待办催促。 */
+  已完成承诺: string[];
 }
 
 export interface NPC关系规划快照 {
@@ -37,7 +41,14 @@ export function buildNpcRelationshipPlanning(npcs: NPC记录[], turnCount: numbe
 
 function buildNpcRelationshipEntry(npc: NPC记录, turnCount: number, memories: string[]): NPC关系规划条目 {
   const recent = Number(npc.最近回合 || 0) >= Math.max(1, turnCount - 10);
-  const hasPromise = memories.some((item) => /约|承诺|答应|欠|等待|再见|联系|冲突|警惕|怀疑|信任/.test(item));
+  // 承诺状态以账本为准：只看同行记忆会把「已经办完的约定」永远读成「还没兑现」，于是每次催促
+  // 都能得到一条新的「关系线索」自我强化。已完成的那部分单独列出来，谁都不得再当待办。
+  const 未完成承诺 = (npc.未完成事项 ?? []).slice(-4);
+  const 已完成承诺 = (npc.已完成事项 ?? []).slice(-4);
+  // 账本里有未完成约定就是「该兑现」；只有记忆里提到承诺（账本还没建）时沿用旧判定，
+  // 但只要账本已经记下「已完成」，就不再把旧记忆当成还没兑现的承诺。
+  const hasPromise = 未完成承诺.length > 0
+    || (已完成承诺.length === 0 && memories.some((item) => /约|承诺|答应|欠|等待|再见|联系|冲突|警惕|怀疑|信任/.test(item)));
   const needsMemory = recent && memories.length === 0 && (npc.同行 || npc.好感度 !== 0 || npc.亲密关系 || Math.abs(npc.好感度) >= 10);
   const action: NPC关系规划条目['建议动作'] = needsMemory
     ? '补充关系记忆'
@@ -64,6 +75,8 @@ function buildNpcRelationshipEntry(npc: NPC记录, turnCount: number, memories: 
     建议动作: action,
     理由: buildReasons(npc, memories, recent, needsMemory, hasPromise),
     关注点: buildFocusPoints(npc, memories),
+    未完成承诺,
+    已完成承诺,
   };
 }
 
@@ -88,6 +101,7 @@ function buildFocusPoints(npc: NPC记录, memories: string[]): string[] {
   return uniqueText([
     npc.对玩家称呼 ? `称呼：${npc.对玩家称呼}` : '',
     npc.介绍 ? `背景：${summarizeText(npc.介绍, 52)}` : '',
+    (npc.已完成事项 ?? []).length ? `已经办完（不要再催）：${npc.已完成事项!.slice(-2).join('；')}` : '',
     ...latestMemorySignals,
   ], 5);
 }

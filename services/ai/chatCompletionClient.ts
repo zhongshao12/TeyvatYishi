@@ -6,10 +6,20 @@ export type { ChatCompletionUsage } from './usageExtraction';
 import { appendApiErrorReport } from './apiErrorReportService';
 import { isPioneerBaseUrl, normalizePioneerBaseUrl } from './pioneerProxyCore';
 import { buildArkProxyBody, isArkBaseUrl, normalizeArkBaseUrl } from './arkProxyCore';
+import {
+  ANT_LING_PROXY_PREFIX,
+  buildAntLingProxyBody,
+  clampAntLingTemperature,
+  isAntLingBaseUrl,
+  isAntLingThinkingModel,
+  normalizeAntLingBaseUrl,
+} from './antLingPolicy';
 import { normalizeGeminiBaseUrl } from './geminiEndpointPolicy';
 import { detectChatProvider } from './providerRouting';
 import { classifyDeepSeekConfig } from './deepSeekModelPolicy';
 import { normalizeOpenCodeBaseUrl } from './openCodeEndpointPolicy';
+import { localGemma4ThinkingEffort } from './ollamaModelPolicy';
+import { localOllamaRequestUrl } from './localOllamaProxyCore';
 import {
   DEEPSEEK_FINAL_CONTENT_GUARD,
   executeWithDeepSeekRecovery,
@@ -35,6 +45,8 @@ export interface StreamCallbacks {
 type ChatMessagePayload = { role: string; content: string; prefix?: boolean };
 
 export interface ChatCompletionRequest {
+  /** Core2 operations/jobs retain their own failures, never the legacy report store. */
+  errorReporting?: 'legacy' | 'caller';
   messages: ChatMessagePayload[];
   systemPrompt?: string;
   maxTokens?: number;
@@ -69,6 +81,10 @@ export interface ChatCompletionRequest {
   onDeepSeekRecovery?: (summary: DeepSeekRecoverySummary) => void;
   /** Internal transport diagnostics consumed by the recovery coordinator. */
   onResponseDiagnostics?: (diagnostics: DeepSeekAttemptDiagnostics) => void;
+}
+
+function reportApiError(request: Pick<ChatCompletionRequest, 'errorReporting'>, input: Parameters<typeof appendApiErrorReport>[0]): void {
+  if (request.errorReporting !== 'caller') void appendApiErrorReport(input);
 }
 
 const requestMetadataByAttempt = new WeakMap<ChatCompletionRequest, RequestMetadata>();
@@ -377,7 +393,8 @@ function normalizeClaudeBaseUrl(baseUrl: string): string {
 }
 
 function buildOpenAICompatibleChatUrl(baseUrl: string): string {
-  const base = baseUrl.replace(/\/+$/, '');
+  // 蚂蚁百灵官方 Base 是 https://api.ant-ling.com/v1；玩家常填根域名或整条地址，这里统一收敛。
+  const base = (isAntLingBaseUrl(baseUrl) ? normalizeAntLingBaseUrl(baseUrl) : baseUrl).replace(/\/+$/, '');
   if (/\/chat\/completions$/i.test(base)) return base;
   return `${base}/chat/completions`;
 }
@@ -581,9 +598,20 @@ function buildOpenAICompatibleRequestBody(
     const maxCtx = request.maxContext ?? config.maxContext;
     if (typeof maxCtx === 'number' && extensions.includes('max_context_tokens')) body.max_context_tokens = maxCtx;
   }
-  if (stream && includeUsage && request.onUsage) {
+  // 蚂蚁百灵的流式响应本来就会在结尾返回 usage（choices 为空的最后一帧），
+  // 不需要 stream_options；少发一个非文档参数可以避免严格网关 400。
+  if (stream && includeUsage && request.onUsage && !isAntLingBaseUrl(config.baseUrl)) {
     body.stream_options = { include_usage: true };
   }
+  if (isAntLingBaseUrl(config.baseUrl)) {
+    // 官方文档：temperature ∈ [0.0, 1.0]；3.0/3.1 系列默认开启思考。
+    // 写作预设常用的 1.2–1.5 会直接 400，思考则会先吃掉输出额度并打乱 JSON 协议。
+    const clamped = clampAntLingTemperature(body.temperature);
+    if (clamped !== undefined) body.temperature = clamped;
+    if (isAntLingThinkingModel(config.model)) body.thinking = { type: 'disabled' };
+  }
+  const thinkingEffort = localGemma4ThinkingEffort(config);
+  if (thinkingEffort !== undefined) body.reasoning_effort = thinkingEffort;
   return body;
 }
 
@@ -642,6 +670,20 @@ function formatOpenAICompatibleError(config: API配置项, status: number, text:
       return `${aliasHint}请检查百度千帆 Base URL、模型 ID、Key 与账号权限。`;
     })();
     return new Error(`百度千帆 API Error ${status}: ${hint}\n${text}`);
+  }
+  if (isAntLingBaseUrl(config.baseUrl)) {
+    const lower = text.toLowerCase();
+    const hint = (() => {
+      if (status === 401 || status === 403) return '请检查蚂蚁百灵 API Key 是否为控制台创建的令牌、是否已过期。';
+      if (status === 404) return '请确认 Base URL 是 https://api.ant-ling.com/v1、模型 ID 正确；静态托管还要带上 /api/antling 同源转发（functions/api/antling.ts）。';
+      if (status === 400 && (lower.includes('temperature') || lower.includes('top_p') || lower.includes('reasoning_effort'))) {
+        return 'temperature 只接受 [0,1]、top_p 只接受 (0,1]、reasoning_effort 只对 Ring-2.6-1T 生效；系统已自动收敛。';
+      }
+      if (status === 400) return '请检查模型 ID、消息长度与参数；Ling-3.0-flash-VL 的多模态需要 image_url / video_url 内容块。';
+      if (status === 429) return '蚂蚁百灵限流或额度不足，请稍后重试并检查控制台账单。';
+      return '请检查蚂蚁百灵 Base URL、模型 ID、Key 与账户额度。';
+    })();
+    return new Error(`蚂蚁百灵 API Error ${status}: ${hint}\n${text}`);
   }
   return new Error(`API Error ${status}: ${text}`);
 }
@@ -796,7 +838,7 @@ async function fetchWithApiErrorReport(
   source: string,
   url: string,
   requestMode: 'stream' | 'non-stream' | 'models' | 'test' | 'unknown',
-  init: RequestInit & { onRequestPhase?: ChatCompletionRequest['onRequestPhase'] },
+  init: RequestInit & Pick<ChatCompletionRequest, 'onRequestPhase' | 'errorReporting'>,
 ): Promise<Response> {
   const upstreamSignal = init.signal ?? undefined;
   // 已取消的请求绝不能发出：否则用户点了停止，付费请求仍然上线。
@@ -804,11 +846,12 @@ async function fetchWithApiErrorReport(
     throw upstreamSignal.reason ?? new DOMException('请求已取消。', 'AbortError');
   }
   const lifecycle = createFetchLifecycle(upstreamSignal ?? undefined);
-  const { onRequestPhase, ...fetchInit } = init;
+  const { onRequestPhase, errorReporting, ...fetchInit } = init;
+  const request = { errorReporting };
   const phase = (value: 'connecting' | 'receiving') => { try { onRequestPhase?.(value); } catch { /* diagnostic observer only */ } };
   try {
     phase('connecting');
-    const response = await fetch(url, { ...fetchInit, signal: lifecycle.controller.signal });
+    const response = await fetch(localOllamaRequestUrl(url, config.model), { ...fetchInit, signal: lifecycle.controller.signal });
     phase('receiving');
     // 响应头已到：结束响应头超时，但保留上层取消转发直到正文读完。
     lifecycle.clearHeaderTimeout();
@@ -822,7 +865,7 @@ async function fetchWithApiErrorReport(
     if (reportedError && typeof reportedError === 'object') {
       (reportedError as Error & { alreadyReportedByApiLayer?: boolean }).alreadyReportedByApiLayer = true;
     }
-    void appendApiErrorReport({
+    reportApiError(request, {
       source,
       config,
       requestUrl: url,
@@ -1149,7 +1192,7 @@ export async function chatCompletion(
     },
   }).catch((error: unknown) => {
     if (error instanceof StreamProtocolError) {
-      void appendApiErrorReport({ source: '流式协议错误', config, requestMode: 'stream', responseText: error.payload, error });
+      reportApiError(request, { source: '流式协议错误', config, requestMode: 'stream', responseText: error.payload, error });
       callbacks.onError(error);
     }
     throw error;
@@ -1214,21 +1257,27 @@ async function streamOpenAICompatible(
   callbacks: StreamCallbacks,
   includeUsage: boolean = true,
 ): Promise<string> {
-  const upstreamBaseUrl = isArkConfig(config)
+  const upstreamBaseUrl = isAntLingBaseUrl(config.baseUrl)
+    ? normalizeAntLingBaseUrl(config.baseUrl)
+    : isArkConfig(config)
     ? normalizeArkBaseUrl(config.baseUrl)
     : isPioneerConfig(config)
       ? normalizePioneerBaseUrl(config.baseUrl)
       : config.baseUrl;
   const upstreamUrl = buildOpenAICompatibleChatUrl(upstreamBaseUrl);
   const requestBody = buildOpenAICompatibleRequestBody(config, messages, request, true, includeUsage);
-  const url = isArkConfig(config)
+  const url = isAntLingBaseUrl(config.baseUrl)
+    ? ANT_LING_PROXY_PREFIX
+    : isArkConfig(config)
     ? '/api/ark'
     : isBaiduQianfanConfig(config)
     ? '/api/qianfan'
     : isPioneerConfig(config)
       ? '/api/pioneer'
       : upstreamUrl;
-  const body = isArkConfig(config)
+  const body = isAntLingBaseUrl(config.baseUrl)
+    ? buildAntLingProxyBody(config, requestBody)
+    : isArkConfig(config)
     ? buildArkProxyBody(config, requestBody)
     : isBaiduQianfanConfig(config)
     ? buildQianfanProxyBody(config, requestBody)
@@ -1247,6 +1296,7 @@ async function streamOpenAICompatible(
     body,
     signal: request.signal,
     onRequestPhase: request.onRequestPhase,
+    errorReporting: request.errorReporting,
   });
 
   if (!response.ok) {
@@ -1255,7 +1305,7 @@ async function streamOpenAICompatible(
       console.warn('[token-usage] 当前流式接口不支持 stream_options.include_usage，已自动降级为不请求 usage 的流式请求。');
       return streamOpenAICompatible(config, messages, request, callbacks, false);
     }
-    void appendApiErrorReport({
+    reportApiError(request, {
       source: '聊天补全',
       config,
       status: response.status,
@@ -1313,11 +1363,12 @@ async function streamClaude(
     body,
     signal: request.signal,
     onRequestPhase: request.onRequestPhase,
+    errorReporting: request.errorReporting,
   });
 
   if (!response.ok) {
     const text = await readResponseBody(response, request.signal);
-    void appendApiErrorReport({
+    reportApiError(request, {
       source: 'Claude 聊天补全',
       config,
       status: response.status,
@@ -1387,11 +1438,12 @@ async function completionClaudeNonStream(
     body: JSON.stringify(buildClaudeRequestBody(config, messages, request, false)),
     signal: request.signal,
     onRequestPhase: request.onRequestPhase,
+    errorReporting: request.errorReporting,
   });
 
   if (!response.ok) {
     const text = await readResponseBody(response, request.signal);
-    void appendApiErrorReport({
+    reportApiError(request, {
       source: 'Claude 非流式补全',
       config,
       status: response.status,
@@ -1570,6 +1622,7 @@ async function streamOpenCodeChat(
     body: buildOpenCodeProxyBody(config, endpoint, requestBody, true),
     signal: request.signal,
     onRequestPhase: request.onRequestPhase,
+    errorReporting: request.errorReporting,
   });
 
   if (!response.ok) {
@@ -1578,7 +1631,7 @@ async function streamOpenCodeChat(
       console.warn('[token-usage] OpenCode Chat 流式接口不支持 stream_options.include_usage，已自动降级为不请求 usage 的流式请求。');
       return streamOpenCodeChat(config, messages, request, callbacks, false);
     }
-    void appendApiErrorReport({
+    reportApiError(request, {
       source: 'OpenCode Zen Chat 补全',
       config,
       status: response.status,
@@ -1631,11 +1684,12 @@ async function streamOpenCodeMessages(
     body: buildOpenCodeProxyBody(config, endpoint, buildClaudeRequestBody(config, messages, request, true), true),
     signal: request.signal,
     onRequestPhase: request.onRequestPhase,
+    errorReporting: request.errorReporting,
   });
 
   if (!response.ok) {
     const text = await readResponseBody(response, request.signal);
-    void appendApiErrorReport({
+    reportApiError(request, {
       source: 'OpenCode Zen Messages 补全',
       config,
       status: response.status,
@@ -1705,11 +1759,12 @@ async function streamOpenCodeResponses(
     body: buildOpenCodeProxyBody(config, endpoint, buildOpenCodeResponsesBody(config, messages, request, true), true),
     signal: request.signal,
     onRequestPhase: request.onRequestPhase,
+    errorReporting: request.errorReporting,
   });
 
   if (!response.ok) {
     const text = await readResponseBody(response, request.signal);
-    void appendApiErrorReport({
+    reportApiError(request, {
       source: 'OpenCode Zen Responses 补全',
       config,
       status: response.status,
@@ -1763,11 +1818,12 @@ async function streamOpenCodeGemini(
     body: buildOpenCodeProxyBody(config, endpoint, buildOpenCodeGeminiBody(config, messages, request), true),
     signal: request.signal,
     onRequestPhase: request.onRequestPhase,
+    errorReporting: request.errorReporting,
   });
 
   if (!response.ok) {
     const text = await readResponseBody(response, request.signal);
-    void appendApiErrorReport({
+    reportApiError(request, {
       source: 'OpenCode Zen Gemini 补全',
       config,
       status: response.status,
@@ -1823,10 +1879,11 @@ async function completionOpenCodeNonStream(
       body: buildOpenCodeProxyBody(normalized, endpoint, buildOpenAICompatibleRequestBody(normalized, messages, request, false), false),
       signal: request.signal,
       onRequestPhase: request.onRequestPhase,
+      errorReporting: request.errorReporting,
     });
     if (!response.ok) {
       const text = await readResponseBody(response, request.signal);
-      void appendApiErrorReport({
+      reportApiError(request, {
         source: 'OpenCode Zen Chat 非流式补全',
         config: normalized,
         status: response.status,
@@ -1849,10 +1906,11 @@ async function completionOpenCodeNonStream(
       body: buildOpenCodeProxyBody(normalized, endpoint, buildClaudeRequestBody(normalized, messages, request, false), false),
       signal: request.signal,
       onRequestPhase: request.onRequestPhase,
+      errorReporting: request.errorReporting,
     });
     if (!response.ok) {
       const text = await readResponseBody(response, request.signal);
-      void appendApiErrorReport({
+      reportApiError(request, {
         source: 'OpenCode Zen Messages 非流式补全',
         config: normalized,
         status: response.status,
@@ -1875,10 +1933,11 @@ async function completionOpenCodeNonStream(
       body: buildOpenCodeProxyBody(normalized, endpoint, buildOpenCodeGeminiBody(normalized, messages, request), false),
       signal: request.signal,
       onRequestPhase: request.onRequestPhase,
+      errorReporting: request.errorReporting,
     });
     if (!response.ok) {
       const text = await readResponseBody(response, request.signal);
-      void appendApiErrorReport({
+      reportApiError(request, {
         source: 'OpenCode Zen Gemini 非流式补全',
         config: normalized,
         status: response.status,
@@ -1900,10 +1959,11 @@ async function completionOpenCodeNonStream(
     body: buildOpenCodeProxyBody(normalized, endpoint, buildOpenCodeResponsesBody(normalized, messages, request, false), false),
     signal: request.signal,
     onRequestPhase: request.onRequestPhase,
+    errorReporting: request.errorReporting,
   });
   if (!response.ok) {
     const text = await readResponseBody(response, request.signal);
-    void appendApiErrorReport({
+    reportApiError(request, {
       source: 'OpenCode Zen Responses 非流式补全',
       config: normalized,
       status: response.status,
@@ -1977,11 +2037,12 @@ async function streamGemini(
     body: JSON.stringify(bodyObj),
     signal: request.signal,
     onRequestPhase: request.onRequestPhase,
+    errorReporting: request.errorReporting,
   });
 
   if (!response.ok) {
     const text = await readResponseBody(response, request.signal);
-    void appendApiErrorReport({
+    reportApiError(request, {
       source: 'Gemini 聊天补全',
       config,
       status: response.status,
@@ -2090,11 +2151,12 @@ async function chatCompletionNonStreamOnce(
       body: JSON.stringify(requestBody),
       signal: request.signal,
       onRequestPhase: request.onRequestPhase,
+      errorReporting: request.errorReporting,
     });
 
     if (!response.ok) {
       const text = await readResponseBody(response, request.signal);
-      void appendApiErrorReport({
+      reportApiError(request, {
         source: '非流式补全',
         config,
         status: response.status,
@@ -2131,13 +2193,17 @@ async function chatCompletionNonStreamOnce(
     ? withDeepSeekPrefixMessages(config, msgs, request)
     : { config, messages: msgs, prefix: '' };
 
-  const upstreamBaseUrl = isArkConfig(deepSeekPayload.config)
+  const upstreamBaseUrl = isAntLingBaseUrl(deepSeekPayload.config.baseUrl)
+    ? normalizeAntLingBaseUrl(deepSeekPayload.config.baseUrl)
+    : isArkConfig(deepSeekPayload.config)
     ? normalizeArkBaseUrl(deepSeekPayload.config.baseUrl)
     : isPioneerConfig(deepSeekPayload.config)
       ? normalizePioneerBaseUrl(deepSeekPayload.config.baseUrl)
       : deepSeekPayload.config.baseUrl;
   const upstreamUrl = buildOpenAICompatibleChatUrl(upstreamBaseUrl);
-  const effectiveUrl = isArkConfig(deepSeekPayload.config)
+  const effectiveUrl = isAntLingBaseUrl(deepSeekPayload.config.baseUrl)
+    ? ANT_LING_PROXY_PREFIX
+    : isArkConfig(deepSeekPayload.config)
     ? '/api/ark'
     : isBaiduQianfanConfig(deepSeekPayload.config)
     ? '/api/qianfan'
@@ -2152,7 +2218,9 @@ async function chatCompletionNonStreamOnce(
       'Content-Type': 'application/json',
       ...(effectiveUrl.startsWith('/api/') ? {} : { Authorization: `Bearer ${deepSeekPayload.config.apiKey}` }),
     },
-    body: isArkConfig(deepSeekPayload.config)
+    body: isAntLingBaseUrl(deepSeekPayload.config.baseUrl)
+      ? buildAntLingProxyBody(deepSeekPayload.config, requestBody)
+      : isArkConfig(deepSeekPayload.config)
       ? buildArkProxyBody(deepSeekPayload.config, requestBody)
       : isBaiduQianfanConfig(deepSeekPayload.config)
       ? buildQianfanProxyBody(deepSeekPayload.config, requestBody)
@@ -2161,6 +2229,7 @@ async function chatCompletionNonStreamOnce(
         : JSON.stringify(requestBody),
     signal: request.signal,
     onRequestPhase: request.onRequestPhase,
+    errorReporting: request.errorReporting,
   });
 
   if (!response.ok) {
@@ -2175,7 +2244,7 @@ async function chatCompletionNonStreamOnce(
         prefixContent: undefined,
       });
     }
-    void appendApiErrorReport({
+    reportApiError(request, {
       source: '非流式补全',
       config: deepSeekPayload.config,
       status: response.status,

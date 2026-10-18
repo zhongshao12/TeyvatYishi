@@ -70,17 +70,19 @@ describe('readLiveGameState reads the live React root', () => {
     expect(sendStartSnapshot.game.对话.entries).toHaveLength(0);
 
     // prepareSendTurn 通过这份旧快照的 updateGameState 落 user 消息（React 批处理，尚未渲染）
-    sendStartSnapshot.updateGameState((current) => ({
-      ...current,
-      对话: { entries: [...current.对话.entries, { id: 'u-1', role: 'user' as const, content: '走', timestamp: 1 }] },
-    }));
-    expect(sendStartSnapshot.game.对话.entries).toHaveLength(0);
+    act(() => {
+      sendStartSnapshot.updateGameState((current) => ({
+        ...current,
+        对话: { entries: [...current.对话.entries, { id: 'u-1', role: 'user' as const, content: '走', timestamp: 1 }] },
+      }));
+      expect(sendStartSnapshot.game.对话.entries).toHaveLength(0);
 
-    const live = readLiveGameState(sendStartSnapshot);
+      const live = readLiveGameState(sendStartSnapshot);
 
-    expect(live.对话.entries.map((entry) => entry.id)).toEqual(['u-1']);
-    expect(live).toBe(committed.current);
-    expect(live).not.toBe(sendStartSnapshot.game);
+      expect(live.对话.entries.map((entry) => entry.id)).toEqual(['u-1']);
+      expect(live).toBe(committed.current);
+      expect(live).not.toBe(sendStartSnapshot.game);
+    });
   });
 
   it('keeps the same root even though flushSync may trigger an extra render', async () => {
@@ -92,10 +94,11 @@ describe('readLiveGameState reads the live React root', () => {
     });
     const before = renderCount;
 
-    const live = readLiveGameState(api!);
-
-    expect(live).toBe(committed.current);
-    expect(renderCount).toBe(before + 1);
-    expect(host.textContent).toBe('turn:0|msgs:1');
+    act(() => {
+      const live = readLiveGameState(api!);
+      expect(live).toBe(committed.current);
+      expect(renderCount).toBe(before + 1);
+      expect(host.textContent).toBe('turn:0|msgs:1');
+    });
   });
 });

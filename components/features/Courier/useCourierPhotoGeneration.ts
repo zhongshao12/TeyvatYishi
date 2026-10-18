@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { CourierPhotoComposerProps } from './CourierPhotoComposer';
 import { resolveCourierPhotoTarget, readCourierPhotoContext, commitCourierPhotoToGame, sameCourierPhotoTarget, sanitizeCourierPhotoText } from '@/services/courierPhoto';
 import { applyNovelAIRulePreset } from '@/utils/imagePromptRules';
-import { readSourceImageCharacterFacts, formatImageCharacterFacts, imageCharacterSourceKey, type ImageCharacterFactInput } from '@/utils/imageCharacterFacts';
+import { readImageCharacterFacts, formatImageCharacterFacts, imageCharacterSourceKey, type ImageCharacterFactInput } from '@/utils/imageCharacterFacts';
 import { compactImagePrompts } from '@/utils/imagePromptCompaction';
 import { buildImageCharacterEnglishConfig, prepareEnglishImagePrompts } from '@/services/imageCharacterEnglish';
 import { globalImageTaskQueue } from '@/utils/imageTaskQueue';
@@ -14,7 +14,7 @@ import { resolveReferenceImagesForGeneration } from '../GameSystems/album/refere
 import { generateTargets } from '../GameSystems/album/foundation';
 
 function phoneCharacter(npc: ImageCharacterFactInput) {
-  const facts = readSourceImageCharacterFacts(npc);
+  const facts = readImageCharacterFacts(npc);
   const appearanceDetails = Object.fromEntries(Object.entries(facts.appearanceDetails ?? {}).flatMap(([key, fact]) => {
     const value = sanitizeCourierPhotoText(fact.value);
     return value ? [[key, { ...fact, value }]] : [];
@@ -156,6 +156,7 @@ export function useCourierPhotoGeneration(props: CourierPhotoComposerProps) {
         if (!npc) return game;
         const source = phoneCharacter({ 姓名: npc.姓名, 别名: npc.aliases[0], 性别: npc.gender,
           外貌: npc.appearance, 外貌档案: npc.appearanceFacts, 穿着: npc.clothing, 介绍: npc.说明, 备注: npc.notes,
+          图像档案: { englishFacts: npc.visualArchive.englishFacts },
           NSFW档案: npc.matureArchive ? { 年龄确认: npc.matureArchive.ageConfirmation, 年龄确认来源: npc.matureArchive.ageConfirmationSource } as ImageCharacterFactInput['NSFW档案'] : undefined });
         return JSON.stringify(source.facts) === sourceFacts ? commitCourierPhotoToGame(game, openedTarget, image, id) : game;
       }, expectedSession);

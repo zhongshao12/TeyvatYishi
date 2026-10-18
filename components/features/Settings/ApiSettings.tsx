@@ -1,6 +1,9 @@
 import { CLIP_CARD, CLIP_SMALL, insetRing } from '@/styles/clipPaths';
 import { useSavedFlash } from '@/hooks/useSavedFlash';
 import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
+import { LOCAL_GEMMA4_128K_PROFILE } from '@/data/localTextModelPresets';
+import { supportsLocalGemma4Thinking } from '@/services/ai/ollamaModelPolicy';
+import { ANT_LING_API_BASE, ANT_LING_MODELS, isAntLingBaseUrl } from '@/services/ai/antLingPolicy';
 import { ConfirmDialogHost, PromptDialogHost, useConfirmDialog, usePromptDialog } from '@/components/ui/Modal';
 import { useEffect, useMemo, useState } from 'react';
 import type { API设置, API配置项, AI提供商, 游戏设置 } from '@/models/settings';
@@ -11,7 +14,7 @@ import {
   type MaxOutputTier,
 } from '@/data/modelRecommendations';
 import { fetchModels, testConnection, type ConnectionTestResult } from '@/services/ai/apiTools';
-import { loadSetting, saveSetting } from '@/services/dbService';
+import { useSettingsPersistence } from './SettingsPersistence';
 import { omitLegacyApiRoutes, readLegacyApiRoutes } from '@/compat/legacy-hsr/readOnly';
 import { MemorySystemSettingsTab } from './MemorySystemSettings';
 import { IrminsulSettingsTab } from './IrminsulSettingsTab';
@@ -403,6 +406,7 @@ export function ApiSettingsTab({ settings, onChange, gameSettings, onGameSetting
 }
 
 function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettingsChange }: Props) {
+  const { loadSetting, saveSetting, saveSettings } = useSettingsPersistence();
   const [selectedId, setSelectedId] = useState<string | null>(
     settings.activeConfigId ?? settings.configs[0]?.id ?? null,
   );
@@ -445,7 +449,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
         ? slots.map((slot) => ({ ...slot, profile: validateApiProfile(slot.profile) }))
         : []))
       .catch(() => setProfileSlots([]));
-  }, []);
+  }, [loadSetting]);
 
   useEffect(() => {
     loadSetting<Record<string, AuxApiProfileState>>(AUX_API_PROFILE_KEY)
@@ -461,7 +465,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
         setAuxProfilesByConfig(next);
       })
       .catch(() => setAuxProfilesByConfig({}));
-  }, []);
+  }, [loadSetting]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -502,6 +506,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
       ...patch,
       updatedAt: Date.now(),
     };
+    if (Object.hasOwn(patch, 'ollamaThinking') && patch.ollamaThinking === undefined) delete next.ollamaThinking;
     onChange({
       ...settings,
       configs: settings.configs.map((c) => (c.id === next.id ? next : c)),
@@ -528,6 +533,21 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
       configs: remaining,
     });
     setSelectedId(fallback);
+  };
+
+  const handleAddLocalGemma = () => {
+    const preset = LOCAL_GEMMA4_128K_PROFILE;
+    const existing = settings.configs.find(config => config.provider === preset.provider
+      && config.model === preset.model && config.baseUrl.replace(/\/+$/, '') === preset.baseUrl);
+    if (existing) {
+      setSelectedId(existing.id);
+      setMessage({ kind: 'info', text: '已选中现有本地 Gemma4 配置，保留你的修改，未切换主接口。' });
+      return;
+    }
+    const now = Date.now(), created: API配置项 = { ...preset, id: `local-gemma4-${crypto.randomUUID()}`, createdAt: now, updatedAt: now };
+    onChange({ ...settings, configs: [...settings.configs, created] });
+    setSelectedId(created.id);
+    setMessage({ kind: 'info', text: '已添加本地 Gemma4 · 128k，未切换主接口。请先测试连接，再按需启用并保存。' });
   };
 
   const handleActivate = () => {
@@ -586,8 +606,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
     onChange(nextApiSettings);
     onGameSettingsChange(nextGameSettings);
     setSelectedId(nextApiSettings.activeConfigId ?? nextApiSettings.configs[0]?.id ?? null);
-    await saveSetting('apiSettings', nextApiSettings);
-    await saveSetting('gameSettings', nextGameSettings);
+    await saveSettings({ apiSettings: nextApiSettings, gameSettings: nextGameSettings });
   };
 
   const persistProfileSlots = async (slots: API方案槽位[]) => {
@@ -938,7 +957,7 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
 
       {/* ── 新建配置（移动到提示下方） ── */}
       <div
-        className="flex min-w-0 flex-col items-stretch gap-3 px-3 py-3 sm:flex-row sm:items-center sm:px-4 sm:py-2.5"
+        className="flex min-w-0 flex-col items-stretch gap-3 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:px-4 sm:py-2.5"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.55)',
           boxShadow: insetRing(0.22),
@@ -981,6 +1000,11 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
           }}
         >
           ＋ 创建配置
+        </button>
+        <button type="button" onClick={handleAddLocalGemma}
+          className="px-3 py-2 text-xs transition-all hover:opacity-90"
+          style={{ color: 'rgb(var(--tj-text-primary))', boxShadow: insetRing(0.4), clipPath: CLIP_SMALL }}>
+          添加本地 Gemma4 · 128k
         </button>
         <span
           className="text-xs tracking-wider sm:ml-auto"
@@ -1102,6 +1126,13 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
             </div>
 
             {/* 基本字段 */}
+            {selectedConfig.model === LOCAL_GEMMA4_128K_PROFILE.model && selectedConfig.baseUrl.replace(/\/+$/, '') === LOCAL_GEMMA4_128K_PROFILE.baseUrl && (
+              <p className="text-xs leading-relaxed" style={{ color: 'rgb(var(--tj-text-secondary))' }}>
+                此方案初始采用 Modelfile-128k 的 131,072 上下文、温度 0.9 和 top_p 0.95。API Key 中的 ollama 只是本地占位符。
+                网页中的上下文值用于用量诊断；实际窗口由 Ollama 控制。此操作不会修改模型文件或其它独立接口，运行游戏时请保持 Ollama 开启。
+                本机使用项目开发/预览服务时自动走本地转发，兼容不支持跨域的服务；远程发布页面不会使用此转发入口。
+              </p>
+            )}
             <FieldRow label="配置名称">
               <input
                 value={selectedConfig.name}
@@ -1110,6 +1141,15 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                 style={{ clipPath: CLIP_SMALL }}
               />
             </FieldRow>
+
+            {supportsLocalGemma4Thinking(selectedConfig) && <FieldRow label="思考模式">
+              <select aria-label="本地模型思考模式" className="teyvat-input w-full px-2.5 py-1.5 text-sm"
+                value={selectedConfig.ollamaThinking === true ? 'on' : selectedConfig.ollamaThinking === false ? 'off' : 'default'}
+                onChange={event => updateConfig({ ollamaThinking: event.target.value === 'default' ? undefined : event.target.value === 'on' })}>
+                <option value="default">跟随模型默认</option><option value="on">开启思考</option><option value="off">关闭思考</option>
+              </select>
+              <p className="mt-1 text-xs leading-relaxed">控制 Ollama 的实际思考开关，不仅是隐藏思考文字。开启后首字等待可能更长，思考也会占用输出额度；正文仍只显示最终回答。保存后对新请求生效。</p>
+            </FieldRow>}
 
             <FieldRow label="接口供应商">
               <select
@@ -1124,6 +1164,17 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
                   </option>
                 ))}
               </select>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary), 0.62)' }}>平台速填：</span>
+                <button
+                  type="button"
+                  onClick={() => updateConfig({ provider: 'openai_compatible', baseUrl: ANT_LING_API_BASE, model: 'Ling-3.1-flash' })}
+                  className="px-2 py-0.5 text-[11px] font-serif tracking-wider"
+                  style={{ color: 'rgba(var(--tj-accent-primary), 0.85)', boxShadow: insetRing(0.28), background: 'rgba(var(--tj-accent-primary), 0.05)', clipPath: CLIP_SMALL }}
+                >
+                  蚂蚁百灵 Ling
+                </button>
+              </div>
             </FieldRow>
 
             <FieldRow label="Base URL">
@@ -1142,6 +1193,12 @@ function ApiSettingsOverviewTab({ settings, onChange, gameSettings, onGameSettin
               {selectedConfig.provider === 'mimo' && (
                 <div className="mt-1 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.62)' }}>
                   小米 MiMo 官方 OpenAI 兼容接口默认填 https://api.xiaomimimo.com/v1。系统会自动使用 max_completion_tokens，并默认关闭深度思考，避免思维链挤占正文或污染格式。
+                </div>
+              )}
+              {isAntLingBaseUrl(selectedConfig.baseUrl) && (
+                <div className="mt-1 space-y-1 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.62)' }}>
+                  <div>蚂蚁百灵官方地址是 https://api.ant-ling.com/v1（只填根域名也会自动补 /v1）。对方只允许自家来源跨域，浏览器和桌面壳都会自动改走同源转发 <code>/api/antling</code>；线上部署需要随包带上 <code>functions/api/antling.ts</code>。</div>
+                  <div>可用模型：{ANT_LING_MODELS.join(' / ')}。Ling-3.0/3.1 的深度思考默认已关闭（避免先思考再答题吃掉输出额度），temperature 自动收敛到 [0,1]，top_p 只在 (0,1] 时发送。正文建议用 Ling-3.1-flash；Ring-2.6-1T 默认 high 推理，连接测试和长文会明显更慢。</div>
                 </div>
               )}
             </FieldRow>

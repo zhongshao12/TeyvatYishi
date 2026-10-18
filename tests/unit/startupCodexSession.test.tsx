@@ -95,4 +95,14 @@ describe('startup codex live-session ownership (A02)', () => {
     await finish(loading, path);
     expect(state.game.图鉴.entries.some(entry => entry.name === '启动资料')).toBe(true);
   });
+
+  it('shows startup storage failure without an unhandled rejected promise or resetting the live game', async () => {
+    io.hasAnySave.mockRejectedValueOnce(new Error('fixture storage access denied'));
+    const loading = await mountPending();
+    const game = state.game;
+    await finish(loading, 'normal');
+    expect(state.workflowHint).toContain('初始化未完成');
+    expect(state.workflowHint).toContain('本地');
+    expect(state.game.旅行者).toBe(game.旅行者);
+  });
 });

@@ -1,4 +1,6 @@
 import { appendApiErrorReport } from './apiErrorReportService';
+import { localOllamaRequestUrl } from './localOllamaProxyCore';
+import { ANT_LING_PROXY_PREFIX, isAntLingBaseUrl, normalizeAntLingBaseUrl } from './antLingPolicy';
 
 type CachedModels = {
   expiresAt: number;
@@ -69,8 +71,54 @@ async function readCatalogBody(response: Response, signal: AbortSignal): Promise
   }
 }
 
-export async function fetchOpenAICompatibleModels(baseRaw: string, apiKey: string, signal?: AbortSignal, timeoutMs = 45_000): Promise<string[]> {
+/** 蚂蚁百灵只接受自家来源，模型目录同样必须走同源转发；解析规则与 OpenAI /models 一致。 */
+async function fetchAntLingModelCatalog(baseRaw: string, apiKey: string, signal?: AbortSignal, timeoutMs = 45_000): Promise<string[]> {
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(signal?.reason);
+  signal?.addEventListener('abort', forwardAbort, { once: true });
+  const timer = setTimeout(
+    () => controller.abort(new DOMException(`获取蚂蚁百灵模型目录超过 ${Math.round(timeoutMs / 1000)} 秒。`, 'TimeoutError')),
+    timeoutMs,
+  );
+  const upstreamUrl = `${normalizeAntLingBaseUrl(baseRaw)}/models`;
+  try {
+    const response = await withCatalogAbort(fetch(ANT_LING_PROXY_PREFIX, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'models', baseUrl: normalizeAntLingBaseUrl(baseRaw), apiKey }),
+      signal: controller.signal,
+    }), controller.signal);
+    const text = await readCatalogBody(response, controller.signal);
+    if (!response.ok) {
+      void appendApiErrorReport({
+        source: '蚂蚁百灵模型列表',
+        config: { provider: 'openai_compatible', baseUrl: baseRaw, apiKey },
+        status: response.status,
+        requestUrl: upstreamUrl,
+        requestMode: 'models',
+        responseText: text,
+      });
+      throw new Error(`蚂蚁百灵 /models 失败 ${response.status}：${text.slice(0, 200)}`);
+    }
+    const data = JSON.parse(text) as { data?: Array<{ id?: unknown }> };
+    const ids = (data.data ?? [])
+      .map((model) => model?.id)
+      .filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+    if (ids.length) return ids;
+    throw new Error('蚂蚁百灵 /models 返回格式异常（缺 data 数组）');
+  } catch (error) {
+    if (controller.signal.aborted) throw controller.signal.reason;
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', forwardAbort);
+  }
+}
+
+export async function fetchOpenAICompatibleModels(baseRaw: string, apiKey: string, signal?: AbortSignal, timeoutMs = 45_000, localModel?: string): Promise<string[]> {
   signal?.throwIfAborted();
+  // 蚂蚁百灵只允许自家来源跨域，浏览器必须走同源 /api/antling 转发。
+  if (isAntLingBaseUrl(baseRaw)) return fetchAntLingModelCatalog(baseRaw, apiKey, signal, timeoutMs);
   const controller = new AbortController();
   const forwardAbort = () => controller.abort(signal?.reason);
   signal?.addEventListener('abort', forwardAbort, { once: true });
@@ -80,7 +128,7 @@ export async function fetchOpenAICompatibleModels(baseRaw: string, apiKey: strin
     for (const url of buildOpenAICompatibleModelUrls(baseRaw)) {
       try {
         controller.signal.throwIfAborted();
-        const response = await withCatalogAbort(fetch(url, {
+        const response = await withCatalogAbort(fetch(localOllamaRequestUrl(url, localModel), {
           headers: { Authorization: `Bearer ${apiKey}` },
           signal: controller.signal,
         }), controller.signal);

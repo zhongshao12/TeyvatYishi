@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { 创建默认游戏设置, type 游戏设置 } from '@/models/settings';
+import momVariableStyle from '../fixtures/tavern/mom-variable-style.json';
 import { buildTavernMessageChain } from '@/hooks/useGame/tavernMessageChainBuilder';
 import {
   buildPresentationForPreset,
@@ -307,6 +308,86 @@ describe('E 消息链：预设要求进入生成点，内置默认值让位', ()
     const joinedFilled = chainFilled.map((m) => m.content ?? '').join('\n');
     expect(joinedFilled).not.toContain('日记体：像翻看某天的日记');
     expect(joinedFilled).toContain('文风：白描为主，短句，克制，不抒情。');
+  });
+});
+
+describe('H 变量驱动的文风（MoM / 夏瑾系预设）', () => {
+  /**
+   * 用户实测（2026-10-18，【MoM】梦梦DS1.1.21p）：「酒馆预设好像不支持文风」。
+   * 该预设没有 `<文风>` 包装段，文风是「# 文风要求 条目 + <core_style>{{getvar::style}}</core_style>」
+   * ＋玩家勾选的 🔡xx风格 模块（只做 setvar）。只看括号段就会解析出空文风，执行卡随后
+   * 让模型「改用内置文风兜底」—— 预设文风等于没生效。
+   */
+  const 变量文风预设 = (): STPreset => JSON.parse(JSON.stringify(momVariableStyle)) as STPreset;
+
+  it('把「# 文风要求 / <core_style> 变量」识别成文风正文与来源', () => {
+    const presentation = buildPresentationForPreset(变量文风预设(), { characterId: 100001 })!;
+    expect(presentation.styleText).toContain('# 文风要求');
+    expect(presentation.styleText).toContain('所有对话独立成段');
+    expect(presentation.styleText).toContain('直接描述身体反应');
+    // {{getvar::style}} 已被 🔡轻小说风格 模块的 setvar 展开
+    expect(presentation.styleText).toContain('轻快活泼，所有对白必须使用直角引号「」包裹');
+    // 未勾选的 🔡古风风格 / 已关闭的变量初始化不得混进来
+    expect(presentation.styleText).not.toContain('半文半白');
+    expect(presentation.styleText).not.toContain('默认：平铺直叙');
+    expect(presentation.styleSources).toContain('🔒✨文风设定');
+    expect(presentation.styleSources).toContain('🔡轻小说风格（实验性功能）');
+    expect(presentation.styleSources.join()).not.toContain('古风');
+  });
+
+  it('执行卡原文附上预设文风，且不再宣称「预设没有文风正文」', () => {
+    const card = buildPresetPresentationCard(buildPresentationForPreset(变量文风预设(), { characterId: 100001 })!);
+    expect(card).toContain('直角引号「」');
+    expect(card).toContain('生效来源：');
+    expect(card).not.toContain('预设本次没有文风正文');
+    expect(card).toContain('优先于应用内置《文风参考·日记体见闻录》');
+  });
+
+  it('消息链里预设文风生效，内置日记体被排除', () => {
+    const preset = 变量文风预设();
+    const chain = buildTavernMessageChain({
+      settings: 构造设置(preset) as never,
+      preset, characterId: 100001, chatHistory: [], latestUserInput: '开始。',
+      playerName: '旅行者', playerRole: {} as never, triggerType: 'normal',
+    } as never);
+    const joined = chain.map((message) => message.content ?? '').join('\n');
+    expect(joined).toContain('轻快活泼，所有对白必须使用直角引号「」包裹');
+    expect(joined).toContain('生效来源：🔒✨文风设定');
+    expect(joined).not.toContain('预设本次没有文风正文');
+    // 内置文风模块（夹具里是日记体）不得再进预设的链内部
+    expect(joined).not.toContain('日记体：像翻看某天的日记');
+  });
+
+  it('只有标题没有内容、或只是提及标签的文风条目不算文风正文', () => {
+    const preset = {
+      prompts: [
+        { identifier: 'a', name: '🔒✨文风设定', role: 'system', content: '# 文风要求\n' },
+        { identifier: 'b', name: '💭COT', role: 'system', content: '## Ⅱ.参考<文风>\n- 判断故事背景，注意语言风格' },
+      ],
+      prompt_order: [{ character_id: 100001, order: [
+        { identifier: 'a', enabled: true }, { identifier: 'b', enabled: true },
+      ] }],
+    } as unknown as STPreset;
+    expect(buildPresentationForPreset(preset, { characterId: 100001 })!.styleText).toBe('');
+  });
+
+  it('内置文风按「默认文风」实际启用的那一条进入链，不再写死日记体', () => {
+    const preset = 构造预设();
+    const 旅行手记设置 = 构造设置(preset, {
+      promptModules: [
+        module_({ id: 'builtin_writing_style', title: '参考文风·日记体', category: 'style', enabled: false, content: '日记体：像翻看某天的日记。' }),
+        module_({ id: 'builtin_writing_style_hsr', title: '参考文风·旅行手记', category: 'style', enabled: true, content: '旅行手记：像旅途中当天写下的一页手记。' }),
+        module_({ id: 'builtin_writing_style_custom', title: '文风-自定义', category: 'style', enabled: false, content: '自定义槽正文不该被读到。' }),
+      ],
+    });
+    const joined = buildTavernMessageChain({
+      settings: 旅行手记设置 as never,
+      preset, characterId: 100001, chatHistory: [], latestUserInput: '开始。',
+      playerName: '旅行者', playerRole: {} as never, triggerType: 'normal',
+    } as never).map((message) => message.content ?? '').join('\n');
+    expect(joined).toContain('旅行手记：像旅途中当天写下的一页手记。');
+    expect(joined).not.toContain('日记体：像翻看某天的日记。');
+    expect(joined).not.toContain('自定义槽正文不该被读到。');
   });
 });
 

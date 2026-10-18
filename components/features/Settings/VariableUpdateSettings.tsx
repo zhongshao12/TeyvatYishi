@@ -4,7 +4,7 @@ import { AI_PROVIDER_OPTIONS } from '@/data/aiProviderOptions';
 ﻿import { useState } from 'react';
 import type { AI提供商, API配置项, API设置, 游戏设置, 变量API覆盖 } from '@/models/settings';
 import { fetchModels } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import { useSettingsPersistence } from './SettingsPersistence';
 
 interface Props {
   gameSettings: 游戏设置;
@@ -22,6 +22,7 @@ export function VariableUpdateTab({
   onGameSettingsChange,
   apiSettings,
 }: Props) {
+  const { saveSetting } = useSettingsPersistence();
   // 回复后结算属于核心工作流，不再允许关闭；保留此页仅用于配置独立模型。
   const enabled = true;
   const override = gameSettings.variableApi;

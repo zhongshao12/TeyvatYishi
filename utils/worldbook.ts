@@ -430,6 +430,14 @@ function selectEntries(books: 世界书[], ctx: FilterContext): Array<{ entry: �
   return afterDisables;
 }
 
+/** One selection for text, depth placement AND the persisted receipt. Probability is sampled only once. */
+export function selectWorldbookDelivery(books: 世界书[], ctx: FilterContext): { id: string; content: string; depth?: number; priority: number }[] {
+  return selectEntries(books, ctx).map(({ entry, bookTitle }) => ({ id: entry.id,
+    content: ['# 世界书｜' + entry.title, '来源：' + bookTitle, '', replaceWorldbookPlaceholders(entry.content, ctx)].join('\n'), priority: entry.priority ?? 100,
+    ...(entry.injectAtDepth && !isPromptLikeWorldbookEntry(entry) ? { depth: Math.max(0, Math.trunc(entry.depth ?? 0)) } : {}),
+  }));
+}
+
 export function buildWorldbookInjection(
   books: 世界书[],
   ctx: FilterContext,

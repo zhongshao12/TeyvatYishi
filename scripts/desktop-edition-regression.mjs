@@ -93,7 +93,10 @@ const cargoToml = read('src-tauri/Cargo.toml');
 assert(cargoToml.includes('tauri = { version = "2"'), 'Cargo.toml must depend on Tauri v2');
 assert(cargoToml.includes('custom-protocol'), 'Cargo.toml desktop build must enable Tauri custom-protocol for offline production assets');
 assert(cargoToml.includes('tauri-plugin-updater = "2"'), 'Cargo.toml must include the Tauri updater plugin');
-assert(cargoToml.includes('serde_json = "1"'), 'Cargo.toml must support JSON payloads');
+// Cargo accepts both a version string and a dependency table with feature flags.
+const serdeJsonDependency = cargoToml.match(/^serde_json\s*=\s*(?:"([^"]+)"|\{[^\n]*\bversion\s*=\s*"([^"]+)")/m);
+const serdeJsonVersion = serdeJsonDependency?.[1] ?? serdeJsonDependency?.[2];
+assert(typeof serdeJsonVersion === 'string' && /^1(?:\.|$)/.test(serdeJsonVersion), 'Cargo.toml must declare serde_json v1 for JSON payloads');
 
 const ciWorkflow = read('.github/workflows/ci.yml');
 assert(ciWorkflow.includes('desktop-rust:'), 'CI must define a desktop Rust compilation job');

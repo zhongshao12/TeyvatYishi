@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { resolveManualChunk } from '@/build/manualChunkStrategy';
 
 describe('manual chunk strategy', () => {
+  it('keeps the default-off Core 2 runtime and its model adapters behind their own lazy entry', () => {
+    expect(resolveManualChunk('/repo/hooks/useCore2Game.ts')).toBeUndefined();
+    expect(resolveManualChunk('/repo/services/ai/core2NarrativeModel.ts')).toBeUndefined();
+    expect(resolveManualChunk('/repo/services/ai/core2VariableModel.ts')).toBeUndefined();
+    expect(resolveManualChunk('/repo/core/view/coreGameController.ts')).toBeUndefined();
+  });
   it('does not force on-demand memory rebuilding into the first-screen core', () => {
     expect(resolveManualChunk('/repo/services/memoryRebuild.ts')).toBeUndefined();
     expect(resolveManualChunk('/repo/hooks/useGame/memoryMaintenanceStage.ts')).toBeUndefined();
@@ -39,6 +45,9 @@ describe('manual chunk strategy', () => {
   });
 
   it('keeps the lazy phone photo service outside the eagerly forced core chunk', () => {
+    expect(resolveManualChunk('/repo/services/ai/imageGeneration.ts')).toBeUndefined();
+    expect(resolveManualChunk('/repo/services/ai/latentImageGeneration.ts')).toBeUndefined();
+    expect(resolveManualChunk('/repo/services/ai/novelaiPromptCompiler.ts')).toBeUndefined();
     expect(resolveManualChunk('/repo/services/imageCharacterEnglish.ts')).toBeUndefined();
     expect(resolveManualChunk('/repo/services/courierPhoto.ts')).toBeUndefined();
     expect(resolveManualChunk('C:\\repo\\services\\courierPhoto.ts')).toBeUndefined();

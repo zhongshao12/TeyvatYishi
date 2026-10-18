@@ -4,6 +4,7 @@ version = "1.6.0"
 description = "旅行者纪事 Desktop Edition"
 authors = ["KaiTuoYiShi"]
 edition = "2021"
+rust-version = "1.89"
 
 [lib]
 name = "kaituoyishi_desktop_lib"
@@ -15,7 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
  rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 tauri = { version = "2", features = ["custom-protocol"] }
 tauri-plugin-updater = "2"
 base64 = "0.22"

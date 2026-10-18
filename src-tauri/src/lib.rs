@@ -6,6 +6,26 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 
+// Registered native storage is independent of the legacy saves; UI takeover is gated in M08.
+mod core2_store;
+mod core2_json;
+mod core2_contract;
+mod core2_repository;
+mod core2_commit;
+mod core2_jobs;
+mod core2_memories;
+mod core2_queries;
+mod core2_snapshots;
+mod core2_assets;
+mod core2_exports;
+mod core2_sources;
+mod core2_indexes;
+mod core2_protocol;
+mod core2_imports;
+mod core2_import_validation;
+#[cfg(test)]
+mod core2_store_tests;
+
 const DATA_SUBDIRS: &[&str] = &[
     "assets",
     "assets/avatars",
@@ -16,6 +36,17 @@ const DATA_SUBDIRS: &[&str] = &[
     "zhiku",
     "worldbooks",
 ];
+
+#[tauri::command]
+async fn core2_store_request(app: AppHandle, request: core2_protocol::CoreStoreRequest) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        // Only the application can select this root. No file path is accepted by the protocol.
+        let app_dir = ensure_app_data_dir(&app)?;
+        let root = resolve_storage_root(&app,&app_dir,"saves")?;
+        fs::create_dir_all(&root).map_err(|error| format!("CORE2_CREATE_ROOT: {error}"))?;
+        core2_protocol::dispatch(&root,request)
+    }).await.map_err(|error| format!("CORE2_STORAGE_TASK_FAILED: {error}"))?
+}
 const STORAGE_ROOTS_PATH: &str = "config/desktop-storage.json";
 const STORAGE_ROOTS_KIND: &str = "kaituoyishi-desktop-storage";
 
@@ -725,6 +756,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            core2_store_request,
             desktop_app_info,
             write_desktop_probe,
             pick_desktop_folder,

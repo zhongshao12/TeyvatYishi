@@ -6,7 +6,7 @@ import { toUserFacingError } from '@/utils/userFacingError';
 ﻿import { useState } from 'react';
 import type { AI提供商, API设置, 游戏设置 } from '@/models/settings';
 import { fetchModels } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import { useSettingsPersistence } from './SettingsPersistence';
 
 interface Props {
   settings: 游戏设置;
@@ -20,6 +20,7 @@ interface Props {
 const providerOptions = AI_PROVIDER_OPTIONS;
 
 export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Props) {
+  const { saveSetting } = useSettingsPersistence();
   const story = settings.剧情编织系统;
   const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? apiSettings.configs[0] ?? null;
   const [loadingModels, setLoadingModels] = useState(false);

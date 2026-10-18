@@ -33,7 +33,7 @@ it('rejects empty, overlong, and over-cap posts without silently discarding old 
   expect(full.moments).toHaveLength(500);
 });
 
-it('selects only unique known contacts whose affinity is strictly above 100', () => {
+it('selects unique available contacts at affinity 100 or above, excluding lower affinity and locked contacts', () => {
   const contacts = [
     { id: 'c1', npcId: 'amber', name: '安柏', available: true },
     { id: 'c2', npcId: 'amber', name: '安柏', available: true },
@@ -44,10 +44,18 @@ it('selects only unique known contacts whose affinity is strictly above 100', ()
     { ...创建NPC记录({ 姓名: '安柏', 初见回合: 1 }), id: 'amber', 好感度: 101 },
     { ...创建NPC记录({ 姓名: '丽莎', 初见回合: 1 }), id: 'lisa', 好感度: 100 },
   ];
-  expect(selectMomentCommenters('p1', contacts, npcs).map((npc) => npc.id)).toEqual(['amber']);
-  expect(countEligibleMomentCommenters(contacts, npcs)).toBe(1);
-  expect(countEligibleMomentCommenters([...contacts, { id: 'c5', npcId: 'lisa', name: '丽莎', available: false }], npcs)).toBe(1);
-  expect(countEligibleMomentCommenters(contacts, [{ ...npcs[0]!, 好感度: 100 }, { ...npcs[1]!, 好感度: 101 }])).toBe(1);
+  expect(new Set(selectMomentCommenters('p1', contacts, npcs).map((npc) => npc.id))).toEqual(new Set(['amber', 'lisa']));
+  expect(countEligibleMomentCommenters(contacts, npcs)).toBe(2);
+  expect(countEligibleMomentCommenters([{ ...contacts[0]!, status: 'story_locked' }, contacts[2]!], npcs)).toBe(1);
+  expect(countEligibleMomentCommenters(contacts, [{ ...npcs[0]!, 好感度: 99 }, { ...npcs[1]!, 好感度: 100 }])).toBe(1);
+});
+
+it('redraws three friends without repeating the previous combination when more than three are eligible', () => {
+  const npcs = Array.from({ length: 6 }, (_, i) => ({ ...创建NPC记录({ 姓名: `好友${i}`, 初见回合: 1 }), id: `friend${i}`, 好感度: 100 }));
+  const contacts = npcs.map(npc => ({ id: `c-${npc.id}`, npcId: npc.id, name: npc.姓名, available: true }));
+  const first = selectMomentCommenters('same-seed', contacts, npcs).map(npc => npc.id);
+  const next = selectMomentCommenters('same-seed', contacts, npcs, { previousIds: first }).map(npc => npc.id);
+  expect(first).toHaveLength(3); expect(next).toHaveLength(3); expect(new Set(next).size).toBe(3); expect([...next].sort()).not.toEqual([...first].sort());
 });
 
 it('counts all eligible commenters even though a post selects at most three', () => {

@@ -47,7 +47,7 @@ export async function fetchModels(config: any, signal?: AbortSignal): Promise<st
       if (isPioneerBaseUrl(baseRaw)) {
         return fetchPioneerModels(baseRaw, apiKey, signal);
       }
-      return fetchOpenAICompatibleModels(baseRaw, apiKey, signal);
+      return fetchOpenAICompatibleModels(baseRaw, apiKey, signal, undefined, config.model);
     },
     { retries: retryCount, signal, label: '模型列表' },
   );

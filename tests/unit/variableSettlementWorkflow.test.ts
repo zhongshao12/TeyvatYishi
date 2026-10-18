@@ -84,6 +84,19 @@ describe('variable settlement workflow boundaries', () => {
 });
 
 describe('intimacy settlement replay and selective model de-duplication', () => {
+  it('settles two named adult NPCs independently in one turn without relying on model affinity proposals', async () => {
+    const initial = createEmptyTeyvatGameState(); initial.旅行者.姓名 = '云';
+    initial.NPC = normalizeTeyvatNpcRecords(['诺艾尔', '荧'].map((name, i) => ({ id: `npc_pair_${i}`, 姓名: name, gender: '女', affinity: i ? 40 : 20,
+      matureArchive: { ageConfirmation: 'adult', ageConfirmationSource: 'manual', virginityStatus: 'virgin' } })));
+    model.call.mockResolvedValue({ rawText: '<变量事实>{"facts":[]}</变量事实>' });
+    let live = initial;
+    const run = () => runVariableSettlementWorkflow({ mainApiConfig: createMainConfig(), currentGame: live, settings: { ...创建默认游戏设置(), enableNsfw: true },
+      npcRecords: mapTeyvatNpcsToLegacy(live), commitGame: next => { live = next; return true; }, userInput: '继续',
+      body: '诺艾尔与云调情。荧与云首次发生了性爱关系。', turnAfter: 10, memorySystemSnapshot: 创建空记忆系统(), settlementId: 'two-adult-characters' });
+    await run(); expect(live.NPC.map(npc => npc.affinity)).toEqual([23, 70]);
+    expect(live.NPC[1]?.matureArchive).toMatchObject({ firstSexualPartnerRef: 'player', firstSexualPartnerSource: 'narrative', virginityStatus: 'not_virgin' });
+    await run(); expect(live.NPC.map(npc => npc.affinity)).toEqual([23, 70]);
+  });
   const body = '安柏轻轻亲吻了云。随后安柏因云失约而生气。';
   const root = () => {
     const state = createEmptyTeyvatGameState();
@@ -147,6 +160,13 @@ describe('intimacy settlement replay and selective model de-duplication', () => 
     ];
     expect(removeDuplicateModelIntimacyAffinity(modelFacts, derived, npc).map((fact) => fact.type === 'npc' ? fact.affinityDelta : null))
       .toEqual([undefined, 2]);
+  });
+  it.each(['调情', ''])('does not let an unevidenced model total replace a host-confirmed fixed interaction: %s', evidence => {
+    const derived = [{ type: 'npc' as const, id: 'npc_amber', name: '安柏', affinityDelta: 3, evidence: '安柏与云调情。' }];
+    const [fact] = removeDuplicateModelIntimacyAffinity([{ type: 'npc', id: 'npc_amber', name: '安柏', affinitySet: 0, evidence }], derived, root().NPC);
+    expect(fact).toMatchObject({ type: 'npc', id: 'npc_amber' });
+    if (fact?.type !== 'npc') throw Error('fixture');
+    expect(fact.affinitySet).toBeUndefined(); expect(fact.affinityDelta).toBeUndefined();
   });
 
   it('strips a paraphrased duplicate too, but keeps an unrelated negative change', () => {

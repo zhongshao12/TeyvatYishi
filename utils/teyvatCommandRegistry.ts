@@ -234,6 +234,7 @@ function applyNpc(state: TeyvatGameState, command: TeyvatDomainCommand, index: n
   if (targetIndex < 0) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
   const target = state.NPC[targetIndex];
   if (!target) return { ok: false, error: error(index, 'MISSING_TARGET_ID', command.root, command.path) };
+  if (['appearance', 'clothing'].includes(field) && target[field as 'appearance' | 'clothing']?.trim() && command.value !== target[field as 'appearance' | 'clothing']) return { ok: false, error: error(index, 'IMMUTABLE_PROFILE_FIELD', command.root, command.path) };
   let nextTarget = target;
   if (field === 'affinity') {
     const invalidAction = validateAction(command, ['set', 'add', 'sub'], index);
@@ -571,7 +572,7 @@ export function buildTeyvatCommandRegistryPrompt(): string {
     '证据必须逐字匹配本回合 factCandidates 的 fact 或 evidence；禁止 evidence=无。',
     '旅行者：push/delete capabilities；set/add 天赋[id=稳定ID].等级（0-20，仅技能面板已登记的天赋）。禁止旧版能力列表、旅行者侧背包和整根替换。',
     '世界：set 当前地点/当前日期/当前时间/当前天气/氛围；set/add/sub 旅程天数；push/delete 世界事件。',
-    'NPC：push records；用 [id=稳定ID].affinity/lastSeenTurn/relationship/playerAddress/appearance/clothing/speechStyle/intimate/travelingTogether 更新。',
+    'NPC：push records；用 [id=稳定ID].affinity/lastSeenTurn/relationship/playerAddress/speechStyle/intimate/travelingTogether 更新。已建档基础中英文资料固定，不由模型改写 appearance/clothing 或译名；临时穿着、姿态仅留在正文。',
     `队伍规则：travelingTogether 表示与旅行者同行，由玩家在同伴面板主动邀请入队或请离队伍。剧情只有在明确发生加入或离开（对方正式答应同行、或正式告别离队）时才允许更新该字段；同行同伴最多 ${NPC_PARTY_LIMIT} 名，不要批量改变。`,
     `背包：push items（category=${ITEM_CATEGORIES.join('|')}，rarity=${ITEM_RARITIES.join('|')}，必须有稳定 id）；set/add/sub mora；set/add/sub items[id=稳定ID].quantity。`,
     '任务：push active；push active[id=稳定ID].objectives；用 active[id=稳定ID].objectives[id=稳定ID].currentCount 或 active[id=稳定ID].status 更新；push lastUpdates。',

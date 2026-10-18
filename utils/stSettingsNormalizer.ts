@@ -163,6 +163,31 @@ function extractSamplingParams(obj: Record<string, unknown>): SamplingParams {
   };
 }
 
+/** ST 滑块极值不是模型能力：`openai_max_tokens: 65535` / `openai_max_context: 2000000`
+ *  是酒馆「解锁上限」后的 UI 滑块极值。直接写进 API 配置会让大多数供应商 400
+ *  （max_tokens 超过模型上限），所以超过下面阈值时不采纳，保留玩家当前值。 */
+const ST_MAX_USABLE_OUTPUT_TOKENS = 32_768;
+const ST_MAX_USABLE_CONTEXT = 1_048_576;
+
+function boundedSampling(value: number | null, max: number): number | undefined {
+  return value !== null && value > 0 && value <= max ? value : undefined;
+}
+
+/** 返回被忽略的滑块极值说明，供导入提示使用；没有可说明项时返回空数组。 */
+export function describeSTPresetSamplingBounds(preset: STPreset | Record<string, unknown>): string[] {
+  const obj = preset as Record<string, unknown>;
+  const notes: string[] = [];
+  const tokens = readFiniteNumber(obj.openai_max_tokens ?? obj.max_tokens);
+  if (tokens !== null && tokens > ST_MAX_USABLE_OUTPUT_TOKENS) {
+    notes.push(`输出上限 ${Math.round(tokens)}（超过 ${ST_MAX_USABLE_OUTPUT_TOKENS}）`);
+  }
+  const context = readFiniteNumber(obj.openai_max_context ?? obj.max_context);
+  if (context !== null && context > ST_MAX_USABLE_CONTEXT) {
+    notes.push(`上下文上限 ${Math.round(context)}（超过 ${ST_MAX_USABLE_CONTEXT}）`);
+  }
+  return notes;
+}
+
 /** 将 ST 顶层 snake_case 采样参数映射为项目 API 配置字段。 */
 export function extractSTPresetSamplingParams(preset: STPreset | Record<string, unknown>): STSamplingParams | undefined {
   const obj = preset as Record<string, unknown>;
@@ -175,8 +200,8 @@ export function extractSTPresetSamplingParams(preset: STPreset | Record<string, 
     repetitionPenalty: readFiniteNumber(obj.repetition_penalty) ?? undefined,
     frequencyPenalty: readFiniteNumber(obj.frequency_penalty) ?? undefined,
     presencePenalty: readFiniteNumber(obj.presence_penalty) ?? undefined,
-    maxContext: readFiniteNumber(obj.openai_max_context ?? obj.max_context) ?? undefined,
-    maxTokens: readFiniteNumber(obj.openai_max_tokens ?? obj.max_tokens) ?? undefined,
+    maxContext: boundedSampling(readFiniteNumber(obj.openai_max_context ?? obj.max_context), ST_MAX_USABLE_CONTEXT),
+    maxTokens: boundedSampling(readFiniteNumber(obj.openai_max_tokens ?? obj.max_tokens), ST_MAX_USABLE_OUTPUT_TOKENS),
   };
   return Object.values(params).some((value) => value !== undefined) ? params : undefined;
 }

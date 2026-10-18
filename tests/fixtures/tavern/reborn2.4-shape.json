@@ -1,0 +1,48 @@
+{
+  "temperature": 1.08,
+  "top_p": 0.98,
+  "top_k": 0,
+  "top_a": 0,
+  "min_p": 0,
+  "repetition_penalty": 1,
+  "openai_max_context": 2000000,
+  "openai_max_tokens": 65535,
+  "names_behavior": 0,
+  "assistant_prefill": "",
+  "continue_prefill": true,
+  "use_sysprompt": true,
+  "prompts": [
+    { "identifier": "a1", "name": "免责声明", "role": "system", "content": "{{trim}} 这是预设正文，角色是 {{char}}，玩家是 {{user}}。", "system_prompt": false, "marker": false, "injection_position": 0, "injection_depth": 4, "forbid_overrides": false },
+    { "identifier": "main", "name": "初始化", "role": "system", "content": "以 {{char}} 与 {{user}} 的故事开始。", "system_prompt": true, "marker": false, "injection_position": 0, "forbid_overrides": true },
+    { "identifier": "worldInfoBefore", "name": "World Info (before)", "role": "system", "content": "", "marker": true },
+    { "identifier": "charDescription", "name": "Char Description", "role": "system", "content": "", "marker": true },
+    { "identifier": "chatHistory", "name": "Chat History", "role": "system", "content": "", "marker": true },
+    { "identifier": "tail", "name": "收尾", "role": "system", "content": "结尾规则：只写正文。", "marker": false }
+  ],
+  "prompt_order": [
+    {
+      "character_id": 100000,
+      "order": [],
+      "xiaobai_ext": { "scheduledTasks": [{ "commands": "<<taskjs>>throw new Error('must not run')<</taskjs>>" }] }
+    },
+    {
+      "character_id": 100001,
+      "order": [
+        { "identifier": "a1", "enabled": true },
+        { "identifier": "main", "enabled": true },
+        { "identifier": "worldInfoBefore", "enabled": true },
+        { "identifier": "charDescription", "enabled": true },
+        { "identifier": "chatHistory", "enabled": true },
+        { "identifier": "tail", "enabled": true }
+      ]
+    }
+  ],
+  "extensions": {
+    "regex_scripts": [
+      { "id": "r-hide", "scriptName": "思维链对AI隐藏", "findRegex": "/<think_nya~>([\\s\\S]*?)<\\/think_nya~?>/g", "replaceString": "", "placement": [2], "markdownOnly": true, "promptOnly": true, "disabled": false },
+      { "id": "r-fold", "scriptName": "思维链折叠", "findRegex": "/<think_nya~>([\\s\\S]*?)<\\/think_nya~?>/g", "replaceString": "<details><summary>思维链</summary>$1</details>", "placement": [2], "markdownOnly": true, "promptOnly": false, "disabled": false }
+    ],
+    "tavern_helper": { "scripts": [{ "content": "throw new Error('must not run')" }] },
+    "SPreset": { "ChatSquash": true, "MacroNest": true }
+  }
+}

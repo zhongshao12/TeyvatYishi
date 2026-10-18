@@ -42,6 +42,7 @@ export async function summarizeMemoryBatch(
   mainConfig: API配置项,
   signal?: AbortSignal,
   retryCount = 2,
+  complete = chatCompletionNonStream,
 ): Promise<MemoryCompressionResult> {
   const fallback = buildFallbackSummary(source.items, source.turn, source.kind);
 
@@ -85,7 +86,7 @@ export async function summarizeMemoryBatch(
   try {
     const raw = await withRetries(
       () =>
-        chatCompletionNonStream(api, {
+        complete(api, {
           messages: [{ role: 'user', content: userPrompt }],
           systemPrompt,
           signal,

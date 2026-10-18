@@ -2,6 +2,7 @@ import type { NPC记录 } from '@/models/npc';
 import { 获取NPC兼容关系, 获取NPC关系阶段, 限制NPC好感度 } from '@/models/npc';
 import { canRevealNpcRecordMeasurements, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 import { reconcileNpcAppearanceRecord } from '@/utils/npcAppearanceReconciliation';
+import { preserveFixedNpcImageBasics } from '@/utils/fixedNpcImageBasics';
 
 /**
  * 手机回信作业的 NPC 写回：按 id 与**活体根**合并，而不是整片替换。
@@ -49,9 +50,9 @@ export function mergeNpcWriteBack(input: NpcWriteBackInput): NpcWriteBackResult 
     if (!produced) return live;
     const base = startById.get(live.id);
     if (produced === base) return live;
-    if (live === base) return reconcileChangedAppearance(produced, base);
+    if (live === base) return reconcileChangedAppearance(preserveFixedNpcImageBasics(live, produced), base);
     concurrentNpcIds.push(live.id);
-    return reconcileChangedAppearance(withAppendedMemories(live, produced, base), base);
+    return reconcileChangedAppearance(preserveFixedNpcImageBasics(live, withAppendedMemories(live, produced, base)), base);
   });
   for (const produced of input.next) {
     if (!currentById.has(produced.id) && !startById.has(produced.id)) records.push(reconcileChangedAppearance(produced));
@@ -145,9 +146,9 @@ export function mergeSettlementSliceWriteBack<T extends SettlementRecordLike>(in
     }
     const base = baseById.get(live.id);
     if (sameSettlementValue(produced, base)) return live;
-    if (sameSettlementValue(live, base)) return reconcileChangedAppearance(produced, base);
+    if (sameSettlementValue(live, base)) return reconcileChangedAppearance(preserveFixedNpcImageBasics(live, produced), base);
     concurrentRecordIds.push(live.id);
-    return reconcileChangedAppearance(mergeAppendedMemories(live, produced, base), base);
+    return reconcileChangedAppearance(preserveFixedNpcImageBasics(live, mergeAppendedMemories(live, produced, base)), base);
   }).filter((record): record is T => record !== undefined);
 
   for (const produced of input.next) {
@@ -160,7 +161,8 @@ export function mergeSettlementSliceWriteBack<T extends SettlementRecordLike>(in
 function reconcileChangedAppearance<T extends SettlementRecordBase>(record: T, base?: T): T {
   const npc = record as T & Partial<NPC记录>;
   const before = base as (T & Partial<NPC记录>) | undefined;
-  if (!npc.姓名 || !npc.外貌档案 || sameSettlementValue(npc.外貌, before?.外貌) && sameSettlementValue(npc.外貌档案, before?.外貌档案)) return record;
+  if (!npc.姓名 || !npc.外貌档案 || sameSettlementValue(npc.外貌, before?.外貌) && sameSettlementValue(npc.外貌档案, before?.外貌档案)
+    && canRevealNpcRecordMeasurements(npc as NPC记录) === (before ? canRevealNpcRecordMeasurements(before as NPC记录) : false)) return record;
   return reconcileNpcAppearanceRecord(npc, normalizeNpcAppearanceFacts(npc.外貌档案, canRevealNpcRecordMeasurements(npc as NPC记录)));
 }
 

@@ -23,13 +23,13 @@ export function resolveSteambirdApiConfig(override: 蒸汽鸟报API覆盖 | unde
 export async function generateSteambirdArticles(config: API配置项, input: {
   publicFacts: readonly unknown[]; promptModules?: 提示词模块[]; signal?: AbortSignal; maxEntries: number;
   onPhase?: (phase: SteambirdRequestPhase) => void;
-}): Promise<ValidatedSteambirdDraft[]> {
+}, complete = chatCompletionNonStream): Promise<ValidatedSteambirdDraft[]> {
   if (!config.baseUrl.trim() || !config.model.trim()) throw new Error('蒸汽鸟报未配置有效 API');
   const facts = normalizeConfirmedSteambirdFacts([...input.publicFacts]);
   if (!facts.length) throw new Error('没有已确认公开的事实');
   if (!Number.isSafeInteger(input.maxEntries) || input.maxEntries < 1) throw new Error('报纸条数设置无效');
   const phase = (value: SteambirdRequestPhase) => { try { input.onPhase?.(value); } catch { /* diagnostic observers do not own transport */ } };
-  const text = await chatCompletionNonStream(config, {
+  const text = await complete(config, {
     systemPrompt: [STEAMBIRD_EDITORIAL_RULES_PROMPT, buildSteambirdPromptModulesSection(input.promptModules)].filter(Boolean).join('\n\n'),
     messages: [{ role: 'user', content: JSON.stringify({ confirmedPublicFacts: facts, maxEntries: input.maxEntries }) }],
     signal: input.signal, purpose: 'steambird', deepSeekRecovery: 'disabled', onRequestPhase: phase,

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>提瓦特轶事 · 2.0 长会话浏览器验收</title>
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; padding: 24px; font-family: "Noto Serif SC", "Songti SC", serif; background: #f5efe2; color: #2f2a24; }
+  h1 { font-size: 20px; margin: 0 0 8px; letter-spacing: .04em; }
+  p.hint { margin: 0 0 20px; font-size: 13px; color: #6b6152; }
+  .panel { max-width: 960px; margin: 0 auto; background: #fffdf7; border: 1px solid #ddd2bc; border-radius: 14px; padding: 20px; box-shadow: 0 12px 30px rgba(90, 72, 48, .08); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  button { font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 999px; border: 1px solid #c9b995; background: #fffaf0; color: #43392c; cursor: pointer; }
+  button:hover { background: #f3e7d0; }
+  #status { min-height: 20px; font-size: 13px; color: #7a5a2c; margin: 6px 0 12px; }
+  pre#output { margin: 0; padding: 12px; max-height: 420px; overflow: auto; background: #241f1a; color: #e9dfcc; border-radius: 10px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+  .warn { margin-top: 14px; font-size: 12px; color: #8a3c2c; }
+</style>
+</head>
+<body>
+<main class="panel">
+  <h1>2.0 长会话浏览器验收（真实 IndexedDB）</h1>
+  <p class="hint">只使用隔离库 <code>test-core2-browser-long-session</code>，不读取玩家存档、不调用任何模型接口；结果可导出为 JSON 交给验收记录。</p>
+  <div class="row">
+    <button id="build-100" type="button">造数 100 回合</button>
+    <button id="build-1000" type="button">造数 1000 回合</button>
+    <button id="measure" type="button">测量读档 / 首条原文回读 / 召回</button>
+    <button id="export" type="button">导出 JSON</button>
+    <button id="reset" type="button">删除测试库</button>
+  </div>
+  <p id="status" role="status" aria-live="polite"></p>
+  <pre id="output" aria-label="测量结果"></pre>
+  <p class="warn">本页是简化账本负载，不是完整 M09 验收；当前只有 20 次召回样本，不区分冷/热缓存。Node/fake-indexeddb 与本页真实 IndexedDB 的耗时不可互相替代，首条回读也不等于冷启动。</p>
+</main>
+<script type="module" src="./core2-long-session.ts"></script>
+</body>
+</html>

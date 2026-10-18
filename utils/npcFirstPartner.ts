@@ -4,11 +4,16 @@ import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
 import { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveEnrichment';
 
 const LEGACY_ASSUMPTION = '旧档推定，具体回合未知';
-const PLAYER_LABELS = new Set(['玩家', '用户', '主角', '{{user}}']);
+const PLAYER_LABELS = new Set(['玩家', '用户', '主角', '旅行者', '旅人', '{{user}}']);
+
+function isPlayerLabel(value: string | undefined, playerName: string): boolean {
+  const text = value?.trim() ?? '';
+  return PLAYER_LABELS.has(text) || Boolean(playerName.trim() && text === playerName.trim());
+}
 
 function canAssumePlayer(value: string | undefined, playerName: string): boolean {
   const text = value?.trim() ?? '';
-  return !text || text === '无' || PLAYER_LABELS.has(text) || Boolean(playerName.trim() && text === playerName.trim());
+  return !text || text === '无' || isPlayerLabel(text, playerName);
 }
 
 export function displayFirstPartner(archive: NPC_NSFW档案 | undefined, playerName: string): string {
@@ -20,7 +25,7 @@ export function displayFirstPartner(archive: NPC_NSFW档案 | undefined, playerN
 export function migrateLegacyFirstPartner(npc: NPC记录, playerName: string): NPC记录 {
   const archive = npc.NSFW档案;
   if (npc.性别 !== '女' || !archive || archive.是否处女 !== '否' || archive.首次性行为对象引用
-    || archive.首次性行为对象来源 || !canAssumePlayer(archive.首次性行为对象, playerName)) return npc;
+    || (archive.首次性行为对象来源 && !isPlayerLabel(archive.首次性行为对象, playerName)) || !canAssumePlayer(archive.首次性行为对象, playerName)) return npc;
   const eligible = resolveNpcAdultEligibility({
     name: npc.姓名, aliases: npc.别名 ? [npc.别名] : [],
     description: [npc.介绍, npc.外貌, npc.备注.join(' ')].filter(Boolean).join(' '),
@@ -34,8 +39,8 @@ export function migrateLegacyFirstPartner(npc: NPC记录, playerName: string): N
       ...archive,
       首次性行为对象: undefined,
       首次性行为对象引用: 'player',
-      首次性行为对象来源: 'legacy_assumed',
-      经历: (archive.经历 ?? []).includes(LEGACY_ASSUMPTION)
+      首次性行为对象来源: archive.首次性行为对象来源 ?? 'legacy_assumed',
+      经历: archive.首次性行为对象来源 || (archive.经历 ?? []).includes(LEGACY_ASSUMPTION)
         ? archive.经历 : [...(archive.经历 ?? []), LEGACY_ASSUMPTION],
     },
   };
@@ -44,7 +49,7 @@ export function migrateLegacyFirstPartner(npc: NPC记录, playerName: string): N
 export function migrateTeyvatFirstPartner(npc: TeyvatNpcRecord, playerName: string): TeyvatNpcRecord {
   const archive = npc.matureArchive;
   if (npc.gender !== '女' || !archive || archive.virginityStatus !== 'not_virgin' || archive.firstSexualPartnerRef
-    || archive.firstSexualPartnerSource || !canAssumePlayer(archive.firstSexualPartner, playerName)) return npc;
+    || (archive.firstSexualPartnerSource && !isPlayerLabel(archive.firstSexualPartner, playerName)) || !canAssumePlayer(archive.firstSexualPartner, playerName)) return npc;
   const eligible = resolveNpcAdultEligibility({
     name: npc.姓名, aliases: npc.aliases,
     description: [npc.说明, npc.appearance, ...npc.notes].filter(Boolean).join(' '),
@@ -58,8 +63,8 @@ export function migrateTeyvatFirstPartner(npc: TeyvatNpcRecord, playerName: stri
       ...archive,
       firstSexualPartner: undefined,
       firstSexualPartnerRef: 'player',
-      firstSexualPartnerSource: 'legacy_assumed',
-      experiences: archive.experiences.includes(LEGACY_ASSUMPTION)
+      firstSexualPartnerSource: archive.firstSexualPartnerSource ?? 'legacy_assumed',
+      experiences: archive.firstSexualPartnerSource || archive.experiences.includes(LEGACY_ASSUMPTION)
         ? archive.experiences : [...archive.experiences, LEGACY_ASSUMPTION],
     },
   };

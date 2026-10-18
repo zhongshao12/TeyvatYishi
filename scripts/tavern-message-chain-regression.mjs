@@ -53,6 +53,8 @@ cleanTempDir();
 transpileModule('utils/macroEngine.ts');
 transpileModule('utils/valueGuards.ts');
 transpileModule('utils/stSettingsNormalizer.ts');
+// prompt_order 空壳槽位解析（Reborn 2.4 的 100000 空槽位 / 100001 真实顺序）共用这一层。
+transpileModule('utils/stPresetOrder.ts');
 // 表现层契约解析（字数下限/文风段/输出外壳）：链构建器与 system prompt 共用的纯函数层。
 transpileModule('utils/presetPresentation.ts');
 transpileModule('models/prompts.ts');

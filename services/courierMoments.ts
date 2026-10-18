@@ -1,6 +1,7 @@
 import { NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD, type NPC记录 } from '@/models/npc';
 import { MAX_MOMENT_IMAGES, normalizeMomentImages, type CourierContact, type CourierMoment, type CourierMomentComment, type CourierMomentImage, type CourierMomentTarget, type CourierSystem } from '@/models/teyvat/courier';
 import type { WorldMoment } from '@/models/teyvat/worldMoment';
+import { MOMENT_FRIEND_AFFINITY_MIN, selectMomentFriendIds, type MomentCommentPlan } from '@/utils/momentCommentSelection';
 
 function validatedContent(input: string, images: readonly CourierMomentImage[]): string {
   const content = input.trim();
@@ -16,20 +17,22 @@ function validatedImages(input: readonly CourierMomentImage[] = []): CourierMome
   return normalized;
 }
 
-export function createMoment(system: CourierSystem, input: { id: string; content: string; turn: number; now: number; mentionIds?: string[]; worldMoment?: WorldMoment; images?: readonly CourierMomentImage[] }): CourierSystem {
+export function createMoment(system: CourierSystem, input: { id: string; content: string; turn: number; now: number; mentionIds?: string[]; worldMoment?: WorldMoment; images?: readonly CourierMomentImage[]; npcs?: readonly NPC记录[] }): CourierSystem {
   const images = validatedImages(input.images);
   const content = validatedContent(input.content, images);
   const existing = system.moments ?? [];
   if (existing.length >= 500) throw new Error('MOMENT_LIMIT');
   if (existing.some((post) => post.id === input.id)) throw new Error('MOMENT_EXISTS');
-  return { ...system, moments: [{
+  const post: CourierMoment = {
     id: input.id, authorId: 'player', content, turn: input.turn,
     createdAt: input.now, updatedAt: input.now, revision: 1,
     ...(input.worldMoment ? { worldMoment: input.worldMoment } : {}),
     targets: [], comments: [],
     ...(input.mentionIds?.length ? { mentionIds: [...new Set(input.mentionIds)] } : {}),
     ...(images.length ? { images } : {}),
-  }, ...existing] };
+  };
+  if (input.npcs) post.commentPlan = planMomentComments(system, post, input.npcs);
+  return { ...system, moments: [post, ...existing] };
 }
 
 export function editMoment(
@@ -39,6 +42,7 @@ export function editMoment(
   now: number,
   mentionIds?: string[],
   imagesInput?: readonly CourierMomentImage[],
+  npcs?: readonly NPC记录[],
 ): CourierSystem {
   const existing = system.moments?.find((post) => post.id === id);
   if (!existing) throw new Error('MOMENT_NOT_FOUND');
@@ -52,6 +56,7 @@ export function editMoment(
         revision: post.revision + 1,
         targets: [],
         comments: [],
+        commentPlan: npcs ? planMomentComments(system, { ...post, revision: post.revision + 1, mentionIds, targets: [] }, npcs, post.commentPlan?.randomNpcIds) : undefined,
         images: images.length ? images : undefined,
         // 编辑后重新解析 @：正文可能已经删掉或新增了点名（2026-09-29 第 7 项）。
         ...(mentionIds?.length ? { mentionIds: [...new Set(mentionIds)] } : { mentionIds: undefined }),
@@ -79,7 +84,7 @@ function eligibleMomentCommenters(contacts: readonly CourierContact[], npcs: rea
   const unique = new Map<string, NPC记录>();
   for (const contact of contacts) {
     const npc = contact.npcId ? npcById.get(contact.npcId) : undefined;
-    if (contact.available && npc && npc.好感度 > NPC_AFFINITY_DEAREST_FRIEND_THRESHOLD) unique.set(npc.id, npc);
+    if (contact.available && (!contact.status || contact.status === 'available') && npc && npc.好感度 >= MOMENT_FRIEND_AFFINITY_MIN) unique.set(npc.id, npc);
   }
   return [...unique.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -88,23 +93,30 @@ export function countEligibleMomentCommenters(contacts: readonly CourierContact[
   return eligibleMomentCommenters(contacts, npcs).length;
 }
 
-export function selectMomentCommenters(momentId: string, contacts: readonly CourierContact[], npcs: readonly NPC记录[]): NPC记录[] {
-  const eligible = eligibleMomentCommenters(contacts, npcs);
-  if (!eligible.length) return [];
-  const start = [...momentId].reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 0) % eligible.length;
-  return [...eligible.slice(start), ...eligible.slice(0, start)].slice(0, 3);
+export function selectMomentCommenters(momentId: string, contacts: readonly CourierContact[], npcs: readonly NPC记录[], options: { excludeIds?: readonly string[]; previousIds?: readonly string[] } = {}): NPC记录[] {
+  const eligible = eligibleMomentCommenters(contacts, npcs).filter(npc => !options.excludeIds?.includes(npc.id));
+  return selectMomentFriendIds(eligible.map(npc => npc.id), momentId, options.previousIds).map(id => eligible.find(npc => npc.id === id)!);
 }
 
-/** 自动评论名额（与好感度资格绑定）；@ 点名的人**不占**这个名额。 */
+export function planMomentComments(system: CourierSystem, post: CourierMoment, npcs: readonly NPC记录[], previousIds?: readonly string[]): MomentCommentPlan {
+  const teamNpcIds = [...new Set(npcs.filter(npc => npc.同行 && !npc.已归档 && (!system.contacts.some(contact => contact.npcId === npc.id) || system.contacts.some(contact => contact.npcId === npc.id && contact.available && (!contact.status || contact.status === 'available')))).map(npc => npc.id))];
+  const required = new Set([...teamNpcIds, ...(post.mentionIds ?? [])]);
+  const previous = system.moments?.find(item => item.id !== post.id && item.commentPlan);
+  const existing = post.targets.map(target => target.npcId).filter(id => !required.has(id));
+  const randomNpcIds = existing.length ? [...new Set(existing)].slice(0, 3) : selectMomentCommenters(`${post.id}:${post.revision}`, system.contacts, npcs, { excludeIds: [...required], previousIds: previousIds ?? previous?.commentPlan?.randomNpcIds }).map(npc => npc.id);
+  return { teamNpcIds, randomNpcIds };
+}
+
+/** 随机好友名额；发布时的队伍与 @ 目标均不占此名额。 */
 export const MOMENT_AUTO_COMMENT_LIMIT = 3;
 
 /**
- * 该条动态允许的评论总数 = 自动评论名额 + 被点名的角色数（2026-09-29 第 7 项）。
+ * 评论总数 = 三个随机好友名额 + 队伍/@目标的去重并集。
  * 运行时（`markMomentTarget` / `appendMomentComment`）、工作流与存档归一化必须共用这一个口径，
- * 否则「@ 了 4 个人」会在读档后被静默截断。
+ * 否则队伍和多人 @ 的有效评论会在读档后被静默截断。
  */
-export function momentCommentCapacity(post: Pick<CourierMoment, 'mentionIds'>): number {
-  return MOMENT_AUTO_COMMENT_LIMIT + (post.mentionIds?.length ?? 0);
+export function momentCommentCapacity(post: Pick<CourierMoment, 'mentionIds' | 'commentPlan'>): number {
+  return MOMENT_AUTO_COMMENT_LIMIT + new Set([...(post.mentionIds ?? []), ...(post.commentPlan?.teamNpcIds ?? [])]).size;
 }
 
 /** 草稿内的字符位置绑定；持久化仍只写已有 mentionIds。 */

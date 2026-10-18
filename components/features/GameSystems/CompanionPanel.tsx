@@ -1,4 +1,5 @@
 import { CLIP_ITEM, CLIP_SECTION, gradientAccent, insetRing } from '@/styles/clipPaths';
+import { resetNpcEnglishAfterManualEdit } from '@/utils/fixedNpcImageBasics';
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { memo } from 'react';
@@ -177,7 +178,7 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
     onNpcRecordsChange((prev) => prev.map((n) => {
       if (n.id !== id) return n;
       const updated = { ...n, ...patch };
-      return reconcileNpcAppearanceRecord(updated, normalizeNpcAppearanceFacts(updated.外貌档案, canRevealNpcRecordMeasurements(updated)));
+      return resetNpcEnglishAfterManualEdit(n, reconcileNpcAppearanceRecord(updated, normalizeNpcAppearanceFacts(updated.外貌档案, canRevealNpcRecordMeasurements(updated))));
     }));
   }, [onNpcRecordsChange]);
 
@@ -205,7 +206,7 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
       setNpcAppearanceFact(npc, key, value);
       onNpcRecordsChange((previous) => previous.map((entry) => {
         if (entry.id !== npc.id) return entry;
-        try { return setNpcAppearanceFact(entry, key, value); } catch { return entry; }
+        try { return resetNpcEnglishAfterManualEdit(entry, setNpcAppearanceFact(entry, key, value)); } catch { return entry; }
       }));
       onProfileSaved?.();
       return null;
@@ -218,7 +219,7 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, onProfileSaved,
     const estimate = await generateNpcAppearanceEstimate(activeApiConfig, npc, signal);
     if (signal.aborted) return;
     onNpcRecordsChange((previous) => previous.map((entry) => entry.id === npc.id && !entry.已归档
-      ? applyNpcAppearanceEstimate(entry, estimate) : entry));
+      ? resetNpcEnglishAfterManualEdit(entry, applyNpcAppearanceEstimate(entry, estimate)) : entry));
     onProfileSaved?.();
   }, [activeApiConfig, onNpcRecordsChange, onProfileSaved]);
   const handleSelectNpc = useCallback((id: string) => setSelectedId(id), []);

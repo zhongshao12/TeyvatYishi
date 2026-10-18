@@ -18,10 +18,11 @@ import type {
   文生图词组转化器API覆盖,
 } from '@/models/settings';
 import type { NovelAIContentMode } from '@/models/imageGeneration';
-import { saveSetting } from '@/services/dbService';
+import { useSettingsPersistence } from './SettingsPersistence';
 import { fetchModels } from '@/services/ai/apiTools';
 import { fetchComfyWorkflowCandidates, fetchImageGenerationModels, testImageGenerationConnection, type ComfyWorkflowCandidate } from '@/services/ai/imageGeneration';
 import { LATENT_BASE_URL, LATENT_IMAGE_PATH, latentEndpoint, acknowledgeLatentJobResolved } from '@/services/ai/latentImageGeneration';
+import { ownComfyApiWorkflow } from '@/utils/comfyWorkflow';
 
 interface Props {
   settings: 游戏设置;
@@ -138,6 +139,7 @@ const modelSuggestions: Record<文生图后端类型, string[]> = {
 type WorkflowImportStatus = { tone: 'idle' | 'ok' | 'error'; text: string };
 
 export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: Props) {
+  const { saveSetting } = useSettingsPersistence();
   const [activePage, setActivePage] = useState<Page>('overview');
   const [message, setMessage] = useState('');
   const { savedFlash, showSavedFlash, clearSavedFlash } = useSavedFlash(1600);
@@ -340,7 +342,7 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: 
           api={image.普通接口}
           naiRules={image.rules.NAI规则预设列表}
           onChange={(p) => patchApi('普通接口', p)}
-          onTest={() => handleTest('普通接口', image.普通接口)}
+          onTest={() => { void handleTest('普通接口', image.普通接口); }}
           testMessage={testMessages.普通接口}
           testing={testingKey === '普通接口'}
         />
@@ -360,7 +362,7 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: 
               api={image.NSFW接口}
               naiRules={image.rules.NAI规则预设列表}
               onChange={(p) => patchApi('NSFW接口', p)}
-              onTest={() => handleTest('NSFW接口', image.NSFW接口)}
+              onTest={() => { void handleTest('NSFW接口', image.NSFW接口); }}
               testMessage={testMessages.NSFW接口}
               testing={testingKey === 'NSFW接口'}
               nsfw
@@ -484,7 +486,7 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings }: 
         )}
         <button
           type="button"
-          onClick={handleSave}
+          onClick={() => { void handleSave(); }}
           className="w-full py-3 font-serif text-sm font-bold tracking-[0.32em]"
           style={{
             color: savedFlash ? '#122015' : 'rgb(var(--tj-bg-primary))',
@@ -587,7 +589,7 @@ function ApiBlock({
     if (!file) return;
     try {
       const text = await file.text();
-      JSON.parse(text);
+      ownComfyApiWorkflow(JSON.parse(text));
       onChange({ comfyWorkflowJson: text, useDefaultComfyWorkflow: false });
       setWorkflowCandidates([]);
       setWorkflowStatus({ tone: 'ok', text: `已导入本地工作流：${file.name}` });
@@ -645,7 +647,9 @@ function ApiBlock({
                 onChange={(e) => {
                   const backend = e.target.value as 文生图后端类型;
                   onChange({ backend, presetPath: presetPathOptions[backend][0]?.value ?? api.presetPath,
-                    ...(backend === 'latent' ? {
+                    ...(backend === 'comfyui' ? {
+                      baseUrl: 'http://127.0.0.1:8188', apiKey: '', model: '', pathMode: 'preset', customPath: '', retryCount: 0,
+                    } : backend === 'latent' ? {
                       baseUrl: LATENT_BASE_URL, apiKey: '', model: '', pathMode: 'preset', customPath: '',
                       steps: 8, retryCount: 0, defaultSize: '1024x1024',
                     } : api.backend === 'latent' ? {
@@ -698,7 +702,7 @@ function ApiBlock({
             {api.backend === 'latent' ? <ReadOnlyValue label="模型" value="Latent 固定模型（不支持选择）" /> : <Field label={api.backend === 'comfyui' ? 'Checkpoint / 模型名' : '模型'}>
               <div className="flex gap-2">
                 <input value={api.model} onChange={(e) => onChange({ model: e.target.value })} placeholder={api.backend === 'comfyui' ? '填写本机已有 ckpt_name，例如 novaAnimeXL_v70Happyhalloween.safetensors' : suggestions[0] ?? '模型 ID'} list={`${apiKey}-models`} className="teyvat-input min-w-0 flex-1 px-3 py-2 text-sm font-mono" style={{ clipPath: CLIP_SMALL }} />
-                <button type="button" onClick={handleFetchImageModels} disabled={modelLoading || (api.backend !== 'novelai' && !api.baseUrl.trim()) || (api.backend === 'openai_compatible' && !api.apiKey.trim())} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
+                <button type="button" onClick={() => { void handleFetchImageModels(); }} disabled={modelLoading || (api.backend !== 'novelai' && !api.baseUrl.trim()) || (api.backend === 'openai_compatible' && !api.apiKey.trim())} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
                   {modelLoading ? '读取中' : '获取'}
                 </button>
               </div>
@@ -905,24 +909,36 @@ function ApiBlock({
 
       {api.backend === 'comfyui' && (
         <>
-          <ToggleRow label="使用默认工作流" desc="当前项目还没有内置可直接运行的 ComfyUI 工作流；如果开启但没有 JSON，生成时会提示补齐。" checked={api.useDefaultComfyWorkflow} onChange={(v) => onChange({ useDefaultComfyWorkflow: v })} />
+          <ToggleRow label="空工作流时使用基础模板" desc="未导入 JSON 时，使用内置 Checkpoint 文生图工作流；先选择本机已有模型，不会自动下载。已填写的自定义 JSON 优先。" checked={api.useDefaultComfyWorkflow} onChange={(v) => onChange({ useDefaultComfyWorkflow: v })} />
+          <Field label="最长等待（秒）"><input type="number" min={30} max={3600} value={api.comfyTimeoutSeconds ?? 600} onChange={event => onChange({ comfyTimeoutSeconds: Math.max(30, Math.min(3600, Number(event.target.value) || 600)) })} className="teyvat-input w-full px-3 py-2 text-sm" /></Field>
+          <ToggleRow label="覆盖自定义工作流的采样参数" desc="默认保留导入工作流的采样器、调度器、步数和 CFG，适合 Anima 等模型；开启后才使用上方界面参数。提示词、尺寸和种子始终接入游戏设置。" checked={api.comfyOverrideWorkflowSampling === true} onChange={value => onChange({ comfyOverrideWorkflowSampling: value })} />
           <Notice>
-            ComfyUI 的 Checkpoint 必须填写本机模型列表里存在的 ckpt_name。Workflow 可使用 __MODEL__ / __CKPT_NAME__ / __SAMPLER__ / __SCHEDULER__ / __PROMPT__ / __NEGATIVE_PROMPT__ 等占位符，提交前会自动替换。
+            基础模板使用本机 Checkpoint。导入自定义工作流请使用 ComfyUI「导出 API」格式；常规正负编码节点会自动接收提示词，特殊节点可用 __PROMPT__ / __NEGATIVE_PROMPT__ 等占位符。非 Checkpoint 工作流的模型栏可留空。
           </Notice>
           <div className="flex flex-wrap gap-2">
-            <input ref={workflowFileRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportWorkflowFile} />
+            <input ref={workflowFileRef} type="file" accept=".json,application/json" className="hidden" onChange={event => { void handleImportWorkflowFile(event); }} />
+            <button type="button" disabled={workflowLoading !== null} onClick={() => {
+              setWorkflowLoading('history');
+              void fetch(`${import.meta.env.BASE_URL}workflows/comfyui-anima-local-api.json`).then(async response => {
+                if (!response.ok) throw Error(`读取示例失败 ${response.status}`);
+                const workflow = ownComfyApiWorkflow(await response.json());
+                onChange({ comfyWorkflowJson: JSON.stringify(workflow, null, 2), useDefaultComfyWorkflow: false, model: '', comfyOverrideWorkflowSampling: false, defaultSize: '512x384' });
+                setWorkflowStatus({ tone: 'ok', text: '已载入 Anima 示例。模型文件名须与本机一致；示例不会下载模型，也不会自动生成图片。' });
+              }).catch(error => setWorkflowStatus({ tone: 'error', text: `载入失败：${error instanceof Error ? error.message : String(error)}` })).finally(() => setWorkflowLoading(null));
+            }} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>载入 Anima 示例</button>
             <button type="button" onClick={() => workflowFileRef.current?.click()} className="px-3 py-2 text-xs font-serif tracking-[0.14em]" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
               导入 JSON
             </button>
-            <button type="button" onClick={() => handleFetchWorkflowCandidates('queue')} disabled={workflowLoading !== null || !api.baseUrl.trim()} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
+            <button type="button" onClick={() => { void handleFetchWorkflowCandidates('queue'); }} disabled={workflowLoading !== null || !api.baseUrl.trim()} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
               {workflowLoading === 'queue' ? '读取队列中' : '读取队列'}
             </button>
-            <button type="button" onClick={() => handleFetchWorkflowCandidates('history')} disabled={workflowLoading !== null || !api.baseUrl.trim()} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
+            <button type="button" onClick={() => { void handleFetchWorkflowCandidates('history'); }} disabled={workflowLoading !== null || !api.baseUrl.trim()} className="px-3 py-2 text-xs font-serif tracking-[0.14em] disabled:opacity-45" style={{ color: 'rgb(var(--tj-accent-primary))', background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: insetRing(0.22), clipPath: CLIP_SMALL }}>
               {workflowLoading === 'history' ? '读取历史中' : '读取历史'}
             </button>
           </div>
           <Notice>
             可导入本地 JSON，或从 ComfyUI 的 API 队列 / 历史记录提取已提交过的工作流。画布里尚未提交的当前编辑态无法通过接口直接读取。
+            基础模板仅文生图；参考图需要自行准备支持参考图的工作流。取消只停止本次等待，不会中断本地其它任务。网页版若遇跨域错误，需要在 ComfyUI 中允许游戏地址。
           </Notice>
           {workflowStatus.text && (
             <div className="text-xs leading-relaxed" style={{ color: workflowStatus.tone === 'error' ? 'rgba(255,180,180,0.92)' : workflowStatus.tone === 'ok' ? 'rgba(165,230,170,0.92)' : 'rgba(var(--tj-text-secondary),0.74)' }}>
@@ -950,7 +966,7 @@ function ApiBlock({
             </div>
           )}
           <Field label="ComfyUI Workflow JSON">
-            <textarea value={api.comfyWorkflowJson} onChange={(e) => onChange({ comfyWorkflowJson: e.target.value })} rows={10} placeholder="支持 __MODEL__ / __CKPT_NAME__ / __SAMPLER__ / __SCHEDULER__ / __PROMPT__ / __NEGATIVE_PROMPT__ / __WIDTH__ / __HEIGHT__ / __STEPS__ / __CFG__ / __SEED__ 占位符" className="teyvat-input w-full resize-y px-3 py-2 text-xs font-mono" style={{ clipPath: CLIP_SMALL }} />
+            <textarea value={api.comfyWorkflowJson} onChange={(e) => onChange({ comfyWorkflowJson: e.target.value })} rows={10} placeholder="留空可使用基础模板；也可导入 API 格式 JSON。支持 __MODEL__ / __PROMPT__ / __NEGATIVE_PROMPT__ / __WIDTH__ / __HEIGHT__ / __STEPS__ / __CFG__ / __SEED__ 占位符" className="teyvat-input w-full resize-y px-3 py-2 text-xs font-mono" style={{ clipPath: CLIP_SMALL }} />
           </Field>
         </>
       )}
@@ -966,7 +982,7 @@ function GuidePage() {
         <GuideCard title="NovelAI" desc="Base URL 可填 https://image.novelai.net，路径 /ai/generate-image。Token 必填，模型建议使用 nai-diffusion 系列。" />
         <GuideCard title="Latent" desc="选择 Latent 后端，Base URL 为 https://latent.moe，填写 Designer API Key（lat_sk_…）。使用浏览器兼容接口，固定模型、三种尺寸，不支持参考图。超时请先检查 Latent 控制台，不要立即重复生成。" />
         <GuideCard title="SD WebUI" desc="Base URL 通常是 http://127.0.0.1:7860，路径 /sdapi/v1/txt2img。API Key 常可留空，模型可留空使用当前 checkpoint。" />
-        <GuideCard title="ComfyUI" desc="Base URL 通常是 http://127.0.0.1:8188，路径 /prompt。必须提供 Workflow JSON；模型名要填写本机 ckpt_name，采样器和调度器会从设置自动映射。" />
+        <GuideCard title="本地 ComfyUI" desc="Base URL 默认 http://127.0.0.1:8188，路径 /prompt。可用基础模板并选择本机 Checkpoint，也可导入 API 格式 JSON。基础模板不安装模型；取消等待不会全局中断 ComfyUI。" />
       </div>
     </Panel>
   );
@@ -1123,7 +1139,7 @@ function backendHints(backend: 文生图后端类型): string[] {
   if (backend === 'latent') return ['Latent 不支持参考图、V4 多角色定位、模型选择和 CFG；角色描述会合并到主提示词。', '同一时间仅提交一张；取消或关闭请求不会停止服务器生成，仍可能消耗额度。', '连接测试只检查端点连通性，不验证密钥或额度；超时不自动重试，请先查看 Latent 控制台。'];
   if (backend === 'novelai') return ['NovelAI 返回图片流或压缩包时会自动转成 dataUrl。', 'Token 必填，建议为 NSFW 单独准备接口配置。'];
   if (backend === 'sd_webui') return ['本地 WebUI 需要开启 API 参数。', '模型可留空，系统会使用当前 WebUI checkpoint。'];
-  if (backend === 'comfyui') return ['ComfyUI 必须提供 Workflow JSON。', '工作流中至少要能通过占位符替换 prompt 和尺寸。'];
+  if (backend === 'comfyui') return ['基础模板需选择本机已有 Checkpoint；自定义工作流须导出为 API 格式。', '特殊节点可用占位符接收提示词；浏览器访问本地服务需正确配置跨域。'];
   return ['OpenAI 兼容接口通常需要 API Key 与模型名。', '如果服务商要求 /v1 前缀，请把它写进 Base URL。'];
 }
 

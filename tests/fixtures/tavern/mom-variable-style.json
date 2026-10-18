@@ -1,0 +1,78 @@
+{
+  "_comment": "MoM / 夏瑾系预设的文风形态最小复刻：文风不是 <文风> 包装段，而是「# 文风要求 条目 + <core_style>{{getvar::style}}</core_style>」+ 玩家勾选的 🔡xx风格 模块（只做 {{setvar::style::…}}）。全部文本为夹具自撰。",
+  "temperature": 1.05,
+  "openai_max_tokens": 8192,
+  "prompts": [
+    {
+      "identifier": "vars",
+      "name": "❗️变量初始化（别动）",
+      "role": "system",
+      "enabled": false,
+      "content": "{{setvar::style::默认：平铺直叙}}{{setvar::count::不少于300字}}"
+    },
+    {
+      "identifier": "principles",
+      "name": "🔒✒️创作原则及默认人称、文风",
+      "role": "system",
+      "enabled": true,
+      "content": "# 核心创作原则\n- 延续前文发展\n# 基础创作要求\n- 跟踪角色在上下文中的延续与变化"
+    },
+    {
+      "identifier": "style-classic",
+      "name": "🔡古风风格（实验性功能）",
+      "role": "system",
+      "enabled": false,
+      "content": "{{setvar::style::半文半白，四字短语多}}"
+    },
+    {
+      "identifier": "style-light",
+      "name": "🔡轻小说风格（实验性功能）",
+      "role": "system",
+      "enabled": true,
+      "content": "{{setvar::style::轻快活泼，所有对白必须使用直角引号「」包裹}}"
+    },
+    {
+      "identifier": "style-spec",
+      "name": "🔒✨文风设定",
+      "role": "system",
+      "enabled": true,
+      "content": "# 文风要求\n- 必须用简体中文创作\n- 所有对话独立成段，省略对话标签\n<erotic_style>\n- 感官细节优先，直接描述身体反应\n</erotic_style>\n<core_style>\n- {{getvar::style}}\n</core_style>"
+    },
+    {
+      "identifier": "words",
+      "name": "🔒🔢字数要求",
+      "role": "system",
+      "enabled": true,
+      "content": "# 字数要求\n{{setvar::count::不少于300字}}\n- 创作内容的正文{{getvar::count}}。"
+    },
+    {
+      "identifier": "echo",
+      "name": "🫧伪回复",
+      "role": "assistant",
+      "enabled": true,
+      "content": "1. 正文必须符合文风、字数要求。\n2. 本回合文风：{{getvar::style}}。"
+    },
+    {
+      "identifier": "branch",
+      "name": "🔘选项",
+      "role": "system",
+      "enabled": true,
+      "content": "在所有创作内容结束后以<branches/>形式给出 4 个选项。"
+    }
+  ],
+  "prompt_order": [
+    {
+      "character_id": 100001,
+      "order": [
+        { "identifier": "vars", "enabled": false },
+        { "identifier": "principles", "enabled": true },
+        { "identifier": "style-classic", "enabled": false },
+        { "identifier": "style-light", "enabled": true },
+        { "identifier": "style-spec", "enabled": true },
+        { "identifier": "words", "enabled": true },
+        { "identifier": "echo", "enabled": true },
+        { "identifier": "branch", "enabled": true }
+      ]
+    }
+  ]
+}

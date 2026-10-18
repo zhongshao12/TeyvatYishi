@@ -7,7 +7,8 @@ import { MAX_MOMENT_IMAGES, type CourierMomentImage } from '@/models/teyvat/cour
 import type { TeyvatGameState } from '@/models/teyvat/state';
 import type { CourierPhotoComposerProps } from './CourierPhotoComposer';
 import { prepareEnglishImagePrompts, buildImageCharacterEnglishConfig } from '@/services/imageCharacterEnglish';
-import { readSourceImageCharacterFacts, type ImageCharacterFactInput } from '@/utils/imageCharacterFacts';
+import { readImageCharacterFacts, readSourceImageCharacterFacts, type ImageCharacterFactInput } from '@/utils/imageCharacterFacts';
+import { omitNpcAppearanceMeasurements } from '@/utils/npcAppearanceReconciliation';
 import type { PromptCharacter } from '@/utils/imagePromptCompaction';
 import { applyNovelAIRulePreset } from '@/utils/imagePromptRules';
 import { generateImage } from '@/services/ai/imageGeneration';
@@ -36,12 +37,14 @@ export interface CourierMomentImageEditorProps {
   editing?: { id: string; revision: number };
 }
 
-function ordinaryCharacter(source: Pick<ImageCharacterFactInput, '姓名' | '性别' | '外貌' | '外貌档案' | '身高'>): PromptCharacter {
+function ordinaryCharacter(source: ImageCharacterFactInput): PromptCharacter {
   // Do not feed relationship, memories, private archives or an inferred outfit to the image model.
-  const facts = readSourceImageCharacterFacts({ 姓名: source.姓名, 性别: source.性别, 外貌: source.外貌,
+  const allowed = readSourceImageCharacterFacts({ 姓名: source.姓名, 性别: source.性别, 外貌: source.外貌,
     外貌档案: source.外貌档案, 身高: source.身高 });
-  return { name: facts.name, visualPrompt: '', facts: { ...facts, outfit: undefined,
-    appearance: sanitizeCourierPhotoText(facts.appearance ?? '') || undefined } };
+  const facts = readImageCharacterFacts(source);
+  const appearanceDetails = Object.fromEntries(Object.entries(facts.appearanceDetails ?? {}).filter(([key]) => Object.hasOwn(allowed.appearanceDetails ?? {}, key)));
+  return { name: facts.name, visualPrompt: '', facts: { ...facts, outfit: undefined, appearanceDetails,
+    appearance: sanitizeCourierPhotoText(allowed.appearanceDetails?.三围 ? facts.appearance ?? '' : omitNpcAppearanceMeasurements(facts.appearance ?? '')) || undefined } };
 }
 
 export function useCourierMomentImages(props: CourierMomentImageEditorProps) {
@@ -144,7 +147,9 @@ export function useCourierMomentImages(props: CourierMomentImageEditorProps) {
       // fact projection against that root immediately before writing the album asset.
       const npc = characterId === 'traveler' ? undefined : game.NPC.find(record => record.id === characterId);
       const liveSource = characterId === 'traveler' ? game.旅行者 : npc ? {
-        id: npc.id, 姓名: npc.姓名, 性别: npc.gender, 外貌: npc.appearance, 外貌档案: npc.appearanceFacts,
+        id: npc.id, 姓名: npc.姓名, 别名: npc.aliases[0], 性别: npc.gender, 外貌: npc.appearance, 外貌档案: npc.appearanceFacts,
+        穿着: npc.clothing, 介绍: npc.说明, 备注: npc.notes, 图像档案: { englishFacts: npc.visualArchive.englishFacts },
+        NSFW档案: npc.matureArchive ? { 年龄确认: npc.matureArchive.ageConfirmation, 年龄确认来源: npc.matureArchive.ageConfirmationSource } : undefined,
       } : undefined;
       return Boolean(liveSource && liveSource.id === sourceId && JSON.stringify(ordinaryCharacter(liveSource).facts) === sourceFingerprint);
     };

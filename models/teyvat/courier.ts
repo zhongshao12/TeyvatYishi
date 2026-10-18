@@ -173,6 +173,8 @@ export interface CourierMoment {
   comments: CourierMomentComment[];
   /** 玩家在正文里 @ 的角色（2026-09-29 第 7 项）：他们不占自动评论名额，且一定会回应一次。 */
   mentionIds?: string[];
+  /** Frozen per revision: the whole party plus three separate eligible friends. */
+  commentPlan?: { teamNpcIds: string[]; randomNpcIds: string[] };
   /** Album references only; image bytes remain owned by the shared album. */
   images?: CourierMomentImage[];
 }
@@ -350,8 +352,7 @@ function normalizeMoment(value: unknown): CourierMoment | null {
   const content = text(value.content).trim();
   const images = normalizeMomentImages(value.images);
   if (!id || (!content && !images.length) || content.length > 500) return null;
-  // @ 点名的角色（2026-09-29 第 7 项）：先归一化，因为评论/目标名额 = 3 + 点名人数，
-  // 顺序反了会在读档时把 @ 目标的回应静默截断。
+  // 先恢复点名和发布时队伍，名额是其并集加三个随机好友，不能读档截断。
   const seenMentions = new Set<string>();
   const mentionIds = (Array.isArray(value.mentionIds) ? value.mentionIds : []).flatMap((entry) => {
     const npcId = text(entry).trim();
@@ -359,7 +360,9 @@ function normalizeMoment(value: unknown): CourierMoment | null {
     seenMentions.add(npcId);
     return [npcId];
   });
-  const capacity = 3 + mentionIds.length;
+  const planIds = (input: unknown) => [...new Set((Array.isArray(input) ? input : []).map(entry => text(entry).trim()).filter(Boolean))];
+  const commentPlan = isRecord(value.commentPlan) ? { teamNpcIds: planIds(value.commentPlan.teamNpcIds), randomNpcIds: planIds(value.commentPlan.randomNpcIds).slice(0, 3) } : undefined;
+  const capacity = 3 + new Set([...mentionIds, ...(commentPlan?.teamNpcIds ?? [])]).size;
   const seenComments = new Set<string>();
   const comments: CourierMomentComment[] = (Array.isArray(value.comments) ? value.comments : []).flatMap((entry) => {
     if (!isRecord(entry)) return [];
@@ -393,6 +396,7 @@ function normalizeMoment(value: unknown): CourierMoment | null {
     targets, comments,
     ...(worldMoment ? { worldMoment } : {}),
     ...(mentionIds.length ? { mentionIds } : {}),
+    ...(commentPlan ? { commentPlan } : {}),
     ...(images.length ? { images } : {}),
   };
 }

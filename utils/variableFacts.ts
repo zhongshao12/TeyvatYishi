@@ -37,6 +37,9 @@ import {
 } from '@/compat/legacy-hsr/readOnly';
 import { LEGACY_NPC_ID_TO_CHINESE_NAME, normalizeLegacyNpcSelector } from '@/utils/legacyNpcIdentity';
 import { shouldReplaceUsualClothing } from '@/utils/npcUsualClothing';
+import { CHINESE_NARRATIVE_DIGITS as CHINESE_HOUR_DIGITS, parseNarrativeNumber as 解析中文整数 } from '@/utils/narrativeNumbers';
+import { 每日同行好感加成, 亲密事件好感规则 } from '@/utils/gameplayRules';
+export { 每日同行好感加成, 亲密事件好感规则 } from '@/utils/gameplayRules';
 
 const ITEM_CATEGORY_SET = new Set<ItemCategory>(ITEM_CATEGORIES);
 const NPC_RELATIONS = new Set<NPC关系类型>(['stranger', 'acquaintance', 'friend', 'close', 'rival', 'enemy']);
@@ -534,48 +537,6 @@ function 分钟序数(value: unknown): number | null {
 function 格式化分钟(total: number): string {
   const safe = ((Math.trunc(total) % 1440) + 1440) % 1440;
   return `${Math.floor(safe / 60).toString().padStart(2, '0')}:${(safe % 60).toString().padStart(2, '0')}`;
-}
-
-const CHINESE_HOUR_DIGITS: Record<string, number> = {
-  零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6,
-  七: 7, 八: 8, 九: 9, 十: 10, 十一: 11, 十二: 12,
-};
-
-function 解析中文整数(value: string): number | null {
-  if (/^\d+(?:\.\d+)?$/.test(value)) return Number(value);
-  if (value === '几' || value === '数') return 3;
-  if (value === '半') return 0.5;
-  if (CHINESE_HOUR_DIGITS[value] !== undefined) return CHINESE_HOUR_DIGITS[value];
-  const tenIndex = value.indexOf('十');
-  if (tenIndex >= 0) {
-    const tensText = value.slice(0, tenIndex);
-    const onesText = value.slice(tenIndex + 1);
-    const tens = tensText ? CHINESE_HOUR_DIGITS[tensText] : 1;
-    const ones = onesText ? CHINESE_HOUR_DIGITS[onesText] : 0;
-    if (tens !== undefined && ones !== undefined) return tens * 10 + ones;
-  }
-  // 百/千 量级（「一百年」「一千年」等）：原文旧实现只认到「十」，导致这些跨度解析失败、
-  // 退回凭空 3 分钟；现在能算出真实天数，让「超出可结算范围」走警告路径而不是静默乱跳。
-  if (/^[零〇一二两三四五六七八九十百千]+$/u.test(value)) {
-    const units: Array<[string, number]> = [['千', 1000], ['百', 100], ['十', 10]];
-    let total = 0;
-    let section = 0;
-    for (const char of value) {
-      if (char === '零' || char === '〇') continue;
-      const digit = CHINESE_HOUR_DIGITS[char];
-      if (digit !== undefined) {
-        section = digit;
-        continue;
-      }
-      const unit = units.find(([token]) => token === char)?.[1];
-      if (unit === undefined) return null;
-      total += (section || 1) * unit;
-      section = 0;
-    }
-    const resolved = total + section;
-    return resolved > 0 ? resolved : null;
-  }
-  return null;
 }
 
 interface NarrativeClockCandidate {
@@ -1423,7 +1384,6 @@ export function derivePartyPresenceFacts(
 const INVENTORY_REMOVAL_VERBS = /(使用|用掉|耗掉|消耗|服用|喝下|吃下|吃掉|交给|递给|赠给|送给|交付|上交|归还|丢失|遗失|失去|损毁|毁坏)/u;
 
 /** 每日同行好感加成：每过一个自然日，队伍中的同行角色固定 +10（玩家指定值）。 */
-export const 每日同行好感加成 = 10;
 
 /**
  * 亲密事件好感规则（玩家指定）：
@@ -1437,12 +1397,6 @@ export const 每日同行好感加成 = 10;
  * 它现在对每个 NPC 只保留 rank 最小（档位最高）的一条命中；把那段 `best` 逻辑换成
  * 逐档累加即可 —— 数值本身集中在下面的 `亲密事件档位数值`，不会漏改第二处。
  */
-export const 亲密事件好感规则 = {
-  性爱事件: 30,
-  亲吻: 5,
-  暧昧: 3,
-  肢体接触: 3,
-} as const;
 
 /**
  * 档位 → 固定数值的**唯一**映射点。
@@ -1744,16 +1698,86 @@ export function deriveNarrativeInventoryRemovalFacts(
   return facts;
 }
 
-function agreementSimilarity(left: string, right: string): number {
-  const normalize = (value: string) => value
-    .replace(/旅行者|玩家|终于|已经|成功|完成了?|结束了?|兑现了?|解决了?|取消了?|终止了?|一起|帮忙|帮助|和|与|复命/gu, '')
-    .replace(/[^\p{L}\p{N}]/gu, '');
-  const a = new Set([...normalize(left)]);
-  const b = new Set([...normalize(right)]);
-  if (!a.size || !b.size) return 0;
-  let intersection = 0;
-  a.forEach((char) => { if (b.has(char)) intersection += 1; });
-  return intersection < 3 ? 0 : intersection / Math.min(a.size, b.size);
+/**
+ * 约定结算的词元判定（2026-10-18 用户实测：「已经履行过的约定始终无法结算，角色在手机里反复提」）。
+ *
+ * 旧实现用「整句字符集与约定文字的重合率 ≥ 0.7」判定：约定越长越不可能命中 ——
+ * 「答应明天陪旅行者去晨曦酒庄采买材料」(17 字) 与「安柏把晨曦酒庄的采买办完了」只有 4 字重合，
+ * 比例 0.24；连近乎复述的「完成了晨曦酒庄采买材料」也只有 0.47。结果约定永远留在账本里。
+ * 现在改为：**完成动词 + 与约定共享一个独有的二字词元**（词元取二字滑窗，剔除虚词与通用词），
+ * 既认「办完/买好/复命」这类完成说法，也不会因为「一起巡逻」这种通用词元误判别的约定。
+ */
+const SETTLE_VERB_RE = /(完成|办完|做完|办好|买好|弄好|搞定|兑现|履行|解决|结清|交付|复命|送到|交齐|如约|取消|终止)/u;
+const SETTLE_SKIP_RE = /(没|未|别|不要|不用)|\?|？|吗|呢/u;
+const SETTLE_CONDITIONAL_RE = /如果|假如|要是|是否|能否|等到/u;
+const SETTLE_UNREALIZED_RE = /如果|假如|要是|是否|能否|等到|打算|准备|计划|想要|试图|可能|也许|或许|将要|将会/u;
+const SETTLE_FUTURE_DATE_RE = /明天|明日|后天|明早/u;
+const SETTLE_FUTURE_USE_RE = /(?:明天|明日|后天|明早)(?:要|需)用的/gu;
+const SETTLE_PAST_RE = /已经|早已|早就|刚刚|终于|已然|业已/u;
+const SETTLE_AFTER_RE = /(?:完成|办完|做完|买好).{0,24}(?:以|之)?后(?:再|就|才|便)/u;
+const SETTLE_SKIP_GRAM_RE = /[的了是在和就都也还我你他她它吧啊]/u;
+const SETTLE_STOP_GRAMS = new Set(['一起', '明天', '今天', '玩家', '旅行', '行者', '约定', '承诺', '答应', '事情', '东西']);
+
+function 约定词元(text: string): Set<string> {
+  const plain = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const grams = new Set<string>();
+  for (let index = 0; index + 1 < plain.length; index += 1) {
+    const gram = plain.slice(index, index + 2);
+    if (SETTLE_SKIP_GRAM_RE.test(gram) || SETTLE_STOP_GRAMS.has(gram)) continue;
+    grams.add(gram);
+  }
+  return grams;
+}
+
+/**
+ * 从证据文本里挑出「确实已完成」的既有约定。
+ * `requireVerb=false` 用于模型自报的 resolvedItems（它写的是名词短语，本身不含完成动词）。
+ */
+export function pickSettledCommitments(
+  items: readonly string[],
+  evidence: string | undefined,
+  requireVerb = true,
+): string[] {
+  if (!items.length) return [];
+  // 按分句切：真实句子常是「酒庄的材料我早买好了，你不用再问啦」这种复合句，整句判定会被后
+  // 半句的否定词带偏（原来那句「不用」会把整条证据废掉）。
+  const units = (evidence ?? '')
+    .split(/(?<=[。！？!?\n；;])/u)
+    .flatMap((sentence) => {
+      // Questions and conditions still govern the following comma-separated clause.
+      if (/[?？]/u.test(sentence)) return [];
+      let prefix = '';
+      return sentence.split(/(?<=[，,])/u).map((part) => {
+        const before = prefix; prefix += part;
+        return { unit: part.trim(), before };
+      });
+    })
+    .filter(({ unit, before }) => {
+      if (!unit || SETTLE_SKIP_RE.test(unit)) return false;
+      if (!requireVerb) return true;
+      const verb = SETTLE_VERB_RE.exec(unit);
+      if (!verb) return false;
+      const localPrefix = unit.slice(0, verb.index);
+      const explicitPast = SETTLE_PAST_RE.test(localPrefix) || unit.slice(verb.index + verb[0].length).startsWith('了');
+      if (SETTLE_UNREALIZED_RE.test(unit) || SETTLE_CONDITIONAL_RE.test(before) || SETTLE_AFTER_RE.test(unit)) return false;
+      // A new explicit past assertion may supersede a prior plan, not a condition.
+      if (SETTLE_UNREALIZED_RE.test(before) && !explicitPast) return false;
+      const replacedPlan = explicitPast && SETTLE_UNREALIZED_RE.test(before)
+        && /^(?:但|不过|然而|现在|今天|其实|实际上|却)/u.test(unit);
+      if (SETTLE_FUTURE_DATE_RE.test(before) && !replacedPlan) return false;
+      // Future-perfect claims stay pending. Only an explicit object-use modifier
+      // can contain a future date without turning the purchase into a prediction.
+      return !SETTLE_FUTURE_DATE_RE.test(localPrefix.replace(SETTLE_FUTURE_USE_RE, ''));
+    })
+    .map(({ unit }) => unit);
+  if (!units.length) return [];
+  const grams = units.map(约定词元);
+  const verbs = units.map((unit) => (requireVerb ? SETTLE_VERB_RE.test(unit) : true));
+  return items.filter((item) => {
+    const need = 约定词元(item);
+    if (!need.size) return false;
+    return grams.some((have, index) => verbs[index] && [...need].some((gram) => have.has(gram)));
+  });
 }
 
 /** 将正文中明确完成/取消的既有约定转换成 resolvedItems 事实。 */
@@ -1766,17 +1790,17 @@ export function deriveResolvedNpcLedgerFacts(
     未完成事项?: string[];
   }>,
 ): Array<Extract<变量事实, { type: 'npc' }>> {
-  const completion = /(完成|办完|做完|兑现|履行|解决|结清|交付|复命|取消|终止|不再继续)/u;
   const sentences = body.split(/(?<=[。！？!?\n])/u).map((item) => item.trim()).filter(Boolean);
   const facts: Array<Extract<变量事实, { type: 'npc' }>> = [];
   for (const npc of records) {
     const openItems = npc.relationshipLedger?.unfinishedBusiness ?? npc.未完成事项 ?? [];
     if (!openItems.length || !npc.姓名.trim()) continue;
-    const relevant = sentences.filter((sentence) => sentence.includes(npc.姓名) && completion.test(sentence));
-    if (!relevant.length) continue;
-    const resolvedItems = openItems.filter((item) => relevant.some((sentence) => agreementSimilarity(item, sentence) >= 0.7));
+    // 只在该 NPC 被点名的句子里找证据：同一段正文里别人的「办完了」不能结算他的约定。
+    const scoped = sentences.filter((sentence) => sentence.includes(npc.姓名));
+    if (!scoped.length) continue;
+    const resolvedItems = pickSettledCommitments(openItems, scoped.join(''));
     if (!resolvedItems.length) continue;
-    const evidence = relevant.find((sentence) => resolvedItems.some((item) => agreementSimilarity(item, sentence) >= 0.7)) ?? relevant[0];
+    const evidence = scoped.find((sentence) => SETTLE_VERB_RE.test(sentence)) ?? scoped[0]!;
     facts.push({ type: 'npc', id: npc.id, name: npc.姓名, resolvedItems, recentInteraction: evidence, memory: evidence, evidence });
   }
   return facts;
@@ -1881,7 +1905,10 @@ function removeResolvedLedgerItems(current: readonly string[] | undefined, resol
   if (!resolved?.length) return undefined;
   const targets = resolved.map(normalizeLedgerItemText).filter(Boolean);
   if (!targets.length) return undefined;
+  // 模型很少逐字复制旧条目（它的上下文里没有账本原文），只靠等值/包含匹配会让 resolvedItems 白写。
+  const settled = new Set(pickSettledCommitments(current ?? [], resolved.join('。'), false));
   return (current ?? []).filter((item) => {
+    if (settled.has(item)) return false;
     const normalized = normalizeLedgerItemText(item);
     return !targets.some((target) => normalized === target || (Math.min(normalized.length, target.length) >= 4 && (normalized.includes(target) || target.includes(normalized))));
   });
@@ -2234,6 +2261,18 @@ export function factsToVariableCommands(
         pushNpcLedgerListCommands(push, key, '未完成事项', fact.openItems, existing.未完成事项);
         const remainingOpenItems = removeResolvedLedgerItems(existing.未完成事项, fact.resolvedItems);
         if (remainingOpenItems) push({ action: 'set', key: `${key}.未完成事项`, value: remainingOpenItems });
+        // 结算过的约定要留下**正面记录**：只从「未完成事项」里删掉，角色下次仍会当它是待办（它只看得见
+        // 当初那条约定，看不见删除动作）。记录的是账本原文，不是模型随手写的短语。
+        if (remainingOpenItems) {
+          const settledItems = (existing.未完成事项 ?? []).filter((item) => !remainingOpenItems.includes(item));
+          if (settledItems.length) {
+            push({
+              action: 'set',
+              key: `${key}.已完成事项`,
+              value: mergeUniqueTexts(existing.已完成事项, settledItems)?.slice(-24) ?? [],
+            });
+          }
+        }
         pushNpcLedgerListCommands(push, key, '未解决冲突', fact.unresolvedConflicts, existing.未解决冲突);
         pushNpcLedgerListCommands(push, key, '必须记得', fact.mustRemember, existing.必须记得);
         pushNpcLedgerListCommands(push, key, '禁止遗忘', fact.doNotForget, existing.禁止遗忘);
@@ -2397,7 +2436,6 @@ export function factsToVariableCommands(
 
   return { commands, notes, warnings };
 }
-
 function stableDomainId(prefix: string, parts: readonly string[]): string {
   return buildTeyvatStableId(prefix, parts);
 }
@@ -2637,6 +2675,15 @@ export function factsToTeyvatDomainCommands(
       const remainingUnfinishedBusiness = removeResolvedLedgerItems(existing.relationshipLedger?.unfinishedBusiness, fact.resolvedItems);
       if (remainingUnfinishedBusiness) {
         push({ action: 'set', root: 'NPC', path: `${prefix}.relationshipLedger.unfinishedBusiness`, value: remainingUnfinishedBusiness }, fact.evidence);
+        const settledItems = (existing.relationshipLedger?.unfinishedBusiness ?? []).filter((item) => !remainingUnfinishedBusiness.includes(item));
+        if (settledItems.length) {
+          push({
+            action: 'set',
+            root: 'NPC',
+            path: `${prefix}.relationshipLedger.completedBusiness`,
+            value: mergeUniqueTexts(existing.relationshipLedger?.completedBusiness, settledItems)?.slice(-24) ?? [],
+          }, fact.evidence);
+        }
       }
       ledgerPush('unresolvedConflicts', fact.unresolvedConflicts);
       ledgerPush('mustRemember', fact.mustRemember);

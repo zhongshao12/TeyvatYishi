@@ -155,7 +155,7 @@ writeStub('data/weatherRules.mjs', 'export const 天气列表 = [];\nexport cons
 writeStub('hooks/useGame/historyWindow.mjs', 'export function buildImmediateStoryReview() { return ""; }\n');
 writeStub('utils/worldbook.mjs', 'export {};\n');
 writeStub('utils/promptPayloadSanitizer.mjs', 'export function stringifyPromptPayload(value) { return JSON.stringify(value); }\n');
-writeStub('utils/variableFacts.mjs', 'export function parseVariableFacts() { return []; }\n');
+writeStub('utils/variableFacts.mjs', 'export function parseVariableFacts() { return []; }\nexport function pickSettledCommitments() { return []; }\n');
 writeStub('utils/variableRegistry.mjs', 'export function buildVariableRegistryPrompt() { return ""; }\n');
 writeStub('utils/teyvatCommandRegistry.mjs', 'export function buildTeyvatCommandRegistryPrompt() { return ""; }\n');
 writeStub('data/canonicalCharacters.mjs', 'export const CANONICAL_CHARACTERS = [];\nexport function matchCanonical() { return null; }\nexport function matchCanonicalIdentity() { return null; }\n');

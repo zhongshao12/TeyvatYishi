@@ -1,0 +1,11 @@
+{
+  "3": { "class_type": "KSampler", "inputs": { "seed": 42, "steps": 20, "cfg": 4.5, "sampler_name": "euler", "scheduler": "simple", "denoise": 1, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0] } },
+  "4": { "class_type": "UNETLoader", "inputs": { "unet_name": "SilvermoonMix-Anima29B-Evolved-V2.3.safetensors", "weight_dtype": "default" } },
+  "5": { "class_type": "EmptyLatentImage", "inputs": { "width": 512, "height": 384, "batch_size": 1 } },
+  "6": { "class_type": "CLIPTextEncode", "inputs": { "text": "__PROMPT__", "clip": ["10", 0] } },
+  "7": { "class_type": "CLIPTextEncode", "inputs": { "text": "__NEGATIVE_PROMPT__", "clip": ["10", 0] } },
+  "8": { "class_type": "VAEDecodeTiled", "inputs": { "samples": ["3", 0], "vae": ["11", 0], "tile_size": 256, "overlap": 64, "temporal_size": 64, "temporal_overlap": 8 } },
+  "9": { "class_type": "SaveImage", "inputs": { "filename_prefix": "TeyvatYishi", "images": ["8", 0] } },
+  "10": { "class_type": "CLIPLoader", "inputs": { "clip_name": "qwen_3_06b_base.safetensors", "type": "qwen_image", "device": "cpu" } },
+  "11": { "class_type": "VAELoader", "inputs": { "vae_name": "qwen_image_vae.safetensors" } }
+}

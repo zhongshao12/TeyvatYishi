@@ -18,6 +18,13 @@ function oldSave(partner: string | undefined, status: 'virgin' | 'not_virgin' | 
 }
 
 describe('NPC 首次对象与旧档迁移', () => {
+  it.each(['旅行者', '旅人', '玩家', '云'])('normalizes an explicit player label %s without replacing narrative provenance', label => {
+    const game = oldSave(label); game.NPC[0]!.matureArchive!.firstSexualPartnerSource = 'narrative';
+    const loaded = normalizeTeyvatGameState(game), archive = loaded.NPC[0]!.matureArchive!;
+    expect(archive.firstSexualPartnerRef).toBe('player'); expect(archive.firstSexualPartnerSource).toBe('narrative');
+    expect(archive.firstSexualPartner).toBeUndefined();
+    expect(displayFirstPartner(mapTeyvatNpcsToLegacy(loaded)[0]!.NSFW档案, '改名后的旅人')).toBe('改名后的旅人');
+  });
   it('backfills_only_adult_not_virgin_missing_partner exactly once on load', () => {
     const loaded = normalizeTeyvatGameState(oldSave('无'));
     const archive = loaded.NPC[0]?.matureArchive;

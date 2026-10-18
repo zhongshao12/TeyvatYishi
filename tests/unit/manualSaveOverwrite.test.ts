@@ -14,6 +14,24 @@ function stateFor() {
 afterEach(() => clearActiveSaveTreeMetaIfMatches());
 
 describe('manual save overwrite contract', () => {
+  it('exposes and reloads turns 1 through 10 after overwriting the current manual save at turn 10', async () => {
+    clearActiveSaveTreeMetaIfMatches(); const state = stateFor(), manualId = await handleManualSave(state);
+    const ids: number[] = [];
+    for (let turn = 1; turn <= 10; turn++) {
+      state.game.turnCount = turn; state.game.旅行者.身份 = `第${turn}回合的状态`;
+      const payload = buildSavePayload(state, 'auto', undefined, state.game), id = await saveGame(payload);
+      ids.push(id); commitActiveSaveTreeMeta({ ...payload, id });
+    }
+    expect(await handleManualSave(state)).toBe(manualId);
+    const catalog = await getSaveCatalogSnapshot(), rootId = getSaveTreeMeta((await loadSave(manualId))!)!.rootId;
+    const history = catalog.items.filter(item => item.type === 'auto' && item.saveTree?.rootId === rootId);
+    expect(history.map(item => item.turnCount).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    for (const [index, id] of ids.entries()) {
+      const loaded = await loadSave(id) as unknown as TeyvatSaveData;
+      expect(loaded.turnCount).toBe(index + 1); expect(loaded.旅行者.身份).toBe(`第${index + 1}回合的状态`);
+    }
+    expect((await loadSave(manualId))?.turnCount).toBe(10);
+  });
   it('loading an older autosave in the same tree targets its own manual ancestor, not the latest branch', async () => {
     clearActiveSaveTreeMetaIfMatches(); const state = stateFor();
     const first = await handleManualSave(state);

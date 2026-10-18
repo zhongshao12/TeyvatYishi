@@ -1,11 +1,13 @@
 import type { NPC关系阶段, NPC记录 } from '@/models/npc';
-import { buildNpcMemoryLedgerView, 创建NPC记录, 格式化NPC关系, 获取NPC关系阶段, 获取NPC兼容关系, 读取NPC头像, 限制NPC好感度 } from '@/models/npc';
+import { courierExchangeAffinity } from '@/utils/courierAffinity';
+import { buildNpcMemoryLedgerView, 创建NPC记录, 格式化NPC关系, 获取NPC关系阶段, 获取NPC兼容关系, 读取NPC头像, 提取NPC同行记忆文本列表, 限制NPC好感度 } from '@/models/npc';
 import { getDefaultBuiltinAvatar } from '@/data/builtinAvatars';
 import { matchCanonical, matchCanonicalIdentity } from '@/data/canonicalCharacters';
 import { normalizeCourierConversation, normalizeCourierSystem, type CourierContact, type CourierConversation, type CourierDeliverySeed, type CourierMessage, type CourierSystem } from '@/models/teyvat/courier';
 import type { 提示词模块 } from '@/models/prompts';
 import { buildIndependentPromptModulesSection } from '@/services/promptModuleScopes';
 import { isCourierLedgerNarrative, sanitizeCourierFactText, sanitizeCourierMessageText } from '@/utils/courierTextSanitizer';
+import { pickSettledCommitments } from '@/utils/variableFacts';
 
 export function buildCourierPromptModulesSection(promptModules?: 提示词模块[]): string {
   return buildIndependentPromptModulesSection(promptModules, 'courier');
@@ -277,6 +279,8 @@ export interface CourierSenderProfile {
   longTermImpression?: string;
   sharedExperiences?: string[];
   unfinishedBusiness?: string[];
+  /** 已履行/已取消的约定：手机消息里只能当背景，不得再催。 */
+  completedBusiness?: string[];
   unresolvedConflicts?: string[];
   mustRemember?: string[];
   recentMessages?: string[];
@@ -303,12 +307,17 @@ export function buildCourierSenderProfile(
     ...(npc?.说话方式?.trim() ? { speechStyle: npc.说话方式.trim() } : {}),
     ...(npc?.介绍?.trim() || canonicalBackground ? { background: npc?.介绍?.trim() || canonicalBackground } : {}),
     ...(npc ? { affinityLabel: 格式化NPC关系(npc.好感度, Boolean(npc.亲密关系)), affinity: npc.好感度 } : {}),
-    recentMemories: facts(ledger?.最近原始记忆 ?? []),
+    recentMemories: facts(提取NPC同行记忆文本列表({
+      // 手机往来本身就在「近期手机对话」里；再把它们当「同行记忆」喂回去，角色会把自己的上一句
+      // 复述成新话题 —— 玩家看到的就是同一件事在手机里反反复复被提起。
+      同行记忆: (npc?.同行记忆 ?? []).filter((memory) => typeof memory === 'string' || memory?.来源 !== '手机'),
+    }).slice(-6)),
     summaryMemories: facts(ledger?.总结记忆.map((item) => item.摘要).filter(Boolean) ?? []),
     ...(ledger?.最近互动 ? { recentInteraction: sanitizeCourierFactText(ledger.最近互动) } : {}),
     ...(ledger?.对玩家长期印象 ? { longTermImpression: sanitizeCourierFactText(ledger.对玩家长期印象) } : {}),
     sharedExperiences: facts(ledger?.共同经历 ?? []),
     unfinishedBusiness: facts(ledger?.未完成事项 ?? []),
+    completedBusiness: facts(ledger?.已完成事项 ?? []),
     unresolvedConflicts: facts(ledger?.未解决冲突 ?? []),
     mustRemember: facts([...(ledger?.必须记得 ?? []), ...(ledger?.禁止遗忘 ?? [])]),
     recentMessages: (conversation?.messages ?? [])
@@ -389,15 +398,21 @@ export function appendPhoneExchangeMemory(npcs: NPC记录[], input: PhoneExchang
     const summary = playerText
       ? `通过手机与旅行者交谈：旅行者提到“${playerText.slice(0, 48)}”；${npc.姓名}回应“${replyText.slice(0, 64)}”。`
       : `${npc.姓名}通过手机发来消息：“${replyText.slice(0, 96)}”。`;
-    const positive = /(谢谢|感谢|关心|想你|喜欢|爱你|抱歉|对不起|一起|陪你|辛苦|相信你|支持你)/u.test(playerText);
-    const negative = /(讨厌|滚开|闭嘴|废物|威胁|不想见|别烦|恨你)/u.test(playerText);
-    const affinityDelta = negative ? -2 : positive ? 2 : playerText ? 1 : 0;
+    const affinityDelta = courierExchangeAffinity(playerText);
     const 好感度 = 限制NPC好感度(npc.好感度 + affinityDelta);
+    // 约定结算（2026-10-18）：手机往来此前完全不动账本，玩家在手机上说过「早就办完了」也不会
+    // 清掉未完成事项，于是角色下一句接着催同一件事。这里按玩家/角色这两种明确说法结算。
+    const settled = pickSettledCommitments(npc.未完成事项 ?? [], `${playerText}\n${replyText}`);
+    const 未完成事项 = (npc.未完成事项 ?? []).filter((item) => !settled.includes(item));
+    // 结算留下的正面记录：手机下一次读账本时能看到「这件事已经办完」，不会再当待办。
+    const 已完成事项 = settled.length ? [...(npc.已完成事项 ?? []), ...settled].slice(-24) : npc.已完成事项;
     return {
       ...npc,
       好感度,
       关系: 获取NPC兼容关系(好感度),
       当前关系阶段: 获取NPC关系阶段(好感度),
+      未完成事项,
+      已完成事项,
       最近回合: Math.max(npc.最近回合 || 1, Math.max(1, Math.trunc(input.turn) || 1)),
       最近互动: summary,
       同行记忆: [

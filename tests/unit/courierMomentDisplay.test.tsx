@@ -31,6 +31,18 @@ it('normal_device_timestamp_is_preserved', async () => {
   expect(host.querySelector('time')?.getAttribute('dateTime')).toBe('1970-01-01T00:00:01.000Z');
 });
 
+it('labels a local fallback without claiming that it was produced by the model', async () => {
+  await act(async () => root.render(createElement(CourierMomentsPanel, { ...base, moments: [{ ...post, comments: [
+    { id: 'local', npcId: 'amber', npcName: '安柏', content: '本地补上的回应。', createdAt: 1, source: 'local' },
+    { id: 'model', npcId: 'lisa', npcName: '丽莎', content: '模型给出的回应。', createdAt: 1, source: 'model' },
+  ] }] })));
+  const local = [...host.querySelectorAll('p')].find(row => row.textContent?.includes('本地补上的回应。'))!;
+  const model = [...host.querySelectorAll('p')].find(row => row.textContent?.includes('模型给出的回应。'))!;
+  expect(local.textContent).toContain('（本地回应）');
+  expect(model.textContent).not.toContain('（本地回应）');
+  expect(host.textContent).not.toContain('一定会回应');
+});
+
 it('image_and_mentioned_filters_only_change_visible_posts', async () => {
   const moments = [post, { ...post, id: 'image', content: '有图内容', images: [{ entryId: 'e', assetId: 'a' }] }, { ...post, id: 'mention', content: '点名内容', mentionIds: ['npc'] }];
   await act(async () => root.render(createElement(CourierMomentsPanel, { ...base, moments })));

@@ -9,6 +9,8 @@ import { handleOpenCodeProxyRequest } from './services/ai/opencodeProxyCore';
 import { handlePioneerProxyRequest } from './services/ai/pioneerProxyCore';
 import { handleArkProxyRequest } from './services/ai/arkProxyCore';
 import { resolveManualChunk } from './build/manualChunkStrategy';
+import { localOllamaProxyPlugin } from './build/localOllamaProxy';
+import { antLingProxyPlugin } from './build/antLingProxy';
 
 function readRequestBody(req: import('node:http').IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -73,6 +75,8 @@ export default defineConfig({
   optimizeDeps: { include: ['react', 'react-dom/client', 'lucide-react', '@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'] },
   plugins: [
     react(),
+    localOllamaProxyPlugin(),
+    antLingProxyPlugin(),
     {
       name: 'kty-local-qianfan-proxy',
       configureServer(server) {
@@ -174,6 +178,9 @@ export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
+    // Local validation can contain live browser profiles / locked GPU caches.
+    // They are not application inputs; watching them can crash Windows dev mode.
+    watch: { ignored: ['**/.tmp-core2-validation/**'] },
     proxy: {
       // 本地测试用：z.ai（智谱 GLM）浏览器直连受 CORS 限制，走 dev 代理转发。
       // 前缀刻意不用 /api/ —— 客户端对 /api/ 开头的地址会省略 Authorization 头。

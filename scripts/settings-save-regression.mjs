@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { runFocusedBehaviorRegression } from './lib/runFocusedBehaviorRegression.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -45,6 +46,8 @@ for (const file of independentTabs) {
 const imageSettings = fs.readFileSync('components/features/Settings/ImageGenerationSettingsTab.tsx', 'utf8');
 assert(imageSettings.includes('handleSave'), 'ImageGenerationSettingsTab.tsx 必须保留保存按钮处理函数。');
 assert(imageSettings.includes("saveSetting('gameSettings'"), 'ImageGenerationSettingsTab.tsx 的保存按钮必须写入 gameSettings。');
-assert(imageSettings.includes('onClick={handleSave}'), 'ImageGenerationSettingsTab.tsx 的保存按钮必须绑定 handleSave。');
+// A void-wrapped async handler is valid. Click the real button and verify the
+// actual settings payload and success message, not its JSX spelling.
+runFocusedBehaviorRegression(['tests/unit/latentImageSettings.test.tsx']);
 
 console.log('settings save regression ok');

@@ -33,8 +33,9 @@ describe('structured appearance reconciliation boundaries', () => {
     const expected = '棕色长发，银白色发冠，金色发簪，蓝色发绳。';
     const base = { ...raw, 外貌: '旧外貌' };
     const live = { ...base, 穿着: '玩家衣服' };
-    for (const result of [归一化NPC记录列表([raw])[0]?.外貌, setNpcAppearanceFact(raw, '发色', '棕色').外貌, readImageCharacterFacts(raw).appearance,
-      mergeSettlementSliceWriteBack({ base: [base], next: [raw], current: [live] }).records[0]?.外貌]) expect(result).toBe(expected);
+    for (const result of [归一化NPC记录列表([raw])[0]?.外貌, setNpcAppearanceFact(raw, '发色', '棕色').外貌, readImageCharacterFacts(raw).appearance]) expect(result).toBe(expected);
+    // Base profiles are now fixed: background write-back may not replace an established overview.
+    expect(mergeSettlementSliceWriteBack({ base: [base], next: [raw], current: [live] }).records[0]?.外貌).toBe('旧外貌');
   });
   it('keeps an explicit appearance paragraph scope across sentences but not across a newline into a story', () => {
     const text = '外貌：银白色长发。金色眼眸，戴银白色帽子。\n金色长发的陌生少女走过街角。';

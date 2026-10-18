@@ -93,6 +93,8 @@ export interface TeyvatNpcRecord {
     currentStage: string;
     sharedExperiences: string[];
     unfinishedBusiness: string[];
+    /** 已履行/已取消的约定：与 unfinishedBusiness 对称，用来阻止角色反复催同一件事。 */
+    completedBusiness?: string[];
     unresolvedConflicts: string[];
     mustRemember: string[];
     protectedFacts: string[];
@@ -339,8 +341,9 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
       // 合成条目只补身份，不带性别/外貌/性格 —— 下面所有 `canonical?.x ?? 记录自身值` 兜底保持不变。
       ?? (hasBuiltinAvatarIdentity(rawName, rawAliases) ? { name: rawName } : null);
     const avatarProfile = getAvatarCharacterProfile(canonical?.name ?? rawName, rawAliases);
+    const fixedEnglish = isRecord(entry.visualArchive) && normalizeImageCharacterEnglishCache(entry.visualArchive.englishFacts);
     const isCandace = rawName === '坎蒂丝' || canonical?.name === '坎蒂丝' || rawAliases.includes('Candace');
-    const resolvedClothing = text(entry.clothing) || avatarProfile?.常用穿着 || '';
+    const resolvedClothing = fixedEnglish ? text(entry.clothing) : text(entry.clothing) || avatarProfile?.常用穿着 || '';
     const resolvedGender = isCandace ? '女' : (text(entry.gender) || canonical?.gender || avatarProfile?.gender || '');
     const matureArchive = normalizeTeyvatNpcMatureArchive(entry.matureArchive);
     if (matureArchive && (resolvedGender === '女' || isCandace)) {
@@ -358,14 +361,14 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
     });
     const appearanceFacts = normalizeNpcAppearanceFacts(entry.appearanceFacts, eligibleForMeasurements);
     let finalAppearanceFacts = appearanceFacts;
-    if (avatarProfile) {
+    if (avatarProfile && !fixedEnglish) {
       const appearanceMap: NPC外貌档案 = { ...(appearanceFacts ?? {}) };
       let appearanceChanged = false;
       for (const key of ['发色', '瞳色', '身高', '体重'] as const) {
         const val = avatarProfile[key];
         if (val) {
           const existing = appearanceMap[key];
-          if (!existing || (existing.source !== 'manual' && existing.value !== val)) {
+          if (!existing) {
             appearanceMap[key] = { value: val, source: 'canon' };
             appearanceChanged = true;
           }
@@ -396,11 +399,12 @@ export function normalizeTeyvatNpcRecords(value: unknown): TeyvatNpcRecord[] {
       firstSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.firstSeenTurn))), lastSeenTurn: Math.max(0, Math.trunc(finiteNumber(entry.lastSeenTurn))),
       gender: resolvedGender, playerAddress: text(entry.playerAddress), appearance: reconcileNpcAppearance(text(entry.appearance) || canonical?.appearance || '', finalAppearanceFacts) ?? '',
       ...(finalAppearanceFacts ? { appearanceFacts: finalAppearanceFacts } : {}), clothing: resolvedClothing,
-      speechStyle: text(entry.speechStyle), personality: canonical?.personality || text(entry.personality), equipmentSummary: text(entry.equipmentSummary),
+      speechStyle: text(entry.speechStyle), personality: fixedEnglish ? text(entry.personality) : text(entry.personality) || canonical?.personality || '', equipmentSummary: text(entry.equipmentSummary),
       sharedMemories: Array.isArray(entry.sharedMemories) ? entry.sharedMemories.flatMap((item) => normalizeTeyvatNpcSharedMemory(item) ?? []) : [],
       relationshipLedger: {
         recentInteraction: text(ledger.recentInteraction), longTermImpression: text(ledger.longTermImpression), currentStage: text(ledger.currentStage),
         sharedExperiences: textList(ledger.sharedExperiences), unfinishedBusiness: textList(ledger.unfinishedBusiness),
+        completedBusiness: textList(ledger.completedBusiness),
         unresolvedConflicts: textList(ledger.unresolvedConflicts), mustRemember: textList(ledger.mustRemember), protectedFacts: textList(ledger.protectedFacts),
         summaries: Array.isArray(ledger.summaries) ? ledger.summaries.flatMap((item) => normalizeTeyvatNpcSummaryMemory(item) ?? []) : [],
       },

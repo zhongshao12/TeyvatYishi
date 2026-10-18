@@ -14,6 +14,7 @@ import { CourierModal } from '@/components/features/Courier/CourierModal';
 import { CourierPanel } from '@/components/features/Courier/CourierPanel';
 import { normalizeJourneyAlbum } from '@/models/teyvat/runtimeSlices';
 import { useCourierPhotoGeneration } from '@/components/features/Courier/useCourierPhotoGeneration';
+import { readSourceImageCharacterFacts } from '@/utils/imageCharacterFacts';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const imageApi = vi.hoisted(() => vi.fn());
@@ -61,6 +62,20 @@ async function mount() {
 const button = (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(item => item.textContent === label)!;
 
 describe('confirmed phone photos', () => {
+  it('uses the NPC saved English identity for phone pictures after the global translation cache was cleared', async () => {
+    const ui = await mount();
+    const englishFacts = { schemaVersion: 1 as const, sourceKey: JSON.stringify(readSourceImageCharacterFacts(npc)), preparedAt: 1, facts: { language: 'en' as const, name: 'Amber', gender: 'female', appearance: 'brown hair, red rabbit-ear accessory', appearanceDetails: { 发色: { value: 'brown', source: 'manual' as const } } } };
+    ui.props.npcRecords = [{ ...npc, 图像档案: { englishFacts } }];
+    ui.setGame({ ...ui.game(), NPC: ui.game().NPC.map(row => ({ ...row, visualArchive: { ...row.visualArchive, englishFacts } })) });
+    translationStore.clear(); translationApi.mockReset(); translationApi.mockRejectedValue(Error('MUST_NOT_RETRANSLATE_SAVED_IDENTITY')); imageApi.mockResolvedValue({ src: 'https://example.invalid/saved.webp' });
+    await act(async () => { root!.unmount(); }); root = createRoot(host); await ui.render();
+    await act(async () => { button('确认生成').click(); });
+    expect(translationApi).not.toHaveBeenCalled(); expect(imageApi).toHaveBeenCalledTimes(1);
+    expect(imageApi.mock.calls[0]?.[1].prompt).toContain('character name: Amber');
+    expect(imageApi.mock.calls[0]?.[1].prompt).toContain('gender: female');
+    expect(ui.game().手机.conversations[0]?.messages[1]?.photo?.assetId).toBeTruthy();
+    expect(ui.game().NPC[0]?.visualArchive.englishFacts?.facts.name).toBe('Amber');
+  });
   it('photo_preview_is_a_separate_dialog_and_escape_closes_only_the_preview', async () => {
     const ui = await mount();
     expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('手机照片预览');

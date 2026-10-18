@@ -169,6 +169,8 @@ function processSTMacros(text: string, ctx: MacroContext): string {
   result = result.replace(new RegExp('\\{\\{//[^}]*\\}\\}', 'g'), '');
   // {{bias::text}} — 偏置注入，我们不支持，静默忽略返回空串
   result = result.replace(/\{\{bias::[^}]*\}\}/g, '');
+  // {{trim}} — ST 的空白裁剪标记，单独出现时替换为空串（Reborn 2.4 等预设用它给段落去首尾空白）
+  result = result.replace(/\{\{trim\}\}/g, '');
   // {{trim::text}} — 去首尾空白
   result = result.replace(/\{\{trim::([^}]*)\}\}/g, (_m, s: string) => s.trim());
   // {{lower::text}} / {{upper::text}} — 大小写转换

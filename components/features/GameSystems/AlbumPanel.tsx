@@ -228,7 +228,7 @@ function SessionAlbumPanel({ album, onAlbumChange, onCommitGeneratedImage, trave
     const sourceKey = imageCharacterSourceKey(profile);
     const rawVisual = readImagePromptCharacter({ ...profile, 图像档案: { ...profile.图像档案, englishFacts: undefined } });
     if (profile.图像档案?.englishFacts?.sourceKey === sourceKey && profile.图像档案.englishFacts.anchorSourceKey === JSON.stringify({ prompt: rawVisual.anchorPrompt || '', negative: rawVisual.negativePrompt || '' })) return profile;
-    const cache = await prepareEnglishProfileCache(readSourceImageCharacterFacts(profile), buildImageCharacterEnglishConfig(imageSettings, apiSettings), { prompt: rawVisual.anchorPrompt, negative: rawVisual.negativePrompt }, englishAbort.current.signal);
+    const cache = await prepareEnglishProfileCache(readSourceImageCharacterFacts(profile), buildImageCharacterEnglishConfig(imageSettings, apiSettings), { prompt: rawVisual.anchorPrompt, negative: rawVisual.negativePrompt }, englishAbort.current.signal, profile.图像档案?.englishFacts);
     if (!提交仍属于本会话()) throw new Error('存档已变化，英文资料未写入当前存档。');
     const npcId = '初见回合' in profile ? profile.id : undefined;
     const live = npcId ? profilesRef.current.npcs.find(item => item.id === npcId) : profilesRef.current.traveler;
@@ -597,7 +597,7 @@ function SessionAlbumPanel({ album, onAlbumChange, onCommitGeneratedImage, trave
     let sourceKeys: string[] = [];
     let protectedCharacters: Awaited<ReturnType<typeof prepareEnglishImagePrompts>>['characters'] = [];
     const profileKey = (profile: 角色数据结构 | NPC记录) => {
-      const visual = readImagePromptCharacter({ ...profile, 图像档案: { ...profile.图像档案, englishFacts: undefined } }, target.tokenizerMode === 'scene');
+      const visual = readImagePromptCharacter(profile, target.tokenizerMode === 'scene');
       return JSON.stringify([imageCharacterSourceKey(profile), visual.anchorPrompt, visual.negativePrompt]);
     };
     const sourcesUnchanged = (current = profilesRef.current) => profiles.every((profile, index) => {
@@ -640,7 +640,7 @@ function SessionAlbumPanel({ album, onAlbumChange, onCommitGeneratedImage, trave
     // they must not trigger translation, persistence, or consume the prompt budget.
     const disabledNames = new Set(renderContext?.characters.filter(item => item.enabled === false).map(item => item.name));
     const disabledProfiles = [traveler, ...npcs].filter(item => disabledNames.has(item.姓名) && !profiles.includes(item));
-    const sourceCharacters = [...profiles, ...disabledProfiles].map(item => readImagePromptCharacter({ ...item, 图像档案: { ...item.图像档案, englishFacts: undefined } }, target.tokenizerMode === 'scene'));
+    const sourceCharacters = [...profiles, ...disabledProfiles].map(item => readImagePromptCharacter(item, target.tokenizerMode === 'scene'));
     const prepared = renderContext
       ? await prepareEnglishStoryImage({ prompt: promptText, negative: negativeText, characters: sourceCharacters, renderContext }, englishConfig, englishAbort.current.signal)
       : await prepareEnglishImagePrompts({ prompt: promptText, negative: negativeText, characters: sourceCharacters }, englishConfig, englishAbort.current.signal);
@@ -1391,7 +1391,7 @@ function SessionAlbumPanel({ album, onAlbumChange, onCommitGeneratedImage, trave
       const sources = [traveler, ...presentNpcs].filter(profile => resolution.renderContext.characters.some(character => character.enabled !== false && (character.name === profile.姓名 || character.name === profile.别名)));
       await Promise.all(sources.map(prepareVisualProfile));
       const english = await prepareEnglishStoryImage({ prompt: resolution.prompt, negative: resolution.negativePrompt, renderContext: resolution.renderContext,
-        characters: sources.map(profile => readImagePromptCharacter({ ...profile, 图像档案: { ...profile.图像档案, englishFacts: undefined } }, true)) }, buildImageCharacterEnglishConfig(imageSettings, apiSettings), englishAbort.current.signal);
+        characters: sources.map(profile => readImagePromptCharacter(profile, true)) }, buildImageCharacterEnglishConfig(imageSettings, apiSettings), englishAbort.current.signal);
       if (!提交仍属于本会话()) throw new Error('存档已变化，快照提示词未写入。');
       resolution = { ...resolution, prompt: english.prompt, negativePrompt: english.negative, renderContext: english.renderContext };
       rememberDraftSources(sources);

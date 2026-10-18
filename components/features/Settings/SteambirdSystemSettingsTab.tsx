@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import type { AI提供商, API配置项, API设置, 游戏设置, 蒸汽鸟报API覆盖 } from '@/models/settings';
 import { fetchModels } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import { useSettingsPersistence } from './SettingsPersistence';
 
 interface Props {
   settings: 游戏设置;
@@ -27,6 +27,7 @@ export function buildSteambirdModelLookupConfig(input: ModelLookupConfigInput): 
 }
 
 export function SteambirdSystemSettingsTab({ settings, onChange, apiSettings }: Props) {
+  const { saveSetting } = useSettingsPersistence();
   const steambird = settings.蒸汽鸟报系统;
   const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null;
   const [loadingModels, setLoadingModels] = useState(false);

@@ -40,6 +40,8 @@ export interface API配置项 {
   presencePenalty?: number;
   /** 最大上下文窗口（tokens）。各 provider 均支持。 */
   maxContext?: number;
+  /** 本地 Ollama Gemma4：true 开启思考、false 关闭；缺省跟随模型默认。 */
+  ollamaThinking?: boolean;
   retryCount?: number;
   enableClaudeMode?: boolean;
   createdAt: number;
@@ -494,6 +496,8 @@ export interface 文生图API配置 {
   noiseSchedule: NovelAI噪点表;
   useDefaultComfyWorkflow: boolean;
   comfyWorkflowJson: string;
+  comfyTimeoutSeconds?: number;
+  comfyOverrideWorkflowSampling?: boolean;
   negativePrompt: string;
   retryCount: number;
   novelAIUcPreset: NovelAIUcPreset;
@@ -718,6 +722,8 @@ export function 创建默认文生图API配置(): 文生图API配置 {
     noiseSchedule: 'karras',
     useDefaultComfyWorkflow: true,
     comfyWorkflowJson: '',
+    comfyTimeoutSeconds: 600,
+    comfyOverrideWorkflowSampling: false,
     negativePrompt: '',
     retryCount: 2,
     novelAIUcPreset: 'recommended',
@@ -839,6 +845,8 @@ export function 归一化文生图API配置(input?: Partial<文生图API配置>)
     noiseSchedule: input.noiseSchedule ?? defaults.noiseSchedule,
     useDefaultComfyWorkflow: input.useDefaultComfyWorkflow !== false,
     comfyWorkflowJson: String(input.comfyWorkflowJson ?? ''),
+    comfyTimeoutSeconds: Math.max(30, Math.min(3600, Math.trunc(Number(input.comfyTimeoutSeconds) || 600))),
+    comfyOverrideWorkflowSampling: input.comfyOverrideWorkflowSampling === true,
     negativePrompt: String(input.negativePrompt ?? ''),
     retryCount: backend === 'latent' ? 0 : Math.max(0, Math.trunc(Number(input.retryCount ?? defaults.retryCount) || 0)),
     novelAIUcPreset: ['recommended', 'heavy', 'light', 'furry_focus', 'human_focus', 'none'].includes(String(input.novelAIUcPreset))

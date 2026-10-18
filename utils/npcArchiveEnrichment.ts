@@ -6,6 +6,7 @@ import { resolveNpcAdultEligibility } from '@/utils/npcAdultEligibility';
 import { canRevealNpcRecordMeasurements, normalizeNpcAppearanceFacts } from '@/services/npcAppearanceFacts';
 import { reconcileNpcAppearanceRecord } from '@/utils/npcAppearanceReconciliation';
 import { matchesNpcCodexIdentity } from '@/utils/npcCodexIdentity';
+import { preserveFixedNpcImageBasics } from '@/utils/fixedNpcImageBasics';
 
 export { getCanonicalArchiveBaselineAge } from '@/utils/npcArchiveBaseline';
 export type { CanonicalArchiveBaseline } from '@/utils/npcArchiveBaseline';
@@ -372,6 +373,9 @@ export function enrichNpcArchives(
       }
     }
 
+    // Preserve the existing canonical identity correction (Candace), not an AI
+    // profile rewrite. This check still precedes the unchanged privacy gates.
+    updated = preserveFixedNpcImageBasics(forcedFemale ? { ...npc, 性别: '女' } : npc, updated);
     updated = reconcileNpcAppearanceRecord(updated, normalizeNpcAppearanceFacts(updated.外貌档案, canRevealNpcRecordMeasurements(updated)));
     const cacheEntry: NpcArchiveEnrichmentCacheEntry = {
       codexEntries: options.codex?.entries,

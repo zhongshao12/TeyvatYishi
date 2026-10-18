@@ -24,6 +24,7 @@
 import type { STPreset, STPresetEntryV2, STPresetOrder, STPresetOrderSlot, STPresetPrompt } from '@/models/stTypes';
 import { collectMacroAssignments, createMacroContext, processMacros } from '@/utils/macroEngine';
 import { getCurrentSTPresetV2 } from '@/utils/stSettingsNormalizer';
+import { resolveSTPresetOrder } from '@/utils/stPresetOrder';
 
 export type PresetShellKind = 'body' | 'thinking' | 'summary' | 'table' | 'panel';
 
@@ -61,6 +62,8 @@ export interface PresetPresentation {
   styleSegmentsFilled: string[];
   /** 表现段里**没有**内容的段名 —— 玩家没勾填充模块的直接证据。 */
   styleSegmentsEmpty: string[];
+  /** 本回合真正生效的文风来源标签（括号段 / #文风要求条目 / <core_style> / 文风变量 / 风格模块）。 */
+  styleSources: string[];
   /** 已关闭、但看名字就是文风/基调填充器的条目名 —— 玩家一键自查用。 */
   disabledStyleCandidates: string[];
   /** 预设是否要求可见思维链/分析。 */
@@ -85,13 +88,8 @@ const MIN_WORD_TARGET = 100;
 
 // ── 顺序槽位 ─────────────────────────────────────────────────────
 export function selectPresetOrderSlots(preset: STPreset, characterId: number | null): STPresetOrderSlot[] {
-  const orders = Array.isArray(preset?.prompt_order) ? preset.prompt_order : [];
-  if (orders.length === 0) return [];
-  const order: STPresetOrder | null =
-    (characterId !== null ? orders.find((item) => item.character_id === characterId) ?? null : null)
-    ?? orders.find((item) => item.character_id === 100001)
-    ?? orders[0]
-    ?? null;
+  // 空壳槽位（order=[]）不能当作有效顺序，见 resolveSTPresetOrder。
+  const order: STPresetOrder | null = resolveSTPresetOrder(preset, characterId);
   if (!order || !Array.isArray(order.order)) return [];
   return order.order.filter((slot): slot is STPresetOrderSlot => Boolean(slot) && slot.enabled !== false);
 }
@@ -195,8 +193,9 @@ function buildPresetPresentation(
   const resolvedSlots = slots.map((slot) => {
     const prompt = promptMap.get(slot.identifier);
     const name = prompt?.name?.trim() || slot.identifier;
-    const content = prompt ? processMacros(prompt.content ?? '', macroCtx).trim() : '';
-    return { identifier: slot.identifier, name, content, isMarker: prompt?.marker === true };
+    const raw = prompt?.content ?? '';
+    const content = prompt ? processMacros(raw, macroCtx).trim() : '';
+    return { identifier: slot.identifier, name, raw, content, isMarker: prompt?.marker === true };
   });
   const deliveredTexts = resolvedSlots.filter((slot) => !slot.isMarker && slot.content);
 
@@ -223,10 +222,18 @@ function buildPresetPresentation(
   // 3. 输出外壳：预设把每个外壳标签也做成了变量（正文标签/摘要标签/cot头/cot尾/角色表…）。
   const shell = extractShellSegments(macroCtx.local, deliveredTexts.map((slot) => slot.content));
 
-  // 4. 文风正文：只有非空 `<文风>`/`<故事基调>` 段才算「预设提供了文风」；
-  //    段是空的（玩家没勾填充模块）时，改从预设其余条目里抽出人称/语气/语言要求作为补充要求。
-  const styleSegmentsText = collectFilledStyleSegments(segments, styleSegmentsFilled);
-  const styleDirectives = collectStyleDirectiveLines(deliveredTexts.map((slot) => ({ name: slot.name, text: slot.content })));
+  // 4. 文风正文：预设声明文风的方式不止一种 ——
+  //    a) 纯标签括号段（`<文风>`…`</文风>`，玩家勾选填充模块）；
+  //    b) 条目正文里写成标题的 `# 文风要求` 条目（MoM / 夏瑾系预设的主体写法）；
+  //    c) 条目正文里的 `<core_style>` / `<erotic_style>` 这类内联风格块；
+  //    d) `{{setvar::style::…}}` 变量 + `<core_style>{{getvar::style}}</core_style>`（玩家勾选的🔡xx风格模块）。
+  //    只认 a) 会把 b/c/d 的预设全部误判成「没有文风正文」，执行卡随后告诉模型改用内置文风兜底 ——
+  //    玩家看到的正是「酒馆预设不支持文风」。
+  const style = collectPresetStyle(resolvedSlots, macroCtx.local, segments, styleSegmentsFilled);
+  const styleDirectives = collectStyleDirectiveLines(
+    deliveredTexts.map((slot) => ({ name: slot.name, text: slot.content })),
+    style.text,
+  );
 
   // 5. 明确要求可见思维链的预设
   const cotRequested = detectCotRequest(macroCtx.local, deliveredTexts.map((slot) => slot.content));
@@ -242,12 +249,13 @@ function buildPresetPresentation(
     wordCountRaw: word?.raw ?? '',
     wordCountSource: word?.source ?? '',
     shell,
-    styleText: styleSegmentsText,
+    styleText: style.text,
     styleDirectives,
     filledSegments,
     emptySegments,
     styleSegmentsFilled,
     styleSegmentsEmpty,
+    styleSources: style.sources,
     disabledStyleCandidates,
     cotRequested,
     assistantPrefill: typeof preset.assistantPrefill === 'string' ? preset.assistantPrefill.trim() : '',
@@ -341,8 +349,14 @@ function extractWordRequirement(vars: Record<string, string>, texts: readonly Na
       pattern.lastIndex = 0;
       let match: RegExpExecArray | null;
       while ((match = pattern.exec(item.text)) !== null) {
-        const raw = item.text.slice(Math.max(0, (match.index ?? 0) - 12), (match.index ?? 0) + match[0].length + 4)
-          .replace(/\s+/gu, ' ');
+        // 12 字前文只是给玩家看的上下文；若切点落在句子中间（如「求 - 创作内容的正文…」），
+        // 就从最近的标点之后开始，别把这半句垃圾一起送进执行卡。
+        const from = Math.max(0, (match.index ?? 0) - 12);
+        let raw = item.text.slice(from, (match.index ?? 0) + match[0].length + 4).replace(/\s+/gu, ' ');
+        if (from > 0) {
+          const boundary = raw.search(/[-–—。！？；：]\s/u);
+          if (boundary >= 0 && boundary < 14) raw = raw.slice(boundary + 1).trimStart();
+        }
         consider(Number(match[1]), raw, `条目 ${item.name}`);
       }
     }
@@ -396,18 +410,77 @@ function extractShellSegments(vars: Record<string, string>, texts: readonly stri
 const STYLE_SEGMENT_RE = /文风|风格|基调|行文/u;
 const STYLE_LINE_MATCH = /文风|行文|文笔|人称|叙事视角|语气|语言风格|节奏|描写/u;
 
-/** 非空表现段（`<文风>`/`<故事基调>`）里的正文 —— 这才是「预设提供的文风」。 */
-function collectFilledStyleSegments(segments: Map<string, string>, styleSegmentsFilled: readonly string[]): string {
-  const blocks: string[] = [];
-  for (const name of styleSegmentsFilled) {
-    const text = (segments.get(name) ?? '').trim();
-    if (text) blocks.push(text);
+/** 内联风格块标签：预设把文风写进同一个条目里的这些标签中。 */
+const STYLE_BLOCK_TAGS = ['core_style', 'erotic_style', 'style', '文风', '风格', '基调'];
+/** 条目里作为标题声明的文风段（`# 文风要求` / `## 风格设定`）—— 必须是纯标题行，提及不算。 */
+const STYLE_HEADING_RE = /^#{1,4}\s*(?:写作|叙事)?(?:文风|风格|基调|行文|文笔)(?:要求|设定|规则|说明|指引)?\s*[:：]?\s*$/u;
+/** 承载文风的变量名（`{{setvar::style::…}}`）。 */
+const STYLE_VAR_RE = /^(?:style|文风|风格|基调|行文|文笔)$/iu;
+
+interface PresetStyle { text: string; sources: string[] }
+
+/**
+ * 把预设声明的文风汇总成一段原文（供执行卡）。四种来源都算数，按权威度先后去重：
+ * 括号段 → 标题条目 → 内联风格块 → 文风变量。后出现的文本若已被前面的块包含则丢弃。
+ */
+function collectPresetStyle(
+  slots: ReadonlyArray<{ name: string; raw: string; content: string }>,
+  vars: Record<string, string>,
+  segments: Map<string, string>,
+  styleSegmentsFilled: readonly string[],
+): PresetStyle {
+  const blocks: Array<[string, string]> = [];
+  const modules: string[] = [];
+  const add = (label: string, text: string) => {
+    const trimmed = (text ?? '').trim();
+    if (trimmed) blocks.push([label, trimmed]);
+  };
+
+  styleSegmentsFilled.forEach((name) => add(name, segments.get(name) ?? ''));
+  for (const slot of slots) {
+    const section = extractStyleHeadingSection(slot.content);
+    if (section) add(slot.name, section);
+    for (const tag of STYLE_BLOCK_TAGS) {
+      const block = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'u').exec(slot.content);
+      if (block?.[1]) add(tag, block[1].replace(/^[\s\-*•]+/u, ''));
+    }
+    // 玩家勾选的风格模块展开后是空串（只做 setvar），但它才是「本回合用哪种风格」的选择，必须留名；
+    // 名字不像风格模块的变量条目（变量初始化之类）不算来源，否则诊断会误导玩家。
+    if (STYLE_SEGMENT_RE.test(slot.name) && /\{\{setvar::(?:style|文风|风格)[^:}]*::/i.test(slot.raw) && !modules.includes(slot.name)) {
+      modules.push(slot.name);
+    }
   }
-  return blocks.join('\n\n').slice(0, MAX_STYLE_CHARS).trim();
+  for (const [key, value] of Object.entries(vars)) {
+    if (STYLE_VAR_RE.test(key)) add(`变量 ${key}`, value ?? '');
+  }
+
+  const kept: Array<[string, string]> = [];
+  for (const block of blocks) {
+    const flat = block[1].replace(/\s+/gu, '');
+    if (flat && !kept.some((existing) => existing[1].replace(/\s+/gu, '').includes(flat))) kept.push(block);
+  }
+  return {
+    text: kept.map((block) => block[1]).join('\n\n').slice(0, MAX_STYLE_CHARS).trim(),
+    sources: [...kept.map((block) => block[0]), ...modules].slice(0, 6),
+  };
+}
+
+/** 取 `# 文风要求` 这类标题下的整段（到下一个标题为止）。 */
+function extractStyleHeadingSection(text: string): string {
+  if (!text || !text.includes('#')) return '';
+  const lines = text.split(/\r?\n/u);
+  const start = lines.findIndex((line) => STYLE_HEADING_RE.test(line.trim()));
+  if (start < 0) return '';
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^#{1,4}\s/u.test(lines[index]!.trim())) { end = index; break; }
+  }
+  if (!lines.slice(start + 1, end).join('').trim()) return '';
+  return lines.slice(start, end).join('\n').trim();
 }
 
 /** 表现段为空时的补充要求：预设其余条目里写死的人称/语气/语言/节奏要求。 */
-function collectStyleDirectiveLines(texts: readonly NamedText[]): string {
+function collectStyleDirectiveLines(texts: readonly NamedText[], styleText = ''): string {
   const blocks: string[] = [];
   for (const item of texts) {
     if (PURE_TAG_MODULE_RE.test(item.text)) continue;
@@ -417,6 +490,8 @@ function collectStyleDirectiveLines(texts: readonly NamedText[]): string {
       if (!line || line.length > 160) continue;
       if (!STYLE_LINE_MATCH.test(line)) continue;
       if (/^<\/?[A-Za-z_\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*\/?>$/u.test(line)) continue;
+      // 文风正文已经逐字附在执行卡里时不再重复一遍（同一句出现两次会让模型以为是两条要求）。
+      if (styleText && styleText.includes(line)) continue;
       if (!lines.includes(line)) lines.push(line);
     }
     if (lines.length) blocks.push(`【${item.name}】\n${lines.slice(0, 6).join('\n')}`);
@@ -433,12 +508,7 @@ function detectCotRequest(vars: Record<string, string>, texts: readonly string[]
 }
 
 function collectDisabledStyleCandidates(preset: STPreset, characterId: number | null): string[] {
-  const orders = Array.isArray(preset.prompt_order) ? preset.prompt_order : [];
-  const order =
-    (characterId !== null ? orders.find((item) => item.character_id === characterId) ?? null : null)
-    ?? orders.find((item) => item.character_id === 100001)
-    ?? orders[0]
-    ?? null;
+  const order = resolveSTPresetOrder(preset, characterId);
   if (!order || !Array.isArray(order.order)) return [];
   const promptMap = new Map<string, STPresetPrompt>(
     preset.prompts.map((item) => [item.identifier, item] as const),
@@ -487,12 +557,17 @@ export function buildPresetPresentationCard(presentation: PresetPresentation): s
   if (presentation.wordCountMaximum) lines.push(`【字数】本回合可见正文合计不超过 ${presentation.wordCountMaximum} 字（${presentation.wordCountRaw}）；这是上限，不是下限，不要为了达到该数字凑字数。`);
 
   if (presentation.styleText) {
-    lines.push('【文风】以下文本是预设自己写的文风/基调要求原文，逐条照做（它优先于应用内置《文风参考·日记体见闻录》）：');
+    lines.push('【文风】以下文本是预设自己写的文风/基调要求原文，逐条照做（它优先于应用内置《文风参考·日记体见闻录》与原生叙事协议的默认文风）：');
+    if (presentation.styleSources.length) {
+      lines.push(`  - 生效来源：${presentation.styleSources.join('、')}；未勾选的风格模块不得自行启用。`);
+    }
     lines.push(presentation.styleText);
   } else {
-    lines.push(
-      `【文风】预设本次没有文风正文：它的〈${presentation.styleSegmentsEmpty.join('〉〈') || '文风'}〉包装是空的，说明填充模块没有勾选。本回合先由应用内置文风兜底，但不要把它当成预设文风。`,
-    );
+    // 空段的两种成因分开说：玩家勾的是「包装段开着但填充模块没勾」，预设本身不写文风则是另一回事。
+    const why = presentation.styleSegmentsEmpty.length
+      ? `它的〈${presentation.styleSegmentsEmpty.join('〉〈')}〉包装是空的，说明填充模块没有勾选`
+      : '它既没有〈文风〉包装段，也没有 `# 文风要求` / `<core_style>` 这类文风条目';
+    lines.push(`【文风】预设本次没有文风正文：${why}。本回合先由应用内置文风兜底，但不要把它当成预设文风。`);
     if (presentation.disabledStyleCandidates.length) {
       lines.push(`  - 玩家可在预设条目列表里勾选其中一个来启用预设文风：${presentation.disabledStyleCandidates.join('、')}`);
     }
@@ -540,10 +615,13 @@ export function buildPresetPrecedenceHeader(presentation: PresetPresentation): s
     facts.push(`- 正文字数下限 = ${presentation.wordCountTarget} 字（预设要求；应用内置的字数占位符已同步为该值）。`);
   }
   if (presentation.styleText) {
-    facts.push('- 文风/人称/语气以预设自己的文风条目为准，应用内置文风模块本回合不作为依据。');
+    facts.push('- 文风/人称/语气以预设自己的文风条目为准，应用内置文风模块与原生叙事协议的默认文风本回合不作为依据。');
   } else {
+    const empty = presentation.styleSegmentsEmpty.length
+      ? `〈${presentation.styleSegmentsEmpty.join('〉〈')}〉段是空的`
+      : '没有文风条目';
     facts.push(
-      `- 预设本次没有文风正文（〈${presentation.styleSegmentsEmpty.join('〉〈') || '文风'}〉段是空的，未勾选的填充模块：${presentation.disabledStyleCandidates.join('、') || '无'}）：本回合由应用内置文风兜底，玩家勾选填充模块后立即切换为预设文风。`,
+      `- 预设本次没有文风正文（${empty}，未勾选的填充模块：${presentation.disabledStyleCandidates.join('、') || '无'}）：本回合由应用内置文风兜底，玩家勾选填充模块后立即切换为预设文风。`,
     );
   }
   if (presentation.styleDirectives) {
@@ -569,7 +647,7 @@ export function buildPresetPrecedenceHeader(presentation: PresetPresentation): s
 // ── 面向玩家的诊断 ───────────────────────────────────────────────
 export function formatPresetPresentationSummary(presentation: PresetPresentation): string {
   const stylePart = presentation.styleText
-    ? `文风：预设〈${presentation.styleSegmentsFilled.join('〉〈') || '文风'}〉段已启用`
+    ? `文风：预设〈${presentation.styleSegmentsFilled.join('〉〈') || presentation.styleSources.join('、') || '文风'}〉已启用`
     : `文风：预设〈${presentation.styleSegmentsEmpty.join('〉〈') || '文风'}〉段是空的`;
   const parts = [
     presentation.wordCountMaximum ? `字数上限 ${presentation.wordCountMaximum} 字` : presentation.wordCountTarget ? `字数下限 ${presentation.wordCountTarget} 字` : '字数：预设未声明',

@@ -8,7 +8,9 @@ import {
 import type { NPC记录 } from '@/models/npc';
 import type { NarrativeTurn } from '@/models/teyvat/narrativeTurn';
 import type { TeyvatGameState } from '@/models/teyvat/state';
-import type { API配置项, 游戏设置, 变量API覆盖 } from '@/models/settings';
+import type { API配置项, 游戏设置 } from '@/models/settings';
+import { resolveVariableSettlementApiConfig } from '@/services/ai/variableApiConfig';
+export { resolveVariableSettlementApiConfig } from '@/services/ai/variableApiConfig';
 import type { 变量事实, 变量命令批次, 变量命令结果 } from '@/models/variableCommand';
 import { callVariableModel, type NsfwBaselineCandidate } from '@/services/ai/variableModel';
 import { commitPreflightedTeyvatTurn, commitTeyvatTurn, preflightTeyvatTurn } from '@/services/teyvatTurnTransaction';
@@ -85,27 +87,6 @@ export interface VariableSettlementResult {
   questUpdates?: string[];
 }
 
-export function resolveVariableSettlementApiConfig(
-  mainApiConfig: API配置项,
-  override: 变量API覆盖,
-): { config: API配置项; overrodeAny: boolean } {
-  const baseUrl = override.baseUrl.trim();
-  const apiKey = override.apiKey.trim();
-  const model = override.model.trim();
-  return {
-    overrodeAny: Boolean(baseUrl || apiKey || model),
-    config: {
-      ...mainApiConfig,
-      provider: override.provider || mainApiConfig.provider,
-      baseUrl: baseUrl || mainApiConfig.baseUrl,
-      apiKey: apiKey || mainApiConfig.apiKey,
-      model: model || mainApiConfig.model,
-      maxTokens: override.maxTokens ?? mainApiConfig.maxTokens,
-      temperature: override.temperature ?? mainApiConfig.temperature,
-    },
-  };
-}
-
 export function excludeRejectedSettlementCommands<T>(
   commands: readonly T[],
   errors: readonly { index: number }[],
@@ -151,9 +132,11 @@ export function removeDuplicateModelIntimacyAffinity(
     const matches = records.filter((npc) => npc.id === fact.id || npc.姓名 === fact.name || npc.aliases.includes(fact.name));
     if (matches.length !== 1) return fact;
     const modelEvidence = normalizedEvidence(fact.evidence);
-    if (modelEvidence.length < 6) return fact;
     const sameEvent = intimacyFacts.some((derived) => {
       if (derived.type !== 'npc' || derived.id !== matches[0]?.id) return false;
+      // An empty/fragmentary model claim cannot override the host's proven reward or reset its total.
+      // A separately evidenced event below still keeps its own positive or negative delta.
+      if (modelEvidence.length < 6) return true;
       const eventEvidence = normalizedEvidence(derived.evidence);
       const identical = eventEvidence.length >= 6
         && (eventEvidence.includes(modelEvidence) || modelEvidence.includes(eventEvidence));

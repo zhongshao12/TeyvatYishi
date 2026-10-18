@@ -40,11 +40,11 @@ it('lets the player publish, edit, and delete a phone Moment without fake NPC po
   }
   await act(async () => root.render(createElement(Harness)));
   await act(async () => button('朋友圈').click());
-  expect(document.body.textContent).toContain('仅你可以发布动态');
-  expect(document.body.textContent).toContain('当前有 0 位角色符合评论条件');
-  expect(document.body.textContent).toContain('生死挚友（好感度超过 100）');
-  // 2026-09-29 第 7 项：文案改为区分「自动评论」与「@ 点名一定回应」，断言随契约更新。
-  expect(document.body.textContent).toContain('暂无符合条件的角色，不会收到自动评论；但 @ 点名的联系人仍会回应');
+  // 用户要求动态流只呈现内容，不再堆叠评论规则与配置说明。
+  expect(document.body.textContent).not.toContain('仅你可以发布动态');
+  expect(document.body.textContent).not.toContain('当前有 0 位角色符合评论条件');
+  expect(document.body.textContent).not.toContain('生死挚友（好感度超过 100）');
+  expect(document.body.textContent).toContain('写下旅途此刻');
   await act(async () => button('写下旅途此刻').click());
   const composer = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="写朋友圈"]');
   expect(composer).not.toBeNull();
@@ -64,7 +64,7 @@ it('lets the player publish, edit, and delete a phone Moment without fake NPC po
   expect(document.body.textContent).not.toContain('晚风也很温柔');
 });
 
-it('explains missing local phone API while allowing the player to publish and cancel edits', async () => {
+it('keeps API setup explanations out of the feed while allowing the player to publish and cancel edits', async () => {
   const amber = { ...创建NPC记录({ 姓名: '安柏', 初见回合: 1 }), id: 'amber', 好感度: 101 };
   const courier: CourierSystem = {
     ...createEmptyCourierSystem(),
@@ -75,8 +75,9 @@ it('explains missing local phone API while allowing the player to publish and ca
     courier, npcRecords: [amber], canGenerateMomentComments: false, onCourierChange: vi.fn(), onClose: vi.fn(),
   })));
   await act(async () => button('朋友圈').click());
-  expect(document.body.textContent).toContain('当前有 1 位角色符合评论条件');
-  expect(document.body.textContent).toContain('手机评论接口未配置：自动评论不会生成，@ 点名的联系人会由本地回应补上');
+  expect(document.body.textContent).not.toContain('当前有 1 位角色符合评论条件');
+  expect(document.body.textContent).not.toContain('手机评论接口未配置');
+  expect(document.body.textContent).toContain('朋友圈设置');
   await act(async () => button('编辑').click());
   await act(async () => button('取消').click());
   expect(document.body.textContent).toContain('晨风');

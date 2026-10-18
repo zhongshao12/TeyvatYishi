@@ -16,10 +16,17 @@ jobs:
         with:
           node-version: 22.18.0
           cache: pnpm
+      - name: Install existing Tauri dependencies for real file contract tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: dtolnay/rust-toolchain@stable
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm build
       - run: pnpm typecheck:index-safety
+      - name: Build native transport and run Rust tests before offline JS contracts
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
       - run: pnpm test:unit:coverage
       - run: pnpm test:release
       - run: pnpm test:bundle-size

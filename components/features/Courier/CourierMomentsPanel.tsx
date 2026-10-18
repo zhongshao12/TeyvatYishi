@@ -27,7 +27,7 @@ interface CourierMomentsPanelProps {
   onRetry: (id: string, revision: number, npcId: string) => void;
 }
 
-export function CourierMomentsPanel({ moments, travelerName, eligibleCommenterCount, canGenerateComments, commenterNames, mentionCandidates = [], album, imageTools, onPublish, onEdit, onDelete, onRetry }: CourierMomentsPanelProps) {
+export function CourierMomentsPanel({ moments, travelerName, commenterNames, mentionCandidates = [], album, imageTools, onPublish, onEdit, onDelete, onRetry }: CourierMomentsPanelProps) {
   const [publishing, setPublishing] = useState(false);
   const [editingPost, setEditingPost] = useState<CourierMoment | null>(null);
   const [filter, setFilter] = useState<'全部' | '我的' | '有图' | '已点名'>('全部');
@@ -38,19 +38,11 @@ export function CourierMomentsPanel({ moments, travelerName, eligibleCommenterCo
     <section className="journal-phone flex min-h-0 flex-1 flex-col" aria-label="朋友圈">
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain" aria-label="朋友圈动态流">
       <header className="phone-cover flex items-center justify-between gap-4 px-5 py-6">
-        <div><p className="text-[10px] tracking-[.3em]">TRAVEL NOTES</p><h2 className="mt-2 font-serif text-xl">{travelerName || '旅行者'}的旅途朋友圈</h2><p className="mt-2 text-xs">把旅途的光，寄给熟悉的人。</p></div>
+        <h2 className="font-serif text-xl">{travelerName || '旅行者'}的朋友圈</h2>
         <button type="button" className="min-h-11 shrink-0 rounded border px-3 text-xs" onClick={() => setShowSettings(true)}>朋友圈设置</button>
       </header>
       <div className="border-b border-[rgba(var(--tj-accent-primary),0.24)] px-4 py-4">
-        <p className="mb-2 text-xs leading-5 text-[rgb(var(--tj-text-secondary))]">
-          当前有 {eligibleCommenterCount} 位角色符合评论条件：须是手机联系人，且达到生死挚友（好感度超过 100）。每条动态最多有 3 位角色自动评论。
-          另外，用「@」点名的联系人一定会回应一次（不占那 3 个名额）。
-          {eligibleCommenterCount === 0
-            ? '暂无符合条件的角色，不会收到自动评论；但 @ 点名的联系人仍会回应。'
-            : !canGenerateComments ? '手机评论接口未配置：自动评论不会生成，@ 点名的联系人会由本地回应补上。' : '接口已填写，但尚未测试连接。'}
-        </p>
         <button type="button" className="teyvat-btn min-h-11 w-full px-4 text-left" onClick={() => { setEditingPost(null); setPublishing(true); }}>写下旅途此刻</button>
-        <p className="mt-2 text-xs">仅你可以发布动态 · 文字、点名与照片先放入草稿，确认后再发布。</p>
       </div>
       <div className="flex flex-wrap gap-2 px-4" aria-label="动态筛选">{(['全部', '我的', '有图', '已点名'] as const).map(value => <button key={value} type="button" aria-pressed={filter === value} className="phone-filter min-h-11 rounded-full border px-4 text-xs" onClick={() => setFilter(value)}>{value}</button>)}</div>
       {display.error && <p role="status" className="px-4 text-xs">{display.error}</p>}
@@ -71,7 +63,7 @@ export function CourierMomentsPanel({ moments, travelerName, eligibleCommenterCo
             {post.images?.length ? <MomentImages images={post.images} album={album} /> : null}
             {post.mentionIds?.length ? (
               <p className="mt-2 text-xs text-[rgb(var(--tj-text-secondary))]">
-                已点名：{post.mentionIds.map((npcId) => `@${commenterNames.get(npcId) ?? npcId}`).join(' ')}（一定会回应）
+                {post.mentionIds.map((npcId) => `@${commenterNames.get(npcId) ?? npcId}`).join(' ')}
               </p>
             ) : null}
             <div className="mt-3 flex gap-3">

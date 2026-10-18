@@ -25,6 +25,7 @@ import type {
 import { clearWorkflowRecoveryJournal } from '@/services/workflowRecovery';
 import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 import { setStreamingMessage } from '@/utils/streamingMessageStore';
+import { pushToast } from '@/utils/toastStore';
 import type { createMemoryMaintenanceCoordinator } from '@/hooks/useGame/memoryMaintenanceStage';
 import type { MemorySourceLayer } from '@/models/memorySource';
 import { getMemoryMaintenanceSnapshot, subscribeMemoryMaintenance, type MemoryMaintenanceSnapshot } from '@/services/memoryMaintenanceRegistry';
@@ -301,6 +302,7 @@ export function useGame(): UseGameReturn {
   const handleRestartOpening = useCallback(() => {
     const s = stateRef.current;
     s.invalidateGameSession();
+    const restartSession = s.getGameSessionId();
     clearActiveSaveTreeMetaIfMatches();
     if (s.loading) {
       s.abortControllerRef.current?.abort();
@@ -311,7 +313,13 @@ export function useGame(): UseGameReturn {
 
     // 清空所有运行时累积的独立切片，再按开局档案恢复初始关系种子
     const nextStoryWeaving = alignStoryWeavingToOpeningArchive(s.剧情编织, restartOpeningArchive);
-    saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(nextStoryWeaving));
+    void saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(nextStoryWeaving)).catch(() => {
+      const message = '开局已重置，但剧情设置保存失败；请检查本地存储权限后重新保存。';
+      if (stateRef.current.getGameSessionId() === restartSession) {
+        stateRef.current.setWorkflowHint(message);
+        pushToast({ kind: 'error', title: '剧情设置保存失败', detail: message });
+      }
+    });
 
     // worldState：保留创角时的 currentPeriod / difficulty / storyMode / startingScenarioId / customStartPrompt。
     // 重新开局时必须重建开局档案对应的已成立事实，否则非预设/自由开局会只剩字段，缺少后续注入锚点。

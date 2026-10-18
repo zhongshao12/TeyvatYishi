@@ -23,7 +23,8 @@ import {
   BUILTIN_RESPONSE_FORMAT_ID,
 } from '@/utils/stPresetParser';
 import type { STPresetEntry, STPresetEntryV2, STSamplingParams, STWorldInfoEntry } from '@/models/stTypes';
-import { extractSTPresetSamplingParams } from '@/utils/stSettingsNormalizer';
+import { describeSTPresetSamplingBounds, extractSTPresetSamplingParams } from '@/utils/stSettingsNormalizer';
+import { resolveSTPresetOrder } from '@/utils/stPresetOrder';
 import type { 世界书 } from '@/models/worldbook';
 import { analyzeTavernRegexScript, dryRunTavernRegexScript, extractTavernRegexScripts, mergeTavernRegexImport } from '@/hooks/useGame/tavernRegexProcessor';
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core';
@@ -672,17 +673,24 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
         const fileBaseName = file.name.replace(/\.json$/i, '').trim();
         const rawName = typeof parsedV2.preset.name === 'string' ? parsedV2.preset.name.trim() : '';
         const presetName = (fileBaseName || rawName || `酒馆预设 · ${parsedV2.preset.prompts.length} 项`).slice(0, 60);
+        // 顺序槽位可能不止一个：SPreset 等插件会留下 order=[] 的空壳槽位（常见 character_id=100000），
+        // 真正的顺序在 100001。这里按“第一个可用槽位”落库，避免导入成功却没有任何提示词进入消息链。
+        const resolvedOrder = resolveSTPresetOrder(parsedV2.preset, null);
+        const resolvedCharacterId = resolvedOrder?.character_id ?? null;
+        const resolvedSlotCount = resolvedOrder?.order.length ?? 0;
+        const firstSlotEmpty = (parsedV2.preset.prompt_order[0]?.order.length ?? 0) === 0 && resolvedSlotCount > 0;
         const newPresetV2: STPresetEntryV2 = {
           id: presetId,
           name: presetName,
           preset: parsedV2.preset,
-          characterId: parsedV2.preset.prompt_order[0]?.character_id ?? null,
+          characterId: resolvedCharacterId,
           importedAt: now,
           updatedAt: now,
           isBuiltin: false,
         };
         const importedWorldInfoCount = getPresetWorldInfoEntries(parsedV2.preset.world_info).length;
         const importedRegexCount = extractTavernRegexScripts(parsedV2.preset).length;
+        const samplingBoundNotes = describeSTPresetSamplingBounds(parsedV2.preset);
         const nextBackup = applyPresetApiSync(extractSTPresetSamplingParams(parsedV2.preset));
         const cleanedModules = modules.filter((m) => !isSTImportedModule(m) && !m.id.startsWith('adapted_'));
         onWorldbooksChange(worldbooks.filter((w) => !w.id.startsWith('stwb_')));
@@ -701,15 +709,23 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
           presetId,
           name: presetName,
           promptCount: parsedV2.preset.prompts.length,
-          orderCount: parsedV2.preset.prompt_order[0]?.order.length ?? 0,
+          orderCount: resolvedSlotCount,
+          orderCharacterId: resolvedCharacterId,
+          firstOrderSlotEmpty: firstSlotEmpty,
           worldInfoCount: importedWorldInfoCount,
           regexScriptCount: importedRegexCount,
           v2RepairUsed: parsedV2.usedRepair,
         });
+        const orderNote = firstSlotEmpty
+          ? `\n首个顺序槽位是空壳，已自动启用 character_id=${resolvedCharacterId ?? '未知'} 的 ${resolvedSlotCount} 项顺序。`
+          : '';
+        const samplingNote = samplingBoundNotes.length
+          ? `\n注意：预设声明${samplingBoundNotes.join('、')}，这是酒馆滑块极值，已保留你当前的 API 参数。`
+          : '';
         pushToast({
           kind: 'success',
           title: `已导入酒馆预设「${presetName}」`,
-          detail: `保留 ${parsedV2.preset.prompts.length} 个内容项 / ${parsedV2.preset.prompt_order[0]?.order.length ?? 0} 个顺序项。\n附带 world_info：${importedWorldInfoCount} 条；regex_scripts：${importedRegexCount} 条。\n不再生成提示词模块副本。`,
+          detail: `保留 ${parsedV2.preset.prompts.length} 个内容项 / ${resolvedSlotCount} 个顺序项。\n附带 world_info：${importedWorldInfoCount} 条；regex_scripts：${importedRegexCount} 条。${orderNote}${samplingNote}\n不再生成提示词模块副本。`,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -871,7 +887,7 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
     onChange({
       ...settings,
       currentStPresetIdV2: target?.id ?? null,
-      currentStCharacterId: target?.characterId ?? target?.preset.prompt_order[0]?.character_id ?? null,
+      currentStCharacterId: target?.characterId ?? resolveSTPresetOrder(target?.preset, null)?.character_id ?? null,
       stPresetApiBackup: nextBackup,
     });
   };
@@ -898,7 +914,7 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
           id: overrideId,
           name: `${target.name}（自定义配置）`,
           preset: JSON.parse(JSON.stringify(target.preset)) as STPresetEntryV2['preset'],
-          characterId: target.characterId ?? target.preset.prompt_order[0]?.character_id ?? null,
+          characterId: target.characterId ?? resolveSTPresetOrder(target.preset, null)?.character_id ?? null,
           importedAt: now,
           updatedAt: now,
           isBuiltin: false,
@@ -1015,10 +1031,10 @@ export function PromptModulesTab({ settings, onChange, onSaveImportedPreset, onI
   };
 
   if (isTavernMode) {
-    const currentV2Order =
-      currentV2Preset?.preset.prompt_order.find((item) => item.character_id === (settings.currentStCharacterId ?? currentV2Preset.characterId ?? null)) ??
-      currentV2Preset?.preset.prompt_order.find((item) => item.character_id === 100001) ??
-      currentV2Preset?.preset.prompt_order[0];
+    const currentV2Order = resolveSTPresetOrder(
+      currentV2Preset?.preset,
+      settings.currentStCharacterId ?? currentV2Preset?.characterId ?? null,
+    );
     const currentV2EnabledSlots = currentV2Order?.order.filter((slot) => slot.enabled !== false).length ?? 0;
     const tavernV2Ready = (settings.enableStPreset ?? true) && Boolean(currentV2Preset && currentV2Order);
     return (
@@ -1420,12 +1436,8 @@ function V2PresetSwitcher({
   const [regexDryRunSample, setRegexDryRunSample] = useState(DEFAULT_TAVERN_REGEX_DRY_RUN_SAMPLE);
   const [regexPreviewDepth, setRegexPreviewDepth] = useState(0);
   const [regexPreviewTarget, setRegexPreviewTarget] = useState<'prompt' | 'display'>('prompt');
-  const selectedCharacterId = currentCharacterId ?? current?.characterId ?? current?.preset.prompt_order[0]?.character_id ?? null;
-  const selectedOrder = current
-    ? current.preset.prompt_order.find((item) => item.character_id === selectedCharacterId) ??
-      current.preset.prompt_order.find((item) => item.character_id === 100001) ??
-      current.preset.prompt_order[0]
-    : undefined;
+  const selectedCharacterId = currentCharacterId ?? current?.characterId ?? resolveSTPresetOrder(current?.preset, null)?.character_id ?? null;
+  const selectedOrder = current ? resolveSTPresetOrder(current.preset, selectedCharacterId) : undefined;
   const selectedSlot = selectedOrder?.order.find((slot) => slot.identifier === selectedSlotId) ?? selectedOrder?.order[0];
   const promptMap = new Map(current?.preset.prompts.map((prompt) => [prompt.identifier, prompt]) ?? []);
   const selectedPrompt = selectedSlot ? promptMap.get(selectedSlot.identifier) : undefined;
@@ -1685,7 +1697,7 @@ function V2PresetSwitcher({
         {current && (
           <>
             <select
-              value={currentCharacterId ?? current.characterId ?? current.preset.prompt_order[0]?.character_id ?? ''}
+              value={currentCharacterId ?? current.characterId ?? resolveSTPresetOrder(current.preset, null)?.character_id ?? ''}
               onChange={(e) => onCharacterChange(e.target.value ? Number(e.target.value) : null)}
               className="min-w-0 px-3 py-2 text-sm"
               style={{
@@ -2335,10 +2347,7 @@ function V2PresetSwitcher({
 }
 
 function V2PresetStructurePreview({ preset, characterId }: { preset: STPresetEntryV2; characterId: number | null }) {
-  const selectedOrder =
-    preset.preset.prompt_order.find((item) => item.character_id === characterId) ??
-    preset.preset.prompt_order.find((item) => item.character_id === 100001) ??
-    preset.preset.prompt_order[0];
+  const selectedOrder = resolveSTPresetOrder(preset.preset, characterId);
   const promptMap = new Map(preset.preset.prompts.map((prompt) => [prompt.identifier, prompt]));
   const systemSlots = new Set(['worldInfoBefore', 'worldInfoAfter', 'chatHistory', 'personaDescription', 'userInput', 'user_input', 'latestUserInput', 'input']);
   const rows = selectedOrder?.order.slice(0, 8) ?? [];

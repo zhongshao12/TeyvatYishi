@@ -35,6 +35,8 @@
     "test": "pnpm build && pnpm test:unit && pnpm test:release && pnpm test:bundle-size && pnpm test:all",
     "test:unit": "vitest run",
     "test:unit:coverage": "vitest run --coverage",
+    "test:core2-recall": "node scripts/core2-recall-evaluation.mjs",
+    "test:core2-long-session": "node scripts/core2-long-session-regression.mjs",
     "test:bundle-size": "node scripts/bundle-size-regression.mjs",
     "test:desktop-edition": "node scripts/desktop-edition-regression.mjs",
     "test:release": "node scripts/teyvat-runtime-language-audit.mjs && node scripts/region-asset-provenance-regression.mjs && node scripts/teyvat-six-opening-smoke-regression.mjs && node scripts/teyvat-migration-failure-drill-regression.mjs && node scripts/teyvat-avatar-audit.mjs && node scripts/teyvat-avatar-manifest-regression.mjs",

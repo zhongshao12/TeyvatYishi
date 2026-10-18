@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { runFocusedBehaviorRegression } from './lib/runFocusedBehaviorRegression.mjs';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -71,8 +72,9 @@ for (const key of [
 assert(apiSettings.includes('文生图场景接口'), 'API 配置包可保留文生图场景接口字段用于旧包兼容。');
 assert(!apiSettings.includes('场景接口: profile.routes.文生图场景接口'), '导入 API 配置包不得再用场景接口覆盖运行配置。');
 
-assert(apiSettings.includes("await saveSetting('apiSettings', nextApiSettings)"), '导入 API 配置包必须持久化主 API 设置。');
-assert(apiSettings.includes("await saveSetting('gameSettings', nextGameSettings)"), '导入 API 配置包必须持久化独立系统 API 设置。');
+// Both settings now share one settings-only transaction rather than two writes.
+// The live editor test reads both values back from a new storage connection.
+runFocusedBehaviorRegression(['tests/unit/apiProfilePersistence.test.tsx']);
 assert(apiSettings.includes('await saveSetting(API_PROFILE_SLOTS_KEY, slots)'), '本机 API 方案槽位必须持久化。');
 assert(settingsModal.includes('gameSettings={gameSettings}') && settingsModal.includes('onGameSettingsChange={persistGameSettingsChange}'), '设置弹窗必须把 gameSettings 和统一持久化入口传给 API 页。');
 

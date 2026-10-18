@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { 创建NPC记录, type NPC记录 } from '@/models/npc';
 import type { API配置项 } from '@/models/settings';
-import { createEmptyCourierSystem, type CourierSystem } from '@/models/teyvat/courier';
+import { createEmptyCourierSystem, normalizeCourierSystem, type CourierSystem } from '@/models/teyvat/courier';
 import { appendMomentComment, createMoment, deleteMoment, editMoment, markMomentTarget } from '@/services/courierMoments';
 import { runMomentComments, type MomentWorkflowDeps } from '@/hooks/useGame/courierMomentWorkflow';
 
@@ -156,12 +156,12 @@ it('stale_revision_cannot_append_comment_or_erase_another_comment', async () => 
   expect(job.read().moments?.[0]?.targets).toEqual([]);
 });
 
-it('discards a result when the commenter falls back to 100 affinity', async () => {
+it('discards a result when a random friend falls below 100 affinity', async () => {
   let resolve!: (text: string) => void;
   const pending = new Promise<string>((done) => { resolve = done; });
   const job = harness([friend('amber', '安柏')], vi.fn(() => pending));
   const run = runMomentComments(job.deps, 'p1', 1);
-  job.setRecords([friend('amber', '安柏', 100)]);
+  job.setRecords([friend('amber', '安柏', 99)]);
   resolve('下次叫上我！');
   await run;
   expect(job.read().moments?.[0]?.comments).toEqual([]);
@@ -175,6 +175,20 @@ it('lets at most three eligible NPCs comment independently', async () => {
   expect(job.read().moments?.[0]?.comments).toHaveLength(3);
   expect(new Set(job.read().moments?.[0]?.comments.map((item) => item.npcId)).size).toBe(3);
   expect(generator).toHaveBeenCalledTimes(3);
+});
+
+it('includes the whole party and mentions plus three separate >=100 friends, keeps the plan on reload and never double-replies', async () => {
+  const generator = vi.fn(async (_config: API配置项, input: Parameters<MomentWorkflowDeps['generateComment']>[1]) => `${input.npc.姓名}来评论啦。`);
+  const team = [{ ...friend('team1', '队友一', 0), 同行: true }, { ...friend('team2', '队友二', 0), 同行: true }];
+  const job = harness([...team, friend('mentioned', '被点名', 0), ...Array.from({ length: 5 }, (_, i) => friend(`friend${i}`, `好友${i}`, 100)), friend('low', '低好感', 99)], generator);
+  job.deps.setCourier(old => ({ ...old, contacts: old.contacts.filter(contact => contact.npcId !== 'team2'), moments: old.moments!.map(post => ({ ...post, mentionIds: ['team1', 'mentioned'] })) }));
+  await runMomentComments(job.deps, 'p1', 1);
+  const post = job.read().moments![0]!, ids = post.comments.map(comment => comment.npcId);
+  expect(ids).toHaveLength(6); expect(new Set(ids).size).toBe(6); expect(ids).toEqual(expect.arrayContaining(['team1', 'team2', 'mentioned'])); expect(ids).not.toContain('low');
+  expect(ids.filter(id => id.startsWith('friend'))).toHaveLength(3);
+  const restored = normalizeCourierSystem(job.read()); expect(restored.moments![0]!.comments).toHaveLength(6);
+  expect(restored.moments![0]!.commentPlan).toEqual(post.commentPlan);
+  job.deps.setCourier(() => restored); await runMomentComments(job.deps, 'p1', 1); expect(generator).toHaveBeenCalledTimes(6);
 });
 
 it('leaves a failed model comment retryable without a template fallback', async () => {

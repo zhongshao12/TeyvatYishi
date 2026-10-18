@@ -18,6 +18,7 @@ import {
 } from '@/utils/presetPresentation';
 import { applyTavernFormatGuard, matchesTavernCotPlaceholder, matchesTavernFormatPlaceholder } from './tavernFormatGuard';
 import { applyTavernScopedRegexScripts, extractTavernRegexScripts } from './tavernRegexProcessor';
+import { resolveSTPresetOrder } from '@/utils/stPresetOrder';
 import { narrativeTurnBodyText } from '@/models/teyvat/narrativeTurn';
 
 export const TAVERN_CHAR_COMPAT_PROMPT =
@@ -38,6 +39,8 @@ export interface TavernChainParams {
   includeNativeContextInWorldbook?: boolean;
   /** false when the caller sends the native systemPrompt alongside this chain. */
   includeNativeNarrative?: boolean;
+  /** Core2 keeps the current input as its own exact message after scoped regex. */
+  preserveLatestInput?: boolean;
   triggerType?: string;
   macroCtx?: MacroContext;
 }
@@ -382,27 +385,16 @@ export function buildTavernMessageChain(params: TavernChainParams, reportOut?: {
   });
 
   // 11. 后处理
-  const result = applyTavernPostProcess(messages, params.settings?.stPostProcessMode || '未选择');
+  const result = applyTavernPostProcess(messages, params.settings?.stPostProcessMode || '未选择', params.preserveLatestInput === true);
   report.built = result.length > 0;
   return result;
 }
 
 //  ---------- 辅助函数 ----------
 export function getSTPresetOrder(preset: STPreset, characterId: number | null): STPresetOrder | null {
-  if (!preset || !preset.prompt_order || preset.prompt_order.length === 0) return null;
-  
-  // 优先使用指定的 characterId
-  if (characterId !== null) {
-    const found = preset.prompt_order.find((order) => order.character_id === characterId);
-    if (found) return found;
-  }
-  
-  // 回退到默认 100001（ST 通用默认）
-  const defaultOrder = preset.prompt_order.find((order) => order.character_id === 100001);
-  if (defaultOrder) return defaultOrder;
-  
-  // 最后回退到第一项
-  return preset.prompt_order[0] ?? null;
+  // 空壳槽位（如 SPreset 留下的 character_id=100000 / order=[]）不得当成有效顺序，
+  // 否则预设“导入成功”但消息链为空。取值规则见 resolveSTPresetOrder。
+  return resolveSTPresetOrder(preset, characterId);
 }
 
 function matchesCotPlaceholder(content: string): boolean {
@@ -468,7 +460,13 @@ function buildContextPieces(
   const playerSpeechExpansionPrompt = settings?.enablePlayerSpeechExpansion === true ? findModuleContent('builtin_player_speech_expansion') || '' : '';
   const personaPrompt = findModuleContent('builtin_narrator_persona') || '';
   const devModePrompt = findModuleContent('builtin_dev_mode') || '';
-  const writingStylePrompt = findModuleContent('builtin_writing_style') || '';
+  const writingStylePrompt = (() => {
+    // 内置文风是四选一（日记体 / 旅行手记 / 白描 / 自定义槽），以前这里写死 builtin_writing_style，
+    // 于是「默认文风」选了旅行手记或自定义的玩家，在酒馆链里拿到的仍是日记体。
+    const active = modules.find((m: 提示词模块) => typeof m.id === 'string'
+      && m.id.startsWith('builtin_writing_style') && m.enabled !== false);
+    return active ? substitute(active.content || '') : '';
+  })();
   
   return {
     worldPrompt,
@@ -817,7 +815,7 @@ function presetContainsPlayerSpeechExpansion(preset: STPreset, selectedOrder: ST
   });
 }
 
-function applyTavernPostProcess(messages: TavernInternalMessage[], mode: TavernPostProcessMode): TavernMessage[] {
+function applyTavernPostProcess(messages: TavernInternalMessage[], mode: TavernPostProcessMode, preserveLatestInput = false): TavernMessage[] {
   // 角色重写
   const mapped: TavernMessage[] = messages.map((item) => {
     if (mode === '严格') {
@@ -850,14 +848,19 @@ function applyTavernPostProcess(messages: TavernInternalMessage[], mode: TavernP
 
   // 相邻同角色合并 + 空内容过滤
   const merged: TavernMessage[] = [];
-  mapped.forEach((item) => {
+  let lastWasLatestInput = false;
+  mapped.forEach((item, index) => {
     const trimmed = (item.content || '').trim();
     if (!trimmed) return;
+    if (preserveLatestInput && messages[index]?.source === 'latest_input') {
+      merged.push({ role: item.role, content: item.content }); lastWasLatestInput = true; return;
+    }
     const last = merged[merged.length - 1];
-    if (last && last.role === item.role) {
+    if (last && last.role === item.role && !lastWasLatestInput) {
       last.content = `${last.content}\n\n${trimmed}`.trim();
       return;
     }
+    lastWasLatestInput = false;
     merged.push({ role: item.role, content: trimmed });
   });
   return merged;

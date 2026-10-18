@@ -1,7 +1,8 @@
 import type { API配置项, API设置, 文生图系统设置 } from '@/models/settings';
-import { containsCjk, normalizeImageCharacterEnglishCache, sameImageMeasurement, validEnglishVisualAnchor, type ImageCharacterEnglishCache, type EnglishImageCharacterFacts } from '@/models/imageCharacterEnglish';
+import { containsCjk, normalizeImageCharacterEnglishCache, validEnglishVisualAnchor, type ImageCharacterEnglishCache, type EnglishImageCharacterFacts } from '@/models/imageCharacterEnglish';
 import { loadSetting, saveSetting } from '@/services/dbService';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
+import { translateImageCharacterFacts } from '@/services/ai/imageCharacterTranslation';
 import { NPC_APPEARANCE_KEYS } from '@/services/npcAppearanceFacts';
 import { formatImageCharacterFacts, type ImageCharacterFacts } from '@/utils/imageCharacterFacts';
 import { compactImagePrompts, removeDisabledImageCharacterCaptions, type PromptCharacter } from '@/utils/imagePromptCompaction';
@@ -52,34 +53,7 @@ async function prepareEnglishImageCharacterUnshared(facts: ImageCharacterFacts, 
     && !Object.values(facts.appearanceDetails ?? {}).some(fact => containsCjk(fact.value))) {
     return { schemaVersion: 1, sourceKey, preparedAt: Date.now(), facts: { ...facts, language: 'en' } };
   }
-  if (!config) throw new Error('角色英文生图资料尚未准备。请配置文字接口，再点击准备/确认；不会在启动时自动翻译。');
-  const raw = await chatCompletionNonStream(config, { signal, maxTokens: 1600, temperature: 0,
-    systemPrompt: 'Translate only the supplied visible character profile into concise English for anime image generation. Use the established English character name when known, otherwise a stable romanization; never replace a custom name with a canon character. Preserve every recorded visual detail and exact numeric value/unit. Never invent measurements, outfits, events, relationships, sexual details or personality. Return JSON with name, gender, appearance, outfit, profileHeight and appearanceDetails. appearanceDetails uses the original Chinese keys and each entry has value; omit fields absent in the source. No Markdown.',
-    messages: [{ role: 'user', content: JSON.stringify(facts) }],
-  });
-  abort(signal);
-  let translated: ImageCharacterFacts;
-  try { translated = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
-  catch { throw new Error('英文外貌翻译返回了无效格式，请重试；中文档案未修改。'); }
-  if (!translated || typeof translated !== 'object' || Array.isArray(translated)) throw new Error('英文外貌翻译返回了无效格式，请重试；中文档案未修改。');
-  for (const field of ['name', 'gender', 'appearance', 'outfit', 'profileHeight'] as const) {
-    if (facts[field] && (!translated[field] || typeof translated[field] !== 'string' || containsCjk(translated[field]!))) throw new Error('英文外貌翻译遗漏了已记录资料，请重试。');
-    if (!facts[field] && translated[field]) throw new Error('英文外貌翻译添加了未记录资料，请重试。');
-  }
-  if (facts.profileHeight && !sameImageMeasurement(facts.profileHeight, translated.profileHeight!)) throw new Error('英文旅人身高与已记录数值不一致，请重试。');
-  const appearanceDetails = Object.fromEntries(NPC_APPEARANCE_KEYS.flatMap(field => {
-    const original = facts.appearanceDetails?.[field]; const value = translated.appearanceDetails?.[field]?.value;
-    if (!original && value) throw new Error('英文外貌细项添加了未记录数值，请重试。');
-    if (!original) return [];
-    if (!value || typeof value !== 'string' || containsCjk(value)
-      || (['身高', '体重', '三围'].includes(field) && !sameImageMeasurement(original.value, value))) throw new Error('英文外貌细项与已记录数值不一致，请重试。');
-    return [[field, { ...original, value }]];
-  }));
-  const result = normalizeImageCharacterEnglishCache({ schemaVersion: 1, sourceKey, preparedAt: Date.now(), facts: {
-    language: 'en', name: translated.name, gender: translated.gender, appearance: translated.appearance, outfit: translated.outfit, profileHeight: translated.profileHeight,
-    appearanceDetails: Object.keys(appearanceDetails).length ? appearanceDetails : undefined,
-  } });
-  if (!result) throw new Error('英文外貌翻译未通过校验，请重试。');
+  const result = await translateImageCharacterFacts(facts, config, signal);
   abort(signal); await saveSetting(key, result); abort(signal);
   return result;
 }
@@ -102,8 +76,10 @@ async function translateVisualAnchor(text: string | undefined, config: API配置
   return english;
 }
 
-export async function prepareEnglishProfileCache(facts: ImageCharacterFacts, config: API配置项 | null, anchors: { prompt?: string; negative?: string }, signal?: AbortSignal) {
-  const base = await prepareEnglishImageCharacter(facts, config, signal);
+export async function prepareEnglishProfileCache(facts: ImageCharacterFacts, config: API配置项 | null, anchors: { prompt?: string; negative?: string }, signal?: AbortSignal, saved?: ImageCharacterEnglishCache) {
+  abort(signal);
+  const existing = normalizeImageCharacterEnglishCache(saved);
+  const base = existing?.sourceKey === JSON.stringify(facts) ? existing : await prepareEnglishImageCharacter(facts, config, signal);
   const sourceKey = JSON.stringify({ prompt: anchors.prompt || '', negative: anchors.negative || '' });
   if (base.anchorSourceKey === sourceKey) return base;
   const anchorPrompt = await translateVisualAnchor(anchors.prompt, config, signal);

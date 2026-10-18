@@ -5,6 +5,8 @@ export interface WorldMoment {
   clock: string | null;
   weather: string | null;
   location: string | null;
+  /** Optional stable map identity in Core 2; the display name remains in location. */
+  locationId?: string;
   travelDay: number | null;
   turn: number;
   settlementId: string;

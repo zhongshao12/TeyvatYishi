@@ -10,6 +10,12 @@ const facts = { name: '测试人物', gender: '女', appearance: '棕发绿眼',
 const result = { name: 'Test Person', gender: 'female', appearance: 'brown hair, green eyes', appearanceDetails: { 身高: { value: '168 cm' } } };
 beforeEach(() => { model.mockReset(); store.clear(); });
 describe('explicit English image fact preparation', () => {
+  it('keeps the character’s saved English identity after the global translation cache was cleared', async () => {
+    model.mockResolvedValue(JSON.stringify(result)); const saved = await prepareEnglishImageCharacter(facts, config);
+    store.clear(); model.mockReset();
+    const reused = await prepareEnglishProfileCache(facts, null, {}, undefined, saved);
+    expect(reused.facts).toEqual(saved.facts); expect(model).not.toHaveBeenCalled();
+  });
   it('persists translated visible facts and reuses them without another model call', async () => {
     model.mockResolvedValue(JSON.stringify(result));
     const first = await prepareEnglishImageCharacter(facts, config);

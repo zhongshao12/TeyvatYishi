@@ -992,25 +992,41 @@ mod tests {
     #[test]
     fn failed_atomic_replace_keeps_the_previous_file() {
         // 旧实现先 remove_file(目标) 再 rename：rename 失败就永久丢掉旧磁盘副本。
-        // 用「父路径是文件」构造一个跨平台必然失败的 rename。
+        // 已有目标是普通文件，缺失源文件保证真正到达 rename 并在所有平台失败。
         let root = TestDir::new("atomic-replace-failure");
+        let target = root.join("save.json");
+        let temp = root.join(".save.json.missing.tmp");
+        fs::write(&target, "old-save").expect("write previous save");
+
+        let error = atomic_replace_path(&target, &temp).expect_err("rename must fail");
+
+        assert!(error.contains("rename temp file failed"), "unexpected error text: {error}");
+        assert_eq!(fs::read_to_string(&target).expect("previous save must remain"), "old-save");
+        assert!(!temp.exists(), "a failed replace must not create its missing source");
+    }
+
+    #[test]
+    fn atomic_replace_rejects_invalid_parent_without_touching_staged_file() {
+        let root = TestDir::new("atomic-replace-invalid-parent");
         let blocker = root.join("blocker");
         fs::write(&blocker, "not a directory").expect("write blocking file");
         let target = blocker.join("save.json");
         let temp = root.join(".save.json.pending.tmp");
         fs::write(&temp, "new-save").expect("write staged temp file");
 
-        let error = atomic_replace_path(&target, &temp).expect_err("rename must fail");
+        let error = atomic_replace_path(&target, &temp).expect_err("invalid parent must fail");
 
-        assert!(
-            error.contains("rename temp file failed"),
-            "unexpected error text: {error}"
-        );
+        // Unix 的 metadata 在此返回 ENOTDIR；Windows 返回 NotFound 并继续到 rename。
+        // 不把操作系统不同的提前拒绝误报成丢档，也不改变生产错误处理来迁就测试。
+        #[cfg(unix)]
+        assert!(error.starts_with("inspect data target failed:"), "unexpected error text: {error}");
+        #[cfg(windows)]
+        assert!(error.starts_with("rename temp file failed:"), "unexpected error text: {error}");
         assert_eq!(
             fs::read_to_string(&blocker).expect("the blocking file must stay untouched"),
             "not a directory"
         );
-        assert!(temp.exists(), "the staged temp file is the caller's to clean up");
+        assert_eq!(fs::read_to_string(&temp).expect("staged file remains the caller's to clean up"), "new-save");
     }
 
     #[test]

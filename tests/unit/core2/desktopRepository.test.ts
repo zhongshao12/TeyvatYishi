@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { runNativeCompileCommand } from './nativeCompile';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -41,10 +42,9 @@ const children: ChildProcessWithoutNullStreams[] = [];
 const roots: string[] = [];
 const timings=new Map<string,{count:number;total:number;max:number}>();
 const ioTimings = new Map<string, Record<string, number>>();
-beforeAll(() => {
-  const result = execFileSync(process.env.CORE2_CARGO ?? 'cargo',
-    ['test', '--offline', '--locked', '--manifest-path', 'src-tauri/Cargo.toml', '--lib', '--no-run', '--message-format=json'],
-    { cwd: process.cwd(), encoding: 'utf8', timeout: 600_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true });
+beforeAll(async () => {
+  const result = await runNativeCompileCommand(process.env.CORE2_CARGO ?? 'cargo',
+    ['test', '--offline', '--locked', '--manifest-path', 'src-tauri/Cargo.toml', '--lib', '--no-run', '--message-format=json']);
   const artifacts = result.split(/\r?\n/).filter(line => line.startsWith('{')).map(line => JSON.parse(line) as { reason: string; executable?: string; profile?: { test: boolean } });
   executable = artifacts.find(row => row.reason === 'compiler-artifact' && row.profile?.test && row.executable)?.executable ?? '';
   expect(executable, 'compiled native test transport must be available').not.toBe('');
